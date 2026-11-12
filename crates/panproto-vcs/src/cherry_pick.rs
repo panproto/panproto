@@ -114,6 +114,15 @@ pub fn cherry_pick<S: BuildHasher>(
     let replayed = crate::instance_merge::replay_commit_data(
         store,
         [&parent_commit, &head_commit, &commit],
+        &crate::instance_merge::ReplayTarget {
+            tip: head_id,
+            commit: commit_id,
+            tip_schema: &ours_schema,
+            commit_schema: &theirs_schema,
+            merged: &result.merged_schema,
+            from_tip: &result.migration_from_ours,
+            from_commit: &result.migration_from_theirs,
+        },
         &lifted_data_ids,
         registered,
     )?;
@@ -208,7 +217,7 @@ pub fn cherry_pick_with_options<S: BuildHasher>(
     merge::verify_pushout(&base_schema, &ours_schema, &theirs_schema, &resolved)
         .map_err(VcsError::PushoutVerification)?;
 
-    let mig_src = store.put(&Object::FlatSchema(Box::new(ours_schema)))?;
+    let mig_src = store.put(&Object::FlatSchema(Box::new(ours_schema.clone())))?;
     let mig_tgt = store.put(&Object::FlatSchema(Box::new(result.merged_schema.clone())))?;
     let merged_schema_id = crate::tree::store_schema_as_tree(store, result.merged_schema.clone())?;
 
@@ -243,6 +252,15 @@ pub fn cherry_pick_with_options<S: BuildHasher>(
     let replayed = crate::instance_merge::replay_commit_data(
         store,
         [&parent_commit, &head_commit, &commit],
+        &crate::instance_merge::ReplayTarget {
+            tip: head_id,
+            commit: commit_id,
+            tip_schema: &ours_schema,
+            commit_schema: &theirs_schema,
+            merged: &result.merged_schema,
+            from_tip: &result.migration_from_ours,
+            from_commit: &result.migration_from_theirs,
+        },
         &lifted_data_ids,
         registered,
     )?;

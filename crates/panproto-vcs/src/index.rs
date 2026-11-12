@@ -26,6 +26,11 @@ pub struct Index {
     /// ([`Repository::remove_instance`](crate::Repository::remove_instance)).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub staged_removals: Vec<String>,
+    /// Complements the next commit records: those a migration of a tracked
+    /// instance stored
+    /// ([`Repository::migrate_tracked_instance`](crate::Repository::migrate_tracked_instance)).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub staged_complements: Vec<ObjectId>,
 }
 
 /// A data file that has been staged for commit.
@@ -92,9 +97,9 @@ impl Index {
     }
 
     /// Every object the staging area names: the staged schema and its
-    /// migration, each staged data set with its schema, and the staged
-    /// protocol. Garbage collection keeps these, since the next commit
-    /// refers to them.
+    /// migration, each staged data set with its schema, the staged protocol
+    /// and the staged complements. Garbage collection keeps these, since the
+    /// next commit refers to them.
     #[must_use]
     pub fn object_ids(&self) -> Vec<ObjectId> {
         let mut ids = Vec::new();
@@ -107,6 +112,7 @@ impl Index {
             ids.push(data.schema_id);
         }
         ids.extend(self.staged_protocol);
+        ids.extend(self.staged_complements.iter().copied());
         ids
     }
 
@@ -116,5 +122,6 @@ impl Index {
         self.staged_data.clear();
         self.staged_protocol = None;
         self.staged_removals.clear();
+        self.staged_complements.clear();
     }
 }

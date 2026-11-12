@@ -58,9 +58,9 @@ pub mod tree;
 
 // Re-exports for convenience.
 pub use data_mig::{
-    MigrationConflict, StaleData, StoredMigration, detect_staleness, lift_commit_data,
-    load_migration, migrate_backward, migrate_forward, resolve_schema, schema_identity,
-    store_migration,
+    MergeMigration, MergeSide, MigratedAlong, MigrationConflict, StaleData, StoredMigration,
+    detect_staleness, lift_commit_data, load_migration, migrate_along, migrate_backward,
+    migrate_forward, migration_path, resolve_schema, schema_identity, store_migration,
 };
 pub use edit_mig::{decode_edit_log, encode_edit_log, incremental_migrate};
 pub use error::VcsError;
@@ -69,7 +69,8 @@ pub use fs_store::{FsStore, REPOSITORY_FORMAT_VERSION};
 pub use hash::ObjectId;
 pub use index::Index;
 pub use instance_merge::{
-    InstanceConflict, MergedEntry, RecordConflict, RecordDelta, TrackedMerge, TrackingConflict,
+    InstanceConflict, MergedEntry, RecordConflict, RecordDelta, ReplayTarget, ToMerged,
+    TrackedMerge, TrackingConflict, Version,
 };
 pub use instance_vc::{InstanceChange, InstanceDelta, TreeRecordsDelta};
 pub use mem_store::MemStore;

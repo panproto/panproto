@@ -469,3 +469,60 @@ pub fn merge_states(
     }
     vec![graphs, tables, sequences]
 }
+
+/// What a commit of the path scope records about its first parent's
+/// schema: no migration, the migration from its parent's schema to its own,
+/// or the migration the other way.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Link {
+    /// No migration.
+    Missing,
+    /// The migration from the parent's schema to the commit's.
+    Forward,
+    /// The migration from the commit's schema to the parent's.
+    Reverse,
+}
+
+impl Link {
+    /// Every link, in declaration order.
+    pub const ALL: [Self; 3] = [Self::Missing, Self::Forward, Self::Reverse];
+}
+
+/// Every first-parent chain of the path scope with `commits` commits,
+/// oldest first: each commit's schema (an index below `schemas`) and, for
+/// each commit but the root, its link. There are
+/// `schemas * (3 * schemas)^(commits - 1)` of them.
+#[must_use]
+pub fn path_chains(commits: usize, schemas: usize) -> Vec<Vec<(usize, Link)>> {
+    if commits == 0 {
+        return Vec::new();
+    }
+    let mut out: Vec<Vec<(usize, Link)>> = (0..schemas)
+        .map(|schema| vec![(schema, Link::Missing)])
+        .collect();
+    for _ in 1..commits {
+        out = out
+            .into_iter()
+            .flat_map(|prefix| {
+                (0..schemas).flat_map(move |schema| {
+                    let prefix = prefix.clone();
+                    Link::ALL.into_iter().map(move |link| {
+                        let mut grown = prefix.clone();
+                        grown.push((schema, link));
+                        grown
+                    })
+                })
+            })
+            .collect();
+    }
+    out
+}
+
+/// The count of [`path_chains`], by its closed formula.
+#[must_use]
+pub fn path_chains_count(commits: u32, schemas: u64) -> u64 {
+    if commits == 0 {
+        return 0;
+    }
+    schemas * (3 * schemas).pow(commits - 1)
+}

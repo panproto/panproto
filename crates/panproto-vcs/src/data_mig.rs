@@ -168,6 +168,34 @@ pub enum MigrationConflict {
         /// The lens's refusal.
         detail: String,
     },
+    /// No commit of the first-parent chain of `commit` (itself included)
+    /// has a schema with the identity `schema`, so no recorded migration
+    /// starts where the data set does.
+    #[error("no commit on the first-parent chain of {commit} has schema {schema}")]
+    NoMigrationPath {
+        /// The commit whose chain was walked.
+        commit: ObjectId,
+        /// The identity of the data set's schema.
+        schema: ObjectId,
+    },
+    /// The commit changes its first parent's schema and records no
+    /// migration, so the path through it has no link.
+    #[error("commit {commit} changes its parent's schema and records no migration")]
+    MissingLink {
+        /// The commit.
+        commit: ObjectId,
+    },
+    /// The migration the commit records does not run from its first
+    /// parent's schema to its own.
+    #[error(
+        "commit {commit} records migration {migration}, which does not run from its parent's schema to its own"
+    )]
+    LinkMismatch {
+        /// The commit.
+        commit: ObjectId,
+        /// The migration it records.
+        migration: ObjectId,
+    },
 }
 
 fn conflict(conflict: MigrationConflict) -> VcsError {
@@ -353,6 +381,63 @@ fn conforms(
     }
 }
 
+/// The get of `instance` along `lens`: each tree of a sequence of trees
+/// through the tree lens, a table through the table lens under `protocol` at
+/// both boundaries, and a graph through the graph lens, with the complements
+/// get produced.
+///
+/// # Errors
+///
+/// [`MigrationConflict::OutsideGetDomain`] naming `data_id` and, for a
+/// sequence of trees, the first refused record.
+pub fn get_instance(
+    lens: &Lens,
+    instance: &Instance,
+    protocol: &Protocol,
+    data_id: ObjectId,
+) -> Result<(Instance, ComplementPayload), VcsError> {
+    let refused = |record: Option<usize>, error: LensError| {
+        conflict(MigrationConflict::OutsideGetDomain {
+            data_id,
+            record,
+            detail: error.to_string(),
+        })
+    };
+    Ok(match instance {
+        Instance::Tree(trees) => {
+            let mut views = Vec::with_capacity(trees.len());
+            let mut complements = Vec::with_capacity(trees.len());
+            for (record, tree) in trees.iter().enumerate() {
+                let (view, complement) =
+                    panproto_lens::get(lens, tree).map_err(|e| refused(Some(record), e))?;
+                views.push(view);
+                complements.push(complement);
+            }
+            (Instance::Tree(views), ComplementPayload::Tree(complements))
+        }
+        Instance::Table(table) => {
+            let protocols = BoundaryProtocols {
+                src: protocol,
+                tgt: protocol,
+            };
+            let (view, complement) = panproto_lens::table_lens::get(lens, table, protocols)
+                .map_err(|e| refused(None, e))?;
+            (
+                Instance::Table(view),
+                ComplementPayload::Table(Box::new(complement)),
+            )
+        }
+        Instance::Graph(graph) => {
+            let (view, complement) =
+                panproto_lens::graph_lens::get(lens, graph).map_err(|e| refused(None, e))?;
+            (
+                Instance::Graph(view),
+                ComplementPayload::Graph(Box::new(complement)),
+            )
+        }
+    })
+}
+
 /// Migrate the data set `data_id` forward along the stored migration
 /// `migration_id`.
 ///
@@ -380,46 +465,7 @@ pub fn migrate_forward(
     let migration = load_migration(store, migration_id)?;
     conforms(store, data_id, &dataset, migration.src_identity)?;
     let lens = migration.lens()?;
-    let refused = |record: Option<usize>, error: LensError| {
-        conflict(MigrationConflict::OutsideGetDomain {
-            data_id,
-            record,
-            detail: error.to_string(),
-        })
-    };
-    let (view, complement) = match dataset.decode()? {
-        Instance::Tree(trees) => {
-            let mut views = Vec::with_capacity(trees.len());
-            let mut complements = Vec::with_capacity(trees.len());
-            for (record, tree) in trees.iter().enumerate() {
-                let (view, complement) =
-                    panproto_lens::get(&lens, tree).map_err(|e| refused(Some(record), e))?;
-                views.push(view);
-                complements.push(complement);
-            }
-            (Instance::Tree(views), ComplementPayload::Tree(complements))
-        }
-        Instance::Table(table) => {
-            let protocols = BoundaryProtocols {
-                src: protocol,
-                tgt: protocol,
-            };
-            let (view, complement) = panproto_lens::table_lens::get(&lens, &table, protocols)
-                .map_err(|e| refused(None, e))?;
-            (
-                Instance::Table(view),
-                ComplementPayload::Table(Box::new(complement)),
-            )
-        }
-        Instance::Graph(graph) => {
-            let (view, complement) =
-                panproto_lens::graph_lens::get(&lens, &graph).map_err(|e| refused(None, e))?;
-            (
-                Instance::Graph(view),
-                ComplementPayload::Graph(Box::new(complement)),
-            )
-        }
-    };
+    let (view, complement) = get_instance(&lens, &dataset.decode()?, protocol, data_id)?;
     let schema_id = crate::tree::store_schema_as_tree(store, migration.tgt)?;
     let migrated = DataSetObject::from_instance(schema_id, &view, dataset.key)?;
     let migrated_id = store.put(&Object::DataSet(migrated))?;
@@ -567,6 +613,263 @@ pub fn detect_staleness(
         }
     }
     Ok(stale)
+}
+
+/// The commit stored under `id`, refusing a missing object or another kind
+/// of object as a [`MigrationConflict`].
+fn commit_at(store: &dyn Store, id: ObjectId) -> Result<CommitObject, VcsError> {
+    match fetch(store, id, "commit")? {
+        Object::Commit(commit) => Ok(commit),
+        other => Err(wrong_kind(id, "commit", &other)),
+    }
+}
+
+/// The migrations first-parent history records from the schema with the
+/// identity `schema` to the schema of the commit `commit_id`, oldest first.
+///
+/// The walk follows first parents from `commit_id` (itself included) to the
+/// nearest commit whose schema has the identity `schema`, the path's start.
+/// Each later commit of the walk, from the oldest, is a link: a commit whose
+/// schema has its first parent's schema's identity changes nothing and adds
+/// no migration; any other commit adds the migration it records, which must
+/// run from its first parent's schema to its own (compared by
+/// [`schema_identity`]). A data set of the start's schema migrated along the
+/// path by [`migrate_along`] conforms to `commit_id`'s schema.
+///
+/// # Errors
+///
+/// [`MigrationConflict::NoMigrationPath`] when no commit of the chain has a
+/// schema of identity `schema`; for the oldest link that fails,
+/// [`MigrationConflict::MissingLink`] when it records no migration and
+/// [`MigrationConflict::LinkMismatch`] when its migration runs between other
+/// schemas; [`MigrationConflict::Missing`] or [`MigrationConflict::WrongKind`]
+/// when a commit or a recorded migration or its schema is absent or of
+/// another kind; and the errors of reading a schema.
+pub fn migration_path(
+    store: &dyn Store,
+    commit_id: ObjectId,
+    schema: ObjectId,
+) -> Result<Vec<ObjectId>, VcsError> {
+    let mut chain: Vec<(ObjectId, Option<ObjectId>, ObjectId)> = Vec::new();
+    let mut at = Some(commit_id);
+    let mut found = false;
+    while let Some(id) = at {
+        let commit = commit_at(store, id)?;
+        let identity = schema_identity(store, &commit.schema_id)?;
+        chain.push((id, commit.migration_id, identity));
+        if identity == schema {
+            found = true;
+            break;
+        }
+        at = commit.parents.first().copied();
+    }
+    if !found {
+        return Err(conflict(MigrationConflict::NoMigrationPath {
+            commit: commit_id,
+            schema,
+        }));
+    }
+    let mut path = Vec::new();
+    for link in chain.windows(2).rev() {
+        let [(commit, recorded, identity), (_, _, parent_identity)] = link else {
+            continue;
+        };
+        if identity == parent_identity {
+            continue;
+        }
+        let migration_id =
+            recorded.ok_or_else(|| conflict(MigrationConflict::MissingLink { commit: *commit }))?;
+        let migration = load_migration(store, migration_id)?;
+        if migration.src_identity != *parent_identity || migration.tgt_identity != *identity {
+            return Err(conflict(MigrationConflict::LinkMismatch {
+                commit: *commit,
+                migration: migration_id,
+            }));
+        }
+        path.push(migration_id);
+    }
+    Ok(path)
+}
+
+/// The result of migrating a data set along a path of stored migrations.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MigratedAlong {
+    /// The data set at the path's end: the one migrated, when the path is
+    /// empty.
+    pub data_id: ObjectId,
+    /// The complement each step stored, in path order.
+    pub complement_ids: Vec<ObjectId>,
+}
+
+/// Migrate the data set `data_id` forward along `path`, step by step.
+///
+/// Each step is [`migrate_forward`] along the next migration, applied to the
+/// data set the previous step stored; a table's step runs under the protocol
+/// `protocol_for` gives the step's source schema, which no other shape
+/// reads. The data set at the end is the get of
+/// the composite of the steps' lenses, and each step's complement is kept,
+/// so the data set migrates back by [`migrate_backward`] against them in
+/// reverse order.
+///
+/// # Errors
+///
+/// The [`MigrationConflict`] of the first step that refuses, in the order
+/// [`migrate_forward`] checks, and the errors of `protocol_for`, of
+/// decoding and of the store.
+pub fn migrate_along(
+    store: &mut dyn Store,
+    data_id: ObjectId,
+    path: &[ObjectId],
+    protocol_for: &mut dyn FnMut(&Schema) -> Result<Protocol, VcsError>,
+) -> Result<MigratedAlong, VcsError> {
+    let mut out = MigratedAlong {
+        data_id,
+        complement_ids: Vec::with_capacity(path.len()),
+    };
+    for migration_id in path {
+        let protocol = if data_set(store, out.data_id)?.encoding.shape == InstanceShape::Table {
+            protocol_for(&load_migration(store, *migration_id)?.src)?
+        } else {
+            Protocol::default()
+        };
+        let (next, complement) = migrate_forward(store, out.data_id, *migration_id, &protocol)?;
+        out.data_id = next;
+        out.complement_ids.push(complement);
+    }
+    Ok(out)
+}
+
+/// One side of a merge, as a merge migration reads it.
+#[derive(Clone, Debug)]
+pub struct MergeSide {
+    /// The side's commit: ours, or theirs (the tip and the replayed commit
+    /// of a replay).
+    pub commit: ObjectId,
+    /// The stored migration from the side's schema to the merged schema, or
+    /// `None` when the side's schema has the merged schema's identity.
+    pub migration: Option<ObjectId>,
+    /// The protocol object the side's commit records, which resolves a
+    /// table lens's protocol before `registered`.
+    pub protocol: Option<Protocol>,
+}
+
+/// The migration of the instances a merge (or replay) combines to its
+/// merged schema, along first-parent history and the merge's migrations.
+#[derive(Debug)]
+pub struct MergeMigration<'a, S> {
+    /// Our side, then theirs.
+    pub sides: [MergeSide; 2],
+    /// The identity of the merged schema.
+    pub merged: ObjectId,
+    /// The protocols a caller registered, by name.
+    pub registered: &'a HashMap<String, Protocol, S>,
+}
+
+impl<S: BuildHasher> MergeMigration<'_, S> {
+    /// The stored migrations from the schema with identity `schema`, the
+    /// schema of a data set the merge's `version` tracks, to the merged
+    /// schema, and the side whose chain they follow.
+    ///
+    /// A schema with the merged schema's identity has the empty path.
+    /// Otherwise the path is the [`migration_path`] from `schema` to a
+    /// side's commit followed by that side's migration to the merged
+    /// schema: our side's for our version, their side's for theirs, and for
+    /// the base's version our side's when our commit's first-parent chain
+    /// holds a commit of that schema, else their side's.
+    ///
+    /// # Errors
+    ///
+    /// As [`migration_path`]; for the base's version, the
+    /// [`MigrationConflict::NoMigrationPath`] of our side when neither chain
+    /// holds a commit of that schema.
+    pub fn path(
+        &self,
+        store: &dyn Store,
+        version: crate::instance_merge::Version,
+        schema: ObjectId,
+    ) -> Result<(Vec<ObjectId>, usize), VcsError> {
+        use crate::instance_merge::Version;
+        if schema == self.merged {
+            return Ok((Vec::new(), usize::from(version == Version::Theirs)));
+        }
+        let sides: &[usize] = match version {
+            Version::Base => &[0, 1],
+            Version::Ours => &[0],
+            Version::Theirs => &[1],
+        };
+        let mut first_refusal = None;
+        for side in sides {
+            match migration_path(store, self.sides[*side].commit, schema) {
+                Ok(mut path) => {
+                    path.extend(self.sides[*side].migration);
+                    return Ok((path, *side));
+                }
+                Err(VcsError::Migration(refusal))
+                    if matches!(*refusal, MigrationConflict::NoMigrationPath { .. }) =>
+                {
+                    first_refusal.get_or_insert(VcsError::Migration(refusal));
+                }
+                Err(other) => return Err(other),
+            }
+        }
+        Err(first_refusal.unwrap_or(VcsError::NoPath))
+    }
+
+    /// The instance of the data set `data_id`, tracked by the merge's
+    /// `version`, migrated to the merged schema: the get of each migration
+    /// of [`path`](Self::path) in turn, or the refusal of the first that
+    /// refuses. A table's get runs under the protocol its source schema
+    /// names (resolved through the side's protocol object, then
+    /// `registered`, then the registry), which no other shape reads.
+    /// Nothing is stored.
+    ///
+    /// # Errors
+    ///
+    /// The store's errors, those of decoding the payload, and
+    /// [`VcsError::UnknownProtocol`]; a [`MigrationConflict`] is returned as
+    /// the inner error.
+    pub fn migrate(
+        &self,
+        store: &dyn Store,
+        version: crate::instance_merge::Version,
+        data_id: ObjectId,
+        dataset: &DataSetObject,
+    ) -> Result<Result<Instance, MigrationConflict>, VcsError> {
+        match self.migrated(store, version, data_id, dataset) {
+            Ok(instance) => Ok(Ok(instance)),
+            Err(VcsError::Migration(refusal)) => Ok(Err(*refusal)),
+            Err(other) => Err(other),
+        }
+    }
+
+    fn migrated(
+        &self,
+        store: &dyn Store,
+        version: crate::instance_merge::Version,
+        data_id: ObjectId,
+        dataset: &DataSetObject,
+    ) -> Result<Instance, VcsError> {
+        let identity = schema_identity(store, &dataset.schema_id)?;
+        let (path, side) = self.path(store, version, identity)?;
+        let mut instance = dataset.decode()?;
+        for migration_id in path {
+            let migration = load_migration(store, migration_id)?;
+            let protocol = if matches!(instance, Instance::Table(_)) {
+                protocol_for_schema(
+                    &migration.src,
+                    ProtocolSources {
+                        stored: self.sides[side].protocol.as_ref(),
+                        registered: self.registered,
+                    },
+                )?
+            } else {
+                Protocol::default()
+            };
+            let lens = migration.lens()?;
+            instance = get_instance(&lens, &instance, &protocol, data_id)?.0;
+        }
+        Ok(instance)
+    }
 }
 
 /// Migrate all JSON files in a directory from one schema to another.

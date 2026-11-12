@@ -2525,8 +2525,9 @@ proptest! {
 use panproto_inst::graph_edit::{EditConflict, ElemRef};
 use panproto_reference::enumerate::instance_version_control::merge_states;
 use panproto_reference::pages::instance_version_control::{
-    Conflict as ModelConflict, Merged as ModelMerged, RecordConflict as ModelRecordConflict,
-    Side as ModelSide, TrackingConflict as ModelTrackingConflict,
+    Conflict as ModelConflict, Merged as ModelMerged, MigrationRefusal as ModelMigrationRefusal,
+    PathRefusal, RecordConflict as ModelRecordConflict, Side as ModelSide,
+    TrackingConflict as ModelTrackingConflict, Version as ModelVersion,
     merge_instances as model_merge_instances, merge_tracked as model_merge_tracked,
 };
 use panproto_vcs::instance_merge::{
@@ -2631,8 +2632,51 @@ fn table_conflict_to_reference(conflict: &EditConflict) -> reference_edit::Table
     }
 }
 
+const fn version_to_reference(version: panproto_vcs::Version) -> ModelVersion {
+    match version {
+        panproto_vcs::Version::Base => ModelVersion::Base,
+        panproto_vcs::Version::Ours => ModelVersion::Ours,
+        panproto_vcs::Version::Theirs => ModelVersion::Theirs,
+    }
+}
+
+/// The reference refusal of a production migration conflict met on a
+/// merge's migration path; commits and migrations are named by identifier.
+fn migration_refusal_to_reference(
+    conflict: &panproto_vcs::MigrationConflict,
+) -> ModelMigrationRefusal {
+    use panproto_vcs::MigrationConflict;
+    match conflict {
+        MigrationConflict::NoMigrationPath { .. } => {
+            ModelMigrationRefusal::Path(PathRefusal::NoPath)
+        }
+        MigrationConflict::MissingLink { commit } => {
+            ModelMigrationRefusal::Path(PathRefusal::MissingLink(commit.to_string()))
+        }
+        MigrationConflict::LinkMismatch { commit, .. } => {
+            ModelMigrationRefusal::Path(PathRefusal::LinkMismatch(commit.to_string()))
+        }
+        MigrationConflict::MigrationDoesNotCompile { migration_id, .. } => {
+            ModelMigrationRefusal::DoesNotCompile(migration_id.to_string())
+        }
+        MigrationConflict::OutsideGetDomain { record, .. } => {
+            ModelMigrationRefusal::GetRefused(*record)
+        }
+        other => panic!("a merge migration refused otherwise: {other:?}"),
+    }
+}
+
 fn conflict_to_reference(conflict: &InstanceConflict) -> ModelConflict {
     match conflict {
+        InstanceConflict::Migration {
+            key,
+            version,
+            conflict,
+        } => ModelConflict::Migration(
+            key.clone(),
+            version_to_reference(*version),
+            migration_refusal_to_reference(conflict),
+        ),
         InstanceConflict::Tracking { key, conflict } => ModelConflict::Tracking(
             key.clone(),
             match conflict {
@@ -3332,7 +3376,9 @@ const fn conflict_record(conflict: &ModelConflict) -> Option<usize> {
     match conflict {
         ModelConflict::GraphEdit(_, record, _) => *record,
         ModelConflict::Record(_, record, _) => Some(*record),
-        ModelConflict::Tracking(..) | ModelConflict::TableEdit(..) => None,
+        ModelConflict::Tracking(..)
+        | ModelConflict::Migration(..)
+        | ModelConflict::TableEdit(..) => None,
     }
 }
 
@@ -3497,7 +3543,7 @@ mod data_migration {
     use panproto_vcs::{MigrationConflict, schema_identity};
 
     /// The production schema of a reference schema of vertices and edges.
-    fn production_schema(schema: &RefSchema) -> panproto_schema::Schema {
+    pub(super) fn production_schema(schema: &RefSchema) -> panproto_schema::Schema {
         let protocol = panproto_schema::Protocol::default();
         let mut builder = panproto_schema::SchemaBuilder::new(&protocol);
         for (vertex, kind) in &schema.vertices {
@@ -3513,7 +3559,10 @@ mod data_migration {
 
     /// The stored mapping of a vertex migration: each surviving source
     /// vertex to its image.
-    fn production_mapping(src: &RefSchema, migration: &RefMigration) -> panproto_mig::Migration {
+    pub(super) fn production_mapping(
+        src: &RefSchema,
+        migration: &RefMigration,
+    ) -> panproto_mig::Migration {
         let mut mapping = panproto_mig::Migration::empty();
         for vertex in src.vertices.keys() {
             if migration.survives(vertex) {
@@ -3528,7 +3577,11 @@ mod data_migration {
 
     /// The graphs over `schema` with at most `nodes` nodes and `edges`
     /// edges, every node plain and every edge labelled by a schema edge.
-    fn graphs_over(schema: &RefSchema, nodes: usize, edges: usize) -> Vec<reference_model::Graph> {
+    pub(super) fn graphs_over(
+        schema: &RefSchema,
+        nodes: usize,
+        edges: usize,
+    ) -> Vec<reference_model::Graph> {
         let anchors: Vec<&str> = schema.vertices.keys().map(String::as_str).collect();
         let labels: Vec<reference_model::SEdge> = schema.edges.iter().cloned().collect();
         panproto_reference::enumerate::graphs(&GraphScope {
@@ -3581,7 +3634,7 @@ mod data_migration {
     }
 
     /// The decoded graph of a stored data set.
-    fn stored_graph(store: &MemStore, id: ObjectId) -> reference_model::Graph {
+    pub(super) fn stored_graph(store: &MemStore, id: ObjectId) -> reference_model::Graph {
         let Object::DataSet(dataset) = store.get(&id).unwrap() else {
             panic!("a migration stores data sets");
         };
@@ -3704,7 +3757,7 @@ mod data_migration {
 
     /// The vertex migrations from `src` to `tgt` that send no two source
     /// vertices to one target vertex.
-    fn injective_migrations(src: &RefSchema, tgt: &RefSchema) -> Vec<RefMigration> {
+    pub(super) fn injective_migrations(src: &RefSchema, tgt: &RefSchema) -> Vec<RefMigration> {
         panproto_reference::enumerate::migrations(src, tgt, MigrationScope::VERTICES)
             .into_iter()
             .filter(|migration| {
@@ -4375,5 +4428,2075 @@ mod data_migration {
             migrate_backward(&mut store, view, complement, &protocol).unwrap(),
             data
         );
+    }
+
+    // -- Tree and table data migrated forward and back through a store,
+    // -- against the reference tree and table lenses.
+
+    /// What migrating an instance forward and putting views back gives: a
+    /// refusal of get, or the view and, for the view and each edited view,
+    /// the restored source with whether get of it gives the view back, or a
+    /// refusal of put.
+    #[derive(Debug, PartialEq, Eq)]
+    enum RoundTrip<T> {
+        Refused,
+        Migrated {
+            view: T,
+            puts: Vec<Option<(T, bool)>>,
+        },
+    }
+
+    /// The counts of a round-trip scope.
+    #[derive(Debug, Default, PartialEq, Eq)]
+    struct RoundTripCounts {
+        cases: usize,
+        outside: usize,
+        refused: usize,
+        puts: usize,
+        refused_puts: usize,
+        get_put: usize,
+        put_get: usize,
+    }
+
+    impl RoundTripCounts {
+        fn count<T: PartialEq>(&mut self, source: &T, found: &RoundTrip<T>) {
+            match found {
+                RoundTrip::Refused => self.refused += 1,
+                RoundTrip::Migrated { puts, .. } => {
+                    self.get_put += usize::from(
+                        puts[0]
+                            .as_ref()
+                            .is_some_and(|(restored, _)| restored == source),
+                    );
+                    self.puts += puts.len();
+                    for put in puts {
+                        match put {
+                            None => self.refused_puts += 1,
+                            Some((_, round)) => self.put_get += usize::from(*round),
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Production's forward and backward migration of `source` through a
+    /// store, putting back the view and each of `views`.
+    fn production_round_trip(
+        (src, tgt, mapping): (
+            &panproto_schema::Schema,
+            &panproto_schema::Schema,
+            &panproto_mig::Migration,
+        ),
+        protocol: &panproto_schema::Protocol,
+        source: &Instance,
+        views: &[Instance],
+    ) -> RoundTrip<Instance> {
+        let mut store = MemStore::new();
+        let src_tree = store_schema_as_tree(&mut store, src.clone()).unwrap();
+        let tgt_tree = store_schema_as_tree(&mut store, tgt.clone()).unwrap();
+        let put = |store: &mut MemStore, schema: ObjectId, instance: &Instance| {
+            store
+                .put(&Object::DataSet(
+                    DataSetObject::from_instance(schema, instance, Some("k".to_owned())).unwrap(),
+                ))
+                .unwrap()
+        };
+        let read = |store: &MemStore, id: ObjectId| {
+            let Object::DataSet(dataset) = store.get(&id).unwrap() else {
+                panic!("a migration stores data sets");
+            };
+            dataset.decode().unwrap()
+        };
+        let data = put(&mut store, src_tree, source);
+        let migration = store_migration(&mut store, src, tgt, mapping.clone()).unwrap();
+        let (view_id, complement) = match migrate_forward(&mut store, data, migration, protocol) {
+            Ok(ids) => ids,
+            Err(VcsError::Migration(conflict))
+                if matches!(
+                    *conflict,
+                    MigrationConflict::MigrationDoesNotCompile { .. }
+                        | MigrationConflict::OutsideGetDomain { .. }
+                ) =>
+            {
+                return RoundTrip::Refused;
+            }
+            Err(other) => panic!("forward migration failed otherwise: {other:?}"),
+        };
+        let view = read(&store, view_id);
+        let puts = std::iter::once(&view)
+            .chain(views)
+            .map(|edited| {
+                let edited_id = put(&mut store, tgt_tree, edited);
+                match migrate_backward(&mut store, edited_id, complement, protocol) {
+                    Ok(restored_id) => {
+                        let restored = read(&store, restored_id);
+                        let round = migrate_forward(&mut store, restored_id, migration, protocol)
+                            .is_ok_and(|(again, _)| {
+                                instance_to_reference(&read(&store, again))
+                                    == instance_to_reference(edited)
+                            });
+                        Some((restored, round))
+                    }
+                    Err(VcsError::Migration(conflict))
+                        if matches!(
+                            *conflict,
+                            MigrationConflict::OutsidePutDomain { .. }
+                                | MigrationConflict::ComplementIdentity { .. }
+                        ) =>
+                    {
+                        None
+                    }
+                    Err(other) => panic!("backward migration failed otherwise: {other:?}"),
+                }
+            })
+            .collect();
+        RoundTrip::Migrated { view, puts }
+    }
+
+    /// A production round trip as the reference states it.
+    fn round_trip_to_reference(found: RoundTrip<Instance>) -> RoundTrip<ModelInstance> {
+        match found {
+            RoundTrip::Refused => RoundTrip::Refused,
+            RoundTrip::Migrated { view, puts } => RoundTrip::Migrated {
+                view: instance_to_reference(&view),
+                puts: puts
+                    .into_iter()
+                    .map(|put| {
+                        put.map(|(restored, round)| (instance_to_reference(&restored), round))
+                    })
+                    .collect(),
+            },
+        }
+    }
+
+    /// The trees over `schema` with one or two nodes, each arc labelled by
+    /// an edge name of the bounded schemas.
+    fn trees_over(schema: &RefSchema) -> Vec<reference_model::Tree> {
+        let anchors: Vec<&str> = schema.vertices.keys().map(String::as_str).collect();
+        (1..=2)
+            .flat_map(|nodes| {
+                panproto_reference::enumerate::trees(&panproto_reference::enumerate::TreeScope {
+                    nodes,
+                    anchors: &anchors,
+                    values: &[],
+                    arc_names: &["e"],
+                    hyper_edges: &[],
+                    max_fans: 0,
+                })
+            })
+            .collect()
+    }
+
+    /// The reference's run of a tree case, or `None` outside the tree lens's
+    /// certified domain (a source edge between surviving vertices dropped).
+    fn reference_tree_round_trip(
+        (src, tgt, migration): (&RefSchema, &RefSchema, &RefMigration),
+        source: &reference_model::Tree,
+        views: &[reference_model::Tree],
+    ) -> Option<RoundTrip<ModelInstance>> {
+        let trees = |tree: &reference_model::Tree| ModelInstance::Trees(vec![normalized(tree)]);
+        let Ok(plan) = panproto_reference::restrict::compile(src, tgt, migration) else {
+            return Some(RoundTrip::Refused);
+        };
+        let lens =
+            RefGraphLens::new(src, tgt, migration, &plan, &BTreeMap::new(), &NoValueLayer).unwrap();
+        let Ok((view, complement, embedding)) = panproto_reference::lens::tree_get(&lens, source)?
+        else {
+            return Some(RoundTrip::Refused);
+        };
+        let puts = std::iter::once(&view)
+            .chain(views)
+            .map(|edited| {
+                panproto_reference::lens::tree_put(&lens, edited, &embedding, &complement)
+                    .ok()
+                    .map(|restored| {
+                        let round = panproto_reference::lens::tree_get(&lens, &restored)
+                            .is_some_and(|again| {
+                                again.is_ok_and(|(again, _, _)| {
+                                    normalized(&again) == normalized(edited)
+                                })
+                            });
+                        (trees(&restored), round)
+                    })
+            })
+            .collect();
+        Some(RoundTrip::Migrated {
+            view: trees(&view),
+            puts,
+        })
+    }
+
+    fn tree_migration_scope() -> RoundTripCounts {
+        let schemas = panproto_reference::enumerate::lenses::schemas();
+        let protocol = panproto_schema::Protocol::default();
+        let mut counts = RoundTripCounts::default();
+        for src in &schemas {
+            for tgt in &schemas {
+                let (src_p, tgt_p) = (production_schema(src), production_schema(tgt));
+                for migration in injective_migrations(src, tgt) {
+                    // The views put back: every tree over the target whose
+                    // nodes are anchored at images of surviving source
+                    // vertices. A view node at a target vertex no source
+                    // vertex reaches is a disagreement of the tree put
+                    // domain, outside this scope.
+                    let images: BTreeSet<&str> = src
+                        .vertices
+                        .keys()
+                        .filter(|v| migration.survives(v))
+                        .map(|v| migration.vertex_image(v))
+                        .collect();
+                    let views: Vec<reference_model::Tree> = trees_over(tgt)
+                        .into_iter()
+                        .filter(|tree| {
+                            tree.nodes
+                                .values()
+                                .all(|node| images.contains(node.anchor.as_str()))
+                        })
+                        .collect();
+                    let production_views: Vec<Instance> = views
+                        .iter()
+                        .map(|tree| Instance::Tree(vec![tree_to_production(tree)]))
+                        .collect();
+                    let mapping = production_mapping(src, &migration);
+                    for source in trees_over(src) {
+                        counts.cases += 1;
+                        let Some(expected) =
+                            reference_tree_round_trip((src, tgt, &migration), &source, &views)
+                        else {
+                            counts.outside += 1;
+                            continue;
+                        };
+                        let found = round_trip_to_reference(production_round_trip(
+                            (&src_p, &tgt_p, &mapping),
+                            &protocol,
+                            &Instance::Tree(vec![tree_to_production(&source)]),
+                            &production_views,
+                        ));
+                        assert_eq!(
+                            found, expected,
+                            "{src:?} -> {tgt:?} {migration:?} {source:?}"
+                        );
+                        counts.count(&ModelInstance::Trees(vec![normalized(&source)]), &found);
+                    }
+                }
+            }
+        }
+        counts
+    }
+
+    /// The pinned outcome counts of the tree scope: puts, cases outside the
+    /// tree lens's domain, refused gets, refused puts, `GetPut` and `PutGet`.
+    const TREE_ROUND_TRIPS: [usize; 6] = [996, 400, 678, 580, 172, 416];
+
+    #[test]
+    fn every_tree_of_the_migration_scope_migrates_forward_and_back_as_the_reference_tree_lens_does()
+    {
+        let counts = tree_migration_scope();
+        println!("tree migration scope: {counts:?}");
+        let schemas = panproto_reference::enumerate::lenses::schemas();
+        // The trees over a schema with one or two nodes: two of one node and
+        // eight of two (four anchorings, the arc named or not).
+        let per_schema: u64 = (1..=2)
+            .map(|nodes| panproto_reference::enumerate::trees_count(nodes, 2, 0, 1, &[], 0))
+            .sum();
+        assert_eq!(per_schema, 10);
+        let n = schemas.len() as u64;
+        let injective = 5;
+        assert_eq!(counts.cases as u64, n * n * injective * per_schema);
+        assert_eq!(
+            [
+                counts.puts,
+                counts.outside,
+                counts.refused,
+                counts.refused_puts,
+                counts.get_put,
+                counts.put_get,
+            ],
+            TREE_ROUND_TRIPS
+        );
+    }
+
+    /// The table protocol of the bounded schemas: every vertex kind a table.
+    fn table_protocol() -> panproto_schema::Protocol {
+        panproto_schema::Protocol {
+            non_value_kinds: std::collections::BTreeSet::from(["k".to_owned()]),
+            ..panproto_schema::Protocol::default()
+        }
+    }
+
+    /// The tables over `schema` with at most two rows and no cells, with
+    /// every set of pairs of its edges.
+    fn tables_over(schema: &RefSchema) -> Vec<reference_model::Table> {
+        let tables: Vec<&str> = schema.vertices.keys().map(String::as_str).collect();
+        let relations: Vec<reference_model::SEdge> = schema.edges.iter().cloned().collect();
+        panproto_reference::enumerate::tables(&tables, &BTreeMap::new(), &[], &relations, 2)
+    }
+
+    fn reference_table_round_trip(
+        (src, tgt, migration): (&RefSchema, &RefSchema, &RefMigration),
+        source: &reference_model::Table,
+        views: &[reference_model::Table],
+    ) -> RoundTrip<ModelInstance> {
+        let kinds = std::collections::BTreeSet::from(["k".to_owned()]);
+        let classify = |schema: &RefSchema| {
+            panproto_reference::rel::classify(schema, &std::collections::BTreeSet::new(), &kinds)
+                .unwrap()
+        };
+        let boundaries = (classify(src), classify(tgt));
+        let Ok(plan) = panproto_reference::table::compile_for_tables(
+            src,
+            tgt,
+            &boundaries.0,
+            &boundaries.1,
+            migration,
+        ) else {
+            return RoundTrip::Refused;
+        };
+        let lens = panproto_reference::table::TableLens::new(
+            src,
+            tgt,
+            panproto_reference::table::TableBoundaries::new(&boundaries.0, &boundaries.1),
+            migration,
+            &plan,
+            &BTreeMap::new(),
+            &NoValueLayer,
+        )
+        .unwrap();
+        let Ok((view, complement)) = lens.get(source) else {
+            return RoundTrip::Refused;
+        };
+        let puts = std::iter::once(&view)
+            .chain(views)
+            .map(|edited| {
+                lens.put(edited, &complement).ok().map(|restored| {
+                    let round = lens.get(&restored).is_ok_and(|(again, _)| again == *edited);
+                    (ModelInstance::Table(restored), round)
+                })
+            })
+            .collect();
+        RoundTrip::Migrated {
+            view: ModelInstance::Table(view),
+            puts,
+        }
+    }
+
+    /// A vertex migration with its edges: each source edge whose endpoints
+    /// survive and whose image (the edge of its kind and name between the
+    /// endpoints' images) the target holds survives as that image, as a
+    /// table plan requires the edges it keeps to be named.
+    fn with_edges(src: &RefSchema, tgt: &RefSchema, migration: &RefMigration) -> RefMigration {
+        let mut out = migration.clone();
+        for edge in &src.edges {
+            if !(migration.survives(&edge.src) && migration.survives(&edge.tgt)) {
+                continue;
+            }
+            let image = reference_model::SEdge::new(
+                migration.vertex_image(&edge.src),
+                migration.vertex_image(&edge.tgt),
+                &edge.kind,
+                edge.name.as_deref(),
+            );
+            if tgt.edges.contains(&image) {
+                out.surviving_edges.insert(image.clone());
+                if image != *edge {
+                    out.edge_remap.insert(edge.clone(), image);
+                }
+            }
+        }
+        out
+    }
+
+    /// The stored mapping of a migration with edges: its vertex map and
+    /// each surviving source edge to its image.
+    fn production_mapping_with_edges(
+        src: &RefSchema,
+        migration: &RefMigration,
+    ) -> panproto_mig::Migration {
+        let mut mapping = production_mapping(src, migration);
+        for edge in &src.edges {
+            let image = migration.edge_remap.get(edge).unwrap_or(edge);
+            if migration.surviving_edges.contains(image) {
+                mapping
+                    .edge_map
+                    .insert(edge_to_production(edge), edge_to_production(image));
+            }
+        }
+        mapping
+    }
+
+    fn table_migration_scope() -> RoundTripCounts {
+        let schemas = panproto_reference::enumerate::lenses::schemas();
+        let protocol = table_protocol();
+        let mut counts = RoundTripCounts::default();
+        for src in &schemas {
+            for tgt in &schemas {
+                let views = tables_over(tgt);
+                let production_views: Vec<Instance> = views
+                    .iter()
+                    .map(|table| Instance::Table(table_to_production(table, false)))
+                    .collect();
+                let (src_p, tgt_p) = (production_schema(src), production_schema(tgt));
+                for migration in injective_migrations(src, tgt) {
+                    let migration = with_edges(src, tgt, &migration);
+                    // A source edge between surviving tables whose image the
+                    // target lacks has no stored spelling as a drop: the
+                    // stored mapping names each kept edge, and the table
+                    // compiler carries an unnamed edge to its endpoints'
+                    // images. Such migrations are outside this scope.
+                    let drops_kept_edge = src.edges.iter().any(|edge| {
+                        migration.survives(&edge.src)
+                            && migration.survives(&edge.tgt)
+                            && !migration
+                                .surviving_edges
+                                .contains(migration.edge_remap.get(edge).unwrap_or(edge))
+                    });
+                    let mapping = production_mapping_with_edges(src, &migration);
+                    for source in tables_over(src) {
+                        counts.cases += 1;
+                        if drops_kept_edge {
+                            counts.outside += 1;
+                            continue;
+                        }
+                        let expected =
+                            reference_table_round_trip((src, tgt, &migration), &source, &views);
+                        let found = round_trip_to_reference(production_round_trip(
+                            (&src_p, &tgt_p, &mapping),
+                            &protocol,
+                            &Instance::Table(table_to_production(&source, false)),
+                            &production_views,
+                        ));
+                        assert_eq!(
+                            found, expected,
+                            "{src:?} -> {tgt:?} {migration:?} {source:?}"
+                        );
+                        counts.count(&ModelInstance::Table(source.clone()), &found);
+                    }
+                }
+            }
+        }
+        counts
+    }
+
+    /// The pinned outcome counts of the table scope: puts, cases outside
+    /// the scope, refused gets, refused puts, `GetPut` and `PutGet`.
+    const TABLE_ROUND_TRIPS: [usize; 6] = [19_380, 744, 0, 13_008, 1_131, 6_372];
+
+    #[test]
+    fn every_table_of_the_migration_scope_migrates_forward_and_back_as_the_reference_table_lens_does()
+     {
+        let counts = table_migration_scope();
+        println!("table migration scope: {counts:?}");
+        let schemas = panproto_reference::enumerate::lenses::schemas();
+        let tables = |schema: &RefSchema| {
+            let names: Vec<&str> = schema.vertices.keys().map(String::as_str).collect();
+            let relations: Vec<reference_model::SEdge> = schema.edges.iter().cloned().collect();
+            panproto_reference::enumerate::tables_count(&names, &BTreeMap::new(), 0, &relations, 2)
+        };
+        let sources: u64 = schemas.iter().map(tables).sum();
+        let n = schemas.len() as u64;
+        assert_eq!(counts.cases as u64, n * 5 * sources);
+        assert_eq!(
+            [
+                counts.puts,
+                counts.outside,
+                counts.refused,
+                counts.refused_puts,
+                counts.get_put,
+                counts.put_get,
+            ],
+            TABLE_ROUND_TRIPS
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Merging and replaying versions recorded against different schemas, and
+// migrating a stale instance along first-parent history.
+// ---------------------------------------------------------------------------
+
+mod merge_migration {
+    use super::data_migration::{
+        graphs_over, injective_migrations, production_mapping, production_schema,
+    };
+    use super::*;
+    use panproto_reference::enumerate::instance_version_control::{
+        Link, path_chains, path_chains_count,
+    };
+    use panproto_reference::enumerate::{
+        MigrationScope, MigrationSizes, TreeScope, migrations_count, trees,
+    };
+    use panproto_reference::lens::GraphLens as RefGraphLens;
+    use panproto_reference::migration::Migration as RefMigration;
+    use panproto_reference::pages::instance_version_control::{
+        ChainCommit, PathSide, merge_path, merge_tracked_to as model_merge_tracked_to,
+        migration_path as model_migration_path,
+    };
+    use panproto_reference::restrict::NoValueLayer;
+    use panproto_reference::schema::Schema as RefSchema;
+    use panproto_vcs::data_mig::{
+        MergeMigration, MergeSide, migrate_along, migrate_backward, migration_path, store_migration,
+    };
+    use panproto_vcs::hash::hash_schema;
+    use panproto_vcs::instance_merge::ToMerged;
+    use panproto_vcs::tree::store_schema_as_tree;
+    use panproto_vcs::{MigrationConflict, Version};
+
+    /// Get of `instance` along the reference lens of `migration` from `src`
+    /// to `tgt`, named `name`: each tree of a sequence through the tree
+    /// lens, a graph through the graph lens.
+    fn reference_get(
+        (src, tgt, migration): (&RefSchema, &RefSchema, &RefMigration),
+        name: &str,
+        instance: &ModelInstance,
+    ) -> Result<ModelInstance, ModelMigrationRefusal> {
+        let compiled = || ModelMigrationRefusal::DoesNotCompile(name.to_owned());
+        let plan =
+            panproto_reference::restrict::compile(src, tgt, migration).map_err(|_| compiled())?;
+        let lens = RefGraphLens::new(src, tgt, migration, &plan, &BTreeMap::new(), &NoValueLayer)
+            .map_err(|_| compiled())?;
+        match instance {
+            ModelInstance::Graph(graph) => lens
+                .get(graph)
+                .map(|(view, _)| ModelInstance::Graph(view))
+                .map_err(|_| ModelMigrationRefusal::GetRefused(None)),
+            ModelInstance::Trees(trees) => trees
+                .iter()
+                .enumerate()
+                .map(
+                    |(record, tree)| match panproto_reference::lens::tree_get(&lens, tree) {
+                        None => panic!("a tree of the scope is outside the tree lens's domain"),
+                        Some(Ok((view, _, _))) => Ok(normalized(&view)),
+                        Some(Err(_)) => Err(ModelMigrationRefusal::GetRefused(Some(record))),
+                    },
+                )
+                .collect::<Result<Vec<_>, _>>()
+                .map(ModelInstance::Trees),
+            ModelInstance::Table(_) => panic!("the merge migration scope holds no table"),
+        }
+    }
+
+    fn commit(
+        store: &mut MemStore,
+        schema: ObjectId,
+        parent: Option<ObjectId>,
+        data: &[ObjectId],
+        migration: Option<ObjectId>,
+        message: &str,
+    ) -> ObjectId {
+        let mut builder = CommitObject::builder(schema, "test", "test", message)
+            .timestamp(0)
+            .data_ids(data.to_vec());
+        if let Some(parent) = parent {
+            builder = builder.parents(vec![parent]);
+        }
+        if let Some(migration) = migration {
+            builder = builder.migration_id(migration);
+        }
+        store.put(&Object::Commit(builder.build())).unwrap()
+    }
+
+    fn commit_at(store: &MemStore, id: ObjectId) -> CommitObject {
+        let Object::Commit(commit) = store.get(&id).unwrap() else {
+            panic!("a commit");
+        };
+        commit
+    }
+
+    // -- The path scope.
+
+    /// Three flat schemas of one vertex each, and the stored migration
+    /// between each ordered pair of them (the identity for a pair of one).
+    struct PathStore {
+        store: MemStore,
+        schemas: [ObjectId; 3],
+        migrations: BTreeMap<(usize, usize), ObjectId>,
+    }
+
+    fn path_store() -> PathStore {
+        let mut store = MemStore::new();
+        let schema = |vertex: &str| {
+            let protocol = panproto_schema::Protocol::default();
+            panproto_schema::SchemaBuilder::new(&protocol)
+                .vertex(vertex, "object", None)
+                .unwrap()
+                .build()
+                .unwrap()
+        };
+        let built = [schema("x"), schema("y"), schema("z")];
+        let schemas = [0, 1, 2].map(|i| {
+            store
+                .put(&Object::FlatSchema(Box::new(built[i].clone())))
+                .unwrap()
+        });
+        let mut migrations = BTreeMap::new();
+        for from in 0..3 {
+            for to in 0..3 {
+                let id = store_migration(
+                    &mut store,
+                    &built[from],
+                    &built[to],
+                    panproto_mig::Migration::empty(),
+                )
+                .unwrap();
+                migrations.insert((from, to), id);
+            }
+        }
+        PathStore {
+            store,
+            schemas,
+            migrations,
+        }
+    }
+
+    /// The reference names of the path store's migrations: each with its
+    /// source and target schema names.
+    fn model_migrations(at: &PathStore) -> BTreeMap<String, (String, String)> {
+        at.migrations
+            .iter()
+            .map(|((from, to), id)| (id.to_string(), (from.to_string(), to.to_string())))
+            .collect()
+    }
+
+    /// Store `chain` (oldest first) on `parent`, returning the commits and
+    /// the reference chain, newest first.
+    fn store_chain(
+        at: &mut PathStore,
+        parent: Option<(ObjectId, usize)>,
+        chain: &[(usize, Link)],
+    ) -> (Vec<ObjectId>, Vec<ChainCommit>) {
+        let mut ids = Vec::new();
+        let mut model = Vec::new();
+        let mut previous = parent;
+        for (schema, link) in chain {
+            let migration = previous.and_then(|(_, from)| match link {
+                Link::Missing => None,
+                Link::Forward => Some(at.migrations[&(from, *schema)]),
+                Link::Reverse => Some(at.migrations[&(*schema, from)]),
+            });
+            let id = commit(
+                &mut at.store,
+                at.schemas[*schema],
+                previous.map(|(id, _)| id),
+                &[],
+                migration,
+                &format!("{}", ids.len()),
+            );
+            ids.push(id);
+            model.push(ChainCommit {
+                name: id.to_string(),
+                schema: schema.to_string(),
+                migration: migration.map(|m| m.to_string()),
+            });
+            previous = Some((id, *schema));
+        }
+        model.reverse();
+        (ids, model)
+    }
+
+    fn path_refusal(error: VcsError) -> PathRefusal {
+        let VcsError::Migration(conflict) = error else {
+            panic!("a path refused otherwise: {error:?}");
+        };
+        match migration_refusal_to_reference(&conflict) {
+            ModelMigrationRefusal::Path(refusal) => refusal,
+            other => panic!("a path refusal of another kind: {other:?}"),
+        }
+    }
+
+    /// The outcomes of the path scope, derived by hand from the chains.
+    /// Asking for the absent third schema gives no path (86 chains), as does
+    /// asking for a schema no commit of a one-schema chain holds (2 + 6 + 18).
+    /// Asking for the tip's schema gives the empty path (86). Otherwise the
+    /// oldest link between two schemas that differ decides: one per two-commit
+    /// chain of two schemas (6), and for three commits 36 chains whose middle
+    /// commit has the schema asked for (the tip's link decides) and 18 whose
+    /// root has it and middle the tip's (the middle's link decides), each
+    /// third missing, forward or reversed: 20 of each.
+    const PATH_OUTCOMES: [(&str, usize); 5] = [
+        ("LinkMismatch", 20),
+        ("MissingLink", 20),
+        ("NoPath", 112),
+        ("path of 0", 86),
+        ("path of 1", 20),
+    ];
+
+    #[test]
+    fn every_chain_of_the_path_scope_finds_the_reference_path() {
+        let mut outcomes: BTreeMap<String, usize> = BTreeMap::new();
+        let mut cases = 0usize;
+        for commits in 1..=3 {
+            for chain in path_chains(commits, 2) {
+                let mut at = path_store();
+                let (ids, model) = store_chain(&mut at, None, &chain);
+                let tip = *ids.last().unwrap();
+                let migrations = model_migrations(&at);
+                for query in 0..3 {
+                    let identity =
+                        panproto_vcs::schema_identity(&at.store, &at.schemas[query]).unwrap();
+                    let found = migration_path(&at.store, tip, identity)
+                        .map(|path| path.iter().map(ToString::to_string).collect::<Vec<_>>())
+                        .map_err(path_refusal);
+                    let expected = model_migration_path(&model, &migrations, &query.to_string());
+                    assert_eq!(found, expected, "{chain:?} from {query}");
+                    let kind = match &found {
+                        Ok(path) => format!("path of {}", path.len()),
+                        Err(refusal) => {
+                            format!("{refusal:?}").split('(').next().unwrap().to_owned()
+                        }
+                    };
+                    *outcomes.entry(kind).or_default() += 1;
+                    cases += 1;
+                }
+            }
+        }
+        let chains: u64 = (1..=3).map(|commits| path_chains_count(commits, 2)).sum();
+        assert_eq!(cases as u64, 3 * chains);
+        assert_eq!(cases, 258);
+        assert_eq!(
+            outcomes,
+            PATH_OUTCOMES
+                .iter()
+                .map(|(k, n)| ((*k).to_owned(), *n))
+                .collect()
+        );
+        println!("path scope outcomes: {outcomes:?}");
+    }
+
+    /// The outcomes of the merge path scope, pinned.
+    const MERGE_PATH_OUTCOMES: [(&str, usize); 6] = [
+        ("LinkMismatch", 108),
+        ("MissingLink", 108),
+        ("NoPath", 288),
+        ("path of 0", 486),
+        ("path of 1", 414),
+        ("path of 2", 54),
+    ];
+
+    #[test]
+    fn every_version_of_the_merge_path_scope_finds_the_reference_path() {
+        let mut outcomes: BTreeMap<String, usize> = BTreeMap::new();
+        let mut cases = 0usize;
+        for root in 0..2 {
+            for ours in 0..3 {
+                for ours_link in Link::ALL {
+                    for theirs in 0..3 {
+                        for theirs_link in Link::ALL {
+                            let mut at = path_store();
+                            let (roots, root_model) =
+                                store_chain(&mut at, None, &[(root, Link::Missing)]);
+                            let parent = Some((roots[0], root));
+                            let (ours_ids, mut ours_model) =
+                                store_chain(&mut at, parent, &[(ours, ours_link)]);
+                            let (theirs_ids, mut theirs_model) =
+                                store_chain(&mut at, parent, &[(theirs, theirs_link)]);
+                            ours_model.extend(root_model.iter().cloned());
+                            theirs_model.extend(root_model.iter().cloned());
+                            // The merged schema is the third; each side
+                            // migrates to it unless it is already there.
+                            let to_merged =
+                                |side: usize| (side != 2).then(|| at.migrations[&(side, 2)]);
+                            let registered: HashMap<String, panproto_schema::Protocol> =
+                                HashMap::new();
+                            let merge = MergeMigration {
+                                sides: [
+                                    MergeSide {
+                                        commit: ours_ids[0],
+                                        migration: to_merged(ours),
+                                        protocol: None,
+                                    },
+                                    MergeSide {
+                                        commit: theirs_ids[0],
+                                        migration: to_merged(theirs),
+                                        protocol: None,
+                                    },
+                                ],
+                                merged: panproto_vcs::schema_identity(&at.store, &at.schemas[2])
+                                    .unwrap(),
+                                registered: &registered,
+                            };
+                            let migrations = model_migrations(&at);
+                            let names =
+                                [ours, theirs].map(|side| to_merged(side).map(|m| m.to_string()));
+                            let sides = [
+                                PathSide {
+                                    chain: &ours_model,
+                                    migration: names[0].as_deref(),
+                                },
+                                PathSide {
+                                    chain: &theirs_model,
+                                    migration: names[1].as_deref(),
+                                },
+                            ];
+                            for (version, model_version) in [
+                                (Version::Base, ModelVersion::Base),
+                                (Version::Ours, ModelVersion::Ours),
+                                (Version::Theirs, ModelVersion::Theirs),
+                            ] {
+                                for query in 0..3 {
+                                    let identity = panproto_vcs::schema_identity(
+                                        &at.store,
+                                        &at.schemas[query],
+                                    )
+                                    .unwrap();
+                                    let found = merge
+                                        .path(&at.store, version, identity)
+                                        .map(|(path, _)| {
+                                            path.iter().map(ToString::to_string).collect::<Vec<_>>()
+                                        })
+                                        .map_err(path_refusal);
+                                    let expected = merge_path(
+                                        model_version,
+                                        &query.to_string(),
+                                        sides,
+                                        &migrations,
+                                        "2",
+                                    );
+                                    assert_eq!(
+                                        found, expected,
+                                        "root {root}, ours {ours} {ours_link:?}, theirs {theirs} {theirs_link:?}, {version:?} from {query}"
+                                    );
+                                    let kind = match &found {
+                                        Ok(path) => format!("path of {}", path.len()),
+                                        Err(refusal) => format!("{refusal:?}")
+                                            .split('(')
+                                            .next()
+                                            .unwrap()
+                                            .to_owned(),
+                                    };
+                                    *outcomes.entry(kind).or_default() += 1;
+                                    cases += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // Two root schemas, three schemas and three links on each side, three
+        // versions and three schemas asked for.
+        assert_eq!(cases, 2 * 9 * 9 * 3 * 3);
+        println!("merge path scope outcomes: {outcomes:?}");
+        assert_eq!(
+            outcomes,
+            MERGE_PATH_OUTCOMES
+                .iter()
+                .map(|(k, n)| ((*k).to_owned(), *n))
+                .collect()
+        );
+    }
+
+    // -- The merge migration scope.
+
+    /// A history of the merge migration scope: from a base commit of the
+    /// `src` schema, one side commits the `tgt` schema with migration
+    /// `migration` (recorded when `link`), the other side keeps the schema;
+    /// the merged schema is `tgt`.
+    #[derive(Clone, Copy, Debug)]
+    struct History {
+        src: usize,
+        tgt: usize,
+        migration: usize,
+        changed_is_ours: bool,
+        link: bool,
+    }
+
+    /// Every history over the source schemas `sources`.
+    fn histories(sources: &[usize]) -> Vec<History> {
+        let schemas = panproto_reference::enumerate::lenses::schemas();
+        let mut out = Vec::new();
+        for &src in sources {
+            for tgt in 0..schemas.len() {
+                for migration in 0..injective_migrations(&schemas[src], &schemas[tgt]).len() {
+                    for changed_is_ours in [true, false] {
+                        for link in [true, false] {
+                            out.push(History {
+                                src,
+                                tgt,
+                                migration,
+                                changed_is_ours,
+                                link,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// The shapes of the merge migration scope.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum ScopeShape {
+        /// Graphs with at most one node and no edge.
+        Graph,
+        /// Sequences of at most one one-node tree.
+        Tree,
+    }
+
+    /// The instances of `shape` over `schema` a side records.
+    fn side_instances(schema: &RefSchema, shape: ScopeShape) -> Vec<ModelInstance> {
+        match shape {
+            ScopeShape::Graph => graphs_over(schema, 1, 0)
+                .into_iter()
+                .map(ModelInstance::Graph)
+                .collect(),
+            ScopeShape::Tree => {
+                let anchors: Vec<&str> = schema.vertices.keys().map(String::as_str).collect();
+                let mut out = vec![ModelInstance::Trees(Vec::new())];
+                out.extend(
+                    trees(&TreeScope {
+                        nodes: 1,
+                        anchors: &anchors,
+                        values: &[],
+                        arc_names: &[],
+                        hyper_edges: &[],
+                        max_fans: 0,
+                    })
+                    .into_iter()
+                    .map(|tree| ModelInstance::Trees(vec![tree])),
+                );
+                out
+            }
+        }
+    }
+
+    /// The counts of a run over the merge migration scope.
+    #[derive(Debug, Default, PartialEq, Eq)]
+    struct MergeMigrationCounts {
+        cases: usize,
+        /// Cases whose three versions are recorded against different
+        /// schemas and none is kept whole.
+        migrated: usize,
+        /// Migration conflicts, and by refusal.
+        migration_conflicts: usize,
+        missing_links: usize,
+        refused_gets: usize,
+        /// Cases merging cleanly, and the conflicts of the others.
+        clean: usize,
+        conflicts: usize,
+    }
+
+    /// The name of a schema of the scope in the reference model.
+    fn schema_name(index: usize) -> String {
+        format!("schema {index}")
+    }
+
+    fn data_set(
+        store: &mut MemStore,
+        (tree, name): (ObjectId, &str),
+        instance: &ModelInstance,
+    ) -> (ObjectId, ModelEntry) {
+        let dataset = DataSetObject::from_instance(
+            tree,
+            &instance_to_production(instance),
+            Some("k".to_owned()),
+        )
+        .unwrap();
+        let id = store.put(&Object::DataSet(dataset)).unwrap();
+        (
+            id,
+            ModelEntry {
+                data: id.to_string(),
+                schema: name.to_owned(),
+                instance: normalized_instance(instance),
+            },
+        )
+    }
+
+    /// Run every case of one history over `shape`, comparing production's
+    /// migrating merge with the reference's.
+    fn run_history(
+        history: History,
+        shape: ScopeShape,
+        sampled: Option<[&ModelInstance; 4]>,
+        counts: &mut MergeMigrationCounts,
+    ) {
+        let schemas = panproto_reference::enumerate::lenses::schemas();
+        let (src, tgt) = (&schemas[history.src], &schemas[history.tgt]);
+        let migration = injective_migrations(src, tgt)[history.migration].clone();
+        let (src_p, tgt_p) = (production_schema(src), production_schema(tgt));
+        let mut store = MemStore::new();
+        let trees = [
+            store_schema_as_tree(&mut store, src_p.clone()).unwrap(),
+            store_schema_as_tree(&mut store, tgt_p.clone()).unwrap(),
+        ];
+        let names = [schema_name(history.src), schema_name(history.tgt)];
+        let stored = store_migration(
+            &mut store,
+            &src_p,
+            &tgt_p,
+            production_mapping(src, &migration),
+        )
+        .unwrap();
+        let distinct = hash_schema(&src_p).unwrap() != hash_schema(&tgt_p).unwrap();
+        let merged_identity = hash_schema(&tgt_p).unwrap();
+        let registered: HashMap<String, panproto_schema::Protocol> = HashMap::new();
+        let (old, new) = sampled.map_or_else(
+            || (side_instances(src, shape), side_instances(tgt, shape)),
+            |[base, old_changed, new_changed, unchanged]| {
+                (
+                    vec![base.clone(), old_changed.clone(), unchanged.clone()],
+                    vec![new_changed.clone()],
+                )
+            },
+        );
+        let changed_choices: Vec<(usize, &ModelInstance)> = new
+            .iter()
+            .map(|instance| (1, instance))
+            .chain(old.iter().map(|instance| (0, instance)))
+            .collect();
+        for base in &old {
+            for (changed_schema, changed) in &changed_choices {
+                for unchanged in &old {
+                    let (base_id, base_entry) = data_set(&mut store, (trees[0], &names[0]), base);
+                    let (changed_id, changed_entry) = data_set(
+                        &mut store,
+                        (trees[*changed_schema], &names[*changed_schema]),
+                        changed,
+                    );
+                    let (unchanged_id, unchanged_entry) =
+                        data_set(&mut store, (trees[0], &names[0]), unchanged);
+                    let base_commit = commit(&mut store, trees[0], None, &[base_id], None, "base");
+                    let changed_commit = commit(
+                        &mut store,
+                        trees[1],
+                        Some(base_commit),
+                        &[changed_id],
+                        history.link.then_some(stored),
+                        "changed",
+                    );
+                    let unchanged_commit = commit(
+                        &mut store,
+                        trees[0],
+                        Some(base_commit),
+                        &[unchanged_id],
+                        None,
+                        "unchanged",
+                    );
+                    let side_migration = |changed: bool| (!changed && distinct).then_some(stored);
+                    let ([ours, theirs], [ours_entry, theirs_entry], ours_changed) =
+                        if history.changed_is_ours {
+                            (
+                                [changed_commit, unchanged_commit],
+                                [&changed_entry, &unchanged_entry],
+                                true,
+                            )
+                        } else {
+                            (
+                                [unchanged_commit, changed_commit],
+                                [&unchanged_entry, &changed_entry],
+                                false,
+                            )
+                        };
+                    // Production.
+                    let merge = MergeMigration {
+                        sides: [
+                            MergeSide {
+                                commit: ours,
+                                migration: side_migration(ours_changed),
+                                protocol: None,
+                            },
+                            MergeSide {
+                                commit: theirs,
+                                migration: side_migration(!ours_changed),
+                                protocol: None,
+                            },
+                        ],
+                        merged: merged_identity,
+                        registered: &registered,
+                    };
+                    let tracked = |id: ObjectId| {
+                        instance_vc::tracked(&store, &commit_at(&store, id)).unwrap()
+                    };
+                    let (base_map, ours_map, theirs_map) =
+                        (tracked(base_commit), tracked(ours), tracked(theirs));
+                    let mut migrate = |version: Version, id: ObjectId, dataset: &DataSetObject| {
+                        merge.migrate(&store, version, id, dataset)
+                    };
+                    let mut load = |dataset: &DataSetObject| {
+                        let schema = if dataset.schema_id == trees[1] {
+                            tgt_p.clone()
+                        } else {
+                            src_p.clone()
+                        };
+                        Ok((schema, dataset.decode()?))
+                    };
+                    let mut validate = |_: &panproto_schema::Schema, _: &Instance| Ok(Vec::new());
+                    let mut to = ToMerged {
+                        schema_id: trees[1],
+                        schema: &tgt_p,
+                        migrate: &mut migrate,
+                    };
+                    let produced = instance_merge::merge_tracked_to(
+                        &base_map,
+                        &ours_map,
+                        &theirs_map,
+                        &mut load,
+                        &mut validate,
+                        &mut to,
+                    )
+                    .unwrap();
+                    let schema_of = |id: &ObjectId| {
+                        if *id == trees[1] {
+                            names[1].clone()
+                        } else {
+                            names[0].clone()
+                        }
+                    };
+                    let found_merged: BTreeMap<String, ModelMerged> = produced
+                        .merged
+                        .iter()
+                        .map(|(key, entry)| {
+                            let entry = match entry {
+                                MergedEntry::Kept(id) => ModelMerged::Kept(id.to_string()),
+                                MergedEntry::Merged {
+                                    schema_id,
+                                    instance,
+                                } => ModelMerged::New(
+                                    schema_of(schema_id),
+                                    instance_to_reference(instance),
+                                ),
+                            };
+                            (key.clone(), entry)
+                        })
+                        .collect();
+                    let found_conflicts: Vec<ModelConflict> = produced
+                        .conflicts
+                        .iter()
+                        .map(conflict_to_reference)
+                        .collect();
+                    // The reference, over the history as the model states it.
+                    let link = history.link.then(|| stored.to_string());
+                    let changed_chain = vec![
+                        ChainCommit {
+                            name: changed_commit.to_string(),
+                            schema: names[1].clone(),
+                            migration: link,
+                        },
+                        ChainCommit {
+                            name: base_commit.to_string(),
+                            schema: names[0].clone(),
+                            migration: None,
+                        },
+                    ];
+                    let unchanged_chain = vec![
+                        ChainCommit {
+                            name: unchanged_commit.to_string(),
+                            schema: names[0].clone(),
+                            migration: None,
+                        },
+                        changed_chain[1].clone(),
+                    ];
+                    let migrations = BTreeMap::from([(
+                        stored.to_string(),
+                        (names[0].clone(), names[1].clone()),
+                    )]);
+                    let side_name = (names[0] != names[1]).then(|| stored.to_string());
+                    let changed_side = PathSide {
+                        chain: &changed_chain,
+                        migration: None,
+                    };
+                    let unchanged_side = PathSide {
+                        chain: &unchanged_chain,
+                        migration: side_name.as_deref(),
+                    };
+                    let sides = if ours_changed {
+                        [changed_side, unchanged_side]
+                    } else {
+                        [unchanged_side, changed_side]
+                    };
+                    let mut model_migrate =
+                        |version: ModelVersion,
+                         entry: &ModelEntry|
+                         -> Result<ModelInstance, ModelMigrationRefusal> {
+                            let path =
+                                merge_path(version, &entry.schema, sides, &migrations, &names[1])
+                                    .map_err(ModelMigrationRefusal::Path)?;
+                            let mut instance = entry.instance.clone();
+                            for step in path {
+                                instance = reference_get((src, tgt, &migration), &step, &instance)?;
+                            }
+                            Ok(instance)
+                        };
+                    let one =
+                        |entry: &ModelEntry| BTreeMap::from([("k".to_owned(), entry.clone())]);
+                    let (expected_merged, expected_conflicts) = model_merge_tracked_to(
+                        &one(&base_entry),
+                        &one(ours_entry),
+                        &one(theirs_entry),
+                        (&names[1], &mut model_migrate),
+                    )
+                    .unwrap();
+                    let expected_merged: BTreeMap<String, ModelMerged> = expected_merged
+                        .into_iter()
+                        .map(|(key, entry)| {
+                            let entry = match entry {
+                                ModelMerged::New(schema, instance) => {
+                                    ModelMerged::New(schema, normalized_instance(&instance))
+                                }
+                                kept @ ModelMerged::Kept(_) => kept,
+                            };
+                            (key, entry)
+                        })
+                        .collect();
+                    assert_eq!(
+                        (&found_merged, &found_conflicts),
+                        (&expected_merged, &expected_conflicts),
+                        "{history:?} {shape:?} base {base:?} changed {changed:?} unchanged {unchanged:?}"
+                    );
+                    counts.cases += 1;
+                    let kept = changed_id == unchanged_id
+                        || unchanged_id == base_id
+                        || changed_id == base_id;
+                    let migrated = names[*changed_schema] != names[0] && !kept;
+                    counts.migrated += usize::from(migrated);
+                    for conflict in &found_conflicts {
+                        match conflict {
+                            ModelConflict::Migration(_, _, refusal) => {
+                                assert!(migrated, "a migration conflict where none migrates");
+                                counts.migration_conflicts += 1;
+                                match refusal {
+                                    ModelMigrationRefusal::Path(PathRefusal::MissingLink(_)) => {
+                                        counts.missing_links += 1;
+                                    }
+                                    ModelMigrationRefusal::GetRefused(_) => {
+                                        counts.refused_gets += 1
+                                    }
+                                    other => panic!("an unexpected refusal: {other:?}"),
+                                }
+                            }
+                            ModelConflict::Tracking(_, ModelTrackingConflict::SchemaDiffers) => {
+                                panic!("a migrating merge reported different schemas");
+                            }
+                            _ => {}
+                        }
+                    }
+                    if migrated && found_conflicts.is_empty() {
+                        assert!(
+                            matches!(found_merged.get("k"), Some(ModelMerged::New(schema, _)) if *schema == names[1]),
+                            "a migrated merge is recorded under the merged schema"
+                        );
+                    }
+                    counts.clean += usize::from(found_conflicts.is_empty());
+                    counts.conflicts += found_conflicts.len();
+                }
+            }
+        }
+    }
+
+    /// The number of injective vertex migrations between two two-vertex
+    /// schemas: the nine vertex maps less the four that contract.
+    fn injective_count() -> usize {
+        let all = migrations_count(
+            &MigrationSizes {
+                src_vertices: 2,
+                tgt_vertices: 2,
+                src_edges: 0,
+                tgt_edges: 0,
+                src_hyper_labels: Vec::new(),
+                tgt_hyper_labels: Vec::new(),
+            },
+            MigrationScope::VERTICES,
+        );
+        usize::try_from(all - 4).unwrap()
+    }
+
+    #[test]
+    fn every_history_of_the_merge_migration_scope_merges_as_the_reference_merges() {
+        let schemas = panproto_reference::enumerate::lenses::schemas();
+        let n = schemas.len();
+        // Graphs: every source schema.
+        let mut graphs = MergeMigrationCounts::default();
+        let all: Vec<usize> = (0..n).collect();
+        for history in histories(&all) {
+            run_history(history, ScopeShape::Graph, None, &mut graphs);
+        }
+        // Trees: the edgeless source schema, so that the tree lens keeps
+        // every tree's shape.
+        let edgeless = schemas.iter().position(|s| s.edges.is_empty()).unwrap();
+        let mut trees_counts = MergeMigrationCounts::default();
+        for history in histories(&[edgeless]) {
+            run_history(history, ScopeShape::Tree, None, &mut trees_counts);
+        }
+        println!("graph merge migrations: {graphs:?}");
+        println!("tree merge migrations: {trees_counts:?}");
+        // Each history: three base instances, the changed side's three
+        // instances of the new schema and three of the old (stale), and three
+        // unchanged instances; a graph has at most one node at one of two
+        // vertices, and a sequence holds at most one one-node tree.
+        let per_history = 3 * 6 * 3;
+        let histories_over = |sources: usize| sources * n * injective_count() * 2 * 2;
+        // A case migrates when the changed side records an instance of a new
+        // schema (the source and target differ) and the unchanged side's
+        // instance is not the base's: 3 * (9 - 3) per history.
+        let migrating_histories =
+            |sources: usize, same: usize| (sources * n - same) * injective_count() * 2 * 2;
+        assert_eq!(graphs.cases, histories_over(n) * per_history);
+        assert_eq!(graphs.cases, 27_000);
+        assert_eq!(graphs.migrated, migrating_histories(n, n) * 18);
+        // Graph get along a migration that sends no two vertices to one is
+        // total; the base's path through our changed commit breaks exactly
+        // when its link is not recorded, once per migrating case of those
+        // histories.
+        assert_eq!(graphs.refused_gets, 0);
+        assert_eq!(graphs.missing_links, migrating_histories(n, n) / 4 * 18);
+        assert_eq!(graphs.migration_conflicts, graphs.missing_links);
+        assert_eq!(trees_counts.cases, histories_over(1) * per_history);
+        assert_eq!(trees_counts.migrated, migrating_histories(1, 1) * 18);
+        assert_eq!(
+            [
+                graphs.clean,
+                graphs.conflicts,
+                trees_counts.missing_links,
+                trees_counts.refused_gets,
+                trees_counts.clean,
+                trees_counts.conflicts,
+            ],
+            MERGE_MIGRATION_OUTCOMES
+        );
+    }
+
+    /// Graph clean cases and conflicts, tree missing links, refused gets,
+    /// clean cases and conflicts.
+    const MERGE_MIGRATION_OUTCOMES: [usize; 6] = [19_200, 7_800, 360, 672, 3_432, 2_136];
+
+    // -- A stale instance migrated along first-parent history.
+
+    /// The counts of a run over the stale migration scope.
+    #[derive(Debug, Default, PartialEq, Eq)]
+    struct StaleCounts {
+        cases: usize,
+        steps: usize,
+        get_put: usize,
+    }
+
+    /// Migrate every graph over the first schema of a chain of three commits
+    /// to the last commit's schema along the history the chain records, and
+    /// back, against the composite of the reference graph lenses.
+    fn run_stale_chain(
+        [a, b, c]: [usize; 3],
+        [f, g]: [usize; 2],
+        sources: Option<&[reference_model::Graph]>,
+        counts: &mut StaleCounts,
+    ) {
+        let schemas = panproto_reference::enumerate::lenses::schemas();
+        let refs = [&schemas[a], &schemas[b], &schemas[c]];
+        let steps = [
+            injective_migrations(refs[0], refs[1])[f].clone(),
+            injective_migrations(refs[1], refs[2])[g].clone(),
+        ];
+        let prods = refs.map(production_schema);
+        let mut store = MemStore::new();
+        let trees = [0, 1, 2].map(|i| store_schema_as_tree(&mut store, prods[i].clone()).unwrap());
+        let stored = [0, 1].map(|i| {
+            store_migration(
+                &mut store,
+                &prods[i],
+                &prods[i + 1],
+                production_mapping(refs[i], &steps[i]),
+            )
+            .unwrap()
+        });
+        let names = [a, b, c].map(schema_name);
+        let identity = panproto_vcs::schema_identity(&store, &trees[0]).unwrap();
+        let lenses: Vec<_> = (0..2)
+            .map(|i| {
+                panproto_reference::restrict::compile(refs[i], refs[i + 1], &steps[i]).unwrap()
+            })
+            .collect();
+        let reference = |i: usize| {
+            RefGraphLens::new(
+                refs[i],
+                refs[i + 1],
+                &steps[i],
+                &lenses[i],
+                &BTreeMap::new(),
+                &NoValueLayer,
+            )
+            .unwrap()
+        };
+        let sources = sources.map_or_else(|| graphs_over(refs[0], 2, 1), <[_]>::to_vec);
+        for source in sources {
+            counts.cases += 1;
+            let data = store
+                .put(&Object::DataSet(
+                    DataSetObject::from_instance(
+                        trees[0],
+                        &Instance::Graph(graph_to_production(&source, false)),
+                        Some("k".to_owned()),
+                    )
+                    .unwrap(),
+                ))
+                .unwrap();
+            let root = commit(&mut store, trees[0], None, &[data], None, "root");
+            let first = commit(
+                &mut store,
+                trees[1],
+                Some(root),
+                &[],
+                Some(stored[0]),
+                "first",
+            );
+            let tip = commit(
+                &mut store,
+                trees[2],
+                Some(first),
+                &[],
+                Some(stored[1]),
+                "tip",
+            );
+            // Production: the path from the data set's schema, and the
+            // migration along it.
+            let path = migration_path(&store, tip, identity).unwrap();
+            let migrated = migrate_along(&mut store, data, &path, &mut |_| {
+                panic!("a graph step reads no protocol")
+            })
+            .unwrap();
+            // The reference: the path the model reads off the chain, and the
+            // composite of its gets.
+            let chain = vec![
+                ChainCommit {
+                    name: tip.to_string(),
+                    schema: names[2].clone(),
+                    migration: Some(stored[1].to_string()),
+                },
+                ChainCommit {
+                    name: first.to_string(),
+                    schema: names[1].clone(),
+                    migration: Some(stored[0].to_string()),
+                },
+                ChainCommit {
+                    name: root.to_string(),
+                    schema: names[0].clone(),
+                    migration: None,
+                },
+            ];
+            let migrations = BTreeMap::from([
+                (stored[0].to_string(), (names[0].clone(), names[1].clone())),
+                (stored[1].to_string(), (names[1].clone(), names[2].clone())),
+            ]);
+            let expected_path = model_migration_path(&chain, &migrations, &names[0]).unwrap();
+            assert_eq!(
+                path.iter().map(ToString::to_string).collect::<Vec<_>>(),
+                expected_path
+            );
+            let mut view = source.clone();
+            let mut complements = Vec::new();
+            for name in &expected_path {
+                let step = usize::from(*name == stored[1].to_string());
+                let (next, complement) = reference(step).get(&view).unwrap();
+                complements.push((step, complement));
+                view = next;
+            }
+            assert_eq!(
+                super::data_migration::stored_graph(&store, migrated.data_id),
+                view,
+                "{a} {b} {c} {f} {g} {source:?}"
+            );
+            assert_eq!(migrated.complement_ids.len(), expected_path.len());
+            // Back along the path in reverse, against each step's complement.
+            let mut back = migrated.data_id;
+            for complement in migrated.complement_ids.iter().rev() {
+                back = migrate_backward(
+                    &mut store,
+                    back,
+                    *complement,
+                    &panproto_schema::Protocol::default(),
+                )
+                .unwrap();
+            }
+            let mut restored = view;
+            for (step, complement) in complements.iter().rev() {
+                restored = reference(*step).put(&restored, complement).unwrap();
+            }
+            let back = super::data_migration::stored_graph(&store, back);
+            assert_eq!(back, restored);
+            counts.steps += expected_path.len();
+            counts.get_put += usize::from(back == source);
+        }
+    }
+
+    fn stale_scope() -> StaleCounts {
+        let n = panproto_reference::enumerate::lenses::schemas().len();
+        let mut counts = StaleCounts::default();
+        for a in 0..n {
+            for b in 0..n {
+                for c in 0..n {
+                    for f in 0..injective_count() {
+                        for g in 0..injective_count() {
+                            run_stale_chain([a, b, c], [f, g], None, &mut counts);
+                        }
+                    }
+                }
+            }
+        }
+        counts
+    }
+
+    #[test]
+    fn every_stale_graph_of_the_chain_scope_migrates_as_the_composite_of_the_reference_gets() {
+        let counts = stale_scope();
+        println!("stale migration scope: {counts:?}");
+        let schemas = panproto_reference::enumerate::lenses::schemas();
+        let n = schemas.len();
+        // Every graph over the first schema with at most two nodes and one
+        // edge: seven over the edgeless schema, twenty-five over each other.
+        let sources: usize = schemas
+            .iter()
+            .map(|schema| {
+                usize::try_from(panproto_reference::enumerate::graphs_count(
+                    2,
+                    0,
+                    1,
+                    schema.edges.len() as u64,
+                    1,
+                    2,
+                    1,
+                ))
+                .unwrap()
+            })
+            .sum();
+        let chains_per_source = n * n * injective_count() * injective_count();
+        assert_eq!(counts.cases, sources * chains_per_source);
+        // The path starts at the nearest commit of the first schema: the tip
+        // itself when its schema is the first (no step), and otherwise each
+        // link between two schemas that differ is a step. For a fixed first
+        // schema that sums, over the second and third, to 2 (n - 1)^2.
+        let steps_per_case_sum = 2 * (n - 1) * (n - 1) * injective_count() * injective_count();
+        assert_eq!(counts.steps, sources * steps_per_case_sum);
+        // Get along a migration sending no two vertices to one followed by
+        // put against its complement restores every source.
+        assert_eq!(counts.get_put, counts.cases);
+    }
+
+    // -- Merges, rebases and cherry-picks through a repository whose
+    // -- history changes the schema.
+
+    /// The instance repository's schema as a reference schema, and the
+    /// schema one branch moves to: the schema with a vertex `c` added, or
+    /// with `b` and its edge dropped, with the vertex migration between them.
+    fn schema_change(
+        schema: &carrier::CoverageSchema,
+        drop: bool,
+    ) -> (RefSchema, RefSchema, RefMigration) {
+        let mut old = RefSchema::default();
+        for vertex in &schema.vertices {
+            old = old.vertex(vertex, "object");
+        }
+        for edge in &schema.edges {
+            old = old.edge(&edge.src, &edge.tgt, &edge.kind, edge.name.as_deref());
+        }
+        let mut new = RefSchema::default().vertex("a", "object");
+        let mut migration = RefMigration::default();
+        migration.surviving_verts.insert("a".to_owned());
+        if drop {
+            return (old, new, migration);
+        }
+        new = old.clone().vertex("c", "object");
+        migration.surviving_verts.insert("b".to_owned());
+        (old, new, migration)
+    }
+
+    /// The production schema of a reference schema under the instance
+    /// repository's protocol.
+    fn repository_schema(schema: &RefSchema) -> panproto_schema::Schema {
+        let protocol = panproto_schema::Protocol {
+            name: "test".into(),
+            schema_theory: "ThGraph".into(),
+            instance_theory: "ThWType".into(),
+            obj_kinds: vec!["object".into()],
+            ..Default::default()
+        };
+        let mut builder = panproto_schema::SchemaBuilder::new(&protocol);
+        for vertex in schema.vertices.keys() {
+            builder = builder.vertex(vertex, "object", None).unwrap();
+        }
+        for edge in &schema.edges {
+            builder = builder
+                .edge(&edge.src, &edge.tgt, &edge.kind, edge.name.as_deref())
+                .unwrap();
+        }
+        builder.build().unwrap()
+    }
+
+    /// The operation a repository case runs.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum Operation {
+        /// Merge `feature` into `main`; the schema changes on ours (main)
+        /// or theirs (feature).
+        Merge { schema_on_ours: bool },
+        /// Rebase `feature`, which changes the data, onto `main`, which
+        /// changes the schema.
+        Rebase,
+        /// Cherry-pick `feature`'s commit onto `main`.
+        CherryPick,
+    }
+
+    /// The reference outcome of one repository case: the merged (or
+    /// replayed) instance of the key, or its conflicts.
+    fn reference_repository_case(
+        operation: Operation,
+        (old, new, migration): (&RefSchema, &RefSchema, &RefMigration),
+        [base, schema_side, data_side]: [&ModelInstance; 3],
+    ) -> Result<ModelInstance, Vec<ModelConflict>> {
+        let entry = |data: &str, schema: &str, instance: &ModelInstance| ModelEntry {
+            data: data.to_owned(),
+            schema: schema.to_owned(),
+            instance: instance.clone(),
+        };
+        let base_entry = entry("base", "old", base);
+        let schema_entry = entry("schema side", "new", schema_side);
+        let data_entry = entry("data side", "old", data_side);
+        let chain = |tip: &str, schema: &str, link: Option<&str>| {
+            vec![
+                ChainCommit {
+                    name: tip.to_owned(),
+                    schema: schema.to_owned(),
+                    migration: link.map(str::to_owned),
+                },
+                ChainCommit {
+                    name: "base".to_owned(),
+                    schema: "old".to_owned(),
+                    migration: None,
+                },
+                ChainCommit {
+                    name: "schema".to_owned(),
+                    schema: "old".to_owned(),
+                    migration: None,
+                },
+            ]
+        };
+        let schema_chain = chain("schema commit", "new", Some("m"));
+        let data_chain = chain("data commit", "old", None);
+        let schema_side_path = PathSide {
+            chain: &schema_chain,
+            migration: None,
+        };
+        let data_side_path = PathSide {
+            chain: &data_chain,
+            migration: Some("m"),
+        };
+        let migrations = BTreeMap::from([("m".to_owned(), ("old".to_owned(), "new".to_owned()))]);
+        let schema_on_ours = !matches!(
+            operation,
+            Operation::Merge {
+                schema_on_ours: false
+            }
+        );
+        let sides = if schema_on_ours {
+            [schema_side_path, data_side_path]
+        } else {
+            [data_side_path, schema_side_path]
+        };
+        let mut migrate = |version: ModelVersion,
+                           entry: &ModelEntry|
+         -> Result<ModelInstance, ModelMigrationRefusal> {
+            let path = merge_path(version, &entry.schema, sides, &migrations, "new")
+                .map_err(ModelMigrationRefusal::Path)?;
+            let mut instance = entry.instance.clone();
+            for step in path {
+                instance = reference_get((old, new, migration), &step, &instance)?;
+            }
+            Ok(instance)
+        };
+        let versions = if schema_on_ours {
+            [&base_entry, &schema_entry, &data_entry]
+        } else {
+            [&base_entry, &data_entry, &schema_entry]
+        };
+        let rebase = !matches!(operation, Operation::Merge { .. });
+        panproto_reference::pages::instance_version_control::migrate_and_combine(
+            rebase,
+            "g",
+            versions,
+            &mut migrate,
+        )
+        .unwrap()
+        .map(|instance| normalized_instance(&instance))
+    }
+
+    /// Production's outcome of one repository case.
+    fn production_repository_case(
+        operation: Operation,
+        new: &RefSchema,
+        [base, schema_side, data_side]: [&ModelInstance; 3],
+    ) -> Result<ModelInstance, Vec<ModelConflict>> {
+        let (_dir, mut repo, _) = instance_repository();
+        stage(&mut repo, "g", &instance_to_production(base));
+        let base_id = repo.commit("base", "test").unwrap();
+        panproto_vcs::refs::create_branch(repo.store_mut(), "feature", base_id).unwrap();
+        let change_schema = |repo: &mut Repository| {
+            repo.add(&repository_schema(new)).unwrap();
+            stage(repo, "g", &instance_to_production(schema_side));
+            repo.commit("schema side", "test").unwrap()
+        };
+        let change_data = |repo: &mut Repository| {
+            stage(repo, "g", &instance_to_production(data_side));
+            repo.commit("data side", "test").unwrap()
+        };
+        let schema_on_ours = !matches!(
+            operation,
+            Operation::Merge {
+                schema_on_ours: false
+            }
+        );
+        let (main_id, feature_id) = if schema_on_ours {
+            let main_id = change_schema(&mut repo);
+            panproto_vcs::refs::checkout_branch(repo.store_mut(), "feature").unwrap();
+            (main_id, change_data(&mut repo))
+        } else {
+            let main_id = change_data(&mut repo);
+            panproto_vcs::refs::checkout_branch(repo.store_mut(), "feature").unwrap();
+            (main_id, change_schema(&mut repo))
+        };
+        let conflicts = |found: &[InstanceConflict]| -> Vec<ModelConflict> {
+            found.iter().map(conflict_to_reference).collect()
+        };
+        match operation {
+            Operation::Merge { .. } => {
+                panproto_vcs::refs::checkout_branch(repo.store_mut(), "main").unwrap();
+                let result = repo.merge("feature", "test").unwrap();
+                if !result.instance_conflicts.is_empty() {
+                    return Err(conflicts(&result.instance_conflicts));
+                }
+            }
+            Operation::Rebase => match repo.rebase(main_id, "test") {
+                Ok(_) => {}
+                Err(VcsError::InstanceConflicts { conflicts: found }) => {
+                    return Err(conflicts(&found));
+                }
+                Err(other) => panic!("the rebase failed otherwise: {other:?}"),
+            },
+            Operation::CherryPick => {
+                panproto_vcs::refs::checkout_branch(repo.store_mut(), "main").unwrap();
+                match repo.cherry_pick(feature_id, "test") {
+                    Ok(_) => {}
+                    Err(VcsError::InstanceConflicts { conflicts: found }) => {
+                        return Err(conflicts(&found));
+                    }
+                    Err(other) => panic!("the cherry-pick failed otherwise: {other:?}"),
+                }
+            }
+        }
+        let committed = repo.committed_instance("HEAD", "g").unwrap();
+        assert!(
+            !committed.stale,
+            "the combined instance is of HEAD's schema"
+        );
+        Ok(instance_to_reference(&committed.instance))
+    }
+
+    /// Clean cases and conflicts of the merges, the rebases and the
+    /// cherry-picks of the repository scope.
+    const REPOSITORY_OUTCOMES: [usize; 6] = [12, 36, 6, 18, 6, 18];
+
+    #[test]
+    fn every_schema_changing_history_of_the_repository_scope_merges_rebases_and_cherry_picks_as_the_reference()
+     {
+        let (_dir, _repo, schema) = instance_repository();
+        let mut cases = [0usize; 3];
+        let mut outcomes = [0usize; 6];
+        // The schema merge refuses a branch that deletes a vertex the other
+        // keeps (the merge's migration from the other side is not total), so
+        // the branch that changes the schema adds a vertex.
+        {
+            let drop = false;
+            let (old, new, migration) = schema_change(&schema, drop);
+            let old_graphs: Vec<ModelInstance> = graphs_over(&old, 1, 0)
+                .into_iter()
+                .map(ModelInstance::Graph)
+                .collect();
+            let new_graphs: Vec<ModelInstance> = graphs_over(&new, 1, 0)
+                .into_iter()
+                .map(ModelInstance::Graph)
+                .collect();
+            for operation in [
+                Operation::Merge {
+                    schema_on_ours: true,
+                },
+                Operation::Merge {
+                    schema_on_ours: false,
+                },
+                Operation::Rebase,
+                Operation::CherryPick,
+            ] {
+                let slot = match operation {
+                    Operation::Merge { .. } => 0,
+                    Operation::Rebase => 1,
+                    Operation::CherryPick => 2,
+                };
+                for base in &old_graphs {
+                    for schema_side in &new_graphs {
+                        for data_side in old_graphs.iter().filter(|g| *g != base) {
+                            let versions = [base, schema_side, data_side];
+                            let expected = reference_repository_case(
+                                operation,
+                                (&old, &new, &migration),
+                                versions,
+                            );
+                            let found = production_repository_case(operation, &new, versions);
+                            assert_eq!(found, expected, "{operation:?} drop {drop}: {versions:?}");
+                            cases[slot] += 1;
+                            match found {
+                                Ok(_) => outcomes[2 * slot] += 1,
+                                Err(found) => outcomes[2 * slot + 1] += found.len(),
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        println!("repository scope outcomes: {outcomes:?}");
+        // Graphs of at most one node: three over the old schema and four over
+        // the one adding `c`; the data side records one of the two old graphs
+        // that are not the base's.
+        let per_history = 3 * 4 * 2;
+        assert_eq!(cases, [2 * per_history, per_history, per_history]);
+        assert_eq!(outcomes, REPOSITORY_OUTCOMES);
+    }
+
+    #[test]
+    fn a_stale_tracked_instance_migrates_along_first_parent_history_and_is_committed() {
+        let (_dir, mut repo, schema) = instance_repository();
+        let (old, added, add_c) = schema_change(&schema, false);
+        let third = RefSchema::default()
+            .vertex("a", "object")
+            .vertex("c", "object");
+        let mut drop_b = RefMigration::default();
+        drop_b.surviving_verts.insert("a".to_owned());
+        drop_b.surviving_verts.insert("c".to_owned());
+        let source = ModelInstance::Graph(
+            graphs_over(&old, 2, 0)
+                .into_iter()
+                .find(|graph| {
+                    graph.nodes.len() == 2 && graph.nodes[&0].anchor != graph.nodes[&1].anchor
+                })
+                .unwrap(),
+        );
+        stage(&mut repo, "g", &instance_to_production(&source));
+        repo.commit("data", "test").unwrap();
+        repo.add(&repository_schema(&added)).unwrap();
+        repo.commit("add c", "test").unwrap();
+        repo.add(&repository_schema(&third)).unwrap();
+        repo.commit("drop b", "test").unwrap();
+        assert_eq!(repo.stale_instances().unwrap(), vec!["g".to_owned()]);
+        assert!(repo.committed_instance("HEAD", "g").unwrap().stale);
+
+        let index = repo.migrate_tracked_instance("g").unwrap();
+        assert_eq!(index.staged_complements.len(), 2);
+        let staged = index.staged_complements.clone();
+        repo.commit("migrate g", "test").unwrap();
+        let head = head_commit(&repo);
+        assert_eq!(head.complement_ids, staged);
+        // Each complement names the migration of the commit it crossed, in
+        // path order: "add c", then "drop b".
+        let first_parent =
+            |commit: &CommitObject| match repo.store().get(&commit.parents[0]).unwrap() {
+                Object::Commit(parent) => parent,
+                other => panic!("a parent commit, not {}", other.type_name()),
+            };
+        let drop_commit = first_parent(&head);
+        let add_commit = first_parent(&drop_commit);
+        let named: Vec<Option<ObjectId>> = staged
+            .iter()
+            .map(|id| match repo.store().get(id).unwrap() {
+                Object::Complement(complement) => complement.migration(),
+                other => panic!("a complement, not {}", other.type_name()),
+            })
+            .collect();
+        assert_eq!(
+            named,
+            vec![add_commit.migration_id, drop_commit.migration_id]
+        );
+
+        // The committed instance is current, and is the composite of the
+        // reference gets.
+        let committed = repo.committed_instance("HEAD", "g").unwrap();
+        assert!(!committed.stale);
+        let expected = reference_get(
+            (&added, &third, &drop_b),
+            "drop b",
+            &reference_get((&old, &added, &add_c), "add c", &source).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(instance_to_reference(&committed.instance), expected);
+        assert_eq!(repo.stale_instances().unwrap(), Vec::<String>::new());
+
+        // A current instance migrates along the empty path: nothing is
+        // staged.
+        let index = repo.migrate_tracked_instance("g").unwrap();
+        assert!(index.staged_data.is_empty() && index.staged_complements.is_empty());
+
+        // Back along the complements in reverse restores the source.
+        let protocol = panproto_schema::Protocol::default();
+        let mut back = committed.data_id;
+        for complement in staged.iter().rev() {
+            back = migrate_backward(repo.store_mut(), back, *complement, &protocol).unwrap();
+        }
+        let Object::DataSet(restored) = repo.store().get(&back).unwrap() else {
+            panic!("a data set");
+        };
+        assert_eq!(instance_to_reference(&restored.decode().unwrap()), source);
+
+        // A key HEAD does not track is refused.
+        assert!(matches!(
+            repo.migrate_tracked_instance("absent"),
+            Err(VcsError::NotTracked { key }) if key == "absent"
+        ));
+    }
+
+    #[test]
+    fn a_missing_link_or_a_refused_get_refuses_a_stale_migration_with_its_conflict() {
+        // A commit that changes the schema and records no migration.
+        let (_dir, mut repo, schema) = instance_repository();
+        let (old, added, _) = schema_change(&schema, false);
+        stage(
+            &mut repo,
+            "g",
+            &instance_to_production(&ModelInstance::Graph(graphs_over(&old, 1, 0)[1].clone())),
+        );
+        repo.commit("data", "test").unwrap();
+        let head = head_commit(&repo);
+        let parent = panproto_vcs::store::resolve_head(repo.store())
+            .unwrap()
+            .unwrap();
+        let tree = store_schema_as_tree(repo.store_mut(), repository_schema(&added)).unwrap();
+        let unlinked = CommitObject::builder(tree, head.protocol.clone(), "test", "unlinked")
+            .timestamp(0)
+            .parents(vec![parent])
+            .build();
+        let unlinked = repo.store_mut().put(&Object::Commit(unlinked)).unwrap();
+        repo.store_mut()
+            .set_ref("refs/heads/main", unlinked)
+            .unwrap();
+        match repo.migrate_tracked_instance("g") {
+            Err(VcsError::Migration(conflict)) => assert_eq!(
+                *conflict,
+                MigrationConflict::MissingLink { commit: unlinked }
+            ),
+            other => panic!("a missing link was not refused: {other:?}"),
+        }
+        assert!(repo.read_index().unwrap().staged_data.is_empty());
+
+        // A tree whose root's vertex the migration drops: get refuses its
+        // record.
+        let schemas = panproto_reference::enumerate::lenses::schemas();
+        let edgeless = schemas.iter().find(|s| s.edges.is_empty()).unwrap();
+        let other = schemas.iter().find(|s| !s.edges.is_empty()).unwrap();
+        let drop_v0 = injective_migrations(edgeless, other)
+            .into_iter()
+            .find(|m| !m.survives("v0") && m.survives("v1"))
+            .unwrap();
+        let (src, tgt) = (production_schema(edgeless), production_schema(other));
+        let mut store = MemStore::new();
+        let src_tree = store_schema_as_tree(&mut store, src.clone()).unwrap();
+        let tgt_tree = store_schema_as_tree(&mut store, tgt.clone()).unwrap();
+        let stored = store_migration(
+            &mut store,
+            &src,
+            &tgt,
+            production_mapping(edgeless, &drop_v0),
+        )
+        .unwrap();
+        let tree = trees(&TreeScope {
+            nodes: 1,
+            anchors: &["v0"],
+            values: &[],
+            arc_names: &[],
+            hyper_edges: &[],
+            max_fans: 0,
+        })
+        .remove(0);
+        let (data, _) = data_set(
+            &mut store,
+            (src_tree, "source"),
+            &ModelInstance::Trees(vec![tree.clone(), tree]),
+        );
+        let root = commit(&mut store, src_tree, None, &[data], None, "root");
+        let tip = commit(&mut store, tgt_tree, Some(root), &[], Some(stored), "tip");
+        let identity = panproto_vcs::schema_identity(&store, &src_tree).unwrap();
+        let path = migration_path(&store, tip, identity).unwrap();
+        assert_eq!(path, vec![stored]);
+        match migrate_along(&mut store, data, &path, &mut |_| {
+            panic!("no protocol is read")
+        }) {
+            Err(VcsError::Migration(conflict)) => assert!(matches!(
+                *conflict,
+                MigrationConflict::OutsideGetDomain { data_id, record: Some(0), .. } if data_id == data
+            )),
+            other => panic!("a refused get was not refused: {other:?}"),
+        }
+        // The reference refuses the same record.
+        assert_eq!(
+            reference_get(
+                (edgeless, other, &drop_v0),
+                "drop v0",
+                &ModelInstance::Trees(vec![normalized(
+                    &trees(&TreeScope {
+                        nodes: 1,
+                        anchors: &["v0"],
+                        values: &[],
+                        arc_names: &[],
+                        hyper_edges: &[],
+                        max_fans: 0,
+                    })[0]
+                )]),
+            ),
+            Err(ModelMigrationRefusal::GetRefused(Some(0)))
+        );
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(64))]
+
+        #[test]
+        fn randomized_merge_migrations_agree_with_the_reference(
+            src in 0..5_usize,
+            tgt in 0..5_usize,
+            migration in 0..5_usize,
+            changed_is_ours in any::<bool>(),
+            link in any::<bool>(),
+            picks in prop::array::uniform4(any::<prop::sample::Index>()),
+        ) {
+            let schemas = panproto_reference::enumerate::lenses::schemas();
+            let old: Vec<ModelInstance> = graphs_over(&schemas[src], 3, 2)
+                .into_iter()
+                .map(ModelInstance::Graph)
+                .collect();
+            let new: Vec<ModelInstance> = graphs_over(&schemas[tgt], 3, 2)
+                .into_iter()
+                .map(ModelInstance::Graph)
+                .collect();
+            let pick = |from: &[ModelInstance], at: &prop::sample::Index| from[at.index(from.len())].clone();
+            let [base, old_changed, new_changed, unchanged] = [
+                pick(&old, &picks[0]),
+                pick(&old, &picks[1]),
+                pick(&new, &picks[2]),
+                pick(&old, &picks[3]),
+            ];
+            let mut counts = MergeMigrationCounts::default();
+            run_history(
+                History { src, tgt, migration, changed_is_ours, link },
+                ScopeShape::Graph,
+                Some([&base, &old_changed, &new_changed, &unchanged]),
+                &mut counts,
+            );
+            prop_assert!(counts.cases > 0);
+        }
+
+        #[test]
+        fn randomized_stale_graphs_migrate_as_the_composite_of_the_reference_gets(
+            schemas in prop::array::uniform3(0..5_usize),
+            steps in prop::array::uniform2(0..5_usize),
+            source in any::<prop::sample::Index>(),
+        ) {
+            let all = panproto_reference::enumerate::lenses::schemas();
+            let sources = graphs_over(&all[schemas[0]], 3, 2);
+            let source = sources[source.index(sources.len())].clone();
+            let mut counts = StaleCounts::default();
+            run_stale_chain(schemas, steps, Some(&[source]), &mut counts);
+            prop_assert_eq!(counts.get_put, 1);
+        }
     }
 }

@@ -153,6 +153,15 @@ fn replay_one<S: BuildHasher>(
     let replayed = crate::instance_merge::replay_commit_data(
         store,
         [&parent_commit, &tip_commit, &commit],
+        &crate::instance_merge::ReplayTarget {
+            tip: current_tip,
+            commit: commit_id,
+            tip_schema: &ours_schema,
+            commit_schema: &theirs_schema,
+            merged: &result.merged_schema,
+            from_tip: &result.migration_from_ours,
+            from_commit: &result.migration_from_theirs,
+        },
         &lifted_data_ids,
         registered,
     )?;

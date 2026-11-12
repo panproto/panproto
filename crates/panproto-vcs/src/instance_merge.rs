@@ -23,9 +23,12 @@
 //! instance to diff against ([`TrackingConflict::AddedOnBothSides`]); a
 //! key one side stops tracking and the other changes is
 //! [`TrackingConflict::RemovedAndChanged`]; base and sides of different
-//! shapes are [`TrackingConflict::ShapeDiffers`], and of different schemas
-//! [`TrackingConflict::SchemaDiffers`] (an instance is migrated before it is
-//! merged).
+//! shapes are [`TrackingConflict::ShapeDiffers`]. Base and sides recorded
+//! against different schemas are [`TrackingConflict::SchemaDiffers`] for
+//! [`merge_tracked`]; [`merge_tracked_to`] instead migrates each of the three
+//! to the merged schema ([`ToMerged`]) and merges the migrated instances, and
+//! a version that does not migrate is an [`InstanceConflict::Migration`]
+//! carrying the [`MigrationConflict`].
 //!
 //! For a sequence of trees the records the base holds are merged position by
 //! position. A record both sides keep is merged through the graph forms of
@@ -55,6 +58,7 @@ use panproto_inst::validation::{CheckKind, Diagnostic, Requirement};
 use panproto_inst::{GInstance, GraphDelta, TableDelta, ValidationReport, WInstance};
 use panproto_schema::{Protocol, Schema};
 
+use crate::data_mig::MigrationConflict;
 use crate::error::VcsError;
 use crate::hash::ObjectId;
 use crate::instance_vc::graph_form;
@@ -127,6 +131,17 @@ pub enum RecordConflict {
     },
 }
 
+/// One of the three versions of a key a merge combines.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Version {
+    /// The merge base's (a replayed commit's first parent's).
+    Base,
+    /// Ours (the tip's, for a replay).
+    Ours,
+    /// Theirs (the replayed commit's).
+    Theirs,
+}
+
 /// A conflict of an instance merge.
 #[derive(Clone, Debug, PartialEq)]
 pub enum InstanceConflict {
@@ -136,6 +151,15 @@ pub enum InstanceConflict {
         key: String,
         /// The conflict.
         conflict: TrackingConflict,
+    },
+    /// One version of the key does not migrate to the merged schema.
+    Migration {
+        /// The key.
+        key: String,
+        /// The version.
+        version: Version,
+        /// Why it does not migrate.
+        conflict: MigrationConflict,
     },
     /// The two sides' deltas of one record are not independent.
     Edit {
@@ -187,6 +211,7 @@ impl InstanceConflict {
     pub fn key(&self) -> &str {
         match self {
             Self::Tracking { key, .. }
+            | Self::Migration { key, .. }
             | Self::Edit { key, .. }
             | Self::Record { key, .. }
             | Self::KeyConstraint { key, .. }
@@ -198,7 +223,7 @@ impl InstanceConflict {
     #[must_use]
     pub const fn record(&self) -> Option<usize> {
         match self {
-            Self::Tracking { .. } => None,
+            Self::Tracking { .. } | Self::Migration { .. } => None,
             Self::Record { record, .. } => Some(*record),
             Self::Edit { record, .. }
             | Self::KeyConstraint { record, .. }
@@ -209,10 +234,11 @@ impl InstanceConflict {
     const fn rank(&self) -> u8 {
         match self {
             Self::Tracking { .. } => 0,
-            Self::Edit { .. } => 1,
-            Self::Record { .. } => 2,
-            Self::KeyConstraint { .. } => 3,
-            Self::Validation { .. } => 4,
+            Self::Migration { .. } => 1,
+            Self::Edit { .. } => 2,
+            Self::Record { .. } => 3,
+            Self::KeyConstraint { .. } => 4,
+            Self::Validation { .. } => 5,
         }
     }
 
@@ -229,6 +255,9 @@ impl InstanceConflict {
                 (Self::Tracking { conflict: a, .. }, Self::Tracking { conflict: b, .. }) => {
                     a.cmp(b)
                 }
+                (Self::Migration { version: a, .. }, Self::Migration { version: b, .. }) => {
+                    a.cmp(b)
+                }
                 (Self::Edit { conflict: a, .. }, Self::Edit { conflict: b, .. }) => a.cmp(b),
                 (Self::Record { conflict: a, .. }, Self::Record { conflict: b, .. }) => a.cmp(b),
                 _ => Ordering::Equal,
@@ -242,7 +271,8 @@ pub enum MergedEntry {
     /// A data set one of the commits already tracks under the key.
     Kept(ObjectId),
     /// A new instance, the merge of both sides' deltas, of the schema the
-    /// base and both sides conform to.
+    /// base and both sides conform to, or of the merged schema when they were
+    /// migrated to it.
     Merged {
         /// The schema.
         schema_id: ObjectId,
@@ -285,6 +315,36 @@ pub type LoadDataSet<'a> = dyn FnMut(&DataSetObject) -> Result<(Schema, Instance
 pub type ValidateInstance<'a> =
     dyn FnMut(&Schema, &Instance) -> Result<Vec<(usize, ValidationReport)>, VcsError> + 'a;
 
+/// Migrates the data set a version of a key holds to the merged schema: its
+/// instance there, or why it does not migrate.
+pub type MigrateEntry<'a> = dyn FnMut(
+        Version,
+        ObjectId,
+        &DataSetObject,
+    ) -> Result<Result<Instance, MigrationConflict>, VcsError>
+    + 'a;
+
+/// The merged schema a merge migrates the versions of a key to when they
+/// were recorded against different schemas.
+pub struct ToMerged<'s, 'm> {
+    /// The identifier merged instances are recorded under: the merged
+    /// schema's schema tree.
+    pub schema_id: ObjectId,
+    /// The merged schema.
+    pub schema: &'s Schema,
+    /// The migration of each version (for instance
+    /// [`MergeMigration::migrate`](crate::data_mig::MergeMigration::migrate)).
+    pub migrate: &'s mut MigrateEntry<'m>,
+}
+
+impl std::fmt::Debug for ToMerged<'_, '_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ToMerged")
+            .field("schema_id", &self.schema_id)
+            .finish_non_exhaustive()
+    }
+}
+
 /// What a key's three-way merge gives before validation.
 enum KeyOutcome {
     Kept(Option<ObjectId>),
@@ -314,7 +374,35 @@ pub fn merge_tracked(
     load: &mut LoadDataSet<'_>,
     validate: &mut ValidateInstance<'_>,
 ) -> Result<TrackedMerge, VcsError> {
-    combine_tracked(Combine::Merge, [base, ours, theirs], load, validate)
+    combine_tracked(Combine::Merge, [base, ours, theirs], load, validate, None)
+}
+
+/// Merge as [`merge_tracked`] does, except that a key whose three versions
+/// are recorded against different schemas is not
+/// [`TrackingConflict::SchemaDiffers`]: each version is migrated to the
+/// merged schema by `to.migrate`, in the order base, ours, theirs, and the
+/// migrated instances merge as three instances of the merged schema do. A
+/// version that does not migrate is an [`InstanceConflict::Migration`]
+/// carrying its [`MigrationConflict`], and the key is then not merged.
+///
+/// # Errors
+///
+/// As [`merge_tracked`], and the errors of `to.migrate`.
+pub fn merge_tracked_to(
+    base: &Tracked,
+    ours: &Tracked,
+    theirs: &Tracked,
+    load: &mut LoadDataSet<'_>,
+    validate: &mut ValidateInstance<'_>,
+    to: &mut ToMerged<'_, '_>,
+) -> Result<TrackedMerge, VcsError> {
+    combine_tracked(
+        Combine::Merge,
+        [base, ours, theirs],
+        load,
+        validate,
+        Some(to),
+    )
 }
 
 /// How two deltas from one instance are combined.
@@ -353,6 +441,35 @@ pub fn replay_tracked(
     load: &mut LoadDataSet<'_>,
     validate: &mut ValidateInstance<'_>,
 ) -> Result<TrackedMerge, VcsError> {
+    replay_tracked_with(parent, tip, replayed, load, validate, None)
+}
+
+/// Replay as [`replay_tracked`] does, migrating the three versions of a
+/// changed key recorded against different schemas to the replayed schema as
+/// [`merge_tracked_to`] does.
+///
+/// # Errors
+///
+/// As [`merge_tracked_to`].
+pub fn replay_tracked_to(
+    parent: &Tracked,
+    tip: &Tracked,
+    replayed: &Tracked,
+    load: &mut LoadDataSet<'_>,
+    validate: &mut ValidateInstance<'_>,
+    to: &mut ToMerged<'_, '_>,
+) -> Result<TrackedMerge, VcsError> {
+    replay_tracked_with(parent, tip, replayed, load, validate, Some(to))
+}
+
+fn replay_tracked_with(
+    parent: &Tracked,
+    tip: &Tracked,
+    replayed: &Tracked,
+    load: &mut LoadDataSet<'_>,
+    validate: &mut ValidateInstance<'_>,
+    to: Option<&mut ToMerged<'_, '_>>,
+) -> Result<TrackedMerge, VcsError> {
     let changed: BTreeSet<&String> = parent
         .keys()
         .chain(replayed.keys())
@@ -369,6 +486,7 @@ pub fn replay_tracked(
         [&only(parent), &only(tip), &only(replayed)],
         load,
         validate,
+        to,
     )
 }
 
@@ -377,6 +495,7 @@ fn combine_tracked(
     [base, ours, theirs]: [&Tracked; 3],
     load: &mut LoadDataSet<'_>,
     validate: &mut ValidateInstance<'_>,
+    mut to: Option<&mut ToMerged<'_, '_>>,
 ) -> Result<TrackedMerge, VcsError> {
     let keys: BTreeSet<&String> = base
         .keys()
@@ -386,7 +505,7 @@ fn combine_tracked(
     let mut out = TrackedMerge::default();
     for key in keys {
         let entries = [base.get(key), ours.get(key), theirs.get(key)];
-        let (outcome, schema) = merge_key(mode, key, entries, load)?;
+        let (outcome, schema) = merge_key(mode, key, entries, load, to.as_deref_mut())?;
         let conflicts = match outcome {
             KeyOutcome::Kept(None) => Vec::new(),
             KeyOutcome::Kept(Some(id)) => {
@@ -486,6 +605,7 @@ fn merge_key(
     key: &str,
     [base, ours, theirs]: [Entry<'_>; 3],
     load: &mut LoadDataSet<'_>,
+    to: Option<&mut ToMerged<'_, '_>>,
 ) -> Result<(KeyOutcome, Option<(ObjectId, Schema)>), VcsError> {
     let kept = |entry: Entry<'_>| KeyOutcome::Kept(entry.map(|(id, _)| *id));
     if same(ours, theirs) || same(theirs, base) {
@@ -526,6 +646,9 @@ fn merge_key(
     }
     let schemas = [base, ours, theirs].map(|(_, data)| data.schema_id);
     if schemas[0] != schemas[1] || schemas[0] != schemas[2] {
+        if let Some(to) = to {
+            return migrate_and_combine(mode, key, [base, ours, theirs], to);
+        }
         let conflict = TrackingConflict::SchemaDiffers {
             base: schemas[0],
             ours: schemas[1],
@@ -545,6 +668,37 @@ fn merge_key(
         &theirs_instance,
     )?;
     Ok((outcome_of(outcome), Some((schemas[0], schema))))
+}
+
+/// Migrate the three versions of a key to the merged schema and combine
+/// them, or report every version that does not migrate.
+fn migrate_and_combine(
+    mode: Combine,
+    key: &str,
+    entries: [&(ObjectId, DataSetObject); 3],
+    to: &mut ToMerged<'_, '_>,
+) -> Result<(KeyOutcome, Option<(ObjectId, Schema)>), VcsError> {
+    let mut migrated = Vec::with_capacity(3);
+    let mut conflicts = Vec::new();
+    for (version, (id, dataset)) in [Version::Base, Version::Ours, Version::Theirs]
+        .into_iter()
+        .zip(entries)
+    {
+        match (to.migrate)(version, *id, dataset)? {
+            Ok(instance) => migrated.push(instance),
+            Err(conflict) => conflicts.push(InstanceConflict::Migration {
+                key: key.to_owned(),
+                version,
+                conflict,
+            }),
+        }
+    }
+    if !conflicts.is_empty() {
+        return Ok((KeyOutcome::Conflicted(conflicts), None));
+    }
+    let [base, ours, theirs] = [&migrated[0], &migrated[1], &migrated[2]];
+    let outcome = combine_instances(mode, key, to.schema, base, ours, theirs)?;
+    Ok((outcome_of(outcome), Some((to.schema_id, to.schema.clone()))))
 }
 
 fn outcome_of(result: Result<Instance, Vec<InstanceConflict>>) -> KeyOutcome {
@@ -876,25 +1030,51 @@ pub struct ReplayedData {
     pub untracked: Vec<String>,
 }
 
+/// The replayed schema of a replay and the replay's migrations to it.
+#[derive(Clone, Copy, Debug)]
+pub struct ReplayTarget<'a> {
+    /// The tip's identifier.
+    pub tip: ObjectId,
+    /// The replayed commit's identifier.
+    pub commit: ObjectId,
+    /// The tip's schema.
+    pub tip_schema: &'a Schema,
+    /// The replayed commit's schema.
+    pub commit_schema: &'a Schema,
+    /// The replayed schema: the merge of the tip's and the commit's
+    /// schemas over the commit's first parent's.
+    pub merged: &'a Schema,
+    /// The migration from the tip's schema to the replayed schema.
+    pub from_tip: &'a panproto_mig::Migration,
+    /// The migration from the commit's schema to the replayed schema.
+    pub from_commit: &'a panproto_mig::Migration,
+}
+
 /// Replay onto `tip` the instances `commit` changes from its first parent
-/// `parent` ([`replay_tracked`]), and store what the replayed commit
+/// `parent` ([`replay_tracked_to`]), and store what the replayed commit
 /// records.
 ///
 /// `lifted` lists, aligned with `commit.data_ids`, each of the commit's data
 /// sets as lifted to the replayed commit's schema; a data set the replay
 /// takes from the commit is recorded in its lifted form. A merged instance
-/// is stored under the schema its three versions share. Merged instances
-/// are validated under the protocol their schema names, resolved through
-/// the commit's protocol object, then `registered`, then the registry.
+/// is stored under the schema its three versions share, or, when they were
+/// recorded against different schemas and each migrated to the replayed
+/// schema (along first-parent history and `target`'s migrations,
+/// [`MergeMigration`](crate::data_mig::MergeMigration) with the tip as our
+/// side and the commit as theirs), under the replayed schema's schema tree.
+/// Merged instances are validated under the protocol their schema names,
+/// resolved through the commit's protocol object, then `registered`, then
+/// the registry.
 ///
 /// # Errors
 ///
 /// [`VcsError::InstanceConflicts`] with every conflict when the replay
-/// conflicts, and the errors of [`replay_tracked`], of tracking and of the
-/// store.
+/// conflicts, and the errors of [`replay_tracked_to`], of tracking and of
+/// the store.
 pub fn replay_commit_data<S: std::hash::BuildHasher>(
     store: &mut dyn crate::store::Store,
     [parent, tip, commit]: [&crate::object::CommitObject; 3],
+    target: &ReplayTarget<'_>,
     lifted: &[ObjectId],
     registered: &std::collections::HashMap<String, Protocol, S>,
 ) -> Result<ReplayedData, VcsError> {
@@ -902,8 +1082,52 @@ pub fn replay_commit_data<S: std::hash::BuildHasher>(
     let tip_tracked = crate::instance_vc::tracked(store, tip)?;
     let replayed = crate::instance_vc::tracked(store, commit)?;
     let stored = crate::data_mig::commit_protocol(store, commit)?;
+    let merged_identity = crate::hash::hash_schema(target.merged)?;
+    let merged_tree = crate::tree::store_schema_as_tree(store, target.merged.clone())?;
+    let mut side = |id: ObjectId,
+                    side_commit: &crate::object::CommitObject,
+                    schema: &Schema,
+                    mapping: &panproto_mig::Migration|
+     -> Result<crate::data_mig::MergeSide, VcsError> {
+        let migration = if crate::hash::hash_schema(schema)? == merged_identity {
+            None
+        } else {
+            Some(crate::data_mig::store_migration(
+                store,
+                schema,
+                target.merged,
+                mapping.clone(),
+            )?)
+        };
+        Ok(crate::data_mig::MergeSide {
+            commit: id,
+            migration,
+            protocol: crate::data_mig::commit_protocol(store, side_commit)?,
+        })
+    };
+    let sides = [
+        side(target.tip, tip, target.tip_schema, target.from_tip)?,
+        side(
+            target.commit,
+            commit,
+            target.commit_schema,
+            target.from_commit,
+        )?,
+    ];
     let replay = {
         let view: &dyn crate::store::Store = &*store;
+        let migration = crate::data_mig::MergeMigration {
+            sides,
+            merged: merged_identity,
+            registered,
+        };
+        let mut migrate =
+            |version, id, dataset: &DataSetObject| migration.migrate(view, version, id, dataset);
+        let mut to = ToMerged {
+            schema_id: merged_tree,
+            schema: target.merged,
+            migrate: &mut migrate,
+        };
         let coproduct = crate::tree::project_coproduct_protocol();
         let mut load = |dataset: &DataSetObject| {
             Ok((
@@ -921,12 +1145,13 @@ pub fn replay_commit_data<S: std::hash::BuildHasher>(
             )?;
             Ok(instance_failures(schema, &protocol, instance))
         };
-        replay_tracked(
+        replay_tracked_to(
             &parent_tracked,
             &tip_tracked,
             &replayed,
             &mut load,
             &mut validate,
+            &mut to,
         )?
     };
     if !replay.conflicts.is_empty() {

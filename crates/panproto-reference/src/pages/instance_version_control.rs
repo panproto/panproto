@@ -741,11 +741,36 @@ pub enum RecordConflict {
     NotATree,
 }
 
+/// One of the three versions of a key a merge combines.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Version {
+    /// The merge base's (a replayed commit's first parent's).
+    Base,
+    /// Ours (the tip's, for a replay).
+    Ours,
+    /// Theirs (the replayed commit's).
+    Theirs,
+}
+
+/// Why a version of a key does not migrate to the merged schema.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum MigrationRefusal {
+    /// The path does not exist ([`migration_path`]).
+    Path(PathRefusal),
+    /// The named migration does not compile.
+    DoesNotCompile(String),
+    /// Get along a migration of the path refuses the instance, at the given
+    /// record of a sequence of trees.
+    GetRefused(Option<usize>),
+}
+
 /// A conflict of an instance merge.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Conflict {
     /// Over a key.
     Tracking(String, TrackingConflict),
+    /// A version of the key does not migrate to the merged schema.
+    Migration(String, Version, MigrationRefusal),
     /// Between two graph deltas: of a graph, or of a tree record's graph
     /// form.
     GraphEdit(String, Option<usize>, crate::edit::EditConflict),
@@ -783,6 +808,72 @@ pub fn merge_tracked(
     base: &BTreeMap<String, Entry>,
     ours: &BTreeMap<String, Entry>,
     theirs: &BTreeMap<String, Entry>,
+) -> Result<(BTreeMap<String, Merged>, Vec<Conflict>), Refusal> {
+    merge_tracked_with(base, ours, theirs, None)
+}
+
+/// A merge's migration of each version of a key to the merged schema: the
+/// merged schema's name, and the instance a version's entry migrates to, or
+/// why it does not.
+pub type ToMerged<'a> = (
+    &'a str,
+    &'a mut dyn FnMut(Version, &Entry) -> Result<Instance, MigrationRefusal>,
+);
+
+/// The three-way merge of [`merge_tracked`], except that three versions of
+/// a key under schemas that are not all one are not
+/// [`TrackingConflict::SchemaDiffers`]: they combine by
+/// [`migrate_and_combine`] into an instance of the merged schema.
+///
+/// # Errors
+///
+/// As [`merge_tracked`].
+pub fn merge_tracked_to(
+    base: &BTreeMap<String, Entry>,
+    ours: &BTreeMap<String, Entry>,
+    theirs: &BTreeMap<String, Entry>,
+    to: ToMerged<'_>,
+) -> Result<(BTreeMap<String, Merged>, Vec<Conflict>), Refusal> {
+    merge_tracked_with(base, ours, theirs, Some(to))
+}
+
+/// Combine three versions of a key recorded against different schemas:
+/// each migrates to the merged schema by `migrate`, base first, then ours,
+/// then theirs; every version that does not is one [`Conflict::Migration`],
+/// and otherwise the migrated instances merge by [`merge_instances`] (by
+/// [`rebase_instances`] when `rebase`).
+///
+/// # Errors
+///
+/// As [`merge_instances`].
+pub fn migrate_and_combine(
+    rebase: bool,
+    key: &str,
+    versions: [&Entry; 3],
+    migrate: &mut dyn FnMut(Version, &Entry) -> Result<Instance, MigrationRefusal>,
+) -> Result<Result<Instance, Vec<Conflict>>, Refusal> {
+    let mut migrated = Vec::new();
+    let mut refused = Vec::new();
+    for (version, entry) in [Version::Base, Version::Ours, Version::Theirs]
+        .into_iter()
+        .zip(versions)
+    {
+        match migrate(version, entry) {
+            Ok(instance) => migrated.push(instance),
+            Err(refusal) => refused.push(Conflict::Migration(key.to_owned(), version, refusal)),
+        }
+    }
+    if !refused.is_empty() {
+        return Ok(Err(refused));
+    }
+    combine(rebase, key, &migrated[0], &migrated[1], &migrated[2])
+}
+
+fn merge_tracked_with(
+    base: &BTreeMap<String, Entry>,
+    ours: &BTreeMap<String, Entry>,
+    theirs: &BTreeMap<String, Entry>,
+    mut to: Option<ToMerged<'_>>,
 ) -> Result<(BTreeMap<String, Merged>, Vec<Conflict>), Refusal> {
     let keys: BTreeSet<&String> = base
         .keys()
@@ -825,7 +916,20 @@ pub fn merge_tracked(
                 if shape(b) != shape(o) || shape(b) != shape(t) {
                     conflicts.push(tracking(TrackingConflict::ShapeDiffers));
                 } else if b.schema != o.schema || b.schema != t.schema {
-                    conflicts.push(tracking(TrackingConflict::SchemaDiffers));
+                    match to.as_mut() {
+                        None => conflicts.push(tracking(TrackingConflict::SchemaDiffers)),
+                        Some((merged_schema, migrate)) => {
+                            match migrate_and_combine(false, key, [b, o, t], &mut **migrate)? {
+                                Ok(instance) => {
+                                    merged.insert(
+                                        key.clone(),
+                                        Merged::New((*merged_schema).to_owned(), instance),
+                                    );
+                                }
+                                Err(found) => conflicts.extend(found),
+                            }
+                        }
+                    }
                 } else {
                     match merge_instances(key, &b.instance, &o.instance, &t.instance)? {
                         Ok(instance) => {
@@ -1028,4 +1132,124 @@ fn merge_tree_records(
         merged.extend(theirs[base.len()..].iter().cloned());
     }
     Ok(Ok(Instance::Trees(merged)))
+}
+
+/// A commit of a first-parent chain as a migration path reads it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChainCommit {
+    /// The commit's name.
+    pub name: String,
+    /// The identity of its schema.
+    pub schema: String,
+    /// The migration it records, by name.
+    pub migration: Option<String>,
+}
+
+/// Why first-parent history has no migration path.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum PathRefusal {
+    /// No commit of the chain has the schema.
+    NoPath,
+    /// The named commit changes its parent's schema and records no
+    /// migration.
+    MissingLink(String),
+    /// The named commit records a migration that does not run from its
+    /// parent's schema to its own.
+    LinkMismatch(String),
+}
+
+/// The migrations first-parent history records from `schema` to the schema
+/// of the chain's first commit, oldest first.
+///
+/// `chain` lists the commit, then its first parent, and so on to a root;
+/// `migrations` gives each stored migration's source and target schema
+/// identities by name. The path starts at the first commit of `chain` (the
+/// nearest) whose schema is `schema`. Walking from there towards the
+/// chain's first commit, a commit with its parent's schema adds nothing,
+/// and any other commit adds its migration, which must run from its
+/// parent's schema to its own.
+///
+/// # Errors
+///
+/// [`PathRefusal::NoPath`] when no commit of the chain has `schema`, and
+/// otherwise the refusal of the oldest link that fails:
+/// [`PathRefusal::MissingLink`] when it records no migration,
+/// [`PathRefusal::LinkMismatch`] when its migration (or a name `migrations`
+/// does not hold) does not run from its parent's schema to its own.
+pub fn migration_path(
+    chain: &[ChainCommit],
+    migrations: &BTreeMap<String, (String, String)>,
+    schema: &str,
+) -> Result<Vec<String>, PathRefusal> {
+    let Some(start) = chain.iter().position(|commit| commit.schema == schema) else {
+        return Err(PathRefusal::NoPath);
+    };
+    let mut path = Vec::new();
+    let mut index = start;
+    while index > 0 {
+        let parent = &chain[index];
+        let commit = &chain[index - 1];
+        index -= 1;
+        if commit.schema == parent.schema {
+            continue;
+        }
+        let Some(migration) = &commit.migration else {
+            return Err(PathRefusal::MissingLink(commit.name.clone()));
+        };
+        if migrations.get(migration) != Some(&(parent.schema.clone(), commit.schema.clone())) {
+            return Err(PathRefusal::LinkMismatch(commit.name.clone()));
+        }
+        path.push(migration.clone());
+    }
+    Ok(path)
+}
+
+/// One side of a merge as its migration path reads it: the first-parent
+/// chain of the side's commit, and the side's migration to the merged
+/// schema by name (none when the side's schema is the merged schema).
+#[derive(Clone, Copy, Debug)]
+pub struct PathSide<'a> {
+    /// The side commit's first-parent chain, the commit first.
+    pub chain: &'a [ChainCommit],
+    /// The migration from the side's schema to the merged schema.
+    pub migration: Option<&'a str>,
+}
+
+/// The migrations from `schema`, the schema of a data set `version` tracks,
+/// to the merged schema `merged`.
+///
+/// The merged schema itself has the empty path. Otherwise the path is the
+/// [`migration_path`] along a side's chain followed by the side's
+/// migration: for ours along our chain, for theirs along theirs, and for the
+/// base along ours when our chain holds a commit of `schema` and else along
+/// theirs.
+///
+/// # Errors
+///
+/// The refusal of [`migration_path`]; for the base, when neither chain
+/// holds a commit of `schema`, [`PathRefusal::NoPath`].
+pub fn merge_path(
+    version: Version,
+    schema: &str,
+    [ours, theirs]: [PathSide<'_>; 2],
+    migrations: &BTreeMap<String, (String, String)>,
+    merged: &str,
+) -> Result<Vec<String>, PathRefusal> {
+    if schema == merged {
+        return Ok(Vec::new());
+    }
+    let along = |side: PathSide<'_>| {
+        migration_path(side.chain, migrations, schema).map(|mut path| {
+            path.extend(side.migration.map(str::to_owned));
+            path
+        })
+    };
+    match version {
+        Version::Ours => along(ours),
+        Version::Theirs => along(theirs),
+        Version::Base => match along(ours) {
+            Err(PathRefusal::NoPath) => along(theirs),
+            found => found,
+        },
+    }
 }

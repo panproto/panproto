@@ -177,6 +177,57 @@ fn store_edit_log(
     Ok(())
 }
 
+/// Migrate stale tracked instances to HEAD's schema and stage them.
+///
+/// Each key in `keys`, or every key whose instance HEAD tracks under a
+/// schema other than HEAD's when `keys` is empty, is migrated along the
+/// migrations first-parent history records from its schema to HEAD's
+/// ([`vcs::Repository::migrate_tracked_instance`]); the migrated instance
+/// and the complement of each step are staged for the next commit.
+pub fn cmd_data_upgrade(keys: &[String], verbose: bool) -> Result<()> {
+    let mut repo = open_repo()?;
+    let stale = repo.stale_instances().into_diagnostic()?;
+    let keys = if keys.is_empty() {
+        stale.clone()
+    } else {
+        keys.to_vec()
+    };
+    if keys.is_empty() {
+        println!("No tracked instance is stale.");
+        return Ok(());
+    }
+    for key in &keys {
+        let before = repo
+            .read_index()
+            .into_diagnostic()?
+            .staged_complements
+            .len();
+        let index = repo
+            .migrate_tracked_instance(key)
+            .into_diagnostic()
+            .wrap_err_with(|| format!("cannot migrate the instance tracked under {key}"))?;
+        if !stale.contains(key) {
+            println!("{key}: already at HEAD's schema");
+            continue;
+        }
+        println!("{key}: migrated and staged");
+        if verbose {
+            if let Some(staged) = index
+                .staged_data
+                .iter()
+                .find(|data| data.source_path == Path::new(key))
+            {
+                println!("  data set {}", staged.data_id.short());
+            }
+            println!(
+                "  {} complement(s) staged",
+                index.staged_complements.len().saturating_sub(before)
+            );
+        }
+    }
+    Ok(())
+}
+
 /// Report data staleness: check which files might need migration.
 ///
 /// Loads JSON files from the data directory, compares the HEAD schema
