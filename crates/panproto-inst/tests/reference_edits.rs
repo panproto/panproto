@@ -3027,7 +3027,7 @@ fn production_table_conflict(conflict: &EditConflict) -> ConflictObs {
 }
 
 fn reference_table_conflict(conflict: &reference::TableConflict) -> ConflictObs {
-    let user = |user: &reference::TableUse| match user {
+    let project = |use_: &reference::TableUse| match use_ {
         reference::TableUse::Attr(key) => ElementObs::Attr(format!("{key:?}")),
         reference::TableUse::Elem(element) => reference_table_elem(element),
     };
@@ -3035,10 +3035,9 @@ fn reference_table_conflict(conflict: &reference::TableConflict) -> ConflictObs 
         reference::TableConflict::DeleteDelete { elem } => {
             ConflictObs::DeleteDelete(reference_table_elem(elem))
         }
-        reference::TableConflict::DeleteUse {
-            deleted,
-            user: used,
-        } => ConflictObs::DeleteUse(reference_table_elem(deleted), user(used)),
+        reference::TableConflict::DeleteUse { deleted, user } => {
+            ConflictObs::DeleteUse(reference_table_elem(deleted), project(user))
+        }
         reference::TableConflict::UpdateUpdate { key } => {
             ConflictObs::UpdateUpdate(format!("{key:?}"))
         }

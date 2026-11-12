@@ -3256,7 +3256,7 @@ pub mod edit {
         /// The committed delta's position, from zero.
         pub index: usize,
         /// The first conflict.
-        pub conflict: C,
+        pub conflict: Box<C>,
     }
 
     /// The first committed delta `delta` is not independent of, by
@@ -3271,14 +3271,19 @@ pub mod edit {
             conflicts(delta, other)
                 .into_iter()
                 .next()
-                .map(|conflict| RebaseConflict { index, conflict })
+                .map(|conflict| RebaseConflict {
+                    index,
+                    conflict: Box::new(conflict),
+                })
         })
     }
 
-    /// Definition: A graph delta made against a state that has since taken
-    /// the committed deltas in order is rebased to follow them as itself
-    /// when it is independent of each, and otherwise refused with the first
-    /// conflict of the first committed delta it is not independent of.
+    /// Definition: Rebase a graph delta over committed graph deltas.
+    ///
+    /// A delta made against a state that has since taken the committed
+    /// deltas in order is rebased to follow them as itself when it is
+    /// independent of each, and otherwise refused with the first conflict of
+    /// the first committed delta it is not independent of.
     ///
     /// # Errors
     ///
@@ -3338,7 +3343,7 @@ pub mod edit {
     }
 
     /// Whether the table element `x` is the row `r` or a pair at it.
-    fn table_meets(x: &TElem, r: u32) -> bool {
+    const fn table_meets(x: &TElem, r: u32) -> bool {
         match x {
             TElem::Row(row) => *row == r,
             TElem::Pair(_, src, tgt) => *src == r || *tgt == r,
@@ -3370,8 +3375,10 @@ pub mod edit {
         out
     }
 
-    /// Definition: Every conflict between two table deltas of one table,
-    /// sorted; they are independent iff there is none. Both delete or both
+    /// Definition: Every conflict between two table deltas of one table.
+    ///
+    /// The list is sorted, and the deltas are independent iff it is empty.
+    /// Both delete or both
     /// add an element; one deletes an element the other uses (adds a pair
     /// at a deleted row, changes an entry of it, or replaces it); both
     /// change an entry; or one changes a row's table and the other adds a
@@ -3424,9 +3431,9 @@ pub mod edit {
     /// The first conflict when they are not independent.
     ///
     /// Book anchors: `L-edits-11`.
-    pub fn merge_table(a: &TableDelta, b: &TableDelta) -> Result<TableDelta, TableConflict> {
+    pub fn merge_table(a: &TableDelta, b: &TableDelta) -> Result<TableDelta, Box<TableConflict>> {
         if let Some(c) = table_independence(a, b).into_iter().next() {
-            return Err(c);
+            return Err(Box::new(c));
         }
         let mut out = a.clone();
         out.del.extend(b.del.clone());

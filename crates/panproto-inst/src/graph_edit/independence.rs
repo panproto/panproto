@@ -97,7 +97,7 @@ pub struct RebaseConflict {
 /// The rebase of a delta over committed deltas, given its independence
 /// with each of them: the delta itself when every list is empty, and
 /// otherwise the first conflict of the first nonempty list.
-pub(crate) fn rebase_by<D: Clone>(
+pub fn rebase_by<D: Clone>(
     delta: &D,
     committed: &[D],
     independence: impl Fn(&D, &D) -> Vec<EditConflict>,
