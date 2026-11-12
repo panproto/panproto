@@ -356,7 +356,8 @@ pub fn find_span_constrained(
 /// ceiling reaches on a target schema wide enough in one kind;
 /// [`SpanError::Iso`] when `opts.iso` is set and the maximum common sub-schema
 /// search refused the network; [`SpanError::Stopped`] when branch and bound
-/// spent a budget before reaching any complete assignment.
+/// spent a budget before reaching any complete assignment, or when the
+/// isomorphism search spent one before it held an isomorphism.
 ///
 /// `Ok(vec![])` means no total morphism exists, which on the measured schema
 /// corpus is the common case, and it means **only** that: a search that could
@@ -804,18 +805,25 @@ fn isomorphisms(
 ) -> Result<Vec<FoundMorphism>, SpanError> {
     // A refused network is reported, not spelled "the two are not isomorphic".
     let outcome = solve_iso(cfn, src, tgt, budget)?;
+    // The incumbent of a stopped search may be a partial map that a longer
+    // search would have extended to an isomorphism, so a stop that leaves no
+    // isomorphism in hand is reported as the stop, never as an empty answer.
+    let stopped = |limit: Option<LimitKind>| match limit {
+        Some(limit) => Err(SpanError::Stopped { limit }),
+        None => Ok(Vec::new()),
+    };
     let Some(assignment) = outcome.best else {
-        return Ok(Vec::new());
+        return stopped(outcome.limit_hit);
     };
     let vertex_map = image_map(cfn, &assignment);
-    if vertex_map.len() != src.vertices.len() || src.vertices.len() != tgt.vertices.len() {
-        return Ok(Vec::new());
-    }
-    if !is_surjective(&vertex_map, tgt) {
-        return Ok(Vec::new());
+    if vertex_map.len() != src.vertices.len()
+        || src.vertices.len() != tgt.vertices.len()
+        || !is_surjective(&vertex_map, tgt)
+    {
+        return stopped(outcome.limit_hit);
     }
     let Some(edge_map) = bijective_edge_map(src, tgt, &vertex_map) else {
-        return Ok(Vec::new());
+        return stopped(outcome.limit_hit);
     };
     Ok(vec![FoundMorphism {
         vertex_map,

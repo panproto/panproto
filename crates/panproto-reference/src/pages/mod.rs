@@ -6,6 +6,7 @@ pub mod kan_extensions;
 pub mod keys_and_registration;
 pub mod lenses;
 mod lexical_formats;
+pub mod migration_search;
 pub mod postgresql_data;
 pub mod postgresql_ddl;
 pub mod rdf_formats;
