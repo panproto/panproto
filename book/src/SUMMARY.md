@@ -117,6 +117,7 @@
   - [Edge lists](./correctness/edge-lists.md)
   - [Kubernetes CRDs](./correctness/kubernetes-crds.md)
   - [CloudFormation](./correctness/cloudformation.md)
+  - [Ansible](./correctness/ansible.md)
   - [Migration search](./correctness/migration-search.md)
   - [Schema merge](./correctness/schema-merge.md)
   - [Theory DSL](./correctness/theory-dsl.md)

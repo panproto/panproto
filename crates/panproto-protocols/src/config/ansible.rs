@@ -1,16 +1,113 @@
 //! Ansible protocol definition.
 //!
 //! Uses Group A theory: constrained multigraph + W-type.
+//!
+//! An Ansible playbook, task file or variables file (ansible-core 2.22) is
+//! YAML, and this crate links no YAML grammar:
+//! `panproto_io::config::ansible::read_ansible` reads it through the shared
+//! YAML route of `panproto-io` (feature `tree-sitter`) into a schema of this
+//! protocol, and both schema dispatches refuse the protocol with an error
+//! naming that reader.
+//!
+//! The schema has a root vertex `/` of kind `playbook`, `task-file` or
+//! `vars-file`; a playbook's plays and playbook imports below `entry`
+//! edges; a play's roles, tasks and handlers below edges named by their
+//! section (`roles`, `pre_tasks`, `tasks`, `post_tasks`, `handlers`); a
+//! block's tasks below `block`, `rescue` and `always` edges; a `variable`
+//! vertex per variable below a `var` edge (or, for a role parameter, a
+//! `param` edge) named by the variable; and a `notify` edge from a task or
+//! block to each handler of its play that a `notify` name reaches.
 
 use std::collections::HashMap;
 use std::hash::BuildHasher;
 
 use panproto_gat::Theory;
-use panproto_schema::{EdgeRule, Protocol, Schema, SchemaBuilder};
+use panproto_schema::{EdgeRule, Protocol};
 
-use crate::emit::{children_by_edge, find_roots, vertex_constraints};
-use crate::error::ProtocolError;
 use crate::theories;
+
+/// The keywords the reader keeps as constraints.
+///
+/// Each holds the keyword's value as canonical JSON text, plus `module`
+/// and `arguments` (a task's module and its arguments), `with` and
+/// `with_terms` (a `with_<lookup>` loop's lookup and terms), `role` (a role
+/// entry's role), `import_playbook` (the playbook an entry imports) and
+/// `value` (a variable's value).
+pub const CONSTRAINT_SORTS: &[&str] = &[
+    "name",
+    "connection",
+    "port",
+    "remote_user",
+    "module_defaults",
+    "environment",
+    "no_log",
+    "run_once",
+    "ignore_errors",
+    "ignore_unreachable",
+    "check_mode",
+    "diff",
+    "any_errors_fatal",
+    "throttle",
+    "timeout",
+    "debugger",
+    "become",
+    "become_method",
+    "become_user",
+    "become_flags",
+    "become_exe",
+    "tags",
+    "collections",
+    "hosts",
+    "gather_facts",
+    "gather_subset",
+    "gather_timeout",
+    "fact_path",
+    "vars_files",
+    "vars_prompt",
+    "validate_argspec",
+    "force_handlers",
+    "max_fail_percentage",
+    "serial",
+    "strategy",
+    "order",
+    "when",
+    "notify",
+    "delegate_to",
+    "delegate_facts",
+    "args",
+    "async",
+    "changed_when",
+    "delay",
+    "failed_when",
+    "loop",
+    "loop_control",
+    "poll",
+    "register",
+    "retries",
+    "until",
+    "listen",
+    "module",
+    "arguments",
+    "with",
+    "with_terms",
+    "role",
+    "import_playbook",
+    "value",
+];
+
+/// The vertex kinds of an Ansible schema.
+const KINDS: &[&str] = &[
+    "playbook",
+    "task-file",
+    "vars-file",
+    "play",
+    "playbook-import",
+    "role",
+    "block",
+    "task",
+    "handler",
+    "variable",
+];
 
 /// Returns the Ansible protocol definition.
 #[must_use]
@@ -20,21 +117,11 @@ pub fn protocol() -> Protocol {
         schema_theory: "ThAnsibleSchema".into(),
         instance_theory: "ThAnsibleInstance".into(),
         edge_rules: edge_rules(),
-        obj_kinds: vec![
-            "playbook".into(),
-            "play".into(),
-            "task".into(),
-            "role".into(),
-            "variable".into(),
-            "handler".into(),
-            "string".into(),
-            "integer".into(),
-            "number".into(),
-            "boolean".into(),
-            "list".into(),
-            "dict".into(),
-        ],
-        constraint_sorts: vec!["required".into(), "default".into()],
+        obj_kinds: KINDS.iter().map(|kind| (*kind).into()).collect(),
+        constraint_sorts: CONSTRAINT_SORTS
+            .iter()
+            .map(|sort| (*sort).to_owned())
+            .collect(),
         has_order: true,
         has_recursion: true,
         nominal_identity: true,
@@ -53,160 +140,65 @@ pub fn register_theories<S: BuildHasher>(registry: &mut HashMap<String, Theory, 
     );
 }
 
-/// Parse a JSON-based Ansible schema into a [`Schema`].
-///
-/// # Errors
-///
-/// Returns [`ProtocolError`] if parsing fails.
-pub fn parse_ansible_schema(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
-    let ordered = crate::key_order::in_key_order(json);
-    let json = ordered.as_ref();
-    let proto = protocol();
-    let mut builder = SchemaBuilder::new(&proto);
-
-    let modules = json
-        .get("modules")
-        .and_then(serde_json::Value::as_object)
-        .ok_or_else(|| ProtocolError::MissingField("modules".into()))?;
-
-    for (name, def) in modules {
-        let kind = def
-            .get("kind")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("task");
-        builder = builder.vertex(name, kind, None)?;
-
-        if let Some(params) = def.get("parameters").and_then(serde_json::Value::as_object) {
-            for (param_name, param_def) in params {
-                let param_id = format!("{name}.{param_name}");
-                let param_kind = param_def
-                    .get("type")
-                    .and_then(serde_json::Value::as_str)
-                    .map_or("string", ansible_type_to_kind);
-                builder = builder.vertex(&param_id, param_kind, None)?;
-                builder = builder.edge(name, &param_id, "prop", Some(param_name))?;
-
-                if param_def
-                    .get("required")
-                    .and_then(serde_json::Value::as_bool)
-                    == Some(true)
-                {
-                    builder = builder.constraint(&param_id, "required", "true");
-                }
-                if let Some(default) = param_def.get("default").and_then(serde_json::Value::as_str)
-                {
-                    builder = builder.constraint(&param_id, "default", default);
-                }
-            }
-        }
+fn rule(kind: &str, src: &[&str], tgt: &[&str]) -> EdgeRule {
+    let names = |kinds: &[&str]| kinds.iter().map(|k| (*k).to_owned()).collect();
+    EdgeRule {
+        edge_kind: kind.into(),
+        src_kinds: names(src),
+        tgt_kinds: names(tgt),
     }
-
-    let schema = builder.build()?;
-    Ok(schema)
-}
-
-/// Map Ansible type to vertex kind.
-fn ansible_type_to_kind(t: &str) -> &'static str {
-    match t {
-        "str" | "string" => "string",
-        "int" | "integer" => "integer",
-        "float" | "number" => "number",
-        "bool" | "boolean" => "boolean",
-        "list" => "list",
-        "dict" => "dict",
-        _ => "string",
-    }
-}
-
-/// Emit a [`Schema`] as a JSON Ansible schema.
-///
-/// # Errors
-///
-/// Returns [`ProtocolError`] if emission fails.
-pub fn emit_ansible_schema(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
-    let structural = &["prop"];
-    let roots = find_roots(schema, structural);
-
-    let mut modules = serde_json::Map::new();
-    for root in &roots {
-        let mut obj = serde_json::Map::new();
-        obj.insert("kind".into(), serde_json::json!(root.kind));
-
-        let props = children_by_edge(schema, &root.id, "prop");
-        if !props.is_empty() {
-            let mut params = serde_json::Map::new();
-            for (edge, child) in &props {
-                let name = edge.name.as_deref().unwrap_or(&child.id);
-                let mut param = serde_json::Map::new();
-                param.insert("type".into(), serde_json::json!(child.kind));
-                for c in vertex_constraints(schema, &child.id) {
-                    if c.sort == "required" {
-                        param.insert("required".into(), serde_json::json!(true));
-                    } else {
-                        param.insert(c.sort.to_string(), serde_json::json!(c.value));
-                    }
-                }
-                params.insert(name.to_string(), serde_json::Value::Object(param));
-            }
-            obj.insert("parameters".into(), serde_json::Value::Object(params));
-        }
-
-        modules.insert(root.id.to_string(), serde_json::Value::Object(obj));
-    }
-
-    Ok(serde_json::json!({ "modules": modules }))
 }
 
 fn edge_rules() -> Vec<EdgeRule> {
-    vec![EdgeRule {
-        edge_kind: "prop".into(),
-        src_kinds: vec![
-            "playbook".into(),
-            "play".into(),
-            "task".into(),
-            "role".into(),
-        ],
-        tgt_kinds: vec![],
-    }]
+    let tasks = &["task", "block"][..];
+    vec![
+        rule("entry", &["playbook"], &["play", "playbook-import"]),
+        rule("pre_tasks", &["play"], tasks),
+        rule("tasks", &["play", "task-file"], tasks),
+        rule("post_tasks", &["play"], tasks),
+        rule("handlers", &["play"], &["handler", "block"]),
+        rule("roles", &["play"], &["role"]),
+        rule("block", &["block"], &["task", "handler", "block"]),
+        rule("rescue", &["block"], &["task", "handler", "block"]),
+        rule("always", &["block"], &["task", "handler", "block"]),
+        rule(
+            "var",
+            &[
+                "vars-file",
+                "playbook-import",
+                "play",
+                "role",
+                "block",
+                "task",
+                "handler",
+            ],
+            &["variable"],
+        ),
+        rule("param", &["role"], &["variable"]),
+        rule("notify", &["block", "task", "handler"], &["handler"]),
+    ]
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
 
     #[test]
-    fn protocol_def() {
+    fn the_protocol_declares_every_kept_keyword_as_a_constraint_sort() {
         let p = protocol();
         assert_eq!(p.name, "ansible");
+        for sort in CONSTRAINT_SORTS {
+            assert!(
+                p.constraint_sorts.iter().any(|s| s == sort),
+                "{sort} is not declared"
+            );
+        }
     }
 
     #[test]
-    fn register_theories_works() {
+    fn register_theories_registers_the_schema_theory() {
         let mut registry = HashMap::new();
         register_theories(&mut registry);
         assert!(registry.contains_key("ThAnsibleSchema"));
-    }
-
-    #[test]
-    fn parse_and_emit() {
-        let json = serde_json::json!({
-            "modules": {
-                "copy": {
-                    "kind": "task",
-                    "parameters": {
-                        "src": {"type": "str", "required": true},
-                        "dest": {"type": "str", "required": true},
-                        "mode": {"type": "str", "default": "0644"}
-                    }
-                }
-            }
-        });
-        let schema = parse_ansible_schema(&json).expect("should parse");
-        assert!(schema.has_vertex("copy"));
-        assert!(schema.has_vertex("copy.src"));
-        let emitted = emit_ansible_schema(&schema).expect("emit");
-        let s2 = parse_ansible_schema(&emitted).expect("re-parse");
-        assert_eq!(schema.vertex_count(), s2.vertex_count());
     }
 }

@@ -24,7 +24,7 @@ Payloads are CBOR (`ciborium`) except where the file name says `.json`.
 | --- | --- | --- | --- |
 | `builtin-protocols.cbor` | `Raw.registryListBuiltin()` | 475 | the whole built-in catalogue |
 | `protocol-amr.cbor` | `Raw.registryGetBuiltin(name:)` | 5553 | name `amr` |
-| `protocol-ansible.cbor` | `Raw.registryGetBuiltin(name:)` | 1431 | name `ansible` |
+| `protocol-ansible.cbor` | `Raw.registryGetBuiltin(name:)` | 4015 | name `ansible` |
 | `protocol-arrow.cbor` | `Raw.registryGetBuiltin(name:)` | 1980 | name `arrow` |
 | `protocol-asn1.cbor` | `Raw.registryGetBuiltin(name:)` | 1889 | name `asn1` |
 | `protocol-asyncapi.cbor` | `Raw.registryGetBuiltin(name:)` | 1637 | name `asyncapi` |
@@ -36,7 +36,7 @@ Payloads are CBOR (`ciborium`) except where the file name says `.json`.
 | `protocol-bson.cbor` | `Raw.registryGetBuiltin(name:)` | 1558 | name `bson` |
 | `protocol-cassandra.cbor` | `Raw.registryGetBuiltin(name:)` | 1777 | name `cassandra` |
 | `protocol-cddl.cbor` | `Raw.registryGetBuiltin(name:)` | 1519 | name `cddl` |
-| `protocol-cloudformation.cbor` | `Raw.registryGetBuiltin(name:)` | 1450 | name `cloudformation` |
+| `protocol-cloudformation.cbor` | `Raw.registryGetBuiltin(name:)` | 2680 | name `cloudformation` |
 | `protocol-concrete.cbor` | `Raw.registryGetBuiltin(name:)` | 2166 | name `concrete` |
 | `protocol-conllu.cbor` | `Raw.registryGetBuiltin(name:)` | 1715 | name `conllu` |
 | `protocol-csv.cbor` | `Raw.registryGetBuiltin(name:)` | 902 | name `csv` |
@@ -58,7 +58,7 @@ Payloads are CBOR (`ciborium`) except where the file name says `.json`.
 | `protocol-json-schema.cbor` | `Raw.registryGetBuiltin(name:)` | 2004 | name `json-schema` |
 | `protocol-jsonapi.cbor` | `Raw.registryGetBuiltin(name:)` | 1458 | name `jsonapi` |
 | `protocol-jsonld.cbor` | `Raw.registryGetBuiltin(name:)` | 1401 | name `jsonld` |
-| `protocol-k8s-crd.cbor` | `Raw.registryGetBuiltin(name:)` | 1502 | name `k8s-crd` |
+| `protocol-k8s-crd.cbor` | `Raw.registryGetBuiltin(name:)` | 3668 | name `k8s-crd` |
 | `protocol-laf-graf.cbor` | `Raw.registryGetBuiltin(name:)` | 1820 | name `laf-graf` |
 | `protocol-mongodb.cbor` | `Raw.registryGetBuiltin(name:)` | 1739 | name `mongodb` |
 | `protocol-msgpack-schema.cbor` | `Raw.registryGetBuiltin(name:)` | 1723 | name `msgpack-schema` |

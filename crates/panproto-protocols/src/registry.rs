@@ -150,7 +150,9 @@ static DESCRIPTORS: &[ProtocolDescriptor] = &[
     ProtocolDescriptor {
         name: "ansible",
         aliases: &[],
-        parser: Parser::Document(config::ansible::parse_ansible_schema),
+        parser: Parser::Grammar {
+            reader: "panproto_io::config::ansible::read_ansible",
+        },
         protocol: config::ansible::protocol,
         register_theories: |r| {
             config::ansible::register_theories(r);
