@@ -18880,3 +18880,84 @@ proptest! {
         }
     }
 }
+
+/// A migration that merges two source vertices into one target vertex: a
+/// view edge between the merged anchors maps back to the source label only
+/// between its endpoints' restored anchors, on both sides.
+#[test]
+fn a_view_edge_between_merged_anchors_maps_back_between_its_restored_endpoints() {
+    let edge_ab = RefSEdge::new("a", "b", "k", Some("e"));
+    let edge_tt = RefSEdge::new("t", "t", "k", Some("e"));
+    let src = RefSchema::default()
+        .vertex("a", "s")
+        .vertex("b", "s")
+        .edge("a", "b", "k", Some("e"));
+    let tgt = RefSchema::default()
+        .vertex("t", "s")
+        .edge("t", "t", "k", Some("e"));
+    let migration = RefMigration {
+        surviving_verts: std::iter::once("t".to_owned()).collect(),
+        surviving_edges: [edge_ab.clone(), edge_tt.clone()].into_iter().collect(),
+        vertex_remap: [
+            ("a".to_owned(), "t".to_owned()),
+            ("b".to_owned(), "t".to_owned()),
+        ]
+        .into_iter()
+        .collect(),
+        edge_remap: std::iter::once((edge_ab.clone(), edge_tt.clone())).collect(),
+        ..RefMigration::default()
+    };
+    let pair = Pair::new(src, tgt, migration);
+    let mut source = RefGraph::default();
+    source.nodes.insert(0, RefNode::new(0, "a"));
+    source.nodes.insert(1, RefNode::new(1, "b"));
+    source.edges.insert(
+        0,
+        RefGEdge {
+            src: 0,
+            tgt: 1,
+            label: edge_ab.clone(),
+            position: None,
+        },
+    );
+    let (view, _) = reference_get(&pair, &source).expect("get reads the source");
+    let added = |src: u32, tgt: u32| {
+        let mut edited = view.clone();
+        edited.edges.insert(
+            5,
+            RefGEdge {
+                src,
+                tgt,
+                label: edge_tt.clone(),
+                position: None,
+            },
+        );
+        edited
+    };
+    let forward = added(0, 1);
+    let mut restored = source.clone();
+    restored.edges.insert(
+        5,
+        RefGEdge {
+            src: 0,
+            tgt: 1,
+            label: edge_ab,
+            position: None,
+        },
+    );
+    let expected_forward = Some(PutOutcome {
+        put: Ok(restored),
+        domain: Ok(()),
+    });
+    assert_eq!(production_put(&pair, &source, &forward), expected_forward);
+    assert_eq!(reference_put(&pair, &source, &forward), expected_forward);
+    let backward = added(1, 0);
+    let refused = Some(PutOutcome {
+        put: Err(Reason::PutDomain(
+            "UnrepresentableViewEdge Edge(5)".to_owned(),
+        )),
+        domain: Err(vec!["UnrepresentableViewEdge Edge(5)".to_owned()]),
+    });
+    assert_eq!(production_put(&pair, &source, &backward), refused);
+    assert_eq!(reference_put(&pair, &source, &backward), refused);
+}

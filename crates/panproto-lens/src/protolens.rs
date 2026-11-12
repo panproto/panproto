@@ -3491,18 +3491,13 @@ fn apply_add_op(schema: &Schema, op: &panproto_gat::Operation) -> Schema {
         return new_schema;
     }
     let edge = Edge {
-        src: src.clone(),
-        tgt: tgt.clone(),
+        src,
+        tgt,
         kind: Name::from(&*op.name),
         name: Some(Name::from(&*op.name)),
     };
-    new_schema.edges.insert(edge.clone(), Name::from(&*op.name));
-    new_schema
-        .outgoing
-        .entry(src)
-        .or_default()
-        .push(edge.clone());
-    new_schema.incoming.entry(tgt).or_default().push(edge);
+    new_schema.edges.insert(edge, Name::from(&*op.name));
+    rebuild_indices(&mut new_schema);
     new_schema
 }
 
@@ -6026,12 +6021,13 @@ mod step_laws {
 
     #[test]
     fn step_law_coerce_sort() {
-        // An Iso identity coercion on the `string` sort is lossless.
+        // An Iso identity coercion on the `string` sort is lossless. The
+        // coerced value is bound as `v`.
         assert_step_law(elementary::sort_coerce(
             "string",
             ValueKind::Str,
-            panproto_expr::Expr::var("x"),
-            Some(panproto_expr::Expr::var("x")),
+            panproto_expr::Expr::var("v"),
+            Some(panproto_expr::Expr::var("v")),
             CoercionClass::Iso,
         ));
     }
@@ -6523,6 +6519,44 @@ mod sort_coercions_rewrite_values {
         assert_eq!(
             restored.node(0).and_then(|node| node.value.clone()),
             Some(FieldPresence::Present(Value::Int(9)))
+        );
+        Ok(())
+    }
+}
+
+/// Adding an operation indexes its edge between its endpoints, so a lens
+/// instantiated at the extended schema maps a view edge of that operation
+/// back.
+#[cfg(test)]
+mod added_operations_are_indexed {
+    use std::error::Error;
+
+    use panproto_schema::{Edge, Protocol, SchemaBuilder};
+
+    use super::elementary;
+
+    type TestResult = Result<(), Box<dyn Error>>;
+
+    #[test]
+    fn an_added_operation_edge_is_indexed_between_its_endpoints() -> TestResult {
+        let protocol = Protocol::default();
+        let schema = SchemaBuilder::new(&protocol)
+            .vertex("a", "s", None)?
+            .vertex("b", "s", None)?
+            .build()?;
+        let lens =
+            elementary::add_op("o", "a", "b", "o").instantiate_checked(&schema, &protocol)?;
+        let edge = Edge {
+            src: "a".into(),
+            tgt: "b".into(),
+            kind: "o".into(),
+            name: Some("o".into()),
+        };
+        assert!(
+            lens.tgt_schema
+                .between
+                .get(&("a".into(), "b".into()))
+                .is_some_and(|edges| edges.contains(&edge))
         );
         Ok(())
     }
