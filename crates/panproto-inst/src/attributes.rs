@@ -311,7 +311,10 @@ pub fn validate_attributes(schema: &Schema, instance: &WInstance) -> Vec<Attribu
 
 /// Returns `true` if a value is admissible for a declared scalar kind.
 ///
-/// Recognized primitive and JSON-container kinds are matched structurally;
+/// Recognized primitive and JSON-container kinds are matched structurally,
+/// the exact values included: an integer beyond `i64` under an integer
+/// kind, an exact decimal under a number kind, and a temporal under a date
+/// or time kind;
 /// kinds the classifier does not recognize remain permissive because protocol
 /// extensions may define their own value representations. An explicit null is
 /// always admissible (it stands for an absent optional attribute).
@@ -326,14 +329,15 @@ pub fn kind_accepts(kind: &Name, value: &Value) -> bool {
         }
         "int" | "integer" | "long" | "short" | "bigint" | "tinyint" | "smallint" | "int8"
         | "int16" | "int32" | "int64" | "int96" | "i8" | "i16" | "i32" | "i64" => {
-            matches!(value, Value::Int(_))
+            matches!(value, Value::Int(_) | Value::BigInt(_))
         }
         "uint" | "unsigned" | "uint8" | "uint16" | "uint32" | "uint64" | "u8" | "u16" | "u32"
         | "u64" | "usize" => matches!(value, Value::Int(number) if *number >= 0),
         "float" | "number" | "double" | "decimal" | "real" | "numeric" | "float16" | "float32"
-        | "float64" | "f16" | "f32" | "f64" => {
-            matches!(value, Value::Float(_) | Value::Int(_))
-        }
+        | "float64" | "f16" | "f32" | "f64" => matches!(
+            value,
+            Value::Float(_) | Value::Int(_) | Value::Decimal(_) | Value::BigInt(_)
+        ),
         "bool" | "boolean" => matches!(value, Value::Bool(_)),
         "bytes" | "byte" | "binary" | "blob" | "octet-string" | "large-binary" => {
             matches!(value, Value::Bytes(_) | Value::Blob { .. })
@@ -344,7 +348,10 @@ pub fn kind_accepts(kind: &Name, value: &Value) -> bool {
         "cid" | "cid-link" => matches!(value, Value::CidLink(_) | Value::Str(_)),
         "date" | "date32" | "date64" | "time" | "time32" | "time64" | "datetime" | "dateTime"
         | "timestamp" | "duration" | "timedelta" | "timezone" | "uuid" | "uri" | "url" => {
-            matches!(value, Value::Str(_) | Value::Token(_) | Value::Int(_))
+            matches!(
+                value,
+                Value::Str(_) | Value::Token(_) | Value::Int(_) | Value::Temporal(_)
+            )
         }
         "array" | "list" | "sequence" | "set" | "tuple" | "vector" | "string-list"
         | "integer-list" => matches!(value, Value::List(_)),
@@ -366,6 +373,22 @@ mod tests {
 
     use super::*;
     use crate::metadata::Node;
+
+    #[test]
+    fn exact_values_are_admitted_under_their_kinds() {
+        let decimal = Value::Decimal(crate::value::DecimalValue::parse("1.50").expect("decimal"));
+        let big = Value::BigInt(
+            crate::value::BigIntValue::parse_canonical("123456789012345678901234567890")
+                .expect("bigint"),
+        );
+        let date = Value::Temporal(crate::value::Temporal::parse_date("1994-11-27").expect("date"));
+        assert!(kind_accepts(&Name::from("number"), &decimal));
+        assert!(kind_accepts(&Name::from("decimal"), &big));
+        assert!(kind_accepts(&Name::from("integer"), &big));
+        assert!(kind_accepts(&Name::from("timestamp"), &date));
+        assert!(!kind_accepts(&Name::from("integer"), &decimal));
+        assert!(!kind_accepts(&Name::from("string"), &date));
+    }
 
     #[test]
     fn primitive_aliases_reject_wrong_default_shapes() {
