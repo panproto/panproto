@@ -87,15 +87,15 @@ pub use manifest::{
 pub use partition::{OwnerIndex, Partition, SegmentSpec, shape_from_tag, shape_tag};
 pub use restrict::{
     FetchSegment, GraphComplementSegment, SegmentedRestrict, SegmentedRestrictError, StreamStop,
-    graph_restrict_locality, graph_restrict_segmented, graph_restrict_segmented_nodes,
-    graph_restrict_segmented_nodes_with,
+    graph_restrict_locality, graph_restrict_segmented, graph_restrict_segmented_held,
+    graph_restrict_segmented_nodes, graph_restrict_segmented_nodes_with,
 };
 pub use runner::{
     Budget, ComplementSize, Emission, EmittedSegment, GRAPH_RESTRICT_OP, GraphRestrict,
-    GraphRestrictRun, MemoryModel, MemoryStore, MissingSegment, PhaseContext, PhaseOperation,
-    PhaseReport, PhaseStop, Progress, RunIncompleteReason, RunSpec, RunStatus, SegmentRunReport,
-    SegmentSource, SegmentedRun, graph_restrict_run, phase_artifact, read_emitted,
-    read_emitted_segment, run_segmented, store_failure,
+    GraphRestrictRun, HeldComplements, MemoryModel, MemoryStore, MissingSegment, PhaseContext,
+    PhaseOperation, PhaseReport, PhaseStop, Progress, RunIncompleteReason, RunSpec, RunStatus,
+    SegmentRunReport, SegmentSource, SegmentedRun, graph_restrict_run, phase_artifact,
+    read_emitted, read_emitted_segment, run_segmented, store_failure,
 };
 pub use split::{
     assemble_graph, assemble_table, assemble_tree, partition_graph, partition_table, partition_tree,

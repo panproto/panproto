@@ -646,6 +646,41 @@ pub fn graph_restrict_segmented(
     segments: &[GraphSegment],
     partition: &Partition,
 ) -> Result<SegmentedRestrict, SegmentedRestrictError> {
+    graph_restrict_segmented_held(plan, segments, partition, &[])
+}
+
+/// [`graph_restrict_segmented`] numbering each segment's synthesized
+/// elements stably against the complements of an earlier restriction.
+///
+/// `held` holds the complement segments of that restriction under the same
+/// partition, one per segment in id order (a segment past the end of `held`
+/// holds nothing). Segment `i` numbers its keys from its ranges as follows: a key that
+/// `held[i]` records keeps its held id (the least, should it record the key
+/// twice) when that id lies in the segment's range of its kind and the
+/// segment holds no source element under it; every other key, in ascending
+/// order, takes the least id at or above the range's floor over the ids the
+/// segment holds that no kept key holds. The complement's floors are one
+/// above the greatest id the segment holds or numbered in each range, and
+/// at least its lower bound. With `held` empty this is
+/// [`graph_restrict_segmented`]. With `held` the complements of an earlier
+/// run over the same segments, the output is that run's output, byte for
+/// byte; over a changed family every key that persists keeps its id unless
+/// its segment now holds a source element under it.
+///
+/// [`SegmentedRestrict::assemble`] of the output is whole-state restrict of
+/// the assembled graph, as for [`graph_restrict_segmented`]: assembly
+/// renames synthesized elements by key, whatever ids they hold.
+///
+/// # Errors
+///
+/// As [`graph_restrict_segmented`]; a segment whose range runs out for its
+/// new keys returns [`SegmentError::AllocationExhausted`].
+pub fn graph_restrict_segmented_held(
+    plan: &RestrictPlan,
+    segments: &[GraphSegment],
+    partition: &Partition,
+    held: &[GraphComplementSegment],
+) -> Result<SegmentedRestrict, SegmentedRestrictError> {
     if let Locality::Global(reason) = graph_restrict_locality(plan) {
         return Err(SegmentedRestrictError::Residual(Residual::Global {
             op: SegmentOp::Restrict,
@@ -654,7 +689,7 @@ pub fn graph_restrict_segmented(
     }
     let index = check_family(segments, partition).map_err(SegmentedRestrictError::Segment)?;
     let parts = run_stages(plan, segments)?;
-    emit(segments, partition, &index, parts).map_err(SegmentedRestrictError::Segment)
+    emit(segments, partition, &index, parts, held).map_err(SegmentedRestrictError::Segment)
 }
 
 /// The surviving nodes graph restriction along `plan` gives each segment of
@@ -1066,40 +1101,73 @@ pub(super) fn outside_of(
     outside
 }
 
-/// The allocator of one kind for a segment that must allocate `count` ids:
-/// `None` when it allocates none.
-fn allocator_for(
-    segment: SegmentId,
-    kind: IdKind,
-    range: Option<super::ids::IdRange>,
-    held: impl IntoIterator<Item = u32>,
-    count: usize,
-) -> Result<Option<IdAllocator>, SegmentError> {
-    match range {
-        Some(range) => Ok(Some(IdAllocator::from_source(range.check(segment)?, held))),
-        None if count == 0 => Ok(None),
-        None => Err(SegmentError::NoAllocationRange { segment, kind }),
+/// The id each synthesis key held an element under, from a held map of ids
+/// to keys: the least id recording the key.
+fn held_ids<I: Copy>(held: &BTreeMap<I, SynthKey>, raw: fn(I) -> u32) -> BTreeMap<SynthKey, u32> {
+    let mut ids = BTreeMap::new();
+    for (id, key) in held {
+        ids.entry(key.clone()).or_insert_with(|| raw(*id));
     }
+    ids
 }
 
-/// Allocate one id per key, in ascending key order.
-fn allocate_keys<'k>(
-    allocator: Option<&mut IdAllocator>,
+/// Number one segment's synthesized elements of one kind from its range of
+/// that kind: the ids, by key, and the range's floor after.
+///
+/// A key `held` records keeps its held id when that id lies in the range,
+/// is not `u32::MAX` and is not among `source` (the ids of that kind the
+/// segment holds). Every other key, in ascending order, takes the least id
+/// at or above the range's floor over `source` that no kept key holds. The
+/// floor after is one above the greatest id `source` holds in the range or
+/// a key took, and at least the range's lower bound, saturating; it is 0
+/// when the segment declares no range of the kind. With nothing held this
+/// is allocation by the append-floor rule of [`IdAllocator`].
+fn number_keys<'k>(
+    (segment, kind): (SegmentId, IdKind),
+    range: Option<super::ids::IdRange>,
+    source: &BTreeSet<u32>,
     keys: impl IntoIterator<Item = &'k SynthKey>,
-    segment: SegmentId,
-    kind: IdKind,
-) -> Result<BTreeMap<SynthKey, u32>, SegmentError> {
-    let mut ids = BTreeMap::new();
-    let mut allocator = allocator;
-    for key in keys {
-        let id = allocator
-            .as_deref_mut()
-            .ok_or(SegmentError::NoAllocationRange { segment, kind })?
-            .allocate()
-            .map_err(|_| SegmentError::AllocationExhausted { segment, kind })?;
-        ids.insert(key.clone(), id);
+    held: &BTreeMap<SynthKey, u32>,
+) -> Result<(BTreeMap<SynthKey, u32>, u32), SegmentError> {
+    let keys: Vec<&SynthKey> = keys.into_iter().collect();
+    let Some(range) = range else {
+        return if keys.is_empty() {
+            Ok((BTreeMap::new(), 0))
+        } else {
+            Err(SegmentError::NoAllocationRange { segment, kind })
+        };
+    };
+    let base = IdAllocator::from_source(range.check(segment)?, source.iter().copied()).floor();
+    let mut ids: BTreeMap<SynthKey, u32> = BTreeMap::new();
+    let mut kept: BTreeSet<u32> = BTreeSet::new();
+    for key in &keys {
+        if let Some(id) = held.get(*key).copied()
+            && range.contains(id)
+            && id != u32::MAX
+            && !source.contains(&id)
+        {
+            ids.insert((*key).clone(), id);
+            kept.insert(id);
+        }
     }
-    Ok(ids)
+    let mut next = base;
+    for key in keys {
+        if ids.contains_key(key) {
+            continue;
+        }
+        while kept.contains(&next) {
+            next = next.saturating_add(1);
+        }
+        if next > range.hi || next == u32::MAX {
+            return Err(SegmentError::AllocationExhausted { segment, kind });
+        }
+        ids.insert(key.clone(), next);
+        next = next.saturating_add(1);
+    }
+    let floor = ids
+        .values()
+        .fold(base, |floor, id| floor.max(id.saturating_add(1)));
+    Ok((ids, floor))
 }
 
 /// Allocate every segment's synthesized ids and lay the view and the
@@ -1109,11 +1177,12 @@ fn emit(
     partition: &Partition,
     index: &OwnerIndex,
     parts: Vec<RunParts>,
+    held: &[GraphComplementSegment],
 ) -> Result<SegmentedRestrict, SegmentError> {
     let mut views: Vec<GraphSegment> = Vec::with_capacity(segments.len());
     let mut complements = Vec::with_capacity(segments.len());
-    for (segment, run) in segments.iter().zip(parts) {
-        let (view, complement) = emit_segment(segment, partition, run)?;
+    for (position, (segment, run)) in segments.iter().zip(parts).enumerate() {
+        let (view, complement) = emit_segment(segment, partition, run, held.get(position))?;
         views.push(view);
         complements.push(complement);
     }
@@ -1127,45 +1196,51 @@ fn emit(
     Ok(SegmentedRestrict { views, complements })
 }
 
-/// Allocate one segment's synthesized ids from its ranges and lay its view
-/// and complement out, the view with an empty boundary.
+/// Number one segment's synthesized elements from its ranges and lay its
+/// view and complement out, the view with an empty boundary.
 ///
 /// Node ids come from the segment's node allocation range and edge ids from
-/// its edge allocation range, each in ascending key order, above every id
-/// the segment holds.
+/// its edge allocation range ([`number_keys`]): a synthesis key the held
+/// complement segment `held` records keeps its held id unless the segment
+/// holds that id or it lies outside the range, and every other key, in
+/// ascending order, takes the least free id at or above the range's floor
+/// over the ids the segment holds. With nothing held every key is new, which
+/// is allocation in ascending key order above every id the segment holds.
 pub(super) fn emit_segment(
     segment: &GraphSegment,
     partition: &Partition,
     run: RunParts,
+    held: Option<&GraphComplementSegment>,
 ) -> Result<(GraphSegment, GraphComplementSegment), SegmentError> {
     let id = segment.segment;
     let spec = partition.spec(id).ok_or(SegmentError::MalformedPartition {
         segment: id,
         defect: super::error::PartitionDefect::UnknownSegment,
     })?;
-    let mut nodes_alloc = allocator_for(
-        id,
-        IdKind::Node,
+    let (held_nodes, held_edges) = held.map_or_else(Default::default, |held| {
+        (
+            held_ids(&held.synthesized_nodes, |id| id),
+            held_ids(&held.synthesized_edges, |id| id.0),
+        )
+    });
+    let source_nodes: BTreeSet<u32> = segment.nodes.keys().copied().collect();
+    let (node_ids, node_floor) = number_keys(
+        (id, IdKind::Node),
         spec.alloc_nodes,
-        segment.nodes.keys().copied(),
-        run.synth_nodes.len(),
-    )?;
-    let node_ids = allocate_keys(
-        nodes_alloc.as_mut(),
+        &source_nodes,
         run.synth_nodes.keys(),
-        id,
-        IdKind::Node,
+        &held_nodes,
     )?;
     let arcs = run.arcs(&node_ids);
-    let mut edges_alloc = allocator_for(
-        id,
-        IdKind::Edge,
-        spec.alloc_edges,
-        segment.edges.keys().map(|edge| edge.0),
-        arcs.len(),
-    )?;
+    let source_edges: BTreeSet<u32> = segment.edges.keys().map(|edge| edge.0).collect();
     let edge_keys: BTreeSet<&SynthKey> = arcs.iter().map(|(key, ..)| key).collect();
-    let edge_ids = allocate_keys(edges_alloc.as_mut(), edge_keys, id, IdKind::Edge)?;
+    let (edge_ids, edge_floor) = number_keys(
+        (id, IdKind::Edge),
+        spec.alloc_edges,
+        &source_edges,
+        edge_keys,
+        &held_edges,
+    )?;
 
     let RunParts {
         nodes: mut view_nodes,
@@ -1197,8 +1272,8 @@ pub(super) fn emit_segment(
         synthesized_nodes,
         synthesized_edges,
         floors: IdFloor {
-            node: nodes_alloc.map_or(0, |a| a.floor()),
-            edge: edges_alloc.map_or(0, |a| a.floor()),
+            node: node_floor,
+            edge: edge_floor,
         },
     };
     let view = GraphSegment {

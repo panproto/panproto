@@ -2906,8 +2906,8 @@ mod segmented {
     use panproto_inst::InstanceShapeKind;
     use panproto_inst::segment::{
         GraphComplementSegment, GraphSegment, IdRange, Partition, SegmentError, SegmentId,
-        SegmentSpec, SegmentedRestrictError, assemble_graph, graph_restrict_segmented,
-        partition_graph,
+        SegmentSpec, SegmentedRestrict, SegmentedRestrictError, assemble_graph,
+        graph_restrict_segmented, graph_restrict_segmented_held, partition_graph,
     };
     use panproto_inst::{EdgeId, GEdge};
     use panproto_reference::enumerate::segments::{
@@ -3070,21 +3070,110 @@ mod segmented {
         graph: &RefGraph,
         partition: &reference::Partition,
     ) -> Outcome {
+        check_case_held((source, target, migration), plan, graph, partition, &[]).0
+    }
+
+    /// The persisting keys of a stably numbered output: how many kept the
+    /// id their segment's held complement records, and how many took
+    /// another because the id is outside the range or the segment holds it.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub struct Persisting {
+        /// Keys that kept their held id.
+        pub kept: u64,
+        /// Keys whose held id the segment's source holds or its range
+        /// excludes.
+        pub renumbered: u64,
+    }
+
+    /// Check that every synthesis key of `output` that segment `i`'s held
+    /// complement records keeps the least id recorded for it when that id
+    /// lies in the segment's range, is not `u32::MAX` and is no id of its
+    /// kind the source segment holds; count the persisting keys.
+    pub fn persisting_ids(
+        output: &SegmentedRestrict,
+        segments: &[GraphSegment],
+        partition: &Partition,
+        held: &[GraphComplementSegment],
+    ) -> Persisting {
+        let mut seen = Persisting::default();
+        for (position, (complement, held)) in output.complements.iter().zip(held).enumerate() {
+            let spec = &partition.specs()[position];
+            let source = &segments[position];
+            let least = |ids: Vec<(u32, &SynthKey)>, key: &SynthKey| {
+                ids.into_iter()
+                    .find_map(|(id, held_key)| (held_key == key).then_some(id))
+            };
+            let mut check = |id: u32, held_id: Option<u32>, range: Option<IdRange>, owned: bool| {
+                let Some(held_id) = held_id else { return };
+                let keeps = range.is_some_and(|r| r.lo <= held_id && held_id <= r.hi)
+                    && held_id != u32::MAX
+                    && !owned;
+                if keeps {
+                    assert_eq!(id, held_id, "a persisting key keeps its held id");
+                    seen.kept += 1;
+                } else {
+                    seen.renumbered += 1;
+                }
+            };
+            for (id, key) in &complement.synthesized_nodes {
+                let held_id = least(
+                    held.synthesized_nodes
+                        .iter()
+                        .map(|(id, key)| (*id, key))
+                        .collect(),
+                    key,
+                );
+                let owned = held_id.is_some_and(|h| source.nodes.contains_key(&h));
+                check(*id, held_id, spec.alloc_nodes, owned);
+            }
+            for (id, key) in &complement.synthesized_edges {
+                let held_id = least(
+                    held.synthesized_edges
+                        .iter()
+                        .map(|(id, key)| (id.0, key))
+                        .collect(),
+                    key,
+                );
+                let owned = held_id.is_some_and(|h| source.edges.contains_key(&EdgeId(h)));
+                check(id.0, held_id, spec.alloc_edges, owned);
+            }
+        }
+        seen
+    }
+
+    /// [`check_case`] numbering stably against `held`, the production
+    /// complement segments of an earlier restriction: production and
+    /// reference agree segment by segment, the output assembles to
+    /// whole-state restrict, and every persisting key keeps its held id
+    /// where the rule allows ([`persisting_ids`]). Returns the outcome and,
+    /// when both sides agree on an output, the production output and its
+    /// persisting keys.
+    pub fn check_case_held(
+        (source, target, migration): (&RefSchema, &RefSchema, &RefMigration),
+        plan: &RestrictPlan,
+        graph: &RefGraph,
+        partition: &reference::Partition,
+        held: &[GraphComplementSegment],
+    ) -> (Outcome, Option<(SegmentedRestrict, Persisting)>) {
         let production_partition = prod_partition(partition);
         let whole = prod_graph(graph);
         let segments = partition_graph(&whole, &production_partition).expect("production split");
         let reference_segments =
             reference::partition_graph(graph, partition).expect("reference split");
-        let production = graph_restrict_segmented(plan, &segments, &production_partition);
-        let expected = reference::restrict_graph_segmented(
+        let production =
+            graph_restrict_segmented_held(plan, &segments, &production_partition, held);
+        let reference_held: Vec<reference::GraphComplementSegment> =
+            held.iter().map(ref_complement_segment).collect();
+        let expected = reference::restrict_graph_segmented_held(
             source,
             target,
             migration,
             &NoValueLayer,
             &reference_segments,
             partition,
+            &reference_held,
         );
-        match (production, expected) {
+        let outcome = match (production, expected) {
             (Ok(output), Ok(expected)) => {
                 assert_eq!(
                     output.views.len(),
@@ -3120,7 +3209,8 @@ mod segmented {
                     ref_complement(&whole_complement),
                     "assembled complement of {graph:?}"
                 );
-                Outcome::Agreed
+                let persisting = persisting_ids(&output, &segments, &production_partition, held);
+                return (Outcome::Agreed, Some((output, persisting)));
             }
             (
                 Err(SegmentedRestrictError::Restrict { segment, error }),
@@ -3157,7 +3247,8 @@ mod segmented {
             (production, expected) => panic!(
                 "segmented restrict disagrees on {graph:?} under {partition:?}: {production:?} / {expected:?}"
             ),
-        }
+        };
+        (outcome, None)
     }
 
     #[test]
@@ -3554,7 +3645,8 @@ mod segmented_runner {
     pub const SOURCE_SCHEMA: [u8; 32] = [1; 32];
     /// The schema digest of a run's view segments.
     pub const VIEW_SCHEMA: [u8; 32] = [2; 32];
-    const LENS: [u8; 32] = [3; 32];
+    /// The lens identity of a run.
+    pub const LENS: [u8; 32] = [3; 32];
 
     /// A report in a form both implementations project to.
     #[derive(Debug, PartialEq, Eq)]
@@ -3876,6 +3968,7 @@ mod segmented_runner {
                 tgt: case.target,
                 m: case.migration,
                 vl: &NoValueLayer,
+                held: None,
             },
             segments,
             case.partition,
@@ -3952,6 +4045,7 @@ mod segmented_runner {
                 tgt: case.target,
                 m: case.migration,
                 vl: &NoValueLayer,
+                held: None,
             },
             segments,
             case.partition,
@@ -5037,13 +5131,15 @@ mod segmented_carry {
     const BINDING: [u8; 32] = [9; 32];
 
     /// A source that records the segments read from it.
-    struct CountingSource {
+    pub struct CountingSource {
         bytes: BTreeMap<SegmentId, Vec<u8>>,
-        reads: RefCell<Vec<SegmentId>>,
+        /// The segments read, in order.
+        pub reads: RefCell<Vec<SegmentId>>,
     }
 
     impl CountingSource {
-        fn new(bytes: &BTreeMap<SegmentId, Vec<u8>>) -> Self {
+        /// A source serving `bytes` that has served nothing yet.
+        pub fn new(bytes: &BTreeMap<SegmentId, Vec<u8>>) -> Self {
             Self {
                 bytes: bytes.clone(),
                 reads: RefCell::new(Vec::new()),
@@ -5089,7 +5185,7 @@ mod segmented_carry {
     }
 
     /// Every committed task record and artifact of `run` in `store`.
-    fn committed(store: &MemoryStore, run: &GraphRestrictRun) -> Vec<(TaskKey, Vec<u8>)> {
+    pub fn committed(store: &MemoryStore, run: &GraphRestrictRun) -> Vec<(TaskKey, Vec<u8>)> {
         let run = run.run.expect("a run identity");
         let journal = store.journal(&run).unwrap_or_else(|never| match never {});
         journal
@@ -5446,6 +5542,898 @@ mod segmented_carry {
     }
 }
 
+/// Stable numbering against held complement segments: segmented
+/// restriction with the complements of an earlier restriction, in memory and
+/// as a checkpointed run, against the reference.
+mod segmented_held {
+    use super::segmented::{
+        Outcome, Persisting, check_case_held, prod_partition, ref_complement_segment, ref_view,
+    };
+    use super::segmented_carry::{CountingSource, committed};
+    use super::segmented_runner::{
+        self, Case, Input, LENS, SOURCE_SCHEMA, VIEW_SCHEMA, counts_summed, seen_production,
+        seen_reference,
+    };
+    use super::segmented_witnesses::{FailingStore, compile, hidden_path_fixture, partition};
+    use super::{
+        NoValueLayer, RefGraph, RefMigration, RefSchema, RestrictPlan, prod_graph, prod_migration,
+        prod_schema,
+    };
+    use panproto_inst::identity::Digest;
+    use panproto_inst::segment::{
+        ArtifactKey, Budget, GraphComplementSegment, GraphRestrict, GraphRestrictRun, MemoryStore,
+        RunSpec, RunStatus, SegmentId, SegmentSource, SegmentStore, graph_restrict_segmented,
+        graph_restrict_segmented_held, partition_graph, read_emitted, run_segmented,
+    };
+    use panproto_reference::segment as reference;
+    use std::collections::BTreeMap;
+
+    /// A checkpointed restriction of `plan` over `input` numbering stably
+    /// against `held`, reading segments from `source`.
+    fn held_run<Src: SegmentSource>(
+        plan: &RestrictPlan,
+        (input, source): (&Input, &Src),
+        held: Option<&BTreeMap<SegmentId, Vec<u8>>>,
+        (cancel, reuse): (Option<u32>, Option<Digest>),
+        store: &mut impl SegmentStore,
+    ) -> GraphRestrictRun {
+        let held = held.map(|held| held as &dyn panproto_inst::segment::HeldComplements);
+        run_segmented(
+            &GraphRestrict { plan, held },
+            &input.manifest,
+            source,
+            RunSpec {
+                lens: Digest(LENS),
+                input: input.manifest.digest(),
+                output_schema: Digest(VIEW_SCHEMA),
+                cancel_after_tasks: cancel,
+                reuse,
+            },
+            Budget::unlimited(),
+            store,
+            &mut |_| {},
+        )
+    }
+
+    /// The reference run of `case` over `segments` numbering stably against
+    /// `held`.
+    fn reference_held_run(
+        case: &Case<'_>,
+        segments: &[reference::GraphSegment],
+        held: Option<&[reference::GraphComplementSegment]>,
+        (cancel, reuse): (Option<u32>, Option<Digest>),
+        store: &mut reference::MemoryStore,
+    ) -> reference::RestrictRun {
+        reference::segmented_restrict_with_progress(
+            reference::RestrictLens {
+                src: case.source,
+                tgt: case.target,
+                m: case.migration,
+                vl: &NoValueLayer,
+                held,
+            },
+            segments,
+            case.partition,
+            reference::RestrictRunSpec {
+                lens: reference::Digest(LENS),
+                source_schema: reference::Digest(SOURCE_SCHEMA),
+                view_schema: reference::Digest(VIEW_SCHEMA),
+                binding: None,
+                cancel_after_tasks: cancel,
+                reuse: reuse.map(|digest| reference::Digest(digest.0)),
+            },
+            reference::Budget {
+                working_set: u64::MAX,
+                complement: None,
+                summary: u64::MAX,
+                affected_segments: u32::MAX,
+            },
+            store,
+            &mut |_| {},
+        )
+    }
+
+    /// `graph` with an edge numbered at the lower bound of `spec`'s edge
+    /// allocation range (the id the segment's first synthesized edge takes),
+    /// from the least node the segment owns to the least node the schema
+    /// gives it an edge to; `None` when the segment declares no edge range,
+    /// owns no node, or the schema gives that node no edge.
+    pub fn with_floor_edge(
+        graph: &RefGraph,
+        spec: &reference::SegmentSpec,
+        schema: &RefSchema,
+    ) -> Option<RefGraph> {
+        let range = spec.alloc_edges?;
+        let src = graph.nodes.values().find(|node| {
+            spec.nodes
+                .iter()
+                .any(|r| r.lo <= node.id && node.id <= r.hi)
+        })?;
+        let (tgt, label) = graph.nodes.values().find_map(|tgt| {
+            schema
+                .edges
+                .iter()
+                .find(|edge| edge.src == src.anchor && edge.tgt == tgt.anchor)
+                .map(|label| (tgt.id, label.clone()))
+        })?;
+        let mut later = graph.clone();
+        later.edges.insert(
+            range.lo,
+            super::RefGEdge {
+                src: src.id,
+                tgt,
+                label,
+                position: None,
+            },
+        );
+        Some(later)
+    }
+
+    /// The graphs a later restriction of `graph` reads against the held
+    /// complements of a restriction of `graph` itself: `graph` without each
+    /// edge, and `graph` with an edge at each segment's edge allocation
+    /// floor ([`with_floor_edge`]).
+    fn later_graphs(
+        graph: &RefGraph,
+        partition: &reference::Partition,
+        schema: &RefSchema,
+    ) -> Vec<RefGraph> {
+        let mut graphs = Vec::new();
+        for edge in graph.edges.keys() {
+            let mut later = graph.clone();
+            later.edges.remove(edge);
+            graphs.push(later);
+        }
+        graphs.extend(
+            partition
+                .specs
+                .iter()
+                .filter_map(|spec| with_floor_edge(graph, spec, schema)),
+        );
+        graphs
+    }
+
+    /// The complement segments of a segmented restriction of `graph`
+    /// numbered afresh, or `None` when it refuses.
+    fn fresh_complements(
+        plan: &RestrictPlan,
+        graph: &RefGraph,
+        partition: &reference::Partition,
+    ) -> Option<Vec<GraphComplementSegment>> {
+        let production = prod_partition(partition);
+        let segments = partition_graph(&prod_graph(graph), &production).expect("production split");
+        graph_restrict_segmented(plan, &segments, &production)
+            .ok()
+            .map(|output| output.complements)
+    }
+
+    /// The outcome of one in-memory check, with the agreed output.
+    type Checked = (
+        Outcome,
+        Option<(panproto_inst::segment::SegmentedRestrict, Persisting)>,
+    );
+
+    /// What the in-memory certificate showed.
+    #[derive(Debug, Default, PartialEq, Eq)]
+    struct Counts {
+        /// Cases checked.
+        cases: u64,
+        /// Cases whose first restriction completes.
+        first: u64,
+        /// Later restrictions against held complements.
+        later: u64,
+        /// Later restrictions both sides refuse alike.
+        refused: u64,
+        /// Persisting keys that kept and did not keep their held ids.
+        persisting: Persisting,
+        /// Later restrictions whose stable numbering differs from fresh
+        /// numbering.
+        differs: u64,
+    }
+
+    impl Counts {
+        /// Tally one later restriction of `graph` against `held`.
+        fn tally(
+            &mut self,
+            (outcome, output): Checked,
+            fresh: Option<Vec<GraphComplementSegment>>,
+        ) {
+            self.later += 1;
+            match (outcome, output) {
+                (Outcome::Agreed, Some((output, persisting))) => {
+                    self.persisting.kept += persisting.kept;
+                    self.persisting.renumbered += persisting.renumbered;
+                    let bytes = |complements: &[GraphComplementSegment]| -> Vec<Vec<u8>> {
+                        complements
+                            .iter()
+                            .map(|c| c.canonical_bytes().expect("complement bytes"))
+                            .collect()
+                    };
+                    let fresh = fresh.expect("fresh numbering accepts what stable numbering does");
+                    if bytes(&output.complements) != bytes(&fresh) {
+                        self.differs += 1;
+                    }
+                }
+                (Outcome::Refused, None) => self.refused += 1,
+                (outcome, _) => panic!("an agreed outcome carries its output: {outcome:?}"),
+            }
+        }
+    }
+
+    /// Every `STRIDE`th case of the segmented restrict carrier.
+    const STRIDE: usize = 7;
+
+    /// Every 7th case of the carrier whose restriction completes: restricted
+    /// again against its own complements, the output is the first output
+    /// byte for byte; restricted against them after removing each edge or
+    /// adding an edge at each segment's edge allocation floor, and restricted
+    /// against the complements of the graph without each edge, production
+    /// agrees with the reference, assembles to whole-state restrict, and keeps
+    /// every persisting key's held id where the rule allows.
+    #[test]
+    fn stable_numbering_agrees_with_the_reference_reproduces_an_unchanged_family_and_keeps_persisting_ids()
+     {
+        use panproto_reference::enumerate::segments::segmented_restrict_cases;
+        let mut counts = Counts::default();
+        let mut plan: Option<(RefSchema, RefMigration, RestrictPlan)> = None;
+        for case in segmented_restrict_cases().step_by(STRIDE) {
+            counts.cases += 1;
+            if !matches!(&plan, Some((s, m, _)) if *s == case.schema && *m == case.migration) {
+                let schema = prod_schema(&case.schema);
+                let compiled =
+                    RestrictPlan::compile(&schema, &schema, &prod_migration(&case.migration))
+                        .expect("release plans compile");
+                plan = Some((case.schema.clone(), case.migration.clone(), compiled));
+            }
+            let Some((_, _, compiled)) = &plan else {
+                unreachable!("a plan was just compiled")
+            };
+            let Some(first) = fresh_complements(compiled, &case.graph, &case.partition) else {
+                continue;
+            };
+            counts.first += 1;
+            let schemas = (&case.schema, &case.schema, &case.migration);
+            let production = prod_partition(&case.partition);
+            let segments =
+                partition_graph(&prod_graph(&case.graph), &production).expect("production split");
+            let output = graph_restrict_segmented(compiled, &segments, &production)
+                .expect("the first restriction completes");
+            let (outcome, again) =
+                check_case_held(schemas, compiled, &case.graph, &case.partition, &first);
+            assert_eq!(outcome, Outcome::Agreed);
+            let (again, persisting) = again.expect("an agreed output");
+            assert_eq!(
+                persisting.renumbered, 0,
+                "an unchanged family renumbers nothing"
+            );
+            for (position, (view, complement)) in
+                again.views.iter().zip(&again.complements).enumerate()
+            {
+                assert_eq!(ref_view(view), ref_view(&output.views[position]));
+                assert_eq!(
+                    complement.canonical_bytes().expect("bytes"),
+                    output.complements[position]
+                        .canonical_bytes()
+                        .expect("bytes"),
+                    "an unchanged family reproduces its complement"
+                );
+            }
+            for later in later_graphs(&case.graph, &case.partition, &case.schema) {
+                let fresh = fresh_complements(compiled, &later, &case.partition);
+                counts.tally(
+                    check_case_held(schemas, compiled, &later, &case.partition, &first),
+                    fresh,
+                );
+            }
+            for edge in case.graph.edges.keys() {
+                let mut earlier = case.graph.clone();
+                earlier.edges.remove(edge);
+                let Some(held) = fresh_complements(compiled, &earlier, &case.partition) else {
+                    continue;
+                };
+                let fresh = fresh_complements(compiled, &case.graph, &case.partition);
+                counts.tally(
+                    check_case_held(schemas, compiled, &case.graph, &case.partition, &held),
+                    fresh,
+                );
+            }
+        }
+        assert_eq!(counts.cases, 128_240_u64.div_ceil(7));
+        assert_eq!(
+            counts,
+            Counts {
+                cases: 18_320,
+                first: 16_280,
+                later: 66_144,
+                refused: 1_764,
+                persisting: Persisting {
+                    kept: 364,
+                    renumbered: 216,
+                },
+                differs: 0,
+            }
+        );
+    }
+
+    /// The emitted complement bytes of every segment of a complete run.
+    fn emitted_complements(
+        store: &MemoryStore,
+        run: &GraphRestrictRun,
+        input: &Input,
+    ) -> BTreeMap<SegmentId, Vec<u8>> {
+        let run = run.run.expect("a run identity");
+        input
+            .partition
+            .specs()
+            .iter()
+            .map(|spec| {
+                let emitted =
+                    read_emitted(store, run, &input.partition, spec.id).expect("emitted segment");
+                (spec.id, emitted.complement)
+            })
+            .collect()
+    }
+
+    /// What the checkpointed certificate showed.
+    #[derive(Debug, Default, PartialEq, Eq)]
+    pub struct RunCounts {
+        /// Cases checked.
+        pub cases: u64,
+        /// Cases whose first run completes.
+        pub first: u64,
+        /// Later runs against the first run's complements.
+        pub later: u64,
+        /// Later runs that complete.
+        pub complete: u64,
+        /// Cancellation points checked.
+        pub cancellations: u64,
+        /// Tasks the later runs carried over from the first.
+        pub carried: u64,
+    }
+
+    /// A complete run over a case's graph in fresh stores, production and
+    /// reference, with the complement segments it emitted.
+    struct Held {
+        input: Input,
+        store: MemoryStore,
+        reference_store: reference::MemoryStore,
+        bytes: BTreeMap<SegmentId, Vec<u8>>,
+        segments: Vec<GraphComplementSegment>,
+        reference: Vec<reference::GraphComplementSegment>,
+    }
+
+    impl Held {
+        /// Run `case` over its graph, holding nothing.
+        fn of(case: &Case<'_>) -> Self {
+            let earlier_input = segmented_runner::input(case.graph, case.partition);
+            let earlier_segments =
+                reference::partition_graph(case.graph, case.partition).expect("reference split");
+            let mut store = MemoryStore::default();
+            let earlier = segmented_runner::carrying_run(
+                case.plan,
+                &earlier_input,
+                &earlier_input.bytes,
+                None,
+                None,
+                &mut store,
+            );
+            let mut reference_store = reference::MemoryStore::default();
+            reference_held_run(
+                case,
+                &earlier_segments,
+                None,
+                (None, None),
+                &mut reference_store,
+            );
+            let held = emitted_complements(&store, &earlier, &earlier_input);
+            let held_segments: Vec<GraphComplementSegment> = held
+                .iter()
+                .map(|(id, bytes)| {
+                    GraphComplementSegment::from_canonical_bytes(bytes, *id).expect("held decodes")
+                })
+                .collect();
+            let reference_held: Vec<reference::GraphComplementSegment> =
+                held_segments.iter().map(ref_complement_segment).collect();
+            Self {
+                input: earlier_input,
+                store,
+                reference_store,
+                bytes: held,
+                segments: held_segments,
+                reference: reference_held,
+            }
+        }
+    }
+
+    /// The later run of `case` over `later` holding the complements the
+    /// earlier run over `case.graph` emitted, carrying tasks over from it:
+    /// production and reference reports agree uninterrupted and from every
+    /// cancellation point; the carrying run's journal, artifacts and manifest
+    /// are those of a fresh run holding the same complements; it reads from
+    /// its source the segments whose bytes changed; and a complete run emits
+    /// the output of in-memory stable numbering.
+    pub fn check_later_run(
+        case: &Case<'_>,
+        later: &RefGraph,
+        cancellations: bool,
+        counts: &mut RunCounts,
+    ) {
+        let Held {
+            input: earlier_input,
+            mut store,
+            mut reference_store,
+            bytes: held,
+            segments: held_segments,
+            reference: reference_held,
+        } = Held::of(case);
+        let later_case = Case {
+            graph: later,
+            ..*case
+        };
+        let input = segmented_runner::input(later, case.partition);
+        let segments = reference::partition_graph(later, case.partition).expect("reference split");
+        let context = format!(
+            "{later:?} under {:?} after {:?}",
+            case.partition, case.graph
+        );
+        let reuse = Some(earlier_input.manifest.digest());
+        let source = CountingSource::new(&input.bytes);
+        let carrying = held_run(
+            case.plan,
+            (&input, &source),
+            Some(&held),
+            (None, reuse),
+            &mut store,
+        );
+        let expected = reference_held_run(
+            &later_case,
+            &segments,
+            Some(&reference_held),
+            (None, reuse),
+            &mut reference_store,
+        );
+        assert_eq!(
+            seen_production(&carrying.report),
+            seen_reference(&expected.report),
+            "carrying run of {context}"
+        );
+        counts.later += 1;
+        counts.carried += u64::from(carrying.report.tasks_reused);
+        let changed: Vec<SegmentId> = input
+            .bytes
+            .iter()
+            .filter(|(id, bytes)| earlier_input.bytes.get(id) != Some(*bytes))
+            .map(|(id, _)| *id)
+            .collect();
+        assert_eq!(
+            source.reads.borrow().clone(),
+            changed,
+            "segments read by {context}"
+        );
+
+        let mut fresh_store = MemoryStore::default();
+        let fresh = held_run(
+            case.plan,
+            (&input, &input.bytes),
+            Some(&held),
+            (None, None),
+            &mut fresh_store,
+        );
+        if later != case.graph {
+            assert_eq!(
+                counts_summed(seen_production(&carrying.report)),
+                counts_summed(seen_production(&fresh.report)),
+                "everything but the reuse counts of {context}"
+            );
+            assert_eq!(
+                committed(&store, &carrying),
+                committed(&fresh_store, &fresh),
+                "{context}"
+            );
+            assert_eq!(
+                store.journal(&carrying.run.expect("a run identity")),
+                fresh_store.journal(&fresh.run.expect("a run identity")),
+                "journal of {context}"
+            );
+        }
+        assert_eq!(carrying.manifest, fresh.manifest, "{context}");
+        if let RunStatus::Complete { .. } = fresh.report.status {
+            counts.complete += 1;
+            check_emitted(
+                case,
+                later,
+                &held_segments,
+                (&fresh_store, &fresh),
+                &context,
+            );
+        }
+        if cancellations {
+            let held = (&held, reference_held.as_slice());
+            check_cancellations(&later_case, (&input, &segments), held, &fresh, counts);
+        }
+    }
+
+    /// The complete run `fresh` of `case.plan` over `later` holding
+    /// `held_segments` emitted the in-memory stable numbering.
+    fn check_emitted(
+        case: &Case<'_>,
+        later: &RefGraph,
+        held_segments: &[GraphComplementSegment],
+        (fresh_store, fresh): (&MemoryStore, &GraphRestrictRun),
+        context: &str,
+    ) {
+        let production = prod_partition(case.partition);
+        let source_segments =
+            partition_graph(&prod_graph(later), &production).expect("production split");
+        let output =
+            graph_restrict_segmented_held(case.plan, &source_segments, &production, held_segments)
+                .expect("in-memory stable numbering completes");
+        let run = fresh.run.expect("a run identity");
+        for (position, spec) in production.specs().iter().enumerate() {
+            let emitted = read_emitted(fresh_store, run, &production, spec.id).expect("emitted");
+            assert_eq!(ref_view(&emitted.view), ref_view(&output.views[position]));
+            assert_eq!(
+                emitted.complement,
+                output.complements[position]
+                    .canonical_bytes()
+                    .expect("bytes"),
+                "emitted complement of {context}"
+            );
+        }
+    }
+
+    /// The run of `case` over `input` holding `held`, stopped at every
+    /// cancellation point and resumed, reports as the reference does and
+    /// ends as the uninterrupted run `fresh`.
+    fn check_cancellations(
+        case: &Case<'_>,
+        (input, segments): (&Input, &[reference::GraphSegment]),
+        (held, reference_held): (
+            &BTreeMap<SegmentId, Vec<u8>>,
+            &[reference::GraphComplementSegment],
+        ),
+        fresh: &GraphRestrictRun,
+        counts: &mut RunCounts,
+    ) {
+        let context = format!("{:?} under {:?}", case.graph, case.partition);
+        let total = fresh.report.progress.tasks_total;
+        for cancel in 0..=total {
+            let mut stopped_store = MemoryStore::default();
+            let stopped = held_run(
+                case.plan,
+                (input, &input.bytes),
+                Some(held),
+                (Some(cancel), None),
+                &mut stopped_store,
+            );
+            let mut reference_stopped = reference::MemoryStore::default();
+            let expected_stopped = reference_held_run(
+                case,
+                segments,
+                Some(reference_held),
+                (Some(cancel), None),
+                &mut reference_stopped,
+            );
+            assert_eq!(
+                seen_production(&stopped.report),
+                seen_reference(&expected_stopped.report),
+                "{context} stopped at {cancel}"
+            );
+            let resumed = held_run(
+                case.plan,
+                (input, &input.bytes),
+                Some(held),
+                (None, None),
+                &mut stopped_store,
+            );
+            let expected_resumed = reference_held_run(
+                case,
+                segments,
+                Some(reference_held),
+                (None, None),
+                &mut reference_stopped,
+            );
+            assert_eq!(
+                seen_production(&resumed.report),
+                seen_reference(&expected_resumed.report),
+                "{context} resumed after {cancel}"
+            );
+            assert_eq!(
+                resumed.manifest, fresh.manifest,
+                "{context} resumed after {cancel}"
+            );
+            assert_eq!(resumed.report.orphans, Vec::<ArtifactKey>::new());
+            counts.cancellations += 1;
+        }
+    }
+
+    /// Every 97th case of the carrier whose checkpointed restriction
+    /// completes: later runs over the same graph, the graph without each
+    /// edge and the graph with an edge at each segment's allocation floor,
+    /// holding the first run's emitted complements and carrying tasks over
+    /// from it, agree with the reference runner, change nothing against a
+    /// fresh run but the reuse counts, read only the changed segments, emit
+    /// the in-memory stable numbering, and resume from every cancellation
+    /// point (checked for the first changed graph of each case).
+    #[test]
+    fn a_checkpointed_restriction_holding_complements_matches_the_reference_runner_on_every_97th_case()
+     {
+        use panproto_reference::enumerate::segments::segmented_restrict_cases;
+        let mut counts = RunCounts::default();
+        let mut plan: Option<(RefSchema, RefMigration, RestrictPlan)> = None;
+        for case in segmented_restrict_cases().step_by(97) {
+            counts.cases += 1;
+            if !matches!(&plan, Some((s, m, _)) if *s == case.schema && *m == case.migration) {
+                let schema = prod_schema(&case.schema);
+                let compiled =
+                    RestrictPlan::compile(&schema, &schema, &prod_migration(&case.migration))
+                        .expect("release plans compile");
+                plan = Some((case.schema.clone(), case.migration.clone(), compiled));
+            }
+            let Some((_, _, compiled)) = &plan else {
+                unreachable!("a plan was just compiled")
+            };
+            if fresh_complements(compiled, &case.graph, &case.partition).is_none() {
+                continue;
+            }
+            counts.first += 1;
+            let run_case = Case {
+                source: &case.schema,
+                target: &case.schema,
+                migration: &case.migration,
+                plan: compiled,
+                graph: &case.graph,
+                partition: &case.partition,
+            };
+            check_later_run(&run_case, &case.graph, false, &mut counts);
+            for (position, later) in later_graphs(&case.graph, &case.partition, &case.schema)
+                .iter()
+                .enumerate()
+            {
+                check_later_run(&run_case, later, position == 0, &mut counts);
+            }
+        }
+        assert_eq!(counts.cases, 128_240_u64.div_ceil(97));
+        assert_eq!(
+            counts,
+            RunCounts {
+                cases: 1_323,
+                first: 1_163,
+                later: 4_769,
+                complete: 4_606,
+                cancellations: 16_166,
+                carried: 18_687,
+            }
+        );
+    }
+
+    /// Stable numbering keeps a persisting key's id and gives a new key the
+    /// id a deleted chain freed, where fresh numbering shifts both: node 0
+    /// contracts to the `b` nodes 4 and 5 through the dropped node 1, ids
+    /// 100 and 101; after the path to 4 is cut and one to a new node 6
+    /// added, the pair to 5 keeps 101 and the pair to 6 takes the freed 100,
+    /// while fresh numbering gives them 100 and 101.
+    #[test]
+    fn stable_numbering_keeps_a_persisting_id_and_reuses_a_freed_one_where_fresh_numbering_shifts()
+    {
+        let (schema, migration, _) = hidden_path_fixture();
+        let plan = compile(&schema, &schema, &migration);
+        let split = partition(&[&[0, 1, 4, 5, 6]], Some(10), Some(10));
+        let edge = |src: u32, tgt: u32, (a, b, name): (&str, &str, &str)| super::RefGEdge {
+            src,
+            tgt,
+            label: super::RefEdge::new(a, b, "prop", Some(name)),
+            position: None,
+        };
+        let mut earlier = RefGraph::default();
+        for (id, anchor) in [(0, "a"), (1, "c"), (4, "b"), (5, "b")] {
+            earlier.nodes.insert(id, super::RefNode::new(id, anchor));
+        }
+        earlier.edges.insert(0, edge(0, 1, ("a", "c", "ac")));
+        earlier.edges.insert(1, edge(1, 4, ("c", "b", "cb")));
+        earlier.edges.insert(2, edge(1, 5, ("c", "b", "cb")));
+        let held = fresh_complements(&plan, &earlier, &split).expect("the earlier graph restricts");
+        let pairs = |complement: &GraphComplementSegment| -> Vec<(u32, u32)> {
+            complement
+                .synthesized_edges
+                .iter()
+                .map(|(id, key)| match key {
+                    panproto_inst::SynthKey::Contract { tgt, .. } => (id.0, *tgt),
+                    other => panic!("a contracted pair: {other:?}"),
+                })
+                .collect()
+        };
+        assert_eq!(pairs(&held[0]), vec![(100, 4), (101, 5)]);
+        let mut later = earlier.clone();
+        later.edges.remove(&1);
+        later.nodes.insert(6, super::RefNode::new(6, "b"));
+        later.edges.insert(3, edge(1, 6, ("c", "b", "cb")));
+        let (outcome, output) =
+            check_case_held((&schema, &schema, &migration), &plan, &later, &split, &held);
+        assert_eq!(outcome, Outcome::Agreed);
+        let (output, persisting) = output.expect("an agreed output");
+        assert_eq!(
+            persisting,
+            Persisting {
+                kept: 1,
+                renumbered: 0
+            }
+        );
+        assert_eq!(pairs(&output.complements[0]), vec![(100, 6), (101, 5)]);
+        let fresh = fresh_complements(&plan, &later, &split).expect("the later graph restricts");
+        assert_eq!(pairs(&fresh[0]), vec![(100, 5), (101, 6)]);
+    }
+
+    /// Restricting `later` against `held_segments` agrees with the reference
+    /// and renumbers segment 0's one persisting contracted pair from 100 to
+    /// 101.
+    fn assert_renumbered(
+        (schema, migration, plan): (&RefSchema, &RefMigration, &RestrictPlan),
+        later: &RefGraph,
+        split: &reference::Partition,
+        held_segments: &[GraphComplementSegment],
+    ) {
+        let (outcome, output) = check_case_held(
+            (schema, schema, migration),
+            plan,
+            later,
+            split,
+            held_segments,
+        );
+        assert_eq!(outcome, Outcome::Agreed);
+        let (output, persisting) = output.expect("an agreed output");
+        assert_eq!(
+            persisting,
+            Persisting {
+                kept: 0,
+                renumbered: 1
+            }
+        );
+        assert_eq!(
+            output.complements[0]
+                .synthesized_edges
+                .keys()
+                .map(|id| id.0)
+                .collect::<Vec<_>>(),
+            vec![101]
+        );
+    }
+
+    /// The run of `plan` over `input` holding `held` and carrying tasks over
+    /// from the run over `earlier`, stopped by a failed commit at each task,
+    /// resumes to `baseline`.
+    fn assert_failed_commits_resume(
+        plan: &RestrictPlan,
+        (earlier, input): (&Input, &Input),
+        held: &BTreeMap<SegmentId, Vec<u8>>,
+        baseline: &GraphRestrictRun,
+    ) {
+        let reuse = Some(earlier.manifest.digest());
+        let total = baseline.report.progress.tasks_total;
+        for fail_at in 1..=total {
+            let mut store = FailingStore {
+                inner: MemoryStore::default(),
+                commits: 0,
+                fail_at: None,
+            };
+            held_run(
+                plan,
+                (earlier, &earlier.bytes),
+                None,
+                (None, None),
+                &mut store,
+            );
+            store.fail_at = Some(store.commits + usize::try_from(fail_at).expect("count"));
+            let failed = held_run(
+                plan,
+                (input, &input.bytes),
+                Some(held),
+                (None, reuse),
+                &mut store,
+            );
+            assert!(
+                matches!(&failed.report.status, RunStatus::Incomplete { .. }),
+                "{:?}",
+                failed.report.status
+            );
+            assert_eq!(failed.report.progress.tasks_done, fail_at - 1);
+            assert_eq!(failed.report.orphans.len(), 1, "the failed task's artifact");
+            store.fail_at = None;
+            let resumed = held_run(
+                plan,
+                (input, &input.bytes),
+                Some(held),
+                (None, reuse),
+                &mut store,
+            );
+            assert_eq!(
+                resumed.report.tasks_run + resumed.report.tasks_reused,
+                total,
+                "a resumed carrying run after commit {fail_at}"
+            );
+            assert_eq!(resumed.report.orphans, Vec::<ArtifactKey>::new());
+            assert_eq!(resumed.manifest, baseline.manifest);
+        }
+    }
+
+    /// A carrying run holding complements, stopped by a failed commit at
+    /// each task, resumes to the uninterrupted carrying run, and a
+    /// persisting key whose held id a new source node takes is renumbered
+    /// to the least free id, as the reference numbers it.
+    #[test]
+    fn a_held_carrying_run_stopped_by_a_failed_commit_at_each_task_resumes_to_the_uninterrupted_run()
+     {
+        let (schema, migration, graph) = hidden_path_fixture();
+        let plan = compile(&schema, &schema, &migration);
+        let split = partition(&[&[0, 3], &[1, 4], &[2]], Some(10), Some(10));
+        let earlier = segmented_runner::input(&graph, &split);
+        let mut seed = MemoryStore::default();
+        let first =
+            segmented_runner::carrying_run(&plan, &earlier, &earlier.bytes, None, None, &mut seed);
+        let held = emitted_complements(&seed, &first, &earlier);
+        let held_segments: Vec<GraphComplementSegment> = held
+            .iter()
+            .map(|(id, bytes)| {
+                GraphComplementSegment::from_canonical_bytes(bytes, *id).expect("decodes")
+            })
+            .collect();
+        assert_eq!(
+            held_segments[0]
+                .synthesized_edges
+                .keys()
+                .map(|id| id.0)
+                .collect::<Vec<_>>(),
+            vec![100],
+            "the contracted pair of node 0 takes the first id of segment 0's range"
+        );
+        // The later graph adds a dropped edge numbered 100 to segment 0, from
+        // node 3 back to node 2 inside the hidden cycle: the contracted pair
+        // persists, and must leave its held id 100 for the next free id.
+        let mut later = graph;
+        later.edges.insert(
+            100,
+            super::RefGEdge {
+                src: 3,
+                tgt: 2,
+                label: super::RefEdge::new("c", "c", "prop", Some("cc")),
+                position: None,
+            },
+        );
+        assert_renumbered((&schema, &migration, &plan), &later, &split, &held_segments);
+        let input = segmented_runner::input(&later, &split);
+        let reuse = Some(earlier.manifest.digest());
+        let mut baseline_store = MemoryStore::default();
+        segmented_runner::carrying_run(
+            &plan,
+            &earlier,
+            &earlier.bytes,
+            None,
+            None,
+            &mut baseline_store,
+        );
+        let baseline = held_run(
+            &plan,
+            (&input, &input.bytes),
+            Some(&held),
+            (None, reuse),
+            &mut baseline_store,
+        );
+        assert!(
+            matches!(baseline.report.status, RunStatus::Complete { .. }),
+            "{:?}",
+            baseline.report.status
+        );
+        let total = baseline.report.progress.tasks_total;
+        assert_eq!(total, 14);
+        assert_eq!(
+            (baseline.report.tasks_run, baseline.report.tasks_reused),
+            (12, 2),
+            "segment 0 gains the edge and segment 2 its in-stub, so only segment 1 carries Validate and Export"
+        );
+        assert_failed_commits_resume(&plan, (&earlier, &input), &held, &baseline);
+    }
+}
+
 /// Generated segmented restricts against the reference: graphs of up to
 /// eight nodes over a schema with a dropped loop, every survival choice,
 /// and owners drawn from up to four segments.
@@ -5481,7 +6469,7 @@ mod segmented_randomized {
 
     /// A generated case: the schema, migration, plan, graph and partition,
     /// or `None` for a plan outside the compile domain.
-    fn generated(
+    pub fn generated(
         anchors: &[usize],
         edges: &[(usize, usize)],
         owners: &[u32],
@@ -5659,6 +6647,110 @@ mod segmented_randomized {
                 &mut counts,
             );
             prop_assert_eq!(counts.complete + counts.refused + counts.residual, 1);
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        #[test]
+        fn stable_numbering_matches_the_reference_on_generated_graph_pairs(
+            anchors in proptest::collection::vec(0_usize..3, 2..=8),
+            edges in proptest::collection::vec((0_usize..8, 0_usize..8), 0..=14),
+            dropped in proptest::collection::vec(proptest::prelude::any::<bool>(), 14),
+            floors in proptest::collection::vec(proptest::prelude::any::<bool>(), 4),
+            owners in proptest::collection::vec(0_u32..4, 8),
+            segments in 2_u32..=4,
+            surviving in 0_u8..8,
+        ) {
+            let Some((schema, migration, plan, graph, partition)) =
+                generated(&anchors, &edges, &owners, segments, surviving)
+            else {
+                return Err(TestCaseError::reject("plan outside the compile domain"));
+            };
+            let (earlier, later) = held_pair(&graph, &partition, &schema, &dropped, &floors);
+            let production = prod_partition(&partition);
+            let earlier_segments = partition_graph(&super::prod_graph(&earlier), &production)
+                .expect("production split");
+            let Ok(first) = graph_restrict_segmented(&plan, &earlier_segments, &production) else {
+                return Err(TestCaseError::reject("the earlier restriction refuses"));
+            };
+            let (outcome, _) = super::segmented::check_case_held(
+                (&schema, &schema, &migration),
+                &plan,
+                &later,
+                &partition,
+                &first.complements,
+            );
+            prop_assert!(matches!(outcome, Outcome::Agreed | Outcome::Refused));
+        }
+    }
+
+    /// An earlier graph, `graph` without the edges `dropped` marks, and a
+    /// later one, `graph` with an edge at the edge allocation floor of each
+    /// segment `floors` marks.
+    fn held_pair(
+        graph: &RefGraph,
+        partition: &reference::Partition,
+        schema: &RefSchema,
+        dropped: &[bool],
+        floors: &[bool],
+    ) -> (RefGraph, RefGraph) {
+        let mut earlier = graph.clone();
+        earlier
+            .edges
+            .retain(|id, _| !dropped[usize::try_from(*id).unwrap_or(0)]);
+        let mut later = graph.clone();
+        for (spec, floor) in partition.specs.iter().zip(floors) {
+            if *floor
+                && let Some(with) = super::segmented_held::with_floor_edge(&later, spec, schema)
+            {
+                later = with;
+            }
+        }
+        (earlier, later)
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(64))]
+
+        #[test]
+        fn a_checkpointed_restriction_holding_complements_matches_the_reference_runner_on_generated_graph_pairs(
+            anchors in proptest::collection::vec(0_usize..3, 2..=8),
+            edges in proptest::collection::vec((0_usize..8, 0_usize..8), 0..=14),
+            dropped in proptest::collection::vec(proptest::prelude::any::<bool>(), 14),
+            floors in proptest::collection::vec(proptest::prelude::any::<bool>(), 4),
+            owners in proptest::collection::vec(0_u32..4, 8),
+            segments in 2_u32..=4,
+            surviving in 0_u8..8,
+        ) {
+            let Some((schema, migration, plan, graph, partition)) =
+                generated(&anchors, &edges, &owners, segments, surviving)
+            else {
+                return Err(TestCaseError::reject("plan outside the compile domain"));
+            };
+            let (earlier, later) = held_pair(&graph, &partition, &schema, &dropped, &floors);
+            let production = prod_partition(&partition);
+            let earlier_segments = partition_graph(&super::prod_graph(&earlier), &production)
+                .expect("production split");
+            if graph_restrict_segmented(&plan, &earlier_segments, &production).is_err() {
+                return Err(TestCaseError::reject("the earlier restriction refuses"));
+            }
+            let mut counts = super::segmented_held::RunCounts::default();
+            super::segmented_held::check_later_run(
+                &super::segmented_runner::Case {
+                    source: &schema,
+                    target: &schema,
+                    migration: &migration,
+                    plan: &plan,
+                    graph: &earlier,
+                    partition: &partition,
+                },
+                &later,
+                true,
+                &mut counts,
+            );
+            prop_assert_eq!(counts.later, 1);
         }
     }
 

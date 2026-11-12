@@ -104,7 +104,7 @@ use crate::error::RestrictError;
 use crate::graph_restrict::{RemoteFate, decide_nodes, run_scoped};
 use crate::identity::{
     CanonicalSink, ComplementFormat, ComplementShape, Digest, GRAPH_COMPLEMENT_FORMAT_VERSION,
-    IDENTITY_ENVELOPE_VERSION, IdentityEnvelope, SEGMENT_TASK_CONTEXT,
+    IDENTITY_ENVELOPE_VERSION, IdentityEnvelope, SEGMENT_COMPLEMENT_CONTEXT, SEGMENT_TASK_CONTEXT,
 };
 use crate::locality::{Locality, SegmentOp};
 use crate::restrict_plan::RestrictPlan;
@@ -1224,14 +1224,17 @@ pub trait PhaseOperation {
         Ok(MemoryModel::estimate(&record.stats))
     }
 
-    /// The digests the Validate task of `segment` reads beyond the input
-    /// segment's manifest leaf.
+    /// The digests of what `task` reads beyond its input segment and the
+    /// artifacts of earlier tasks, which its inputs digest names after
+    /// theirs: a graph put's Validate reads its complement segment, and a
+    /// restriction with held complements reads them at Assemble and Emit.
+    /// The default reads nothing more.
     ///
     /// # Errors
     ///
     /// A source's failure message.
-    fn validate_inputs(&self, segment: SegmentId) -> Result<Vec<Digest>, String> {
-        let _ = segment;
+    fn read_inputs(&self, cx: &PhaseContext<'_>, task: TaskKey) -> Result<Vec<Digest>, String> {
+        let _ = (cx, task);
         Ok(Vec::new())
     }
 
@@ -1298,14 +1301,57 @@ pub trait PhaseOperation {
     fn output_role(&self, cx: &PhaseContext<'_>) -> ManifestRole;
 }
 
+/// The complement segments of an earlier restriction, read one segment at
+/// a time: what a restriction numbering its synthesized elements stably
+/// ([`GraphRestrict::held`]) reads.
+pub trait HeldComplements {
+    /// The canonical bytes of the held complement segment of `segment`
+    /// ([`GraphComplementSegment::canonical_bytes`]).
+    ///
+    /// # Errors
+    ///
+    /// The source's failure message when they cannot be read.
+    fn held(&self, segment: SegmentId) -> Result<Vec<u8>, String>;
+}
+
+impl<T: SegmentSource> HeldComplements for T {
+    fn held(&self, segment: SegmentId) -> Result<Vec<u8>, String> {
+        self.read(segment).map_err(|error| error.to_string())
+    }
+}
+
 /// Graph restriction along a plan as a [`PhaseOperation`]: the phases
 /// described in the module documentation.
 pub struct GraphRestrict<'p> {
     /// The compiled plan.
     pub plan: &'p RestrictPlan,
+    /// The complement segments of an earlier restriction under the same
+    /// partition, against which each segment numbers its synthesized
+    /// elements stably ([`graph_restrict_segmented_held`]), or `None` to
+    /// number them afresh. Assemble reads every segment's and Emit its own
+    /// segment's, and their inputs digests name the bytes they read
+    /// ([`PhaseOperation::read_inputs`]); the run identity does not.
+    ///
+    /// [`graph_restrict_segmented_held`]: super::graph_restrict_segmented_held
+    pub held: Option<&'p dyn HeldComplements>,
 }
 
 impl GraphRestrict<'_> {
+    /// The held complement segment of `segment`, when the run holds
+    /// complements.
+    fn held_segment(
+        &self,
+        segment: SegmentId,
+    ) -> Result<Option<GraphComplementSegment>, PhaseStop<SegmentedRestrictError>> {
+        let Some(held) = self.held else {
+            return Ok(None);
+        };
+        let bytes = held.held(segment).map_err(PhaseStop::Store)?;
+        Ok(Some(GraphComplementSegment::from_canonical_bytes(
+            &bytes, segment,
+        )?))
+    }
+
     fn validated(
         cx: &PhaseContext<'_>,
         segment: SegmentId,
@@ -1425,6 +1471,26 @@ impl PhaseOperation for GraphRestrict<'_> {
         phase != Phase::Seal
     }
 
+    fn read_inputs(&self, cx: &PhaseContext<'_>, task: TaskKey) -> Result<Vec<Digest>, String> {
+        let Some(held) = self.held else {
+            return Ok(Vec::new());
+        };
+        let segments = match (task.phase, task.segment) {
+            (Phase::Assemble, _) => cx.segments(),
+            (Phase::Emit, Some(segment)) => vec![segment],
+            _ => Vec::new(),
+        };
+        segments
+            .into_iter()
+            .map(|segment| {
+                Ok(Digest::derive(
+                    SEGMENT_COMPLEMENT_CONTEXT,
+                    &held.held(segment)?,
+                ))
+            })
+            .collect()
+    }
+
     fn export(
         &self,
         cx: &PhaseContext<'_>,
@@ -1483,7 +1549,12 @@ impl PhaseOperation for GraphRestrict<'_> {
             let outside = outside_of(&local, &imports, &closed);
             match run_scoped(&local.graph, self.plan, outside) {
                 Err(error) => keep_least(&mut first, id, error),
-                Ok(parts) => match emit_segment(&segment, cx.partition(), parts) {
+                Ok(parts) => match emit_segment(
+                    &segment,
+                    cx.partition(),
+                    parts,
+                    self.held_segment(id)?.as_ref(),
+                ) {
                     Err(error) => {
                         allocation.get_or_insert(error);
                     }
@@ -1522,7 +1593,12 @@ impl PhaseOperation for GraphRestrict<'_> {
         let outside = outside_of(&local, &imports, &assembly.closed);
         let parts = run_scoped(&local.graph, self.plan, outside)
             .map_err(|error| restrict_stop(segment, error))?;
-        let (mut view, complement) = emit_segment(&held, cx.partition(), parts)?;
+        let (mut view, complement) = emit_segment(
+            &held,
+            cx.partition(),
+            parts,
+            self.held_segment(segment)?.as_ref(),
+        )?;
         let position = usize::try_from(segment.0).unwrap_or(usize::MAX);
         view.boundary = assembly
             .boundaries
@@ -1643,6 +1719,13 @@ impl<O: PhaseOperation, Src: SegmentSource, St: SegmentStore> Runner<'_, O, Src,
             segments: &self.ids,
             read: &read,
         })
+    }
+
+    /// What `task` reads beyond its input segment and earlier artifacts
+    /// ([`PhaseOperation::read_inputs`]).
+    fn read_inputs(&self, task: TaskKey) -> Result<Vec<Digest>, Stop<O::Error>> {
+        self.with_cx(|cx| self.op.read_inputs(cx, task))
+            .map_err(store_stop)
     }
 
     /// The digest of task `task`'s inputs, from the outputs of `from` and
@@ -1876,7 +1959,7 @@ impl<O: PhaseOperation, Src: SegmentSource, St: SegmentStore> Runner<'_, O, Src,
                 .record(id)
                 .ok_or_else(|| malformed(ArtifactKind::Manifest, "a record is missing"))?;
             let mut read = vec![record.leaf()];
-            read.extend(self.op.validate_inputs(id).map_err(store_stop)?);
+            read.extend(self.read_inputs(validate_key(id))?);
             let inputs = TaskRecord::inputs_digest(&self.spec.lens, validate_key(id), &read);
             self.task(validate_key(id), inputs, |runner| {
                 let bytes = runner.source.read(id).map_err(store_stop)?;
@@ -1894,7 +1977,8 @@ impl<O: PhaseOperation, Src: SegmentSource, St: SegmentStore> Runner<'_, O, Src,
             if self.cancelled() {
                 return Err(Stop::Cancelled);
             }
-            let inputs = self.inputs(export_key(id), &[validate_key(id)], &[]);
+            let read = self.read_inputs(export_key(id))?;
+            let inputs = self.inputs(export_key(id), &[validate_key(id)], &read);
             self.task(export_key(id), inputs, |runner| {
                 Ok(runner.with_cx(|cx| runner.op.export(cx, id))?)
             })?;
@@ -1912,7 +1996,8 @@ impl<O: PhaseOperation, Src: SegmentSource, St: SegmentStore> Runner<'_, O, Src,
             }
             let mut from = vec![validate_key(id)];
             from.extend(&exports);
-            let inputs = self.inputs(summary_key(id), &from, &[]);
+            let read = self.read_inputs(summary_key(id))?;
+            let inputs = self.inputs(summary_key(id), &from, &read);
             self.task(summary_key(id), inputs, |runner| {
                 Ok(runner.with_cx(|cx| runner.op.summarize(cx, id))?)
             })?;
@@ -1932,7 +2017,8 @@ impl<O: PhaseOperation, Src: SegmentSource, St: SegmentStore> Runner<'_, O, Src,
         }
         let task = assemble_key();
         let kind = ArtifactKind::Assembly;
-        let inputs = self.inputs(task, &from, &[]);
+        let read = self.read_inputs(task)?;
+        let inputs = self.inputs(task, &from, &read);
         let (bytes, obtained) = match self.prior(task, kind, &inputs)? {
             Some(found) => found,
             None => (self.with_cx(|cx| self.op.assemble(cx))?, Obtained::Computed),
@@ -1992,7 +2078,9 @@ impl<O: PhaseOperation, Src: SegmentSource, St: SegmentStore> Runner<'_, O, Src,
             let kind = ArtifactKind::ComplementSegment;
             let mut from = vec![validate_key(id)];
             from.extend(&shared);
-            let inputs = self.inputs(task, &from, &[self.spec.output_schema]);
+            let mut read = vec![self.spec.output_schema];
+            read.extend(self.read_inputs(task)?);
+            let inputs = self.inputs(task, &from, &read);
             let (bytes, obtained) = match self.prior(task, kind, &inputs)? {
                 Some(found) => found,
                 None => (self.emit_artifact(id)?, Obtained::Computed),
@@ -2126,7 +2214,8 @@ impl<O: PhaseOperation, Src: SegmentSource, St: SegmentStore> Runner<'_, O, Src,
         }
         let before = self.counts();
         let from: Vec<TaskKey> = self.ids().into_iter().map(emit_key).collect();
-        let inputs = self.inputs(seal_key(), &from, &[]);
+        let read = self.read_inputs(seal_key())?;
+        let inputs = self.inputs(seal_key(), &from, &read);
         let (manifest, held) = self.sealed()?;
         let computed = manifest.canonical_bytes();
         let bytes = self.task(seal_key(), inputs, |_| Ok(computed.clone()))?;
@@ -2493,7 +2582,7 @@ pub fn graph_restrict_run<Src: SegmentSource, St: SegmentStore>(
     progress: &mut dyn FnMut(&Progress),
 ) -> GraphRestrictRun {
     run_segmented(
-        &GraphRestrict { plan },
+        &GraphRestrict { plan, held: None },
         input,
         source,
         spec,

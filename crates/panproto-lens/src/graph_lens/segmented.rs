@@ -39,8 +39,9 @@ use panproto_inst::segment::{
     GraphSegment, InStub, ManifestRole, MemoryModel, OwnerIndex, Partition, PartitionDefect, Phase,
     PhaseContext, PhaseOperation, PhaseStop, Reader, Residual, RunSpec, SegmentError, SegmentId,
     SegmentManifest, SegmentRecord, SegmentSource, SegmentStore, SegmentedRestrictError,
-    SegmentedRun, StreamStop, graph_restrict_locality, graph_restrict_segmented_nodes_with,
-    read_boundary, run_segmented, store_failure, verify_partition, write_boundary,
+    SegmentedRun, StreamStop, TaskKey, graph_restrict_locality,
+    graph_restrict_segmented_nodes_with, read_boundary, run_segmented, store_failure,
+    verify_partition, write_boundary,
 };
 use panproto_inst::{
     EdgeId, GEdge, GInstance, GraphComplement, Node, NodeShape, PutDomainError, RestrictPlan,
@@ -1279,7 +1280,10 @@ impl<C: SegmentSource> PhaseOperation for GraphPut<'_, C> {
         Ok(MemoryModel::estimate(&record.stats).saturating_add(complement))
     }
 
-    fn validate_inputs(&self, segment: SegmentId) -> Result<Vec<Digest>, String> {
+    fn read_inputs(&self, _: &PhaseContext<'_>, task: TaskKey) -> Result<Vec<Digest>, String> {
+        let (Phase::Validate, Some(segment)) = (task.phase, task.segment) else {
+            return Ok(Vec::new());
+        };
         let bytes = self
             .complements
             .read(segment)

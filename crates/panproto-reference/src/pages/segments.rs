@@ -7099,6 +7099,12 @@ pub mod segment {
         pub m: &'a crate::migration::Migration,
         /// Value layer.
         pub vl: &'a dyn crate::restrict::ValueLayer,
+        /// The complement segments of an earlier restriction, one per
+        /// segment in id order, against which the run numbers its
+        /// synthesized elements stably
+        /// ([`super::segmented_restrict::restrict_graph_segmented_held`]),
+        /// or `None` to number them afresh.
+        pub held: Option<&'a [GraphComplementSegment]>,
     }
 
     /// A reference run of segmented graph restriction.
@@ -7398,6 +7404,9 @@ pub mod segment {
     /// The whole-state facts a reference restrict run reads.
     struct RestrictFacts<'a> {
         segments: &'a [GraphSegment],
+        /// The canonical bytes of each segment's held complement segment, in
+        /// segment order, when the run holds complements.
+        held: Option<Result<Vec<Vec<u8>>, SegmentError>>,
         g: Graph,
         fates: Option<BTreeMap<u32, crate::restrict::NodeFate>>,
         whole: Result<
@@ -7459,8 +7468,11 @@ pub mod segment {
         }
 
         /// The earlier run's artifact of `task` when the task is carried over:
-        /// it is not Seal, the earlier run holds it intact, and every input
-        /// segment the task depends on has the same canonical bytes in the
+        /// it is not Seal, the earlier run journaled it with the inputs
+        /// digest this run gives it (for Assemble and Emit of a run holding
+        /// complements, the inputs name the held complements they read), the
+        /// earlier run holds it intact, and every input segment the task
+        /// depends on has the same canonical bytes in the
         /// earlier run's Validate artifact as here. Validate depends on its
         /// own segment; every later task first requires that the earlier run
         /// validated exactly this run's segments, and Export then depends on
@@ -7470,11 +7482,18 @@ pub mod segment {
             &self,
             task: TaskKey,
             kind: ArtifactKind,
+            inputs: &[u8],
         ) -> Result<Option<Vec<u8>>, PipelineStop> {
             let Some(carry) = &self.carry else {
                 return Ok(None);
             };
             if task.phase == Phase::Seal {
+                return Ok(None);
+            }
+            let same_inputs = carry.journal.tasks.get(&task).is_some_and(|record| {
+                record.inputs == task_input(self.spec.operation, task.phase, task.segment, inputs)
+            });
+            if !same_inputs {
                 return Ok(None);
             }
             let Some(bytes) = self.earlier_artifact(carry, task, kind)? else {
@@ -7527,7 +7546,7 @@ pub mod segment {
         where
             F: FnOnce() -> Result<Vec<u8>, SegmentError>,
         {
-            let carried = self.carried(TaskKey { phase, segment }, kind)?;
+            let carried = self.carried(TaskKey { phase, segment }, kind, inputs)?;
             let request = TaskRequest {
                 run: self.run,
                 operation: self.spec.operation,
@@ -7644,11 +7663,22 @@ pub mod segment {
                 .into());
             }
             let (run_before, reuse_before) = (self.report.tasks_run, self.report.tasks_reused);
+            let mut inputs = summaries.to_vec();
+            if let Some(held) = &facts.held {
+                let held = held
+                    .as_ref()
+                    .map_err(|error| PipelineStop::Failed(error.clone()))?;
+                let mut w = Canonical::default();
+                for bytes in held {
+                    w.bytes(bytes);
+                }
+                inputs.extend(w.0);
+            }
             self.restrict_task(
                 Phase::Assemble,
                 None,
                 ArtifactKind::Assembly,
-                summaries,
+                &inputs,
                 || Ok(assembly.clone()),
             )?;
             finish_phase(
@@ -7668,6 +7698,7 @@ pub mod segment {
             &mut self,
             outputs: &[super::segmented_restrict::SegmentOutput],
             assembly: &[u8],
+            held_complements: Option<&[Vec<u8>]>,
         ) -> Result<(Vec<u8>, u64), RestrictStop> {
             let (run_before, reuse_before) = (self.report.tasks_run, self.report.tasks_reused);
             let views: Vec<AnySegment> = outputs
@@ -7710,11 +7741,21 @@ pub mod segment {
                     })
                     .into());
                 }
+                let mut inputs = assembly.to_vec();
+                if let Some(held_complements) = held_complements {
+                    let mut w = Canonical::default();
+                    w.bytes(
+                        held_complements
+                            .get(position)
+                            .map_or(&[][..], Vec::as_slice),
+                    );
+                    inputs.extend(w.0);
+                }
                 self.restrict_task(
                     Phase::Emit,
                     Some(view.segment),
                     ArtifactKind::ComplementSegment,
-                    assembly,
+                    &inputs,
                     || Ok(artifact.clone()),
                 )?;
                 emitted.bytes(&artifact);
@@ -7789,7 +7830,11 @@ pub mod segment {
                 .whole
                 .as_ref()
                 .map_err(|refusal| RestrictStop::Refused(refusal.clone()))?;
-            let (emitted, seal_held) = self.restrict_emit(outputs, &assembly)?;
+            let held = match &facts.held {
+                Some(Ok(held)) => Some(held.as_slice()),
+                _ => None,
+            };
+            let (emitted, seal_held) = self.restrict_emit(outputs, &assembly, held)?;
             self.restrict_seal(outputs, (&emitted, seal_held), input)
         }
     }
@@ -7903,6 +7948,49 @@ pub mod segment {
         }
     }
 
+    /// The whole-state facts of a reference restrict run of `lens` over
+    /// `segments`, glued as `g`.
+    fn restrict_facts<'a>(
+        lens: RestrictLens<'_>,
+        segments: &'a [GraphSegment],
+        p: &Partition,
+        g: Graph,
+    ) -> RestrictFacts<'a> {
+        let RestrictLens {
+            src,
+            tgt,
+            m,
+            vl,
+            held,
+        } = lens;
+        let fates = crate::restrict::node_fates(src, tgt, m, vl, &g).ok();
+        let held_bytes = held.map(|held| {
+            p.specs
+                .iter()
+                .map(|spec| {
+                    let position = usize::try_from(spec.id.0).unwrap_or(usize::MAX);
+                    let segment = held.get(position).cloned().unwrap_or_default();
+                    canonical_complement_segment_bytes(&AnyComplementSegment::Graph(segment))
+                })
+                .collect()
+        });
+        RestrictFacts {
+            segments,
+            held: held_bytes,
+            whole: super::segmented_restrict::restrict_graph_segmented_held(
+                src,
+                tgt,
+                m,
+                vl,
+                segments,
+                p,
+                held.unwrap_or_default(),
+            ),
+            g,
+            fates,
+        }
+    }
+
     /// Definition: the checkpointed run of segmented graph restriction.
     ///
     /// The run glues `segments` under `p` and seals them into the input
@@ -7925,8 +8013,13 @@ pub mod segment {
     /// naming the input manifest of an earlier run, it reads that run's
     /// journal after the checks before the first task and carries over, by
     /// copying and committing it as reused, every task but Seal that the
-    /// earlier run holds intact and whose input segments have the same
-    /// canonical bytes there.
+    /// earlier run holds intact under the same inputs and whose input
+    /// segments have the same canonical bytes there. With `lens.held`, the
+    /// view and complement segments are those of
+    /// [`super::segmented_restrict::restrict_graph_segmented_held`], and the
+    /// inputs of Assemble and of each Emit task name, after the bytes they
+    /// name without it, the canonical bytes of every segment's held
+    /// complement segment and of the segment's own.
     pub fn segmented_restrict_with_progress<S: SegmentStore>(
         lens: RestrictLens<'_>,
         segments: &[GraphSegment],
@@ -7936,7 +8029,7 @@ pub mod segment {
         store: &mut S,
         progress: &mut dyn FnMut(&Progress),
     ) -> RestrictRun {
-        let RestrictLens { src, tgt, m, vl } = lens;
+        let RestrictLens { src, m, .. } = lens;
         let per = u32::try_from(segments.len()).unwrap_or(u32::MAX);
         let total = per.saturating_mul(4).saturating_add(2);
         let mut report = base_report(InstanceShapeKind::Graph, budget, total);
@@ -8020,15 +8113,7 @@ pub mod segment {
                 report: restrict_report(stop_run::<(), S>(state, stop).report),
             };
         }
-        let fates = crate::restrict::node_fates(src, tgt, m, vl, &g).ok();
-        let facts = RestrictFacts {
-            segments,
-            whole: super::segmented_restrict::restrict_graph_segmented(
-                src, tgt, m, vl, segments, p,
-            ),
-            g,
-            fates,
-        };
+        let facts = restrict_facts(lens, segments, p, g);
         let outcome = state.restrict_phases(&facts, input);
         finish_restrict(state, facts, outcome)
     }
@@ -10089,7 +10174,7 @@ pub mod segmented_restrict {
 
     use super::segment::{
         GraphComplementSegment, GraphSegment, IdKind, IdRange, Partition, SegmentError,
-        SegmentFloors, SegmentId, assemble_graph, check_new_edge_id, fresh, partition_graph,
+        SegmentFloors, SegmentId, assemble_graph, check_new_edge_id, partition_graph,
     };
     use crate::migration::Migration;
     use crate::model::{GEdge, Graph, Node};
@@ -10151,14 +10236,19 @@ pub mod segmented_restrict {
             .fold(range.lo, u32::max)
     }
 
-    /// Allocate one id per key, in ascending key order, from `range` by the
-    /// append-floor rule over `source`.
+    /// Number `keys` from `range` over the ids `source` of the segment:
+    /// a key `held` records keeps its least held id when that id lies in
+    /// the range, is not `u32::MAX` and is not in `source`; every other key,
+    /// in ascending order, takes the least id of the range at or above
+    /// `floor_in(range, source)` that is not `u32::MAX` and that no kept key
+    /// or earlier new key took. With nothing held this is the append-floor
+    /// rule.
     fn allocate(
         range: Option<IdRange>,
         keys: &BTreeSet<SynthKey>,
         source: &BTreeSet<u32>,
-        segment: SegmentId,
-        kind: IdKind,
+        held: &BTreeMap<u32, SynthKey>,
+        (segment, kind): (SegmentId, IdKind),
     ) -> Result<(BTreeMap<SynthKey, u32>, u32), SegmentError> {
         let Some(range) = range else {
             return if keys.is_empty() {
@@ -10167,17 +10257,33 @@ pub mod segmented_restrict {
                 Err(SegmentError::NoAllocationRange { segment, kind })
             };
         };
-        let mut used = BTreeSet::new();
         let mut ids = BTreeMap::new();
         for key in keys {
-            let id = fresh(range, source, &used)
+            let least = held
+                .iter()
+                .find_map(|(id, held_key)| (held_key == key).then_some(*id));
+            if let Some(id) = least
+                && range.contains(id)
+                && id != u32::MAX
+                && !source.contains(&id)
+            {
+                ids.insert(key.clone(), id);
+            }
+        }
+        let floor = floor_in(range, source);
+        for key in keys {
+            if ids.contains_key(key) {
+                continue;
+            }
+            let taken: BTreeSet<u32> = ids.values().copied().collect();
+            let id = (floor..=range.hi)
+                .find(|id| *id != u32::MAX && !taken.contains(id))
                 .ok_or(SegmentError::AllocationExhausted { segment, kind })?;
-            used.insert(id);
             ids.insert(key.clone(), id);
         }
-        let mut held = source.clone();
-        held.extend(used);
-        Ok((ids, floor_in(range, &held)))
+        let mut all = source.clone();
+        all.extend(ids.values().copied());
+        Ok((ids, floor_in(range, &all)))
     }
 
     /// The ids each synthesized element takes in its chain owner's ranges,
@@ -10190,9 +10296,16 @@ pub mod segmented_restrict {
     );
 
     /// Number the synthesized elements of `c` segment by segment, in id
-    /// order, nodes before edges, each in ascending key order by the
-    /// append-floor rule over the owning segment's range and source ids.
-    fn present(c: &Complement, g: &Graph, p: &Partition) -> Result<Presentation, SegmentError> {
+    /// order, nodes before edges, each in ascending key order over the
+    /// owning segment's range and source ids, keys the segment's held
+    /// complement records keeping their held ids ([`allocate`]).
+    fn present(
+        c: &Complement,
+        g: &Graph,
+        p: &Partition,
+        held: &[GraphComplementSegment],
+    ) -> Result<Presentation, SegmentError> {
+        let nothing_held = GraphComplementSegment::default();
         let mut node_ids: BTreeMap<u32, u32> = BTreeMap::new();
         let mut edge_ids: BTreeMap<u32, u32> = BTreeMap::new();
         let mut floors: BTreeMap<SegmentId, SegmentFloors> = BTreeMap::new();
@@ -10222,19 +10335,23 @@ pub mod segmented_restrict {
                 .filter(|(_, e)| p.owner_of_node(e.src) == Some(spec.id))
                 .map(|(id, _)| *id)
                 .collect();
+            let held = usize::try_from(spec.id.0)
+                .ok()
+                .and_then(|position| held.get(position))
+                .unwrap_or(&nothing_held);
             let (nodes, node) = allocate(
                 spec.alloc_nodes,
                 &node_keys,
                 &source_nodes,
-                spec.id,
-                IdKind::Node,
+                &held.synthesized_nodes,
+                (spec.id, IdKind::Node),
             )?;
             let (edges, edge) = allocate(
                 spec.alloc_edges,
                 &edge_keys,
                 &source_edges,
-                spec.id,
-                IdKind::Edge,
+                &held.synthesized_edges,
+                (spec.id, IdKind::Edge),
             )?;
             for (id, key) in &c.synthesized_nodes {
                 if let Some(new) = nodes.get(key) {
@@ -10280,6 +10397,34 @@ pub mod segmented_restrict {
         segments: &[GraphSegment],
         p: &Partition,
     ) -> Result<Vec<SegmentOutput>, SegmentedRestrictRefusal> {
+        restrict_graph_segmented_held(src, tgt, m, vl, segments, p, &[])
+    }
+
+    /// Definition: segmented graph restrict numbering stably against held
+    /// complement segments.
+    ///
+    /// As [`restrict_graph_segmented`], except that segment `i` numbers its
+    /// chains against `held[i]` (nothing when `held` has no element `i`): a
+    /// synthesis key `held[i]` records keeps the least id it records the
+    /// key under when that id lies in the segment's range of its kind, is
+    /// not `u32::MAX`, and is no source id of that kind the segment holds;
+    /// every other key, in ascending order, takes the least id of the range
+    /// at or above the range's floor over the segment's source ids that no
+    /// key of the segment took, never `u32::MAX`. The floors are those of
+    /// the ranges over the source ids and the numbered ids.
+    ///
+    /// # Errors
+    ///
+    /// As [`restrict_graph_segmented`].
+    pub fn restrict_graph_segmented_held(
+        src: &Schema,
+        tgt: &Schema,
+        m: &Migration,
+        vl: &dyn ValueLayer,
+        segments: &[GraphSegment],
+        p: &Partition,
+        held: &[GraphComplementSegment],
+    ) -> Result<Vec<SegmentOutput>, SegmentedRestrictRefusal> {
         let g = assemble_graph(segments, p).map_err(SegmentedRestrictRefusal::Segment)?;
         // The seal floor rule: an edge id at or above the lower bound of any
         // edge allocation range lies in the range of the segment holding it,
@@ -10303,7 +10448,7 @@ pub mod segmented_restrict {
                 None => SegmentedRestrictRefusal::Unlocated(error),
             })?;
         let (node_ids, edge_ids, floors) =
-            present(&c, &g, p).map_err(SegmentedRestrictRefusal::Segment)?;
+            present(&c, &g, p, held).map_err(SegmentedRestrictRefusal::Segment)?;
         let node = |id: u32| node_ids.get(&id).copied().unwrap_or(id);
         let mut presented = Graph::default();
         for (id, held) in &view.nodes {
