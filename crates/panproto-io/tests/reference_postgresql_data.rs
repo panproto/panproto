@@ -134,14 +134,14 @@ fn agree(script: &[Insert]) {
 #[test]
 fn rows_and_canonical_text_match_the_reference_on_every_bounded_script() {
     let scripts = scripts();
-    assert_eq!(scripts.len(), 1580);
+    assert_eq!(scripts.len(), 2060);
     let mut read = 0;
     for script in &scripts {
         agree(script);
         read += usize::from(read_script(script).is_ok());
     }
-    assert_eq!(read, 1580 - 1580 + read);
-    println!("{read} of {} scripts read", scripts.len());
+    // 147 single statements and 81 pairs read; the rest are refused.
+    assert_eq!(read, 228);
 }
 
 proptest! {
@@ -149,7 +149,7 @@ proptest! {
 
     #[test]
     fn randomized_scripts_match_the_reference(
-        picks in prop::collection::vec(0..680_usize, 1..8)
+        picks in prop::collection::vec(0..835_usize, 1..8)
     ) {
         let all = statements();
         let script: Vec<Insert> = picks.iter().map(|i| all[*i].clone()).collect();

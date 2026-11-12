@@ -108,7 +108,7 @@ fn the_scopes_have_their_closed_form_counts() {
     assert_eq!(value_cases().len(), TYPES.len() * SPELLINGS.len());
     assert_eq!(value_cases().len(), 11 * 64);
     assert_eq!(statements().len(), STATEMENTS_COUNT);
-    assert_eq!(STATEMENTS_COUNT, 680);
+    assert_eq!(STATEMENTS_COUNT, 835);
     assert_eq!(scripts().len(), SCRIPTS_COUNT);
-    assert_eq!(SCRIPTS_COUNT, 1580);
+    assert_eq!(SCRIPTS_COUNT, 2060);
 }

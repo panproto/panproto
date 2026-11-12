@@ -92,7 +92,13 @@ pub const CELLS: &[fn() -> Cell] = &[
 ];
 
 /// The target column lists of table `a`.
-pub const A_COLUMNS: &[Option<&[usize]>] = &[None, Some(&[0]), Some(&[1, 0]), Some(&[0, 1, 2])];
+pub const A_COLUMNS: &[Option<&[usize]>] = &[
+    None,
+    Some(&[0]),
+    Some(&[2]),
+    Some(&[1, 0]),
+    Some(&[0, 1, 2]),
+];
 
 /// The target column lists of table `b`.
 pub const B_COLUMNS: &[Option<&[usize]>] = &[None, Some(&[0])];
@@ -136,9 +142,9 @@ pub fn statements() -> Vec<Insert> {
     out
 }
 
-/// The closed-form count of [`statements`]: `a` has 4 column lists of
+/// The closed-form count of [`statements`]: `a` has 5 column lists of
 /// 5 + 25 + 125 rows, `b` 2 of 5 + 25.
-pub const STATEMENTS_COUNT: usize = 4 * (5 + 25 + 125) + 2 * (5 + 25);
+pub const STATEMENTS_COUNT: usize = 5 * (5 + 25 + 125) + 2 * (5 + 25);
 
 /// Every script of the scope: each statement alone, and each ordered pair
 /// of one-cell statements (the numbering of interleaved tables).
@@ -156,5 +162,5 @@ pub fn scripts() -> Vec<Vec<Insert>> {
 }
 
 /// The closed-form count of [`scripts`]: the statements, and the pairs of
-/// the 4 × 5 + 2 × 5 = 30 one-cell statements.
-pub const SCRIPTS_COUNT: usize = STATEMENTS_COUNT + 30 * 30;
+/// the 5 × 5 + 2 × 5 = 35 one-cell statements.
+pub const SCRIPTS_COUNT: usize = STATEMENTS_COUNT + 35 * 35;
