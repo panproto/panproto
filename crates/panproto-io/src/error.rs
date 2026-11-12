@@ -231,6 +231,15 @@ pub enum ParseInstanceError {
         byte_offset: Option<u64>,
     },
 
+    /// An edge-list document the protocol's reader refuses.
+    #[error("protocol '{protocol}' refuses the edge list: {error}")]
+    EdgeList {
+        /// The protocol name.
+        protocol: String,
+        /// The refusal.
+        error: crate::edgelist::EdgeListReadError,
+    },
+
     /// An RDF document the protocol's reader refuses, with the byte offset
     /// of the token at fault.
     #[error("protocol '{protocol}' refuses the document {error}")]
@@ -309,6 +318,16 @@ pub enum EmitInstanceError {
         column: String,
     },
 
+    /// A graph the protocol's edge-list writer refuses, with the node at
+    /// fault.
+    #[error("protocol '{protocol}' cannot write the graph: {error}")]
+    EdgeList {
+        /// The protocol name.
+        protocol: String,
+        /// The refusal.
+        error: crate::edgelist::EdgeListWriteError,
+    },
+
     /// A graph the protocol's RDF writer refuses, with the node at fault.
     #[error("protocol '{protocol}' cannot write the graph: {error}")]
     Rdf {
@@ -360,6 +379,16 @@ pub enum UnifiedCodecError {
         /// Underlying parse-error from `LanguageParser::from_language`.
         #[source]
         source: Box<panproto_parse::error::ParseError>,
+    },
+
+    /// The fixed schema a codec reads its text under could not be built.
+    #[error("failed to build the {format} table schema: {source}")]
+    SchemaInit {
+        /// Grammar / format name.
+        format: String,
+        /// The schema builder's refusal.
+        #[source]
+        source: Box<panproto_schema::SchemaError>,
     },
 }
 

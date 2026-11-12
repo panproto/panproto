@@ -48,6 +48,8 @@ const DECLARED: &[(&str, InstanceShapeKind, InstanceShapeKind)] = &[
     ("docx", Tree, Graph),
     ("dynamodb", Tree, Table),
     ("edi-x12", Table, Tree),
+    ("edgelist-csv", Graph, Graph),
+    ("edgelist-tsv", Graph, Graph),
     ("elan", Tree, Graph),
     ("fhir", Tree, Graph),
     ("flatbuffers", Tree, Tree),

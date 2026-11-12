@@ -413,9 +413,12 @@ impl ProtocolRegistry {
             Err(crate::error::UnifiedCodecError::MissingGrammar { .. }) => {
                 // Expected: grammar feature disabled.
             }
-            Err(err @ crate::error::UnifiedCodecError::ParserInit { .. }) => {
+            Err(
+                err @ (crate::error::UnifiedCodecError::ParserInit { .. }
+                | crate::error::UnifiedCodecError::SchemaInit { .. }),
+            ) => {
                 eprintln!(
-                    "panproto-io: bundled grammar failed parser initialisation; \
+                    "panproto-io: bundled codec failed initialisation; \
                      skipping registration: {err}"
                 );
             }

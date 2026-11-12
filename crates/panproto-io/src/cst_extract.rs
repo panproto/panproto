@@ -6927,11 +6927,95 @@ fn tabular_complement(
 
 /// The decoded column names of a tabular CST's header row, refusing a name
 /// that repeats.
+/// The header record of a CSV or TSV CST, each field's text read as the
+/// route reads it (CSV quotes read; a TSV header split at its tabs), with
+/// no check that the names are distinct, or `None` when the document holds
+/// no record.
+///
+/// # Errors
+///
+/// Returns [`CstCodecError`] when the parser could not read the whole text,
+/// the CST has no root, or a CSV header field is not a well-formed field.
+#[cfg(feature = "tree-sitter")]
+pub(crate) fn tabular_header(cst: &Schema) -> Result<Option<Vec<String>>, CstCodecError> {
+    validate_cst_has_no_recovery_markers(cst, "tabular")?;
+    let doc_vertex = find_cst_root(cst)?;
+    let rows = cst_children_by_edge_kind(cst, &doc_vertex, "child_of");
+    let Some(header) = rows.first() else {
+        return Ok(None);
+    };
+    if cst.protocol == "tsv" {
+        let source = cst_source_text(cst, &doc_vertex);
+        let line = tsv_lines(&source).first().map_or("", |(_, line)| *line);
+        return Ok(Some(line.split('\t').map(str::to_owned).collect()));
+    }
+    cst_children_by_edge_kind(cst, header, "child_of")
+        .iter()
+        .map(|f| read_tabular_field(cst, f))
+        .collect::<Result<_, _>>()
+        .map(Some)
+}
+
+/// The lines of a TSV text, each with its start offset: a line ends at a
+/// line feed, a carriage return, or a carriage return followed by a line
+/// feed, and a last line without a line ending is a line.
+fn tsv_lines(source: &str) -> Vec<(usize, &str)> {
+    let mut lines = Vec::new();
+    let mut line_start = 0;
+    let bytes = source.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'\n' => {
+                lines.push((line_start, &source[line_start..index]));
+                index += 1;
+                line_start = index;
+            }
+            b'\r' => {
+                lines.push((line_start, &source[line_start..index]));
+                index += if bytes.get(index + 1) == Some(&b'\n') {
+                    2
+                } else {
+                    1
+                };
+                line_start = index;
+            }
+            _ => index += 1,
+        }
+    }
+    if line_start < bytes.len() {
+        lines.push((line_start, &source[line_start..]));
+    }
+    lines
+}
+
+/// The text of one CSV or TSV field vertex, as [`decode_tabular_field`]
+/// reads it, refusing a CSV field that is not an RFC 4180 field: a `"` in
+/// an unquoted field, or a quoted field whose closing quote is followed by
+/// more text or that holds a `"` not doubled.
+fn read_tabular_field(cst: &Schema, field: &Name) -> Result<String, CstCodecError> {
+    let raw = literal_text_deep(cst, field);
+    let format = cst.protocol.as_ref();
+    if format == "csv" && raw.contains('"') {
+        let well_formed = raw.len() >= 2
+            && raw.starts_with('"')
+            && raw.ends_with('"')
+            && !raw[1..raw.len() - 1].replace("\"\"", "").contains('"');
+        if !well_formed {
+            return Err(CstCodecError::Structure(format!(
+                "malformed quoted CSV field at byte {}",
+                cst_byte_offset(cst, field).unwrap_or_default()
+            )));
+        }
+    }
+    Ok(decode_tabular_field(&raw, format))
+}
+
 fn tabular_headers(cst: &Schema, header_row: &Name) -> Result<Vec<String>, CstCodecError> {
     let headers: Vec<String> = cst_children_by_edge_kind(cst, header_row, "child_of")
         .iter()
-        .map(|f| decode_tabular_field(&literal_text_deep(cst, f), cst.protocol.as_ref()))
-        .collect();
+        .map(|f| read_tabular_field(cst, f))
+        .collect::<Result<_, _>>()?;
     let mut distinct_headers = HashSet::with_capacity(headers.len());
     if let Some(duplicate) = headers
         .iter()
@@ -7060,32 +7144,7 @@ impl TabularReader<'_> {
                 field_at.insert(start, (end, vertex));
             }
         }
-        let mut lines = Vec::new();
-        let mut line_start = 0;
-        let bytes = source.as_bytes();
-        let mut index = 0;
-        while index < bytes.len() {
-            match bytes[index] {
-                b'\n' => {
-                    lines.push((line_start, &source[line_start..index]));
-                    index += 1;
-                    line_start = index;
-                }
-                b'\r' => {
-                    lines.push((line_start, &source[line_start..index]));
-                    index += if bytes.get(index + 1) == Some(&b'\n') {
-                        2
-                    } else {
-                        1
-                    };
-                    line_start = index;
-                }
-                _ => index += 1,
-            }
-        }
-        if line_start < bytes.len() {
-            lines.push((line_start, &source[line_start..]));
-        }
+        let lines = tsv_lines(&source);
         let Some(((_, header), body)) = lines.split_first() else {
             self.source = source;
             return Ok(Vec::new());
@@ -7174,8 +7233,7 @@ impl TabularReader<'_> {
             let Some(col) = self.headers.get(col_idx).cloned() else {
                 continue;
             };
-            let raw = literal_text_deep(cst, field_name);
-            let text = decode_tabular_field(&raw, cst.protocol.as_ref());
+            let text = read_tabular_field(cst, field_name)?;
             if let Some(value) = self.coerce_cell(&col, &text, cst_byte_offset(cst, field_name)) {
                 row.insert(col, value);
             }

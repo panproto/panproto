@@ -235,7 +235,16 @@ fn a_protocol_without_schema_documents_is_refused_by_both_dispatches() {
         .collect();
     assert_eq!(
         programmatic,
-        ["csv", "ntriples", "toml", "tsv", "turtle", "yaml"]
+        [
+            "csv",
+            "edgelist-csv",
+            "edgelist-tsv",
+            "ntriples",
+            "toml",
+            "tsv",
+            "turtle",
+            "yaml"
+        ]
     );
     for name in programmatic {
         for refusal in [

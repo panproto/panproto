@@ -66,8 +66,8 @@ class TestProtocolRegistry:
 
     def test_list_builtin_protocols_includes_semantic(self) -> None:
         names = panproto.list_builtin_protocols()
-        assert len(names) >= 59
-        assert {"csv", "ntriples", "toml", "tsv", "yaml"}.issubset(names)
+        assert len(names) >= 60
+        assert {"csv", "ntriples", "toml", "tsv", "turtle", "yaml"}.issubset(names)
         for canonical in (
             "edi-x12",
             "iso-space",

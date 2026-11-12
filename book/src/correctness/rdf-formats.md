@@ -6,11 +6,14 @@ RDF data is a graph from the start: a set of triples whose subjects and objects 
 
 The `ntriples` protocol (alias `n-triples`) reads and writes N-Triples as the W3C Recommendation *RDF 1.1 N-Triples* of 25 February 2014 defines it, over the abstract syntax of *RDF 1.1 Concepts and Abstract Syntax* of the same date. Its syntax and its data are both read as a graph: the protocol declares a graph syntactic shape and a graph semantic shape, and its graph codec, [`NTriplesCodec`](https://docs.rs/panproto-io/latest/panproto_io/rdf/ntriples/struct.NTriplesCodec.html), is registered by `default_registry` under the `tree-sitter` feature of `panproto-io`.
 
+The `turtle` protocol (alias `ttl`) reads Turtle as the W3C Recommendation [*RDF 1.1 Turtle*](https://www.w3.org/TR/2014/REC-turtle-20140225/) of 25 February 2014 defines it, into the same graph encoding, and resolves relative IRI references as [RFC 3986](https://www.rfc-editor.org/rfc/rfc3986) Sec 5.2 resolves them. Its syntax and its data are likewise both read as a graph, and its graph codec, [`TurtleCodec`](https://docs.rs/panproto-io/latest/panproto_io/rdf/turtle/struct.TurtleCodec.html), is registered under the same feature.
+
 | Format | Standard | Read as | Status |
 |---|---|---|---|
 | N-Triples | RDF 1.1 N-Triples (W3C Recommendation, 2014-02-25) | graph | Read and written; the limits below |
-| N-Quads | RDF 1.1 N-Quads (W3C Recommendation, 2014-02-25) | | Not supported: no bundled tree-sitter grammar reads N-Quads, and the Turtle grammar refuses each of the 12 positive syntax tests of the W3C N-Quads suite that carries a graph label |
-| TriG, RDF/XML | | | Not supported |
+| Turtle | RDF 1.1 Turtle (W3C Recommendation, 2014-02-25) | graph | Read, written canonically, and read and written through a format-preserving route; the limits below |
+| N-Quads | RDF 1.1 N-Quads (W3C Recommendation, 2014-02-25) | | Not supported: no bundled tree-sitter grammar reads N-Quads, and the Turtle grammar refuses each of the 12 positive syntax tests of the W3C N-Quads suite that carries a graph label (see [N-Quads](#n-quads)) |
+| TriG, RDF/XML | | | Not supported; the Turtle reader refuses a TriG graph block with `NotInFormat` |
 | RDF-star, RDF 1.2 triple terms | | | Not supported: the reader refuses `<<` with `Syntax` |
 
 ## The RDF graph encoding
@@ -64,6 +67,69 @@ The reader is run against the W3C RDF 1.1 N-Triples test suite, vendored under `
 | `raw-nul-or-delete` | 1 (`literal_ascii_boundaries`) | Refuses the raw U+0000 and U+007F in its string with `UnsupportedCharacter` |
 
 The tree-sitter Turtle grammar alone, run over the suite, reads 40 of the 41 positive tests and rejects 15 of the 29 negative ones; the walker refuses the 14 it over-accepts.
+
+The Turtle route is run against the W3C RDF 1.1 Turtle test suite, vendored beside it under `rdf11/rdf-turtle`: its manifest and the 430 other `.ttl` and `.nt` files, without the archives and implementation reports of the upstream directory. Each file is read with the base the manifest assumes for it, `https://w3c.github.io/rdf-tests/rdf/rdf11/rdf-turtle/` followed by the file name. A positive syntax test passes when the route reads the file, the format-preserving route reads the same graph and writes the unedited graph back as the file's bytes, and canonical Turtle reads back as the same triples; an evaluation test passes when, in addition, the triples are isomorphic to those the N-Triples route reads from the expected result; a negative syntax test passes when the route refuses the file. Isomorphism is decided exactly: ground triples are compared as sets, blank nodes are coloured by the triples they occur in and the colours refined until the partition stops growing, and a bijection between blank nodes of equal colour is searched for by backtracking, each partial assignment checked against the triples it fixes; a search that reaches its bound of one million assignments counts as a failure. The route passes 307 of the 313 entries: all 94 negative tests, all 74 positive syntax tests and 139 of the 145 evaluation tests.
+
+| Limit | Entries | What the reader does |
+|---|---|---|
+| `raw-nul-or-delete` | 5 (`LITERAL1_all_controls`, `LITERAL1_ascii_boundaries`, `LITERAL2_ascii_boundaries`, `LITERAL_LONG1_ascii_boundaries`, `LITERAL_LONG2_ascii_boundaries`) | Refuses the raw U+0000 in its string with `UnsupportedCharacter` |
+| `grammar-syntax` | 1 (`turtle-subm-02`) | Refuses with `Syntax`: the grammar reads the `a` of the prefixed name `a:a` as the keyword `a`, where the Recommendation's longest-match rule reads the prefixed name |
+
+The tree-sitter grammar alone reads 213 of the 219 positive and evaluation tests and rejects 77 of the 94 negative ones; the walker refuses the 17 it over-accepts: three IRIs whose escapes name an excluded character, two undefined prefixes, a TriG graph block, an N3 `is ... of` path and ten numeric escapes naming a surrogate.
+
+## N-Quads {#n-quads}
+
+No bundled grammar reads N-Quads. N-Quads is N-Triples with an optional graph label (an IRI or a blank node) before the final `.`, and the vendored Turtle grammar has no production for a fourth term, so reading N-Quads through tree-sitter needs one of: an N-Quads grammar; a TriG grammar, which would still not read N-Quads, whose graph label follows the triple; or an extension of the vendored Turtle grammar that admits an optional graph label before the `.` of a triple. A survey of maintained grammars found [`tree-sitter-rdf`](https://github.com/symbolith/tree-sitter-rdf) (commit `a168f6be`, 2026-11-10), by the author of the vendored Turtle grammar, which holds an RDF 1.1 N-Quads grammar among nine RDF grammars. Its package metadata declares the MIT licence, but the repository holds no licence file and declares no licence of its own. Run over the W3C N-Quads suite, it reads 52 of the 53 positive syntax tests (all but `literal_ascii_boundaries`, the raw U+0000 case N-Triples shows) and rejects 29 of the 34 negative ones. The route waits on a decision to vendor it.
+
+
+## What the Turtle reader reads and refuses
+
+The Turtle reader parses the document with the same bundled tree-sitter Turtle grammar and walks the tree in document order. A codec made with [`TurtleCodec::new`](https://docs.rs/panproto-io/latest/panproto_io/rdf/turtle/struct.TurtleCodec.html#method.new) starts with no base IRI and refuses every relative IRI reference with `RelativeIri`; one made with `with_base` starts from the base it is given, which RFC 3986 Sec 5.1.3 makes the document's retrieval IRI, and `with_base` refuses a base that is not an absolute IRI with `InvalidBaseIri`. Each `@base` or `BASE` directive replaces the base from the point it appears, resolved against the base before it.
+
+| Construct | Reading |
+|---|---|
+| `@prefix` and `PREFIX` | The prefix maps to its IRI, resolved against the base in force, from this point on; a later directive for the same prefix replaces it |
+| IRI reference `<...>` | Its escapes decoded; when it is relative, resolved against the base in force by [`resolve_iri`](https://docs.rs/panproto-io/latest/panproto_io/rdf/turtle/fn.resolve_iri.html) |
+| Prefixed name | The prefix's IRI followed by the local name, each `\` escape of `PN_LOCAL_ESC` replaced by its character and each `%` escape kept as written |
+| `a` | `rdf:type` |
+| `;` and `,` | One triple per predicate and object, with the subject (and the predicate) repeated |
+| `[]`, `[ ... ]` | A blank node with a fresh label; a property list's triples have it as subject |
+| `( ... )` | `rdf:nil` when empty; otherwise one blank node per element, each with an `rdf:first` triple to its element and an `rdf:rest` triple to the next cell or to `rdf:nil` |
+| Strings | All four forms (`"..."`, `'...'`, `"""..."""`, `'''...'''`), escapes decoded |
+| Integer, decimal, double, `true`, `false` | A literal whose lexical form is the token exactly as written, of datatype `xsd:integer`, `xsd:decimal`, `xsd:double` or `xsd:boolean` |
+
+Each blank node written without a label gets a fresh label: `b` followed by a decimal counter that starts at 0 and advances on every allocation, skipping every label the document writes, so a fresh label never names a labelled node. A blank node property list's label is allocated at its `[`, and a collection allocates all its cells' labels at its `(`, first to last. Triples are listed in the order the walk completes them: the triples of an object (its property list or its collection) come before the triple that has it as object, a subject's own triples come before its first predicate, and a collection's triples go cell by cell, each element's own triples followed by the cell's `rdf:first` and `rdf:rest` triples.
+
+The reader refuses with the kinds of the N-Triples table above, where they apply, and in addition:
+
+| Input | Refusal kind |
+|---|---|
+| A prefixed name whose prefix no earlier directive declares | `UndefinedPrefix`, naming the prefix |
+| A relative IRI reference with no base in force | `RelativeIri` |
+| A TriG graph block `{ ... }`, which the grammar reads | `NotInFormat`, naming "a graph block" |
+| Anything else the grammar does not read | `Syntax` |
+
+When the grammar cannot read the document, the reader walks every statement that ends before the earliest region the parser marked as unread, then checks each term token before that region on its own (an IRI's escapes and resolution, a prefixed name's prefix, a string's escapes, a label's form), and only then reports `Syntax` at the start of the region, so the refusal names the first fault in document order.
+
+## Canonical Turtle
+
+[`emit_graph`](https://docs.rs/panproto-io/latest/panproto_io/registry/struct.ProtocolRegistry.html#method.emit_graph) for `turtle`, and [`rdf::turtle::write`](https://docs.rs/panproto-io/latest/panproto_io/rdf/turtle/fn.write.html), write a graph as canonical Turtle: no directives; one statement per subject, the subjects in ascending code point order of their N-Triples text; within a statement the predicates in ascending order of their text `<...>`, separated by ` ;`, a line feed and four spaces; after each predicate its objects in ascending order of their text, separated by `, `; each statement ended by ` .` and a line feed. Every term is written as canonical N-Triples writes it, with the same escapes, so canonical Turtle needs no base IRI and reads back as the same triples. The writer refuses exactly the graphs the N-Triples writer refuses, for the same reasons.
+
+## The format-preserving Turtle route
+
+[`TurtleCodec::parse_graph_preserving`](https://docs.rs/panproto-io/latest/panproto_io/rdf/turtle/struct.TurtleCodec.html#method.parse_graph_preserving) reads a document into the graph the native route reads, together with a [`TurtleComplement`](https://docs.rs/panproto-io/latest/panproto_io/rdf/turtle/struct.TurtleComplement.html) that holds what the triples do not: the CST schema of the document (its directives, prefixed names, abbreviations, comments, white space and the order of its statements), the base IRI, the graph as read, and for each term node the tokens that write it and whether the document also writes it somewhere with no token of its own. [`emit_graph_preserving`](https://docs.rs/panproto-io/latest/panproto_io/rdf/turtle/struct.TurtleCodec.html#method.emit_graph_preserving) writes a graph back into those bytes, following the CST complement of the [text formats](text-formats.md).
+
+An unedited graph is written as the document's bytes. An edit to the value of a term node rewrites each token that writes that term and nothing else:
+
+| Edited node | Token | Written as |
+|---|---|---|
+| `iri` | IRI reference, prefixed name or `a` | `<` the IRI `>` |
+| `blank` | label | `_:` and the label |
+| `literal` | quoted string | the canonical N-Triples string; the tag or datatype token is kept |
+| `literal` | integer, decimal, double or boolean | the new lexical form when it is a token of the same form, and otherwise the canonical string followed by `^^` and the datatype |
+| `language` | tag | `@` and the tag |
+
+The route refuses, with an `RdfWriteError` naming the node, every edit it cannot carry in place. A graph that differs from the one read in more than node values (a node added or removed, an anchor changed, an edge added, removed or moved) is refused with `StructuralEdit`. A graph no document reads back as is refused as the canonical writer refuses it, so an edit that makes two terms equal is refused with `DuplicateTerm` or `DuplicateTriple` rather than merging them. A changed term the document writes in some place without a token is refused with `ImplicitTerm`: the datatype a plain string, a tagged string or a bare number or boolean implies, `rdf:first`, `rdf:rest` and `rdf:nil` of a collection, and a blank node written as `[]`, a property list or a collection cell. A label holding `:`, which Turtle cannot write, is refused with `InvalidBlankLabel`. The native and the preserving route read the same graph from every document.
 
 ## N-Triples documents read as the grammar defines them {#L-rdf-formats-1}
 
@@ -163,4 +229,137 @@ $W$ checks the nodes in id order (the anchor; the value, absent on a triple and 
 - File: `crates/panproto-io/src/rdf/mod.rs`
 - File: `crates/panproto-io/src/rdf/ntriples.rs`
 - File: `crates/panproto-reference/src/pages/rdf_formats.rs`
+- File: `crates/panproto-reference/src/enumerate/rdf_formats.rs`
+
+## Turtle documents read as the grammar defines them {#L-rdf-formats-4}
+
+### Statement
+
+For a document $d$ and a base $b$ of the bounded scope, write $T(d, b)$ for `read_document(d, b)`. When $T(d, b)$ is a list of triples, the Turtle route with base $b$ reads $d$ as exactly that list, in the order the walk completes the triples, with the same fresh labels. When $T(d, b)$ is a range of lines, the route refuses $d$ with an `RdfReadError` whose offset lies on a line of that range, counting line feeds from zero.
+
+### Outside the domain
+
+Documents outside the scope are read by the same reader, and the conformance corpus checks them on the W3C suite. A document that is not UTF-8 is refused with `NotUtf8` before any reading, which the reference, reading characters, does not model. A prefix named `a` is outside the scope, since the grammar reads `a:` as the keyword `a` (the declared limit `turtle-subm-02`).
+
+### Definitions used
+
+$T$ tokenizes by longest match, as Sec 6.5 of RDF 1.1 Turtle requires, reads `@prefix` and `@base` as keywords where they also match `LANGTAG`, and reads the productions of Sec 6.5 character by character, with white space and comments between tokens. It resolves IRI references with the resolution of [L-rdf-formats-5](#L-rdf-formats-5), gives literals the datatypes of the section above, allocates fresh labels and orders triples as that section states, reading a document twice so that fresh labels skip every label it writes, and applies the stated refusals: a raw U+0000 or U+007F, an IRI holding an excluded character, a relative reference with no base, an undefined prefix. A fault is found at a position (the start of a rejected token, or the end of the last token read when the required next token is absent), and $T$ returns the lines from that position to the first token after it, since white space and comments may separate the two. The scope is 30,050 documents: for each of two bases (none and `http://b/d/f`) and four headers, each of 9 subject, 4 predicate, 26 object and 4 ending spellings as one statement; and each ordered pair of 7 statement lines joined by each of 2 separators. 8,101 of them read.
+
+### Proof
+
+1. A document $T$ reads is a sequence of statements the grammar's rules cover: each production of Sec 6.5 has a rule of the tree-sitter grammar that admits the same token sequences, with the exception the scope leaves out. The walker reads directives in order, so the base and prefix table in force at each token agree with $T$'s; it decodes each token by the same lexical rules (the escapes of `IRIREF`, `ECHAR`, `UCHAR` and `PN_LOCAL_ESC`) and resolves it by [L-rdf-formats-5](#L-rdf-formats-5), so each term agrees.
+2. Both allocate fresh labels by the same counter, skipping the same set of written labels, at the same points (an `ANON` or `[` when met, a collection's cells all at its `(`), and both complete triples in the same order (an object's triples before its triple, a collection's cell by cell), so the lists agree element for element.
+3. A document $T$ refuses has a first fault. When the grammar reads every statement before it, the walker meets the fault in the same statement at the same token, or, for a missing token, the parser's earliest recovery marker lies between the last token read and the next one, on a line of the range. When the fault is a token the stated refusals reject inside a region the parser cannot read, the walker's token check meets it first, since it checks every term token before that region in document order. A raw U+0000 or U+007F is refused before parsing by both.
+4. The exhaustive differential checks the agreement on all 30,050 documents, and the property differential on generated documents of up to four statements over the same spellings, headers, bases and separators.
+
+### Executable counterpart
+
+- Law ID: `rdf-formats.turtle-reading`
+- Reference: `panproto_reference::pages::rdf_formats::turtle::read_document`
+- Enumerator: `panproto_reference::enumerate::rdf_formats::turtle_documents; bound: documents=30050`
+- Exhaustive differential test: `turtle_documents_read_as_the_reference_on_every_bounded_document; command: cargo nextest run -p panproto-io --features tree-sitter --test reference_turtle --no-tests=fail -E 'test(=turtle_documents_read_as_the_reference_on_every_bounded_document)'`
+- Property differential test: `randomized_turtle_documents_read_as_the_reference; command: cargo nextest run -p panproto-io --features tree-sitter --test reference_turtle --no-tests=fail -E 'test(=randomized_turtle_documents_read_as_the_reference)'`
+- Reference test: `turtle_reads_each_abbreviation_as_its_triples; command: cargo nextest run -p panproto-reference --test rdf_formats_turtle --no-tests=fail -E 'test(=turtle_reads_each_abbreviation_as_its_triples)'`
+- Reference test: `turtle_refusals_name_the_line_of_the_first_fault; command: cargo nextest run -p panproto-reference --test rdf_formats_turtle --no-tests=fail -E 'test(=turtle_refusals_name_the_line_of_the_first_fault)'`
+- Reference test: `fresh_labels_skip_the_labels_the_document_writes; command: cargo nextest run -p panproto-reference --test rdf_formats_turtle --no-tests=fail -E 'test(=fresh_labels_skip_the_labels_the_document_writes)'`
+- File: `crates/panproto-io/src/rdf/turtle.rs`
+- File: `crates/panproto-io/src/rdf/turtle/reader.rs`
+- File: `crates/panproto-io/src/rdf/cst.rs`
+- File: `crates/panproto-reference/src/pages/rdf_formats/turtle.rs`
+
+## Relative references resolve as RFC 3986 resolves them {#L-rdf-formats-5}
+
+### Statement
+
+For an absolute IRI $b$ and a reference $r$ of the bounded scope, write $R(b, r)$ for `resolve(b, r)`. The production resolution `rdf::turtle::resolve_iri(b, r)` equals $R(b, r)$.
+
+### Outside the domain
+
+The reader never resolves against a base that is not absolute: `with_base` refuses one with `InvalidBaseIri`, and a relative reference with no base is refused with `RelativeIri`. An absolute IRI reference is used as written, without dot-segment removal, which the statement does not cover.
+
+### Definitions used
+
+$R$ transcribes RFC 3986: the split of Appendix B, keeping a scheme only when it has the form of Sec 3.1; the algorithm of Sec 5.2.2 with the strict parser; the merge of Sec 5.2.3; `remove_dot_segments` of Sec 5.2.4, applying its steps A to E to a buffer of characters; and the recomposition of Sec 5.3. The scope is each of 5 bases with each reference made of at most three of 9 pieces (`g`, `.`, `..`, `/`, `//h`, `?y`, `#s`, `;x`, `g:`): $5 \cdot (1 + 9 + 9^2 + 9^3) = 4{,}100$ pairs.
+
+### Proof
+
+1. Production splits the fragment at the first `#`, then the query at the first `?`, then a scheme before the first `:` when the part before it is a scheme, then an authority after `//` up to the next `/`. Since a scheme holds no `/`, `?` or `#` and an authority no `/`, `?` or `#`, this is the split of Appendix B.
+2. Production chooses among the four cases of Sec 5.2.2 by the same tests, takes the query and fragment as that section does, and merges as Sec 5.2.3 does.
+3. Production's dot-segment removal applies the same five rules in the same order to the remaining input, each rule a prefix test on the input and the same change to input and output, so each step leaves both buffers equal to $R$'s.
+4. Both recompose by Sec 5.3. The exhaustive differential checks equality on all 4,100 pairs, which include every example of RFC 3986 Sec 5.4, and the property differential on references of up to eight pieces followed by up to six characters drawn from `a-z./?#:;=`.
+
+### Executable counterpart
+
+- Law ID: `rdf-formats.iri-resolution`
+- Reference: `panproto_reference::pages::rdf_formats::turtle::resolve`
+- Enumerator: `panproto_reference::enumerate::rdf_formats::resolution_pairs; bound: pairs=4100`
+- Exhaustive differential test: `iri_resolution_matches_the_reference_on_every_bounded_pair; command: cargo nextest run -p panproto-io --features tree-sitter --test reference_turtle --no-tests=fail -E 'test(=iri_resolution_matches_the_reference_on_every_bounded_pair)'`
+- Property differential test: `randomized_references_resolve_as_the_reference; command: cargo nextest run -p panproto-io --features tree-sitter --test reference_turtle --no-tests=fail -E 'test(=randomized_references_resolve_as_the_reference)'`
+- Reference test: `resolution_follows_the_examples_of_rfc_3986; command: cargo nextest run -p panproto-reference --test rdf_formats_turtle --no-tests=fail -E 'test(=resolution_follows_the_examples_of_rfc_3986)'`
+- File: `crates/panproto-io/src/rdf/turtle.rs`
+- File: `crates/panproto-reference/src/pages/rdf_formats/turtle.rs`
+
+## The Turtle writer prints canonical Turtle {#L-rdf-formats-6}
+
+### Statement
+
+For a list $t$ of triples of the bounded scope, write $C(t)$ for `canonical_text(t)`. The production writer `rdf::turtle::write(t)` prints exactly $C(t)$, and the Turtle route reads $C(t)$, with or without a base, as a list holding exactly the distinct triples of $t$.
+
+### Outside the domain
+
+The writer is given triples: a graph that is not the graph of any list of triples is refused before writing by the refusals of [L-rdf-formats-3](#L-rdf-formats-3), which apply to the `turtle` codec unchanged.
+
+### Definitions used
+
+$C$ sorts the distinct triples by the canonical N-Triples text of their subject, predicate and object, and writes each run of one subject as one statement in the form of the section above. The scope is the 601 lists of [L-rdf-formats-2](#L-rdf-formats-2).
+
+### Proof
+
+1. Production groups the triples by subject text, then by predicate text, in ordered maps, and sorts and deduplicates each object list, which orders the distinct triples as $C$ orders them; it writes the same separators at the same boundaries, and each term by the canonical N-Triples printer, whose text $C$ uses.
+2. Canonical Turtle holds only absolute IRIs, labels, and strings with their tags or datatypes, so the reading of [L-rdf-formats-4](#L-rdf-formats-4) reads each predicate-object pair as one triple, with no fresh labels, and needs no base.
+3. The differential checks the text and the triples read back on all 601 lists.
+
+### Executable counterpart
+
+- Law ID: `rdf-formats.canonical-turtle`
+- Reference: `panproto_reference::pages::rdf_formats::turtle::canonical_text`
+- Enumerator: `panproto_reference::enumerate::rdf_formats::triple_lists; bound: lists=601`
+- Exhaustive differential test: `canonical_turtle_matches_the_reference_on_every_bounded_triple_list; command: cargo nextest run -p panproto-io --features tree-sitter --test reference_turtle --no-tests=fail -E 'test(=canonical_turtle_matches_the_reference_on_every_bounded_triple_list)'`
+- Reference test: `canonical_turtle_groups_subjects_and_predicates; command: cargo nextest run -p panproto-reference --test rdf_formats_turtle --no-tests=fail -E 'test(=canonical_turtle_groups_subjects_and_predicates)'`
+- File: `crates/panproto-io/src/rdf/turtle.rs`
+- File: `crates/panproto-reference/src/pages/rdf_formats/turtle.rs`
+
+## The preserving route writes an edit in place or names why it cannot {#L-rdf-formats-7}
+
+### Statement
+
+For a document $d$ of the bounded scope that reads with base $b$, the format-preserving route writes the unedited graph as $d$ byte for byte. For each term $k$ of its graph and each value $v$ of the scope for $k$'s kind, write $E(d, k, v)$ for `edit(d, b, k, v)`. When $E$ is a text, setting $k$'s node to $v$ and writing through the route gives exactly that text, and reading it gives `edited_triples` of the reading with $k$ set to $v$, up to a renaming of the blank nodes written without a label. When $E$ is a refusal, the route refuses with an `RdfWriteError` of the same kind, a `DuplicateTerm` or `DuplicateTriple` matching a refusal named `Duplicate`.
+
+### Outside the domain
+
+Structural edits (a node added or removed, an anchor changed, an edge added, removed or moved) are refused with `StructuralEdit` before any other check; the scope edits values only, and `turtle_route.rs` checks the refusal on a removed triple. A value that is not a string is refused with `Value`.
+
+### Definitions used
+
+$E$ reads $d$ with the reading of [L-rdf-formats-4](#L-rdf-formats-4), recording each token that writes a term with its byte span and spelling, and each term written somewhere without a token. It checks, in production's order, the new value's form (`RelativeIri`, `IriCharacter`, `InvalidBlankLabel`, `InvalidLanguageTag`), an IRI edit that breaks a literal's tag and datatype rule (`LanguageDatatype`), a term made equal to another (`Duplicate`), a term written without a token (`ImplicitTerm`) and a label holding `:` (`InvalidBlankLabel`), and otherwise replaces each token's span by the text of the table above. The scope is the 3,744 one-statement documents of the reading scope with the base `http://b/d/f` and the header `@prefix : <http://e/> .`, of which 1,449 read; each of their terms is edited to each of two values for its kind (`EDIT_VALUES`), 18,438 edits, of which 10,323 are written.
+
+### Proof
+
+1. The complement holds the CST schema of $d$, and emitting a CST schema with no token text changed writes the document's bytes, as the text formats' CST complement does; the conformance corpus checks this on every readable file of the W3C suite.
+2. Production checks structure, then runs the canonical writer's checks on the edited graph, whose node-level checks in id order and duplicate pass meet the first of $E$'s first four conditions that holds (the edited node, or for `LanguageDatatype` the literal whose datatype it is); then the implicit occurrence; then the label form. The walk that records occurrences visits the same tokens as $E$'s reading, by [L-rdf-formats-4](#L-rdf-formats-4), so the two agree on which terms are written without a token.
+3. A permitted edit sets the text of each of the term's token vertices, and emission writes that text over the vertex's whole span and every other byte unchanged; $E$ replaces the same spans with the same texts, so the bytes agree.
+4. Each replacement is a token denoting the new term in its position (an absolute IRI needs no base, a canonical string or bare token of the same form keeps the datatype and tag tokens beside it), so reading the output gives the edited triples; relabelling a written blank node may move the fresh labels, which the renaming absorbs.
+5. The differential checks the unedited bytes, every outcome and every read-back on the scope.
+
+### Executable counterpart
+
+- Law ID: `rdf-formats.turtle-preservation`
+- Reference: `panproto_reference::pages::rdf_formats::turtle::edit`
+- Reference: `panproto_reference::pages::rdf_formats::turtle::edited_triples`
+- Enumerator: `panproto_reference::enumerate::rdf_formats::preserving_documents; bound: documents=3744`
+- Exhaustive differential test: `preserving_edits_match_the_reference_on_every_bounded_document; command: cargo nextest run -p panproto-io --features tree-sitter --test reference_turtle --no-tests=fail -E 'test(=preserving_edits_match_the_reference_on_every_bounded_document)'`
+- Reference test: `edits_rewrite_the_terms_tokens_or_name_the_refusal; command: cargo nextest run -p panproto-reference --test rdf_formats_turtle --no-tests=fail -E 'test(=edits_rewrite_the_terms_tokens_or_name_the_refusal)'`
+- Reference test: `the_turtle_scopes_have_their_closed_form_counts; command: cargo nextest run -p panproto-reference --test rdf_formats_turtle --no-tests=fail -E 'test(=the_turtle_scopes_have_their_closed_form_counts)'`
+- File: `crates/panproto-io/src/rdf/turtle/reader.rs`
+- File: `crates/panproto-reference/src/pages/rdf_formats/turtle.rs`
 - File: `crates/panproto-reference/src/enumerate/rdf_formats.rs`

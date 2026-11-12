@@ -6996,6 +6996,7 @@
     "rdf-formats": {
       "reference_files": [
         "crates/panproto-reference/src/pages/rdf_formats.rs",
+        "crates/panproto-reference/src/pages/rdf_formats/turtle.rs",
         "crates/panproto-reference/src/enumerate/rdf_formats.rs"
       ],
       "laws": [
@@ -7084,6 +7085,121 @@
               "crate": "panproto-reference",
               "binary": "panproto-reference::rdf_formats",
               "test": "the_rdf_scopes_have_their_closed_form_counts"
+            }
+          ]
+        },
+        {
+          "id": "rdf-formats.turtle-reading",
+          "anchor": "L-rdf-formats-4",
+          "references": [
+            "panproto_reference::pages::rdf_formats::turtle::read_document"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_turtle",
+              "test": "turtle_documents_read_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_turtle",
+              "test": "randomized_turtle_documents_read_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::rdf_formats_turtle",
+              "test": "turtle_reads_each_abbreviation_as_its_triples"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::rdf_formats_turtle",
+              "test": "turtle_refusals_name_the_line_of_the_first_fault"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::rdf_formats_turtle",
+              "test": "fresh_labels_skip_the_labels_the_document_writes"
+            }
+          ]
+        },
+        {
+          "id": "rdf-formats.iri-resolution",
+          "anchor": "L-rdf-formats-5",
+          "references": [
+            "panproto_reference::pages::rdf_formats::turtle::resolve"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_turtle",
+              "test": "iri_resolution_matches_the_reference_on_every_bounded_pair"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_turtle",
+              "test": "randomized_references_resolve_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::rdf_formats_turtle",
+              "test": "resolution_follows_the_examples_of_rfc_3986"
+            }
+          ]
+        },
+        {
+          "id": "rdf-formats.canonical-turtle",
+          "anchor": "L-rdf-formats-6",
+          "references": [
+            "panproto_reference::pages::rdf_formats::turtle::canonical_text"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_turtle",
+              "test": "canonical_turtle_matches_the_reference_on_every_bounded_triple_list"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::rdf_formats_turtle",
+              "test": "canonical_turtle_groups_subjects_and_predicates"
+            }
+          ]
+        },
+        {
+          "id": "rdf-formats.turtle-preservation",
+          "anchor": "L-rdf-formats-7",
+          "references": [
+            "panproto_reference::pages::rdf_formats::turtle::edit",
+            "panproto_reference::pages::rdf_formats::turtle::edited_triples"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_turtle",
+              "test": "preserving_edits_match_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::rdf_formats_turtle",
+              "test": "edits_rewrite_the_terms_tokens_or_name_the_refusal"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::rdf_formats_turtle",
+              "test": "the_turtle_scopes_have_their_closed_form_counts"
             }
           ]
         }

@@ -1,5 +1,6 @@
 //! Reference semantics partitioned by correctness page.
 
+pub mod edge_lists;
 pub mod edits;
 pub mod kan_extensions;
 pub mod keys_and_registration;

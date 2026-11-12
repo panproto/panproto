@@ -96,6 +96,8 @@ pub mod cst_extract;
 
 pub mod rdf;
 
+pub mod edgelist;
+
 #[cfg(feature = "tree-sitter")]
 pub mod unified_codec;
 
@@ -157,6 +159,8 @@ pub fn default_registry() -> ProtocolRegistry {
     text_format::register_all(&mut registry);
     #[cfg(feature = "tree-sitter")]
     rdf::register_all(&mut registry);
+    #[cfg(feature = "tree-sitter")]
+    edgelist::register_all(&mut registry);
     web_document::register_all(&mut registry);
     registry
 }
@@ -171,7 +175,8 @@ mod tests {
 
         // 50 protocols in the default build, plus, under the tree-sitter
         // feature, the four generic text formats, the PostgreSQL table codec
-        // and the N-Triples and Turtle graph codecs.
+        // the N-Triples and Turtle graph codecs and the two edge-list graph
+        // codecs.
         let base: &[&str] = &[
             // API (4)
             "openapi",
@@ -249,6 +254,8 @@ mod tests {
             "postgresql",
             "ntriples",
             "turtle",
+            "edgelist-csv",
+            "edgelist-tsv",
         ];
         #[cfg(not(feature = "tree-sitter"))]
         let extra: &[&str] = &[];
