@@ -117,6 +117,7 @@
 //! | PostgreSQL data values, rows, canonical text and table directory fields | [`pages::postgresql_data::input_value`], [`pages::postgresql_data::render`], [`pages::postgresql_data::read_script`], [`pages::postgresql_data::canonical_text`], [`pages::postgresql_data::csv_field`], [`pages::postgresql_data::text_field`] | `postgresql-data.md` |
 //! | PostgreSQL DDL column types, keys and references, and canonical text | [`pages::postgresql_ddl::column_type`], [`pages::postgresql_ddl::render`], [`pages::postgresql_ddl::read_script`], [`pages::postgresql_ddl::canonical_text`] | `postgresql-ddl.md` |
 //! | N-Triples reading, the RDF graph encoding and canonical writing | [`pages::rdf_formats::ntriples::read_document`], [`pages::rdf_formats::ntriples::encode`], [`pages::rdf_formats::ntriples::canonical_text`], [`pages::rdf_formats::ntriples::write_graph`] | `rdf-formats.md` |
+//! | Turtle reading, IRI resolution, canonical Turtle and format-preserving edits | [`pages::rdf_formats::turtle::read_document`], [`pages::rdf_formats::turtle::resolve`], [`pages::rdf_formats::turtle::canonical_text`], [`pages::rdf_formats::turtle::edit`], [`pages::rdf_formats::turtle::edited_triples`] | `rdf-formats.md` |
 //!
 //! [`enumerate`] holds the exhaustive small-scope enumerators (labelled,
 //! with no pruning of isomorphic copies, each with an independent count),

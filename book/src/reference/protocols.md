@@ -4,7 +4,7 @@ A [protocol](../glossary.md#protocol) names a schema language together with its 
 
 ## Semantic protocols
 
-The protocol registry lists 59 semantic protocols. Names in this table are the canonical hyphenated strings the registry and the generic dispatch functions accept; underscore spellings are normalized before lookup. Of these, 54 read schema documents through [`parse_schema_document`](https://docs.rs/panproto-protocols/latest/panproto_protocols/fn.parse_schema_document.html) or [`parse_schema_source`](https://docs.rs/panproto-protocols/latest/panproto_protocols/fn.parse_schema_source.html). The four generic text formats, `csv`, `toml`, `tsv` and `yaml`, carry data and no schema of their own, so they read no schema documents: a schema for one is built in code, and both dispatch functions refuse them with an error that says so. Their instance codecs are registered under the `tree-sitter` feature of `panproto-io`. The RDF format `ntriples` likewise reads no schema documents: every N-Triples document is read under the one RDF graph schema that [`rdf::ntriples::graph_schema`](https://docs.rs/panproto-protocols/latest/panproto_protocols/rdf/ntriples/fn.graph_schema.html) builds, and its graph codec is registered under the same feature.
+The protocol registry lists 60 semantic protocols. Names in this table are the canonical hyphenated strings the registry and the generic dispatch functions accept; underscore spellings are normalized before lookup. Of these, 54 read schema documents through [`parse_schema_document`](https://docs.rs/panproto-protocols/latest/panproto_protocols/fn.parse_schema_document.html) or [`parse_schema_source`](https://docs.rs/panproto-protocols/latest/panproto_protocols/fn.parse_schema_source.html). The four generic text formats, `csv`, `toml`, `tsv` and `yaml`, carry data and no schema of their own, so they read no schema documents: a schema for one is built in code, and both dispatch functions refuse them with an error that says so. Their instance codecs are registered under the `tree-sitter` feature of `panproto-io`. The RDF formats `ntriples` and `turtle` likewise read no schema documents: every N-Triples or Turtle document is read under the one RDF graph schema that [`rdf::ntriples::graph_schema`](https://docs.rs/panproto-protocols/latest/panproto_protocols/rdf/ntriples/fn.graph_schema.html) and [`rdf::turtle::graph_schema`](https://docs.rs/panproto-protocols/latest/panproto_protocols/rdf/turtle/fn.graph_schema.html) build, and their graph codecs are registered under the same feature.
 
 | Category module | Protocol names |
 |---|---|
@@ -15,7 +15,7 @@ The protocol registry lists 59 semantic protocols. Names in this table are the c
 | `data_science` | `arrow`, `dataframe`, `parquet` |
 | `database` | `cassandra`, `dynamodb`, `mongodb`, `neo4j`, `redis`, `postgresql` |
 | `domain` | `edi-x12`, `fhir`, `geojson`, `rss-atom`, `swift-mt`, `vcard-ical` |
-| `rdf` | `ntriples` |
+| `rdf` | `ntriples`, `turtle` |
 | `serialization` | `asn1`, `avro`, `bond`, `flatbuffers`, `msgpack-schema`, `protobuf` |
 | `text` | `csv`, `toml`, `tsv`, `yaml` |
 | `web_document` | `atproto`, `docx`, `odf` |
