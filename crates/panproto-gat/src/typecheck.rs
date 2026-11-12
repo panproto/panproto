@@ -606,12 +606,11 @@ fn collect_constraints(
             }
         } else if let Some(arg_sort) =
             collect_constraints(arg, theory, ctx, constraints, next_implicit_scope)?
+            && arg_sort.head() == expected.head()
+            && arg_sort.args().len() == expected.args().len()
         {
-            if arg_sort.head() == expected.head() && arg_sort.args().len() == expected.args().len()
-            {
-                for (x, y) in expected.args().iter().zip(arg_sort.args().iter()) {
-                    constraints.arguments.push((x.clone(), y.clone()));
-                }
+            for (x, y) in expected.args().iter().zip(arg_sort.args().iter()) {
+                constraints.arguments.push((x.clone(), y.clone()));
             }
         }
         theta.insert(Arc::clone(param_name), arg.clone());
