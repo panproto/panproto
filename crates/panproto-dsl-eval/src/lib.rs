@@ -19,6 +19,18 @@
 //! compiling the Nickel evaluator itself. The functions are generic over
 //! the target document type; each DSL crate supplies its own document and
 //! contract library and maps [`DslEvalError`] into its own error type.
+//!
+//! The crate also holds what both DSLs use to refuse a document at a
+//! place in it: [`path`] names a value of a document and locates it in
+//! JSON text, [`shape`] checks a document value against a grammar table,
+//! and [`source`] turns a refusal's path into a byte range of the source
+//! text it was read from.
+
+pub mod path;
+pub mod shape;
+pub mod source;
+
+pub use source::SourceFormat;
 
 use std::ffi::OsString;
 use std::path::PathBuf;

@@ -88,3 +88,27 @@ fn imports_missing_theory_rejected() -> Result<(), Box<dyn std::error::Error>> {
     let _ = Arc::<str>::from("unused");
     Ok(())
 }
+
+#[test]
+fn a_nickel_theory_with_imports_passes_the_theory_contract_and_resolves_its_names()
+-> Result<(), Box<dyn std::error::Error>> {
+    let source = "let { Theory, .. } = import \"panproto/theory.ncl\" in\n\
+        { id = \"x\", description = \"\", theory = \"T\",\n\
+          imports = [{ from = \"ThGraph\", alias = \"G\", expose = [\"Vertex\"] }],\n\
+          ops = [{ name = \"root\", input = \"G.Edge\", output = \"Vertex\" }] } | Theory";
+    let compiled = panproto_theory_dsl::compile_source(
+        source,
+        panproto_theory_dsl::SourceFormat::Nickel,
+        &panproto_theory_dsl::builtin_resolver(),
+    )?;
+    let theory = compiled.theories.get("T").ok_or("T is compiled")?;
+    let sorts: Vec<&str> = theory.sorts.iter().map(|s| &*s.name).collect();
+    assert!(
+        sorts.contains(&"Vertex") && sorts.contains(&"G_Edge"),
+        "{sorts:?}"
+    );
+    let root = theory.find_op("root").ok_or("root is compiled")?;
+    assert_eq!(root.inputs[0].1.to_string(), "G_Edge");
+    assert_eq!(root.output.to_string(), "Vertex");
+    Ok(())
+}

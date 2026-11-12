@@ -1,18 +1,22 @@
 //! Serde-compatible types for the lens DSL document format.
 //!
 //! These types represent the intermediate form between Nickel/JSON/YAML
-//! surface syntax and the compiled panproto lens algebra. Nickel evaluates
-//! to a record, which is deserialized into [`LensDocument`] via `to_serde`.
+//! surface syntax and the compiled panproto lens algebra. A source is
+//! parsed (or, for Nickel, evaluated) to a document value, the value is
+//! checked against the document grammar of [`crate::shape`], and only then
+//! deserialized into a [`LensDocument`]. The member names below are the
+//! grammar's names; no member has a second spelling.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use serde::{Deserialize, Serialize};
 
 /// A lens document: the top-level unit of the DSL.
 ///
-/// Exactly one body variant (`steps`, `rules`, `compose`, or `auto`) must
-/// be present. The Nickel contract library validates this at evaluation
-/// time; the compiler checks again at compile time.
+/// Exactly one body variant (`steps`, `rules`, `compose`, `auto`,
+/// `from_diff`, or `symmetric`) must be present. The document grammar
+/// ([`crate::shape`]) checks this when a document is read; the compiler
+/// checks again for a document built in code.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LensDocument {
     /// Unique lens identifier (reverse-DNS, e.g. `dev.example.repo.db-projection`).
@@ -239,8 +243,8 @@ pub struct AddFieldSpec {
     pub name: String,
     /// Vertex kind (e.g. `"string"`, `"integer"`, `"boolean"`, `"object"`).
     pub kind: String,
-    /// Default value for the field.
-    #[serde(default, rename = "fallback", alias = "default")]
+    /// Default value for the field. Absent means `null`.
+    #[serde(default)]
     pub default: serde_json::Value,
     /// Optional expression to compute the field value.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -256,9 +260,10 @@ pub struct AddFieldSpec {
 /// problem between the two, and a template or an attribute value is free
 /// to contain a quote, a backslash, or a brace.
 ///
-/// The two are deserialized untagged, so a JSON/YAML/Nickel `expr` given
-/// as a string is surface syntax and one given as a record is a
-/// serialized expression.
+/// A document only ever supplies surface syntax: the document grammar
+/// admits a string and nothing else wherever an expression is written.
+/// The serde form is untagged, a string being surface syntax and a record
+/// a serialized built expression.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ExprSource {
@@ -424,8 +429,8 @@ pub struct AddSortSpec {
     pub name: String,
     /// Vertex kind.
     pub kind: String,
-    /// Default value.
-    #[serde(default, rename = "fallback", alias = "default")]
+    /// Default value. Absent means `null`.
+    #[serde(default)]
     pub default: serde_json::Value,
 }
 
@@ -488,7 +493,7 @@ impl CoercionKind {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Rule {
     /// The pattern to match.
-    #[serde(rename = "pattern", alias = "match")]
+    #[serde(rename = "pattern")]
     pub match_: FeaturePattern,
 
     /// The replacement, or `None` to drop the matched feature.
@@ -496,16 +501,11 @@ pub struct Rule {
     pub replace: Option<Replacement>,
 }
 
-/// Pattern for matching features.
+/// Pattern for matching features: the feature with this name.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeaturePattern {
-    /// Match by feature name.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-
-    /// Match by `$type` string.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub type_id: Option<String>,
+    /// The name of the matched feature.
+    pub name: String,
 }
 
 /// Replacement descriptor for a matched feature.
@@ -517,11 +517,11 @@ pub struct Replacement {
 
     /// Rename attribute keys.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub rename_attrs: Option<HashMap<String, String>>,
+    pub rename_attrs: Option<BTreeMap<String, String>>,
 
     /// Inject constant attributes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub add_attrs: Option<HashMap<String, serde_json::Value>>,
+    pub add_attrs: Option<BTreeMap<String, serde_json::Value>>,
 
     /// Remove these attribute keys.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -533,7 +533,7 @@ pub struct Replacement {
 
     /// Transform attribute values by key.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub map_attr_value: Option<HashMap<String, serde_json::Value>>,
+    pub map_attr_value: Option<BTreeMap<String, serde_json::Value>>,
 }
 
 /// A replacement name: either a literal string or a template.
@@ -600,7 +600,7 @@ pub struct InlineLens {
 // ---------------------------------------------------------------------------
 
 /// Auto-generation configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AutoSpec {
     /// Minimum alignment quality threshold (0.0 to 1.0).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -629,7 +629,7 @@ pub struct AutoSpec {
 // From-diff
 // ---------------------------------------------------------------------------
 
-/// Configuration for the `from_diff` body variant.
+/// Configuration for the `from_diff` body variant: an empty object.
 ///
 /// The chain is derived from the structural difference between the
 /// source and target schemas supplied to
@@ -638,13 +638,7 @@ pub struct AutoSpec {
 /// converted to elementary protolenses via
 /// [`diff_to_protolens`](panproto_lens::diff_to_protolens()).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct FromDiffSpec {
-    /// When `true`, edge kind changes are emitted as renames rather than
-    /// drop-then-add. Reserved for future use; the current structural
-    /// differ always emits drops and adds.
-    #[serde(default)]
-    pub rename_edges: bool,
-}
+pub struct FromDiffSpec {}
 
 // ---------------------------------------------------------------------------
 // Symmetric
@@ -688,7 +682,7 @@ pub struct DirectedEquationSpec {
     /// Right-hand side term (rewrite target), in the term grammar.
     pub rhs: String,
     /// The computable forward implementation, as a panproto expression.
-    #[serde(rename = "impl", alias = "impl_term")]
+    #[serde(rename = "impl")]
     pub impl_term: String,
     /// Optional inverse expression for the backward direction.
     #[serde(default, skip_serializing_if = "Option::is_none")]

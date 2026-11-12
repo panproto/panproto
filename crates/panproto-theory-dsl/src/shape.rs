@@ -9,13 +9,20 @@
 //! state: a document has exactly one body, and no object carries a member
 //! the grammar does not name.
 //!
-//! The check visits a value in a fixed order. An object is checked first
-//! for a member the grammar does not name (the first such member in the
-//! object's order), then field by field in the order of its field table:
-//! a required field that is absent is refused, and a present one is checked
-//! recursively before the next field. An array is checked element by
-//! element.
+//! The check visits a value in a fixed order, which does not depend on the
+//! order of an object's members in the source. An object is checked first
+//! for a member the grammar does not name (the least such name, comparing
+//! names by their UTF-8 bytes), then field by field in the order of its
+//! field table: a required field that is absent is refused, and a present
+//! one is checked recursively before the next field. A map's members are
+//! checked in the order of their names, and an array element by element.
+//! When an object names a member more than once, the last occurrence is the
+//! member read.
 
+use panproto_dsl_eval::shape::{
+    BOOL, Field, STR, STR_MAP, STRS, Shape, ShapeError, check_record, opt, req,
+};
+pub use panproto_dsl_eval::shape::{Expected, ShapeProblem};
 use serde_json::Value;
 
 use crate::document::{
@@ -25,132 +32,24 @@ use crate::document::{
 use crate::error::TheoryDslError;
 use crate::path::DocumentPath;
 
-/// What a refused value was expected to be.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum Expected {
-    /// An object.
-    Object,
-    /// An array.
-    Array,
-    /// A string.
-    String,
-    /// A boolean.
-    Boolean,
-    /// A theory name, an inline theory or an inline composition.
-    TheoryReference,
-}
-
-/// Why a document value is refused by the grammar.
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum ShapeProblem {
-    /// The value has the wrong JSON type.
-    WrongType {
-        /// What the grammar expects at this place.
-        expected: Expected,
-    },
-    /// An object carries a member the grammar does not name; the path ends
-    /// at that member.
-    UnknownField,
-    /// A required member is absent; the path ends at the object.
-    MissingField {
-        /// The absent member.
-        field: String,
-    },
-    /// A string names no variant the grammar admits at this place (a sort
-    /// kind, a strategy, a composition mode or an identification kind).
-    UnknownVariant {
-        /// The string given.
-        found: String,
-    },
-    /// The document carries none of the body keys `theory`, `morphism`,
-    /// `compose`, `protocol`, `bundle`, `class`, `instance`, `inductive`.
-    NoBody,
-    /// The document carries more than one body key. A `class` member of an
-    /// `instance` document is that instance's field and not a body key.
-    SeveralBodies {
-        /// The body keys present, in grammar order.
-        keys: Vec<String>,
-    },
-}
-
-impl std::fmt::Display for ShapeProblem {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::WrongType { expected } => write!(f, "expected {expected:?}"),
-            Self::UnknownField => f.write_str("unknown field"),
-            Self::MissingField { field } => write!(f, "missing field `{field}`"),
-            Self::UnknownVariant { found } => write!(f, "unknown variant `{found}`"),
-            Self::NoBody => f.write_str("the document has no body"),
-            Self::SeveralBodies { keys } => {
-                write!(f, "the document has several bodies: {}", keys.join(", "))
-            }
-        }
-    }
-}
-
-/// One member of an object's field table.
-struct Field {
-    name: &'static str,
-    required: bool,
-    shape: &'static Shape,
-}
-
-const fn req(name: &'static str, shape: &'static Shape) -> Field {
-    Field {
-        name,
-        required: true,
-        shape,
-    }
-}
-
-const fn opt(name: &'static str, shape: &'static Shape) -> Field {
-    Field {
-        name,
-        required: false,
-        shape,
-    }
-}
-
-/// The grammar of one value.
-enum Shape {
-    Str,
-    Bool,
-    /// A string or `null`.
-    OptStr,
-    List(&'static Self),
-    /// An array or `null`.
-    OptList(&'static Self),
-    /// An object whose every member has this shape.
-    Map(&'static Self),
-    Record(&'static [Field]),
-    /// An object whose `type` member selects one of these field tables.
-    Tagged(&'static [(&'static str, &'static [Field])]),
-    /// One of these strings.
-    Choice(&'static [&'static str]),
-    /// A theory name, an inline theory (an object with a `theory` member)
-    /// or an inline composition.
-    TheoryRef,
-}
-
-static STR: Shape = Shape::Str;
-static BOOL: Shape = Shape::Bool;
-static OPT_STR: Shape = Shape::OptStr;
-static STRS: Shape = Shape::List(&STR);
-static OPT_STRS: Shape = Shape::OptList(&STR);
-static STR_MAP: Shape = Shape::Map(&STR);
+static OPT_STR: Shape = Shape::Nullable(&STR);
+static OPT_STRS: Shape = Shape::Nullable(&STRS);
 
 static PARAM: Shape =
     Shape::Record(&[req("name", &STR), req("sort", &STR), opt("implicit", &BOOL)]);
 static PARAMS: Shape = Shape::List(&PARAM);
-static SORT_KIND: Shape = Shape::Tagged(&[
-    ("structural", &[]),
-    ("val", &[req("value_kind", &STR)]),
-    (
-        "coercion",
-        &[req("from", &STR), req("to", &STR), req("class", &STR)],
-    ),
-    ("merger", &[req("value_kind", &STR)]),
-]);
+static SORT_KIND: Shape = Shape::Tagged {
+    tag: "type",
+    variants: &[
+        ("structural", &[]),
+        ("val", &[req("value_kind", &STR)]),
+        (
+            "coercion",
+            &[req("from", &STR), req("to", &STR), req("class", &STR)],
+        ),
+        ("merger", &[req("value_kind", &STR)]),
+    ],
+};
 static SORT: Shape = Shape::Record(&[
     req("name", &STR),
     opt("params", &PARAMS),
@@ -176,12 +75,15 @@ static DIRECTED: Shape = Shape::Record(&[
     opt("target_kind", &OPT_STR),
     opt("coercion_class", &STR),
 ]);
-static STRATEGY: Shape = Shape::Tagged(&[
-    ("keep_left", &[]),
-    ("keep_right", &[]),
-    ("fail", &[]),
-    ("custom", &[req("expr", &STR)]),
-]);
+static STRATEGY: Shape = Shape::Tagged {
+    tag: "type",
+    variants: &[
+        ("keep_left", &[]),
+        ("keep_right", &[]),
+        ("fail", &[]),
+        ("custom", &[req("expr", &STR)]),
+    ],
+};
 static POLICY: Shape = Shape::Record(&[
     req("name", &STR),
     req("value_kind", &STR),
@@ -274,7 +176,7 @@ const INDUCTIVE_FIELDS: &[Field] = &[
     req("constructors", &CONSTRUCTORS),
 ];
 
-static OPT_PARAMS: Shape = Shape::OptList(&PARAM);
+static OPT_PARAMS: Shape = Shape::Nullable(&PARAMS);
 static IMPORTS: Shape = Shape::List(&IMPORT);
 static SORTS: Shape = Shape::List(&SORT);
 static DIRECTEDS: Shape = Shape::List(&DIRECTED);
@@ -283,7 +185,12 @@ static IDENTIFY_KIND: Shape = Shape::Choice(&["sort", "op"]);
 static MODE: Shape = Shape::Choice(&["amalgamate", "explicit_identity"]);
 static IDENTIFIES: Shape = Shape::List(&IDENTIFY);
 static STEPS: Shape = Shape::List(&STEP);
-static THEORY_REF: Shape = Shape::TheoryRef;
+static THEORY_REF: Shape = Shape::StrOr(&THEORY_OR_COMPOSITION);
+static THEORY_OR_COMPOSITION: Shape = Shape::Switch {
+    member: "theory",
+    present: THEORY_FIELDS,
+    absent: COMPOSITION_FIELDS,
+};
 static EDGE_RULES: Shape = Shape::List(&EDGE_RULE);
 static THEORIES: Shape = Shape::List(&THEORY);
 static MORPHISM: Shape = Shape::Record(MORPHISM_FIELDS);
@@ -306,160 +213,11 @@ const BODIES: &[(&str, &[Field])] = &[
     ("inductive", INDUCTIVE_FIELDS),
 ];
 
-const fn refuse(path: DocumentPath, problem: ShapeProblem) -> TheoryDslError {
-    TheoryDslError::Shape { path, problem }
-}
-
-fn check(value: &Value, shape: &Shape, path: &DocumentPath) -> Result<(), TheoryDslError> {
-    let wrong = |expected| Err(refuse(path.clone(), ShapeProblem::WrongType { expected }));
-    match shape {
-        Shape::Str => {
-            if value.is_string() {
-                Ok(())
-            } else {
-                wrong(Expected::String)
-            }
-        }
-        Shape::OptStr => {
-            if value.is_string() || value.is_null() {
-                Ok(())
-            } else {
-                wrong(Expected::String)
-            }
-        }
-        Shape::Bool => {
-            if value.is_boolean() {
-                Ok(())
-            } else {
-                wrong(Expected::Boolean)
-            }
-        }
-        Shape::List(element) => check_list(value, element, path),
-        Shape::OptList(element) => {
-            if value.is_null() {
-                Ok(())
-            } else {
-                check_list(value, element, path)
-            }
-        }
-        Shape::Map(member) => {
-            let Some(members) = value.as_object() else {
-                return wrong(Expected::Object);
-            };
-            members
-                .iter()
-                .try_for_each(|(key, value)| check(value, member, &path.key(key)))
-        }
-        Shape::Record(fields) => check_record(value, fields, &[], path),
-        Shape::Tagged(variants) => {
-            let Some(members) = value.as_object() else {
-                return wrong(Expected::Object);
-            };
-            let Some(tag) = members.get("type") else {
-                return Err(refuse(
-                    path.clone(),
-                    ShapeProblem::MissingField {
-                        field: "type".to_owned(),
-                    },
-                ));
-            };
-            let Some(tag) = tag.as_str() else {
-                return Err(refuse(
-                    path.key("type"),
-                    ShapeProblem::WrongType {
-                        expected: Expected::String,
-                    },
-                ));
-            };
-            let Some((_, fields)) = variants.iter().find(|(name, _)| *name == tag) else {
-                return Err(refuse(
-                    path.key("type"),
-                    ShapeProblem::UnknownVariant {
-                        found: tag.to_owned(),
-                    },
-                ));
-            };
-            check_record(value, fields, &[req("type", &STR)], path)
-        }
-        Shape::Choice(choices) => {
-            let Some(found) = value.as_str() else {
-                return wrong(Expected::String);
-            };
-            if choices.contains(&found) {
-                Ok(())
-            } else {
-                Err(refuse(
-                    path.clone(),
-                    ShapeProblem::UnknownVariant {
-                        found: found.to_owned(),
-                    },
-                ))
-            }
-        }
-        Shape::TheoryRef => match value {
-            Value::String(_) => Ok(()),
-            Value::Object(members) if members.contains_key("theory") => {
-                check_record(value, THEORY_FIELDS, &[], path)
-            }
-            Value::Object(_) => check_record(value, COMPOSITION_FIELDS, &[], path),
-            _ => wrong(Expected::TheoryReference),
-        },
+fn refuse(error: ShapeError) -> TheoryDslError {
+    TheoryDslError::Shape {
+        path: error.path,
+        problem: error.problem,
     }
-}
-
-fn check_list(value: &Value, element: &Shape, path: &DocumentPath) -> Result<(), TheoryDslError> {
-    let Some(items) = value.as_array() else {
-        return Err(refuse(
-            path.clone(),
-            ShapeProblem::WrongType {
-                expected: Expected::Array,
-            },
-        ));
-    };
-    items
-        .iter()
-        .enumerate()
-        .try_for_each(|(index, item)| check(item, element, &path.index(index)))
-}
-
-/// Check an object against `leading` and then `fields`: the first member
-/// neither table names is refused, then each field in table order.
-fn check_record(
-    value: &Value,
-    fields: &[Field],
-    leading: &[Field],
-    path: &DocumentPath,
-) -> Result<(), TheoryDslError> {
-    let Some(members) = value.as_object() else {
-        return Err(refuse(
-            path.clone(),
-            ShapeProblem::WrongType {
-                expected: Expected::Object,
-            },
-        ));
-    };
-    let table = || leading.iter().chain(fields);
-    if let Some(unknown) = members
-        .keys()
-        .find(|key| !table().any(|field| field.name == key.as_str()))
-    {
-        return Err(refuse(path.key(unknown), ShapeProblem::UnknownField));
-    }
-    for field in table() {
-        match members.get(field.name) {
-            Some(member) => check(member, field.shape, &path.key(field.name))?,
-            None if field.required => {
-                return Err(refuse(
-                    path.clone(),
-                    ShapeProblem::MissingField {
-                        field: field.name.to_owned(),
-                    },
-                ));
-            }
-            None => {}
-        }
-    }
-    Ok(())
 }
 
 /// Read a document value into a [`TheoryDocument`].
@@ -475,12 +233,12 @@ fn check_record(
 pub fn read_document(value: &Value) -> Result<TheoryDocument, TheoryDslError> {
     let root = DocumentPath::root();
     let Some(members) = value.as_object() else {
-        return Err(refuse(
-            root,
-            ShapeProblem::WrongType {
+        return Err(TheoryDslError::Shape {
+            path: root,
+            problem: ShapeProblem::WrongType {
                 expected: Expected::Object,
             },
-        ));
+        });
     };
     let mut present: Vec<&str> = BODIES
         .iter()
@@ -491,15 +249,20 @@ pub fn read_document(value: &Value) -> Result<TheoryDocument, TheoryDslError> {
         present.retain(|key| *key != "class");
     }
     let body = match present.as_slice() {
-        [] => return Err(refuse(root, ShapeProblem::NoBody)),
+        [] => {
+            return Err(TheoryDslError::Shape {
+                path: root,
+                problem: ShapeProblem::NoBody,
+            });
+        }
         [one] => *one,
         several => {
-            return Err(refuse(
-                root,
-                ShapeProblem::SeveralBodies {
+            return Err(TheoryDslError::Shape {
+                path: root,
+                problem: ShapeProblem::SeveralBodies {
                     keys: several.iter().map(|key| (*key).to_owned()).collect(),
                 },
-            ));
+            });
         }
     };
     let fields = BODIES
@@ -511,7 +274,8 @@ pub fn read_document(value: &Value) -> Result<TheoryDocument, TheoryDslError> {
         fields,
         &[req("id", &STR), req("description", &STR)],
         &root,
-    )?;
+    )
+    .map_err(refuse)?;
     let text = |key: &str| {
         members
             .get(key)

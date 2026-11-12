@@ -25,8 +25,103 @@ use panproto_lens::{
 };
 use panproto_schema::{Edge, Protocol, Schema, primary_entry};
 
+use crate::compose::Resolve;
 use crate::document::{AutoSpec, HintStringency, LensDocument};
 use crate::error::LensDslError;
+use crate::path::DocumentPath;
+
+pub use panproto_dsl_eval::SourceFormat;
+
+/// The path of a top-level member of the document.
+fn member(key: &str) -> DocumentPath {
+    DocumentPath::root().key(key)
+}
+
+/// Attach the source text and the byte range of the refused element to a
+/// refusal that names a document path, when `source` is JSON text in which
+/// the path names a value; any other refusal is returned as it is.
+fn spanned(error: LensDslError, source: &str, format: SourceFormat) -> LensDslError {
+    let Some(path) = error.path().cloned() else {
+        return error;
+    };
+    match panproto_dsl_eval::source::locate(source, format, &path) {
+        Some((offset, length)) => LensDslError::Spanned {
+            path: Some(path),
+            src: source.to_owned(),
+            span: miette::SourceSpan::new(offset.into(), length),
+            error: Box::new(error),
+        },
+        None => error,
+    }
+}
+
+/// Read a lens document from its source text.
+///
+/// JSON and YAML text is parsed to a value, and Nickel text evaluated to
+/// one (with no import path beyond the bundled contract library), and the
+/// value is read by [`crate::shape::read_document`].
+///
+/// # Errors
+///
+/// A JSON syntax error is [`LensDslError::Spanned`] around a
+/// [`LensDslError::Json`], its span the one byte at which the JSON reader
+/// stopped (empty at the end of the text). A YAML syntax error is
+/// [`LensDslError::Yaml`]. A Nickel evaluation error is
+/// [`LensDslError::NickelEvalSpanned`] when Nickel's diagnostic locates it
+/// in `source` and [`LensDslError::NickelEval`] otherwise. A value the
+/// grammar refuses is [`LensDslError::Shape`], wrapped in
+/// [`LensDslError::Spanned`] for JSON text.
+pub fn read_source(source: &str, format: SourceFormat) -> Result<LensDocument, LensDslError> {
+    let value = match format {
+        SourceFormat::Json => serde_json::from_str::<serde_json::Value>(source).map_err(|e| {
+            let (offset, length) = panproto_dsl_eval::source::json_syntax_span(source, &e);
+            LensDslError::Spanned {
+                path: None,
+                src: source.to_owned(),
+                span: miette::SourceSpan::new(offset.into(), length),
+                error: Box::new(LensDslError::Json(e)),
+            }
+        })?,
+        SourceFormat::Yaml => crate::eval::yaml_value(source)?,
+        SourceFormat::Nickel => crate::eval::nickel_value(source, &[])?,
+    };
+    crate::shape::read_document(&value).map_err(|e| spanned(e, source, format))
+}
+
+/// Read a lens document from its source text and compile it with
+/// [`compile`], locating every refusal in `source`.
+///
+/// # Errors
+///
+/// The errors of [`read_source`] and of [`compile`]; for JSON text a
+/// compile refusal is wrapped in [`LensDslError::Spanned`] whose span is the
+/// byte range of the refused element's value as written.
+pub fn compile_source(
+    source: &str,
+    format: SourceFormat,
+    body_vertex: &str,
+    resolver: &dyn Fn(&str) -> Option<CompiledLens>,
+) -> Result<CompiledLens, LensDslError> {
+    let doc = read_source(source, format)?;
+    compile_with_source(&doc, source, format, body_vertex, resolver)
+}
+
+/// Compile a document read from `source`, locating every refusal in it.
+///
+/// # Errors
+///
+/// The errors of [`compile`]; for JSON text a refusal that names a
+/// document path is wrapped in [`LensDslError::Spanned`] whose span is the
+/// byte range of that element's value in `source`.
+pub fn compile_with_source(
+    doc: &LensDocument,
+    source: &str,
+    format: SourceFormat,
+    body_vertex: &str,
+    resolver: &dyn Fn(&str) -> Option<CompiledLens>,
+) -> Result<CompiledLens, LensDslError> {
+    compile(doc, body_vertex, resolver).map_err(|e| spanned(e, source, format))
+}
 
 /// The compiled output of a lens document.
 ///
@@ -139,35 +234,32 @@ impl CompiledLens {
 ///
 /// # Errors
 ///
-/// Returns [`LensDslError::NoBody`] if none is present or
-/// [`LensDslError::MultipleBodies`] if more than one is.
+/// [`LensDslError::Shape`] at the root with
+/// [`ShapeProblem::NoBody`](crate::shape::ShapeProblem::NoBody) or
+/// [`ShapeProblem::SeveralBodies`](crate::shape::ShapeProblem::SeveralBodies).
 fn validate_single_body(doc: &LensDocument) -> Result<&'static str, LensDslError> {
-    let mut present = Vec::new();
-    if doc.steps.is_some() {
-        present.push("steps");
-    }
-    if doc.rules.is_some() {
-        present.push("rules");
-    }
-    if doc.compose.is_some() {
-        present.push("compose");
-    }
-    if doc.auto.is_some() {
-        present.push("auto");
-    }
-    if doc.from_diff.is_some() {
-        present.push("from_diff");
-    }
-    if doc.symmetric.is_some() {
-        present.push("symmetric");
-    }
-
+    let present: Vec<&'static str> = [
+        ("steps", doc.steps.is_some()),
+        ("rules", doc.rules.is_some()),
+        ("compose", doc.compose.is_some()),
+        ("auto", doc.auto.is_some()),
+        ("from_diff", doc.from_diff.is_some()),
+        ("symmetric", doc.symmetric.is_some()),
+    ]
+    .into_iter()
+    .filter_map(|(key, here)| here.then_some(key))
+    .collect();
     match present.as_slice() {
-        [] => Err(LensDslError::NoBody { id: doc.id.clone() }),
+        [] => Err(LensDslError::Shape {
+            path: DocumentPath::root(),
+            problem: crate::shape::ShapeProblem::NoBody,
+        }),
         [only] => Ok(only),
-        _ => Err(LensDslError::MultipleBodies {
-            id: doc.id.clone(),
-            variants: present.join(", "),
+        several => Err(LensDslError::Shape {
+            path: DocumentPath::root(),
+            problem: crate::shape::ShapeProblem::SeveralBodies {
+                keys: several.iter().map(|key| (*key).to_owned()).collect(),
+            },
         }),
     }
 }
@@ -183,15 +275,29 @@ fn validate_single_body(doc: &LensDocument) -> Result<&'static str, LensDslError
 ///
 /// # Errors
 ///
-/// Returns [`LensDslError::NoBody`] / [`LensDslError::MultipleBodies`]
-/// for body-count violations, [`LensDslError::AutoRequiresSchemas`] for
-/// `auto` and `from_diff` bodies (use [`compile_with_schemas`]),
-/// [`LensDslError::NotInvertible`] if `invertible: true` but the chain
-/// is lossy, or propagates errors from the body-specific compiler.
+/// Every refusal names the document path of the element it refuses:
+/// [`LensDslError::Shape`] at the root for a body-count violation,
+/// [`LensDslError::AutoRequiresSchemas`] at `/auto` or `/from_diff` (use
+/// [`compile_with_schemas`]), [`LensDslError::NotInvertible`] at
+/// `/invertible` when `invertible: true` but the lens is lossy, and the
+/// body compiler's refusals under the body key.
 pub fn compile(
     doc: &LensDocument,
     body_vertex: &str,
     resolver: &dyn Fn(&str) -> Option<CompiledLens>,
+) -> Result<CompiledLens, LensDslError> {
+    compile_with(doc, body_vertex, &|id: &str| resolver(id).map(Ok))
+}
+
+/// [`compile`] with a resolver that reports a referenced lens's refusal.
+///
+/// # Errors
+///
+/// As [`compile`], with the resolver's refusal at `/compose/lenses/i/ref`.
+pub fn compile_with(
+    doc: &LensDocument,
+    body_vertex: &str,
+    resolver: &Resolve<'_>,
 ) -> Result<CompiledLens, LensDslError> {
     let variant = validate_single_body(doc)?;
     let body = compile_schema_free_body(doc, variant, body_vertex, resolver)?;
@@ -231,9 +337,11 @@ pub fn compile_with_schemas(
     let variant = validate_single_body(doc)?;
 
     let body = match variant {
-        "auto" => compile_auto_body(doc, source_schema, target_schema, protocol)?,
-        "from_diff" => compile_from_diff_body(doc, source_schema, target_schema)?,
-        _ => compile_schema_free_body(doc, variant, body_vertex, resolver)?,
+        "auto" => compile_auto_body(doc, source_schema, target_schema, protocol)
+            .map_err(|e| e.within(&member("auto")))?,
+        "from_diff" => compile_from_diff_body(doc, source_schema, target_schema)
+            .map_err(|e| e.within(&member("from_diff")))?,
+        _ => compile_schema_free_body(doc, variant, body_vertex, &|id: &str| resolver(id).map(Ok))?,
     };
 
     let compiled = finalize(doc, body)?;
@@ -242,85 +350,102 @@ pub fn compile_with_schemas(
     // target. A `symmetric` body has no single target schema, so the
     // check is not applicable there.
     if variant != "symmetric" {
-        verify_target(&compiled, source_schema, protocol)?;
+        verify_target(&compiled, source_schema, protocol, variant)?;
     }
 
     Ok(compiled)
 }
 
-/// Compile a schema-independent body (steps, rules, compose, symmetric).
+/// Compile a schema-independent body (steps, rules, compose, symmetric),
+/// locating every refusal under the body key.
 ///
-/// `auto` and `from_diff` are rejected here with
+/// `auto` and `from_diff` are refused here with
 /// [`LensDslError::AutoRequiresSchemas`].
 fn compile_schema_free_body(
     doc: &LensDocument,
-    variant: &str,
+    variant: &'static str,
     body_vertex: &str,
-    resolver: &dyn Fn(&str) -> Option<CompiledLens>,
+    resolver: &Resolve<'_>,
 ) -> Result<BodyOutput, LensDslError> {
-    match variant {
+    let located = |e: LensDslError| e.within(&member(variant));
+    let compiled = match variant {
         "steps" => {
-            let steps = doc.steps.as_deref().unwrap_or_default();
-            let compiled = crate::steps::compile_steps(steps, body_vertex)?;
-            Ok(BodyOutput {
-                chain: compiled.chain,
-                field_transforms: compiled.field_transforms,
-                stages: compiled.stages,
-                symmetric: None,
-            })
+            crate::steps::compile_steps(doc.steps.as_deref().unwrap_or_default(), body_vertex)
+                .map_err(located)?
         }
-        "rules" => {
-            let rules = doc.rules.as_deref().unwrap_or_default();
-            let compiled = crate::rules::compile_rules(rules, doc.passthrough, body_vertex)?;
-            Ok(BodyOutput {
-                chain: compiled.chain,
-                field_transforms: compiled.field_transforms,
-                stages: compiled.stages,
-                symmetric: None,
-            })
-        }
-        "compose" => {
-            let compose = doc
-                .compose
-                .as_ref()
-                .ok_or_else(|| LensDslError::NoBody { id: doc.id.clone() })?;
-            let compiled = crate::compose::compile_compose(compose, body_vertex, resolver)?;
-            Ok(BodyOutput {
-                chain: compiled.chain,
-                field_transforms: compiled.field_transforms,
-                stages: compiled.stages,
-                symmetric: None,
-            })
-        }
-        "symmetric" => {
-            let spec = doc
-                .symmetric
-                .as_ref()
-                .ok_or_else(|| LensDslError::NoBody { id: doc.id.clone() })?;
-            let focus = if spec.focus.is_empty() {
-                body_vertex
-            } else {
-                spec.focus.as_str()
-            };
-            let left = crate::steps::compile_steps(&spec.left, focus)?;
-            let right = crate::steps::compile_steps(&spec.right, focus)?;
-            let mut field_transforms = left.field_transforms;
-            for (k, v) in right.field_transforms {
-                field_transforms.entry(k).or_default().extend(v);
-            }
-            Ok(BodyOutput {
-                chain: left.chain.clone(),
-                field_transforms,
-                stages: left.stages,
-                symmetric: Some(SymmetricChains {
-                    left: left.chain,
-                    right: right.chain,
-                }),
-            })
-        }
+        "rules" => crate::rules::compile_rules(
+            doc.rules.as_deref().unwrap_or_default(),
+            doc.passthrough,
+            body_vertex,
+        )
+        .map_err(located)?,
+        "compose" => match &doc.compose {
+            Some(compose) => crate::compose::compile_compose_with(compose, body_vertex, resolver)
+                .map_err(located)?,
+            None => crate::steps::concat(Vec::new()),
+        },
+        "symmetric" => return compile_symmetric(doc, body_vertex).map_err(located),
         // `auto` and `from_diff` require schema context.
-        _ => Err(LensDslError::AutoRequiresSchemas { id: doc.id.clone() }),
-    }
+        _ => {
+            return Err(
+                LensDslError::AutoRequiresSchemas { id: doc.id.clone() }.within(&member(variant))
+            );
+        }
+    };
+    Ok(BodyOutput {
+        chain: compiled.chain,
+        field_transforms: compiled.field_transforms,
+        stages: compiled.stages,
+        symmetric: None,
+    })
+}
+
+/// Compile a `symmetric` body: each leg's steps at the focus vertex (the
+/// body vertex when `focus` is empty). The compiled lens's `chain` and
+/// `stages` are the left leg's.
+///
+/// # Errors
+///
+/// A leg step's refusal at `/left/i` or `/right/i`, and
+/// [`LensDslError::ValueStepInSymmetricLeg`] there for a step whose
+/// compilation carries a value-level transform.
+fn compile_symmetric(doc: &LensDocument, body_vertex: &str) -> Result<BodyOutput, LensDslError> {
+    let Some(spec) = &doc.symmetric else {
+        return Ok(BodyOutput {
+            chain: ProtolensChain::new(Vec::new()),
+            field_transforms: HashMap::new(),
+            stages: Vec::new(),
+            symmetric: None,
+        });
+    };
+    let focus = if spec.focus.is_empty() {
+        body_vertex
+    } else {
+        spec.focus.as_str()
+    };
+    let leg = |name: &str, steps: &[crate::document::Step]| {
+        let mut parts = Vec::with_capacity(steps.len());
+        for (i, step) in steps.iter().enumerate() {
+            let here = DocumentPath::root().key(name).index(i);
+            let part = crate::steps::compile_step(step, focus).map_err(|e| e.within(&here))?;
+            if !part.field_transforms.is_empty() {
+                return Err(LensDslError::ValueStepInSymmetricLeg.within(&here));
+            }
+            parts.push(part);
+        }
+        Ok(crate::steps::concat(parts))
+    };
+    let left = leg("left", &spec.left)?;
+    let right = leg("right", &spec.right)?;
+    Ok(BodyOutput {
+        chain: left.chain.clone(),
+        field_transforms: HashMap::new(),
+        stages: left.stages,
+        symmetric: Some(SymmetricChains {
+            left: left.chain,
+            right: right.chain,
+        }),
+    })
 }
 
 /// Compile an `auto` body via [`panproto_lens::auto_generate`].
@@ -330,10 +455,8 @@ fn compile_auto_body(
     target_schema: &Schema,
     protocol: &Protocol,
 ) -> Result<BodyOutput, LensDslError> {
-    let spec = doc
-        .auto
-        .as_ref()
-        .ok_or_else(|| LensDslError::NoBody { id: doc.id.clone() })?;
+    let spec = doc.auto.clone().unwrap_or_default();
+    let spec = &spec;
 
     let mut config = AutoLensConfig::default();
     if let Some(enable_overlap) = spec.enable_overlap {
@@ -406,11 +529,6 @@ fn compile_from_diff_body(
     source_schema: &Schema,
     target_schema: &Schema,
 ) -> Result<BodyOutput, LensDslError> {
-    // `from_diff` is a schema-aware body; its presence is validated by
-    // the caller, but reject a stray schema-free call defensively.
-    if doc.from_diff.is_none() {
-        return Err(LensDslError::AutoRequiresSchemas { id: doc.id.clone() });
-    }
     let diff = structural_diff(source_schema, target_schema);
     let chain = diff_to_protolens(&diff, source_schema, target_schema).map_err(|e| {
         LensDslError::Generation {
@@ -439,7 +557,8 @@ fn finalize(doc: &LensDocument, body: BodyOutput) -> Result<CompiledLens, LensDs
     if let Some(equations) = &doc.directed_equations
         && !equations.is_empty()
     {
-        let eq_chain = crate::steps::compile_directed_equations(equations)?;
+        let eq_chain = crate::steps::compile_directed_equations(equations)
+            .map_err(|e| e.within(&member("directed_equations")))?;
         chain = combinators::pipeline(vec![chain, eq_chain.clone()]);
         stages.push(crate::steps::CompiledStage {
             chain: eq_chain,
@@ -468,30 +587,35 @@ fn finalize(doc: &LensDocument, body: BodyOutput) -> Result<CompiledLens, LensDs
         return Err(LensDslError::NotInvertible {
             id: doc.id.clone(),
             element,
-        });
+        }
+        .within(&member("invertible")));
     }
 
     Ok(compiled)
 }
 
-/// Return a description of the first lossy element (chain step or field
-/// transform) in `compiled`, or `None` if every element is lossless.
+/// Return a description of the first lossy element of `compiled`, or
+/// `None` if every element is lossless.
 ///
-/// A chain step is lossless per [`Protolens::is_lossless`]; a field
-/// transform is lossless when its coercion class is `Iso`.
+/// Stages are visited in order; within a stage, its chain steps in order
+/// and then its field transforms, anchors in name order. A chain step is
+/// lossless per [`Protolens::is_lossless`](panproto_lens::Protolens::is_lossless);
+/// a field transform is lossless when its coercion class is.
 fn first_lossy_element(compiled: &CompiledLens) -> Option<String> {
-    for step in &compiled.chain.steps {
-        if !step.is_lossless() {
+    for stage in &compiled.stages {
+        if let Some(step) = stage.chain.steps.iter().find(|step| !step.is_lossless()) {
             return Some(format!("step `{}`", step.name));
         }
-    }
-    for (vertex, transforms) in &compiled.field_transforms {
-        for transform in transforms {
-            if !transform.coercion_class().is_lossless() {
-                return Some(format!(
-                    "field transform on `{vertex}` (class {:?})",
-                    transform.coercion_class()
-                ));
+        let mut anchors: Vec<&Name> = stage.field_transforms.keys().collect();
+        anchors.sort();
+        for vertex in anchors {
+            for transform in stage.field_transforms.get(vertex).into_iter().flatten() {
+                if !transform.coercion_class().is_lossless() {
+                    return Some(format!(
+                        "field transform on `{vertex}` (class {:?})",
+                        transform.coercion_class()
+                    ));
+                }
             }
         }
     }
@@ -510,6 +634,7 @@ fn verify_target(
     compiled: &CompiledLens,
     source_schema: &Schema,
     protocol: &Protocol,
+    variant: &str,
 ) -> Result<(), LensDslError> {
     let lens = compiled
         .instantiate(source_schema, protocol)
@@ -524,7 +649,8 @@ fn verify_target(
                     "cannot instantiate chain at source schema to verify target: {other}"
                 ),
             },
-        })?;
+        })
+        .map_err(|e| e.within(&member(variant)))?;
 
     let declared = compiled.target.trim();
     if declared.is_empty() {
@@ -540,7 +666,8 @@ fn verify_target(
             id: compiled.id.clone(),
             declared: declared.to_owned(),
             actual,
-        });
+        }
+        .within(&member("target")));
     }
     Ok(())
 }
@@ -716,18 +843,31 @@ mod tests {
 
     #[test]
     fn no_body_is_rejected() {
-        let d = doc(r#"{ "id": "x", "source": "s", "target": "t" }"#);
-        let err = compile(&d, "post", &null_resolver).unwrap_err();
-        assert!(matches!(err, LensDslError::NoBody { .. }));
+        let err = eval_json(r#"{ "id": "x", "source": "s", "target": "t" }"#).unwrap_err();
+        assert!(matches!(
+            err,
+            LensDslError::Shape {
+                problem: crate::shape::ShapeProblem::NoBody,
+                ..
+            }
+        ));
     }
 
     #[test]
     fn multiple_bodies_are_rejected() {
-        let d = doc(r#"{ "id": "x", "source": "s", "target": "t",
+        let err = eval_json(
+            r#"{ "id": "x", "source": "s", "target": "t",
                  "steps": [{ "remove_field": "a" }],
-                 "rules": [{ "pattern": { "name": "a" } }] }"#);
-        let err = compile(&d, "post", &null_resolver).unwrap_err();
-        assert!(matches!(err, LensDslError::MultipleBodies { .. }));
+                 "rules": [{ "pattern": { "name": "a" } }] }"#,
+        )
+        .unwrap_err();
+        assert!(matches!(
+            err,
+            LensDslError::Shape {
+                problem: crate::shape::ShapeProblem::SeveralBodies { .. },
+                ..
+            }
+        ));
     }
 
     // -- metadata survives compilation ----------------------------
@@ -781,7 +921,9 @@ mod tests {
             "steps": [{"compute_field": {"target": "derived", "expr": "text"}}]
         }"#);
         assert!(matches!(
-            compile_with_schemas(&document, "post", &schema, &schema, &protocol, &null_resolver),
+            compile_with_schemas(&document, "post", &schema, &schema, &protocol, &null_resolver)
+                .as_ref()
+                .map_err(LensDslError::unlocated),
             Err(LensDslError::PlanCompilation { id, source:
                 panproto_inst::RestrictError::UndeclaredTransformField { field, .. }
             }) if id == "computed" && field == "derived"
@@ -814,7 +956,14 @@ mod tests {
     fn auto_body_without_schemas_errors() {
         let d = doc(r#"{ "id": "a", "source": "s", "target": "t", "auto": {} }"#);
         let err = compile(&d, "post", &null_resolver).unwrap_err();
-        assert!(matches!(err, LensDslError::AutoRequiresSchemas { .. }));
+        assert!(matches!(
+            err.unlocated(),
+            LensDslError::AutoRequiresSchemas { .. }
+        ));
+        assert_eq!(
+            err.path().map(ToString::to_string).as_deref(),
+            Some("/auto")
+        );
     }
 
     #[test]
@@ -931,7 +1080,11 @@ mod tests {
                  "steps": [{ "add_field": { "name": "extra", "kind": "string" } }] }"#,
         );
         let err = compile_with_schemas(&d, "post", &src, &tgt, &proto, &null_resolver).unwrap_err();
-        match err {
+        assert_eq!(
+            err.path().map(ToString::to_string).as_deref(),
+            Some("/target")
+        );
+        match err.into_unlocated() {
             LensDslError::TargetMismatch {
                 declared, actual, ..
             } => {
@@ -961,7 +1114,10 @@ mod tests {
                  "steps": [{ "remove_field": "gone" }] }"#,
         );
         let err = compile(&d, "post", &null_resolver).unwrap_err();
-        assert!(matches!(err, LensDslError::NotInvertible { .. }));
+        assert!(matches!(
+            err.unlocated(),
+            LensDslError::NotInvertible { .. }
+        ));
     }
 
     // -- from_diff ----------------------------------------
@@ -970,7 +1126,10 @@ mod tests {
     fn from_diff_without_schemas_errors() {
         let d = doc(r#"{ "id": "d", "source": "s", "target": "", "from_diff": {} }"#);
         let err = compile(&d, "post", &null_resolver).unwrap_err();
-        assert!(matches!(err, LensDslError::AutoRequiresSchemas { .. }));
+        assert!(matches!(
+            err.unlocated(),
+            LensDslError::AutoRequiresSchemas { .. }
+        ));
     }
 
     #[test]
@@ -1015,7 +1174,8 @@ mod tests {
                 "id": "de", "source": "s", "target": "",
                 "steps": [{ "add_sort": { "name": "x", "kind": "string" } }],
                 "directed_equations": [
-                    { "name": "e", "lhs": "a", "rhs": "b", "impl": "int_to_str a" }
+                    { "name": "e", "lhs": "a", "rhs": "b", "impl": "int_to_str a",
+                      "source_kind": "integer", "coercion": "projection" }
                 ]
             }"#);
         let compiled = compile(&d, "post", &null_resolver).unwrap();

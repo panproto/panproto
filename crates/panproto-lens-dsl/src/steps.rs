@@ -23,6 +23,38 @@ const COERCION_VAR: &str = "v";
 
 use crate::document::{CoercionKind, DirectedEquationSpec, Step};
 use crate::error::LensDslError;
+use crate::path::DocumentPath;
+
+/// The path of member `key` of the element a refusal is relative to.
+fn at(key: &str) -> DocumentPath {
+    DocumentPath::root().key(key)
+}
+
+/// The member name that selects `step`'s variant in the document grammar.
+#[must_use]
+pub const fn variant_name(step: &Step) -> &'static str {
+    match step {
+        Step::RemoveField { .. } => "remove_field",
+        Step::RenameField { .. } => "rename_field",
+        Step::AddField { .. } => "add_field",
+        Step::ApplyExpr { .. } => "apply_expr",
+        Step::ComputeField { .. } => "compute_field",
+        Step::HoistField { .. } => "hoist_field",
+        Step::NestField { .. } => "nest_field",
+        Step::Scoped { .. } => "scoped",
+        Step::Pullback { .. } => "pullback",
+        Step::CoerceSort { .. } => "coerce_sort",
+        Step::MergeSorts { .. } => "merge_sorts",
+        Step::AddSort { .. } => "add_sort",
+        Step::DropSort { .. } => "drop_sort",
+        Step::RenameSort { .. } => "rename_sort",
+        Step::AddOp { .. } => "add_op",
+        Step::DropOp { .. } => "drop_op",
+        Step::RenameOp { .. } => "rename_op",
+        Step::AddEquation { .. } => "add_equation",
+        Step::DropEquation { .. } => "drop_equation",
+    }
+}
 
 /// Result of compiling a step pipeline.
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
@@ -52,57 +84,79 @@ pub struct CompiledSteps {
 ///
 /// The `body_vertex` is the parent vertex ID under which fields
 /// are added/removed (e.g., `"record:body"` for `ATProto` schemas).
+/// Each step is compiled on its own, and the result is the concatenation
+/// of the steps' stages in list order.
 ///
 /// # Errors
 ///
-/// Returns [`LensDslError::ExprParse`] if an expression string
-/// cannot be parsed.
+/// The first step's refusal, located relative to the list: a refusal of
+/// step `i` names a path starting `/i/<variant>`.
 pub fn compile_steps(steps: &[Step], body_vertex: &str) -> Result<CompiledSteps, LensDslError> {
-    let mut chains: Vec<ProtolensChain> = Vec::new();
+    let mut parts = Vec::with_capacity(steps.len());
+    for (i, step) in steps.iter().enumerate() {
+        parts.push(
+            compile_step(step, body_vertex)
+                .map_err(|e| e.within(&DocumentPath::root().index(i)))?,
+        );
+    }
+    Ok(concat(parts))
+}
+
+/// Concatenate compiled parts: the stages in order, the flat chain as their
+/// pipeline, and the flat transform summary keyed by anchor in part order.
+#[must_use]
+pub fn concat(parts: Vec<CompiledSteps>) -> CompiledSteps {
+    let mut chains = Vec::with_capacity(parts.len());
     let mut transforms: HashMap<Name, Vec<FieldTransform>> = HashMap::new();
     let mut stages = Vec::new();
-    let body_key = Name::from(body_vertex);
-
-    for (i, step) in steps.iter().enumerate() {
-        if let Step::Scoped { scoped } = step {
-            let compiled = compile_scoped(scoped, i)?;
-            chains.push(compiled.chain);
-            for (anchor, entries) in compiled.field_transforms {
-                transforms.entry(anchor).or_default().extend(entries);
+    for part in parts {
+        chains.push(part.chain);
+        for stage in &part.stages {
+            for (anchor, entries) in &stage.field_transforms {
+                transforms
+                    .entry(anchor.clone())
+                    .or_default()
+                    .extend(entries.iter().cloned());
             }
-            stages.extend(compiled.stages);
-            continue;
         }
-
-        let mut step_chains = Vec::new();
-        let mut step_transforms = HashMap::new();
-        compile_one_step(
-            step,
-            body_vertex,
-            &body_key,
-            i,
-            &mut step_chains,
-            &mut step_transforms,
-        )?;
-        let step_chain = combinators::pipeline(step_chains);
-        chains.push(step_chain.clone());
-        for (anchor, entries) in &step_transforms {
-            transforms
-                .entry(anchor.clone())
-                .or_default()
-                .extend(entries.iter().cloned());
-        }
-        if !step_chain.steps.is_empty() || !step_transforms.is_empty() {
-            stages.push(CompiledStage {
-                chain: step_chain,
-                field_transforms: step_transforms,
-            });
-        }
+        stages.extend(part.stages);
     }
-
-    Ok(CompiledSteps {
+    CompiledSteps {
         chain: combinators::pipeline(chains),
         field_transforms: transforms,
+        stages,
+    }
+}
+
+/// Compile one step to its stages: one stage for every step except
+/// `scoped`, which gives one per inner stage, and none for a step whose
+/// chain and transforms are both empty.
+///
+/// # Errors
+///
+/// The step's refusal, located relative to the step object: its path
+/// starts with the step's variant name.
+pub fn compile_step(step: &Step, body_vertex: &str) -> Result<CompiledSteps, LensDslError> {
+    let variant = DocumentPath::root().key(variant_name(step));
+    if let Step::Scoped { scoped } = step {
+        return compile_scoped(scoped).map_err(|e| e.within(&variant));
+    }
+    let mut step_chains = Vec::new();
+    let mut step_transforms = HashMap::new();
+    compile_one_step(step, body_vertex, &mut step_chains, &mut step_transforms)
+        .map_err(|e| e.within(&variant))?;
+    let chain = combinators::pipeline(step_chains);
+    let stages = if chain.steps.is_empty() && step_transforms.is_empty() {
+        Vec::new()
+    } else {
+        vec![CompiledStage {
+            chain: chain.clone(),
+            field_transforms: step_transforms.clone(),
+        }]
+    };
+    Ok(CompiledSteps {
+        chain,
+        field_transforms: step_transforms,
         stages,
     })
 }
@@ -111,11 +165,10 @@ pub fn compile_steps(steps: &[Step], body_vertex: &str) -> Result<CompiledSteps,
 fn compile_one_step(
     step: &Step,
     body_vertex: &str,
-    body_key: &Name,
-    index: usize,
     chains: &mut Vec<ProtolensChain>,
     transforms: &mut HashMap<Name, Vec<FieldTransform>>,
 ) -> Result<(), LensDslError> {
+    let body_key = &Name::from(body_vertex);
     match step {
         // -- High-level field combinators --
         Step::RemoveField { remove_field } => {
@@ -134,15 +187,15 @@ fn compile_one_step(
         }
 
         Step::AddField { add_field } => {
-            compile_add_field(add_field, body_vertex, body_key, index, chains, transforms)?;
+            compile_add_field(add_field, body_vertex, body_key, chains, transforms)?;
         }
 
         Step::ApplyExpr { apply_expr } => {
-            compile_apply_expr(apply_expr, body_key, index, transforms)?;
+            compile_apply_expr(apply_expr, body_key, transforms)?;
         }
 
         Step::ComputeField { compute_field } => {
-            compile_compute_field(compute_field, body_key, index, transforms)?;
+            compile_compute_field(compute_field, body_key, transforms)?;
         }
 
         // -- Structural combinators --
@@ -191,7 +244,7 @@ fn compile_one_step(
         }
 
         // Theory-level operations
-        step => compile_theory_step(step, index, chains)?,
+        step => compile_theory_step(step, chains)?,
     }
 
     Ok(())
@@ -202,16 +255,12 @@ fn compile_add_field(
     add_field: &crate::document::AddFieldSpec,
     body_vertex: &str,
     body_key: &Name,
-    index: usize,
     chains: &mut Vec<ProtolensChain>,
     transforms: &mut HashMap<Name, Vec<FieldTransform>>,
 ) -> Result<(), LensDslError> {
     let vertex_id = format!("{body_vertex}.{}", add_field.name);
-    let default = json_to_value(
-        &add_field.default,
-        &add_field.kind,
-        &format!("add_field[{index}].{}", add_field.name),
-    )?;
+    let default =
+        json_to_value(&add_field.default, &add_field.kind).map_err(|e| e.within(&at("default")))?;
     chains.push(combinators::add_field_with_label(
         body_vertex,
         &*vertex_id,
@@ -221,7 +270,7 @@ fn compile_add_field(
     ));
 
     if let Some(expr_str) = &add_field.expr {
-        let expr = parse_expr(expr_str, &format!("add_field[{index}].expr"))?;
+        let expr = parse_expr(expr_str).map_err(|e| e.within(&at("expr")))?;
         transforms
             .entry(body_key.clone())
             .or_default()
@@ -239,14 +288,13 @@ fn compile_add_field(
 fn compile_apply_expr(
     apply_expr: &crate::document::ApplyExprSpec,
     body_key: &Name,
-    index: usize,
     transforms: &mut HashMap<Name, Vec<FieldTransform>>,
 ) -> Result<(), LensDslError> {
-    let expr = resolve_expr(&apply_expr.expr, &format!("apply_expr[{index}].expr"))?;
+    let expr = resolve_expr(&apply_expr.expr).map_err(|e| e.within(&at("expr")))?;
     let inverse = apply_expr
         .inverse
         .as_ref()
-        .map(|s| resolve_expr(s, &format!("apply_expr[{index}].inverse")))
+        .map(|s| resolve_expr(s).map_err(|e| e.within(&at("inverse"))))
         .transpose()?;
     let class = apply_expr
         .coercion
@@ -269,14 +317,13 @@ fn compile_apply_expr(
 fn compile_compute_field(
     compute_field: &crate::document::ComputeFieldSpec,
     body_key: &Name,
-    index: usize,
     transforms: &mut HashMap<Name, Vec<FieldTransform>>,
 ) -> Result<(), LensDslError> {
-    let expr = resolve_expr(&compute_field.expr, &format!("compute_field[{index}].expr"))?;
+    let expr = resolve_expr(&compute_field.expr).map_err(|e| e.within(&at("expr")))?;
     let inverse = compute_field
         .inverse
         .as_ref()
-        .map(|s| resolve_expr(s, &format!("compute_field[{index}].inverse")))
+        .map(|s| resolve_expr(s).map_err(|e| e.within(&at("inverse"))))
         .transpose()?;
     let class = compute_field
         .coercion
@@ -295,38 +342,43 @@ fn compile_compute_field(
     Ok(())
 }
 
-/// Compile a `scoped` step (recursive) without collapsing the inner stage
-/// boundaries.
-fn compile_scoped(
-    scoped: &crate::document::ScopedSpec,
-    index: usize,
-) -> Result<CompiledSteps, LensDslError> {
-    // Inner steps operate on the focused element, not the top-level body.
-    let inner = compile_steps(&scoped.inner, &scoped.focus)?;
-    let mut chains = Vec::new();
-    let mut stages = Vec::with_capacity(inner.stages.len());
-    for (inner_index, stage) in inner.stages.into_iter().enumerate() {
-        let chain = if stage.chain.steps.is_empty() {
-            ProtolensChain::new(Vec::new())
-        } else {
-            let fused = stage.chain.fuse().map_err(|e| LensDslError::ExprParse {
-                step_desc: format!("scoped[{index}].inner[{inner_index}]"),
-                message: format!("failed to fuse inner chain: {e}"),
-            })?;
-            ProtolensChain::new(vec![combinators::map_items(&*scoped.focus, fused)])
-        };
-        chains.push(chain.clone());
-        stages.push(CompiledStage {
-            chain,
-            field_transforms: stage.field_transforms,
+/// Compile a `scoped` step: each inner step is compiled at the focus
+/// vertex, and each of its stages becomes one stage whose chain is the
+/// stage's fused chain mapped over the focus (`map_items`), keeping the
+/// stage's transforms.
+///
+/// # Errors
+///
+/// An inner step's refusal at `/inner/k`, and [`LensDslError::Fuse`] at
+/// `/inner/k` when a stage of inner step `k` does not fuse.
+fn compile_scoped(scoped: &crate::document::ScopedSpec) -> Result<CompiledSteps, LensDslError> {
+    let mut parts = Vec::with_capacity(scoped.inner.len());
+    for (k, step) in scoped.inner.iter().enumerate() {
+        let located = |e: LensDslError| e.within(&at("inner").index(k));
+        let inner = compile_step(step, &scoped.focus).map_err(located)?;
+        let mut stages = Vec::with_capacity(inner.stages.len());
+        for stage in inner.stages {
+            let chain = if stage.chain.steps.is_empty() {
+                ProtolensChain::new(Vec::new())
+            } else {
+                let fused = stage
+                    .chain
+                    .fuse()
+                    .map_err(|e| located(LensDslError::Fuse { error: Box::new(e) }))?;
+                ProtolensChain::new(vec![combinators::map_items(&*scoped.focus, fused)])
+            };
+            stages.push(CompiledStage {
+                chain,
+                field_transforms: stage.field_transforms,
+            });
+        }
+        parts.push(CompiledSteps {
+            chain: combinators::pipeline(stages.iter().map(|s| s.chain.clone()).collect()),
+            field_transforms: HashMap::new(),
+            stages,
         });
     }
-
-    Ok(CompiledSteps {
-        chain: combinators::pipeline(chains),
-        field_transforms: inner.field_transforms,
-        stages,
-    })
+    Ok(concat(parts))
 }
 
 /// Compile a `pullback` step.
@@ -350,24 +402,17 @@ fn compile_pullback(pullback: &crate::document::PullbackSpec, chains: &mut Vec<P
 }
 
 /// Compile theory-level steps: coerce, merge, sort/op/equation operations.
-fn compile_theory_step(
-    step: &Step,
-    index: usize,
-    chains: &mut Vec<ProtolensChain>,
-) -> Result<(), LensDslError> {
+fn compile_theory_step(step: &Step, chains: &mut Vec<ProtolensChain>) -> Result<(), LensDslError> {
     match step {
         Step::CoerceSort { coerce_sort } => {
-            compile_coerce_sort(coerce_sort, index, chains)?;
+            compile_coerce_sort(coerce_sort, chains)?;
         }
         Step::MergeSorts { merge_sorts } => {
-            compile_merge_sorts(merge_sorts, index, chains)?;
+            compile_merge_sorts(merge_sorts, chains)?;
         }
         Step::AddSort { add_sort } => {
-            let default = json_to_value(
-                &add_sort.default,
-                &add_sort.kind,
-                &format!("add_sort[{index}].{}", add_sort.name),
-            )?;
+            let default = json_to_value(&add_sort.default, &add_sort.kind)
+                .map_err(|e| e.within(&at("default")))?;
             chains.push(ProtolensChain::new(vec![elementary::add_sort(
                 &*add_sort.name,
                 &*add_sort.kind,
@@ -405,8 +450,8 @@ fn compile_theory_step(
         Step::AddEquation { add_equation } => {
             let eq = Equation {
                 name: Arc::from(&*add_equation.name),
-                lhs: parse_term(&add_equation.lhs, &format!("add_equation[{index}].lhs"))?,
-                rhs: parse_term(&add_equation.rhs, &format!("add_equation[{index}].rhs"))?,
+                lhs: parse_term(&add_equation.lhs).map_err(|e| e.within(&at("lhs")))?,
+                rhs: parse_term(&add_equation.rhs).map_err(|e| e.within(&at("rhs")))?,
             };
             chains.push(ProtolensChain::new(vec![elementary::add_equation(eq)]));
         }
@@ -435,14 +480,13 @@ fn compile_theory_step(
 /// Compile a `coerce_sort` step.
 fn compile_coerce_sort(
     coerce_sort: &crate::document::CoerceSortSpec,
-    index: usize,
     chains: &mut Vec<ProtolensChain>,
 ) -> Result<(), LensDslError> {
-    let coercion_expr = parse_expr(&coerce_sort.expr, &format!("coerce_sort[{index}].expr"))?;
+    let coercion_expr = parse_expr(&coerce_sort.expr).map_err(|e| e.within(&at("expr")))?;
     let inverse_expr = coerce_sort
         .inverse
         .as_deref()
-        .map(|s| parse_expr(s, &format!("coerce_sort[{index}].inverse")))
+        .map(|s| parse_expr(s).map_err(|e| e.within(&at("inverse"))))
         .transpose()?;
     let target_kind = parse_value_kind(&coerce_sort.target_kind);
     let class = coerce_sort.coercion.to_coercion_class();
@@ -467,7 +511,6 @@ fn compile_coerce_sort(
         &registry,
     )
     .map_err(|e| LensDslError::CoercionNotHonest {
-        step_desc: format!("coerce_sort[{index}]"),
         message: e.to_string(),
     })?;
 
@@ -502,10 +545,9 @@ fn compile_coerce_sort(
 /// Compile a `merge_sorts` step.
 fn compile_merge_sorts(
     merge_sorts: &crate::document::MergeSortsSpec,
-    index: usize,
     chains: &mut Vec<ProtolensChain>,
 ) -> Result<(), LensDslError> {
-    let merger_expr = parse_expr(&merge_sorts.expr, &format!("merge_sorts[{index}].expr"))?;
+    let merger_expr = parse_expr(&merge_sorts.expr).map_err(|e| e.within(&at("expr")))?;
 
     let first_sort = Arc::from(&*merge_sorts.sort_a);
     let second_sort = Arc::from(&*merge_sorts.sort_b);
@@ -557,21 +599,41 @@ fn compile_merge_sorts(
 ///
 /// Each directed equation becomes a `directed_eq` protolens step: an
 /// oriented rewrite `lhs → rhs` with a computable forward implementation
-/// (and optional inverse). This is the DSL surface for the lens crate's
-/// directed-equation machinery.
+/// (and optional inverse). Its declared coercion class is checked against
+/// the built-in sample registry, each sample bound to the left-hand side
+/// when that side is a variable and to `x` otherwise.
 ///
 /// # Errors
 ///
-/// Returns [`LensDslError::ExprParse`] if an implementation or inverse
-/// expression cannot be parsed.
+/// Refusals located relative to the list: [`LensDslError::ExprParse`] at
+/// `/i/impl` or `/i/inverse`, [`LensDslError::TermParse`] at `/i/lhs` or
+/// `/i/rhs`, and [`LensDslError::CoercionNotHonest`] at `/i` when the
+/// declared class fails on the samples.
 pub fn compile_directed_equations(
     equations: &[DirectedEquationSpec],
 ) -> Result<ProtolensChain, LensDslError> {
+    let registry = coercion_laws::CoercionSampleRegistry::with_defaults();
     let mut steps = Vec::with_capacity(equations.len());
     for (i, spec) in equations.iter().enumerate() {
-        steps.push(elementary::directed_eq(directed_equation_from_spec(
-            spec, i,
-        )?));
+        let here = DocumentPath::root().index(i);
+        let equation = directed_equation_from_spec(spec).map_err(|e| e.within(&here))?;
+        let var = match &equation.lhs {
+            panproto_gat::Term::Var(name) => name.to_string(),
+            _ => "x".to_owned(),
+        };
+        let violations =
+            coercion_laws::check_directed_equation_with_registry(&equation, &registry, &var);
+        if !violations.is_empty() {
+            return Err(LensDslError::CoercionNotHonest {
+                message: format!(
+                    "directed equation `{}` declares {:?}, which the sampled inputs falsify \
+                     (evidence, not proof): {violations:?}",
+                    spec.name, spec.coercion
+                ),
+            }
+            .within(&here));
+        }
+        steps.push(elementary::directed_eq(equation));
     }
     Ok(ProtolensChain::new(steps))
 }
@@ -579,21 +641,17 @@ pub fn compile_directed_equations(
 /// Build a [`DirectedEquation`] from its DSL spec.
 fn directed_equation_from_spec(
     spec: &DirectedEquationSpec,
-    index: usize,
 ) -> Result<DirectedEquation, LensDslError> {
-    let impl_term = parse_expr(
-        &spec.impl_term,
-        &format!("directed_equations[{index}].impl"),
-    )?;
+    let impl_term = parse_expr(&spec.impl_term).map_err(|e| e.within(&at("impl")))?;
     let inverse = spec
         .inverse
         .as_deref()
-        .map(|s| parse_expr(s, &format!("directed_equations[{index}].inverse")))
+        .map(|s| parse_expr(s).map_err(|e| e.within(&at("inverse"))))
         .transpose()?;
     Ok(DirectedEquation {
         name: Arc::from(&*spec.name),
-        lhs: parse_term(&spec.lhs, &format!("directed_equations[{index}].lhs"))?,
-        rhs: parse_term(&spec.rhs, &format!("directed_equations[{index}].rhs"))?,
+        lhs: parse_term(&spec.lhs).map_err(|e| e.within(&at("lhs")))?,
+        rhs: parse_term(&spec.rhs).map_err(|e| e.within(&at("rhs")))?,
         impl_term,
         inverse,
         source_kind: spec.source_kind.as_deref().map(parse_value_kind),
@@ -606,25 +664,20 @@ fn directed_equation_from_spec(
 ///
 /// Surface syntax is parsed; an expression the rules compiler already
 /// built is taken as it stands.
-fn resolve_expr(
-    source: &crate::document::ExprSource,
-    step_desc: &str,
-) -> Result<panproto_expr::Expr, LensDslError> {
+fn resolve_expr(source: &crate::document::ExprSource) -> Result<panproto_expr::Expr, LensDslError> {
     match source {
-        crate::document::ExprSource::Source(text) => parse_expr(text, step_desc),
+        crate::document::ExprSource::Source(text) => parse_expr(text),
         crate::document::ExprSource::Built(expr) => Ok((**expr).clone()),
     }
 }
 
 /// Parse a panproto expression string.
-fn parse_expr(expr_str: &str, step_desc: &str) -> Result<panproto_expr::Expr, LensDslError> {
+fn parse_expr(expr_str: &str) -> Result<panproto_expr::Expr, LensDslError> {
     let tokens = panproto_expr_parser::tokenize(expr_str).map_err(|e| LensDslError::ExprParse {
-        step_desc: step_desc.to_owned(),
         message: format!("tokenization failed: {e}"),
     })?;
 
     panproto_expr_parser::parse(&tokens).map_err(|errors| LensDslError::ExprParse {
-        step_desc: step_desc.to_owned(),
         message: errors
             .iter()
             .map(ToString::to_string)
@@ -648,18 +701,14 @@ fn parse_expr(expr_str: &str, step_desc: &str) -> Result<panproto_expr::Expr, Le
 /// Returns [`LensDslError::DefaultValue`] for an integer too large for
 /// the engine's `i64`, and for a default whose shape contradicts the
 /// declared kind.
-fn json_to_value(
-    json: &serde_json::Value,
-    kind: &str,
-    step_desc: &str,
-) -> Result<Value, LensDslError> {
-    let value = json_shape(json, step_desc)?;
-    check_default_kind(&value, kind, step_desc)?;
+fn json_to_value(json: &serde_json::Value, kind: &str) -> Result<Value, LensDslError> {
+    let value = json_shape(json)?;
+    check_default_kind(&value, kind)?;
     Ok(value)
 }
 
 /// Carry a JSON value into the instance algebra without narrowing it.
-fn json_shape(json: &serde_json::Value, step_desc: &str) -> Result<Value, LensDslError> {
+fn json_shape(json: &serde_json::Value) -> Result<Value, LensDslError> {
     Ok(match json {
         serde_json::Value::Null => Value::Null,
         serde_json::Value::String(s) => Value::Str(s.clone()),
@@ -674,7 +723,6 @@ fn json_shape(json: &serde_json::Value, step_desc: &str) -> Result<Value, LensDs
                 // `i64`, so widening it to a float here would hand back a
                 // default that is not the one the document names.
                 return Err(LensDslError::DefaultValue {
-                    step_desc: step_desc.to_owned(),
                     message: format!("integer default {n} does not fit in a 64-bit signed integer"),
                 });
             }
@@ -682,13 +730,13 @@ fn json_shape(json: &serde_json::Value, step_desc: &str) -> Result<Value, LensDs
         serde_json::Value::Array(items) => Value::List(
             items
                 .iter()
-                .map(|item| json_shape(item, step_desc))
+                .map(json_shape)
                 .collect::<Result<Vec<_>, _>>()?,
         ),
         serde_json::Value::Object(fields) => Value::Unknown(
             fields
                 .iter()
-                .map(|(key, val)| Ok((key.clone(), json_shape(val, step_desc)?)))
+                .map(|(key, val)| Ok((key.clone(), json_shape(val)?)))
                 .collect::<Result<std::collections::HashMap<_, _>, LensDslError>>()?,
         ),
     })
@@ -701,7 +749,7 @@ fn json_shape(json: &serde_json::Value, step_desc: &str) -> Result<Value, LensDs
 /// accepted where a float is declared, since a whole number is a
 /// perfectly good float default. Kinds outside the known vocabulary
 /// constrain nothing.
-fn check_default_kind(value: &Value, kind: &str, step_desc: &str) -> Result<(), LensDslError> {
+fn check_default_kind(value: &Value, kind: &str) -> Result<(), LensDslError> {
     if matches!(value, Value::Null) {
         return Ok(());
     }
@@ -719,7 +767,6 @@ fn check_default_kind(value: &Value, kind: &str, step_desc: &str) -> Result<(), 
         Ok(())
     } else {
         Err(LensDslError::DefaultValue {
-            step_desc: step_desc.to_owned(),
             message: format!("default {value:?} does not match the declared kind {kind:?}"),
         })
     }
@@ -763,10 +810,9 @@ fn parse_value_kind(s: &str) -> ValueKind {
 /// Returns [`LensDslError::TermParse`] for an empty term, an identifier
 /// that is not one, an application whose parenthesis is never closed,
 /// and trailing text after a complete term.
-fn parse_term(s: &str, step_desc: &str) -> Result<panproto_gat::Term, LensDslError> {
+fn parse_term(s: &str) -> Result<panproto_gat::Term, LensDslError> {
     let trimmed = s.trim();
     let malformed = |message: String| LensDslError::TermParse {
-        step_desc: step_desc.to_owned(),
         term: s.to_owned(),
         message,
     };
@@ -798,7 +844,7 @@ fn parse_term(s: &str, step_desc: &str) -> Result<panproto_gat::Term, LensDslErr
     } else {
         split_top_level_commas(args_str)
             .iter()
-            .map(|a| parse_term(a, step_desc))
+            .map(|a| parse_term(a))
             .collect::<Result<Vec<_>, _>>()?
     };
     Ok(panproto_gat::Term::App {
@@ -892,7 +938,10 @@ mod tests {
                     rhs: "x".to_owned(),
                 },
             }];
-            match compile_steps(&steps, BODY) {
+            match compile_steps(&steps, BODY)
+                .as_ref()
+                .map_err(LensDslError::unlocated)
+            {
                 Err(LensDslError::TermParse { term, .. }) => assert_eq!(term, bad),
                 other => panic!("term {bad:?} should be refused, got {other:?}"),
             }
@@ -900,8 +949,7 @@ mod tests {
 
         // The grammar the doc comment states still parses.
         for good in ["x", "my_var", "f(a, g(b))", "f()"] {
-            parse_term(good, "under test")
-                .unwrap_or_else(|e| panic!("term {good:?} should parse: {e}"));
+            parse_term(good).unwrap_or_else(|e| panic!("term {good:?} should parse: {e}"));
         }
     }
 
@@ -919,12 +967,7 @@ mod tests {
         // into an empty string on the way through.
         compile_steps(&steps, BODY).unwrap();
 
-        let carried = json_to_value(
-            &serde_json::json!(["a", 1, {"k": true}]),
-            "array",
-            "under test",
-        )
-        .unwrap();
+        let carried = json_to_value(&serde_json::json!(["a", 1, {"k": true}]), "array").unwrap();
         let Value::List(items) = &carried else {
             panic!("an array default must become a list, got {carried:?}");
         };
@@ -938,7 +981,7 @@ mod tests {
 
     #[test]
     fn a_default_that_contradicts_its_kind_is_refused() {
-        let Err(err) = json_to_value(&serde_json::json!("nope"), "integer", "under test") else {
+        let Err(err) = json_to_value(&serde_json::json!("nope"), "integer") else {
             panic!("a string default for an integer field must be refused");
         };
         assert!(matches!(err, LensDslError::DefaultValue { .. }), "{err:?}");
@@ -946,13 +989,13 @@ mod tests {
         // An integer past i64 cannot be carried, and widening it to a
         // float would change the value the document names.
         let huge: serde_json::Value = serde_json::from_str("18446744073709551615").unwrap();
-        let Err(err) = json_to_value(&huge, "integer", "under test") else {
+        let Err(err) = json_to_value(&huge, "integer") else {
             panic!("an out-of-range integer default must be refused");
         };
         assert!(matches!(err, LensDslError::DefaultValue { .. }), "{err:?}");
 
         // A whole number is still a fine float default.
-        json_to_value(&serde_json::json!(3), "number", "under test").unwrap();
+        json_to_value(&serde_json::json!(3), "number").unwrap();
     }
 
     #[test]
@@ -1078,7 +1121,7 @@ mod tests {
             },
         }];
         let err = compile_steps(&steps, BODY).unwrap_err();
-        assert!(matches!(err, LensDslError::ExprParse { .. }));
+        assert!(matches!(err.unlocated(), LensDslError::ExprParse { .. }));
     }
 
     #[test]
@@ -1121,7 +1164,7 @@ mod tests {
         }];
         let err = compile_steps(&steps, BODY).unwrap_err();
         assert!(
-            matches!(err, LensDslError::CoercionNotHonest { .. }),
+            matches!(err.unlocated(), LensDslError::CoercionNotHonest { .. }),
             "dishonest coercion must be rejected, got {err:?}"
         );
         // The diagnostic carries the evidence-not-proof caveat.
@@ -1135,13 +1178,13 @@ mod tests {
     fn directed_equations_compile_to_chain_steps() {
         let equations = vec![
             DirectedEquationSpec {
-                name: "double".to_owned(),
+                name: "negate_iso".to_owned(),
                 lhs: "x".to_owned(),
-                rhs: "double(x)".to_owned(),
-                impl_term: "mul x 2".to_owned(),
-                inverse: Some("mul x 2".to_owned()),
-                source_kind: Some("integer".to_owned()),
-                target_kind: Some("integer".to_owned()),
+                rhs: "negate(x)".to_owned(),
+                impl_term: "not x".to_owned(),
+                inverse: Some("not x".to_owned()),
+                source_kind: Some("boolean".to_owned()),
+                target_kind: Some("boolean".to_owned()),
                 coercion: CoercionKind::Iso,
             },
             DirectedEquationSpec {
@@ -1150,7 +1193,7 @@ mod tests {
                 rhs: "s".to_owned(),
                 impl_term: "int_to_str n".to_owned(),
                 inverse: None,
-                source_kind: None,
+                source_kind: Some("integer".to_owned()),
                 target_kind: None,
                 coercion: CoercionKind::Projection,
             },
@@ -1161,8 +1204,8 @@ mod tests {
             chain
                 .steps
                 .iter()
-                .any(|s| s.name.as_str().contains("double")),
-            "expected a directed-eq step named for `double`"
+                .any(|s| s.name.as_str().contains("negate_iso")),
+            "expected a directed-eq step named for `negate_iso`"
         );
     }
 
@@ -1179,6 +1222,6 @@ mod tests {
             coercion: CoercionKind::Iso,
         }];
         let err = compile_directed_equations(&equations).unwrap_err();
-        assert!(matches!(err, LensDslError::ExprParse { .. }));
+        assert!(matches!(err.unlocated(), LensDslError::ExprParse { .. }));
     }
 }

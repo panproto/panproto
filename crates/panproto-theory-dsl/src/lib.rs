@@ -35,7 +35,6 @@ pub mod compile_theory;
 pub mod document;
 pub mod error;
 pub mod eval;
-pub mod path;
 pub mod shape;
 
 use std::path::Path;
@@ -49,6 +48,7 @@ pub use compile_theory::{
 };
 pub use document::{BundleSpec, CompiledTheorySet, TheoryBody, TheoryDocument, TheorySpec};
 pub use error::TheoryDslError;
+pub use panproto_dsl_eval::path;
 pub use path::{DocumentPath, PathSegment, locate_json};
 
 /// Load a theory document from a file.

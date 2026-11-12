@@ -25,6 +25,7 @@ thiserror = { workspace = true }
 miette = { workspace = true }
 
 [dev-dependencies]
+panproto-reference = { workspace = true }
 proptest.workspace = true
 rustc-hash = { workspace = true }
 divan = { workspace = true }

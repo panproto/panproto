@@ -25,6 +25,7 @@ pub mod schema_merge;
 pub mod segments;
 pub mod text_formats;
 pub mod theories;
+pub mod theory_dsl;
 pub mod validation;
 pub mod value_io;
 pub mod values;

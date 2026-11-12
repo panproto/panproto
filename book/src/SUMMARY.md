@@ -121,6 +121,7 @@
   - [JSON Schema](./correctness/json-schema.md)
   - [Migration search](./correctness/migration-search.md)
   - [Schema merge](./correctness/schema-merge.md)
+  - [Theory DSL](./correctness/theory-dsl.md)
 
 ---
 
