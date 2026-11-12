@@ -166,3 +166,35 @@ pub fn scripts() -> Vec<Vec<Insert>> {
 /// The closed-form count of [`scripts`]: the statements, and the pairs of
 /// the 5 × 5 + 2 × 5 = 35 one-cell statements.
 pub const SCRIPTS_COUNT: usize = STATEMENTS_COUNT + 35 * 35;
+
+/// The characters of the bounded field scope: a letter, the characters
+/// either dialect quotes or escapes, and the characters of `\.` and `\N`.
+pub const FIELD_CHARS: &[char] = &['a', ',', '"', '\n', '\r', '\\', '\t', '.', ' ', 'N'];
+
+/// Every field of the bounded scope: `NULL`, and every text of at most
+/// three characters of [`FIELD_CHARS`].
+#[must_use]
+pub fn fields() -> Vec<Option<String>> {
+    let mut texts = vec![String::new()];
+    let mut layer = vec![String::new()];
+    for _ in 0..3 {
+        layer = layer
+            .iter()
+            .flat_map(|t| {
+                FIELD_CHARS.iter().map(move |c| {
+                    let mut next = t.clone();
+                    next.push(*c);
+                    next
+                })
+            })
+            .collect();
+        texts.extend(layer.iter().cloned());
+    }
+    std::iter::once(None)
+        .chain(texts.into_iter().map(Some))
+        .collect()
+}
+
+/// The closed-form count of [`fields`]: `NULL` and 1 + 10 + 100 + 1000
+/// texts.
+pub const FIELDS_COUNT: usize = 1 + 1 + 10 + 100 + 1000;

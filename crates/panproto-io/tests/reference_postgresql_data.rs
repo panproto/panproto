@@ -181,3 +181,37 @@ proptest! {
         rows_agree(&script);
     }
 }
+
+#[test]
+fn directory_fields_match_the_reference_on_every_bounded_field() {
+    use panproto_io::postgresql::{Dialect, read_table_directory, write_table_directory};
+    use panproto_reference::enumerate::postgresql_data::fields;
+    use panproto_reference::pages::postgresql_data::{csv_field, text_field};
+    let schema = read_dump("CREATE TABLE t (b text);", OtherStatements::Refuse)
+        .unwrap()
+        .schema;
+    let fields = fields();
+    assert_eq!(fields.len(), 1112);
+    for field in &fields {
+        let value = field.clone().map_or(Value::Null, Value::Str);
+        let src = panproto_inst::FInstance::new()
+            .with_table(
+                "t",
+                vec![std::collections::HashMap::from([("b".to_owned(), value)])],
+            )
+            .unwrap();
+        for (dialect, file, expected) in [
+            (Dialect::Csv, "t.csv", csv_field(field.as_deref())),
+            (Dialect::Text, "t.tsv", text_field(field.as_deref())),
+        ] {
+            let written = write_table_directory(&schema, &src, dialect).unwrap();
+            assert_eq!(
+                String::from_utf8(written[file].clone()).unwrap(),
+                format!("b\n{expected}\n"),
+                "{field:?}"
+            );
+            let (_, back) = read_table_directory(&written).unwrap();
+            assert_eq!(back, src, "{dialect:?} {field:?}");
+        }
+    }
+}

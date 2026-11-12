@@ -112,3 +112,19 @@ fn the_scopes_have_their_closed_form_counts() {
     assert_eq!(scripts().len(), SCRIPTS_COUNT);
     assert_eq!(SCRIPTS_COUNT, 2060);
 }
+
+#[test]
+fn directory_fields_are_written_as_copy_writes_them() {
+    use panproto_reference::enumerate::postgresql_data::{FIELDS_COUNT, fields};
+    use panproto_reference::pages::postgresql_data::{csv_field, text_field};
+    assert_eq!(csv_field(None), "");
+    assert_eq!(csv_field(Some("")), "\"\"");
+    assert_eq!(csv_field(Some("a,\"b")), "\"a,\"\"b\"");
+    assert_eq!(csv_field(Some("\\.")), "\"\\.\"");
+    assert_eq!(csv_field(Some("a b")), "a b");
+    assert_eq!(text_field(None), "\\N");
+    assert_eq!(text_field(Some("\\N")), "\\\\N");
+    assert_eq!(text_field(Some("a\tb\n")), "a\\tb\\n");
+    assert_eq!(fields().len(), FIELDS_COUNT);
+    assert_eq!(FIELDS_COUNT, 1112);
+}

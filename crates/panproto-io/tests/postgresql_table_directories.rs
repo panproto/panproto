@@ -161,10 +161,10 @@ fn text_reads_postgresql_copy_text_conventions() {
 #[test]
 fn a_directory_without_a_valid_manifest_is_refused() {
     let only_schema = files(&[("s.sql", SCHEMA)]);
-    assert_eq!(
+    assert!(matches!(
         read_table_directory(&only_schema),
         Err(TableDirectoryError::NoManifest)
-    );
+    ));
     let refused = |manifest: &str, extra: &[(&str, &str)]| {
         let mut directory = files(&[(MANIFEST, manifest), ("s.sql", SCHEMA), ("t.csv", "a,b\n")]);
         directory.extend(files(extra));

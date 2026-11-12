@@ -497,3 +497,54 @@ pub fn canonical_text(a: &Rows, b: &Rows) -> String {
     }
     out
 }
+
+/// A field of a table directory's `csv` file, as `PostgreSQL`'s `COPY ...
+/// (FORMAT csv)` writes it.
+///
+/// `NULL` is the empty field; a text is written in `"` quotes, each quote
+/// doubled, exactly when it is empty, is `\.`, or holds `,`, `"`, `\n` or
+/// `\r`, and as it is otherwise.
+#[must_use]
+pub fn csv_field(cell: Option<&str>) -> String {
+    let Some(text) = cell else {
+        return String::new();
+    };
+    let needs_quotes = text.is_empty()
+        || text == "\\."
+        || text.chars().any(|c| [',', '"', '\n', '\r'].contains(&c));
+    if !needs_quotes {
+        return text.to_owned();
+    }
+    let mut out = String::from("\"");
+    for c in text.chars() {
+        if c == '"' {
+            out.push('"');
+        }
+        out.push(c);
+    }
+    out.push('"');
+    out
+}
+
+/// A field of a table directory's `text` file, as `PostgreSQL`'s `COPY ...
+/// (FORMAT text)` writes it.
+///
+/// `NULL` is `\N`; in a text, a backslash is `\\`, a tab `\t`, a line feed
+/// `\n` and a carriage return `\r`, and every other character is itself.
+#[must_use]
+pub fn text_field(cell: Option<&str>) -> String {
+    let Some(text) = cell else {
+        return "\\N".to_owned();
+    };
+    let mut out = String::new();
+    for c in text.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '\t' => out.push_str("\\t"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            other => out.push(other),
+        }
+    }
+    out
+}
