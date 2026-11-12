@@ -19,6 +19,7 @@ import { resolve } from 'node:path';
 import { packToWasm } from '../src/msgpack.js';
 import {
   Panproto,
+  PROTOCOL_CATEGORIES,
   ExprBuilder,
   TheoryBuilder,
   checkMorphism,
@@ -965,6 +966,22 @@ describe('protocol resolution', () => {
     const postgresql = pp.protocol('postgresql').spec;
     expect(postgresql.nominalIdentity).toBe(true);
     expect(postgresql.hasCoproducts).toBe(false);
+  });
+
+  it('lists every instance codec under a category, by its canonical name', () => {
+    const categorized = Object.values(PROTOCOL_CATEGORIES).flat();
+    const io = pp.io();
+    try {
+      for (const name of io.protocols) {
+        expect(categorized, `${name} has a codec but no category`).toContain(name);
+      }
+    } finally {
+      io[Symbol.dispose]();
+    }
+    const canonical = pp.listProtocols();
+    for (const name of categorized) {
+      expect(canonical, `${name} is not a canonical protocol name`).toContain(name);
+    }
   });
 
   it('resolves every built-in protocol to exactly what the registry holds', () => {
