@@ -5219,6 +5219,34 @@ mod segmented_carry {
         later.report.tasks_reused
     }
 
+    /// Check the carrying run of `case` after a complete earlier run over
+    /// `earlier` under the same partition; returns the carried count.
+    pub fn check_after(case: &Case<'_>, earlier: &RefGraph) -> u32 {
+        let input = segmented_runner::input(case.graph, case.partition);
+        let segments =
+            reference::partition_graph(case.graph, case.partition).expect("reference split");
+        let mut fresh_store = MemoryStore::default();
+        let fresh = carrying_run(
+            case.plan,
+            &input,
+            &input.bytes,
+            None,
+            None,
+            &mut fresh_store,
+        );
+        check_pair(
+            case,
+            &input,
+            &segments,
+            (&fresh, &fresh_store),
+            &Earlier {
+                graph: earlier,
+                binding: None,
+                cancel: None,
+            },
+        )
+    }
+
     /// Check one case against the earlier runs over the same segments under
     /// another binding and over its graph without each edge.
     fn check_carry(case: &Case<'_>, counts: &mut Counts) {
@@ -5315,9 +5343,11 @@ mod segmented_carry {
         }
         assert_eq!(counts.cases, 128_240_u64.div_ceil(97));
         assert_eq!(counts.pairs, expected_pairs);
-        assert!(
-            counts.carried_all > 0 && counts.carried_some > 0 && counts.carried_none > 0,
-            "every kind of pair occurs: {counts:?}"
+        assert_eq!(expected_pairs, 22_051);
+        assert_eq!(
+            (counts.carried_all, counts.carried_some, counts.carried_none),
+            (3_489, 17_006, 1_556),
+            "pairs carrying every task but Seal, some tasks, and none"
         );
     }
 
@@ -5570,6 +5600,37 @@ mod segmented_randomized {
 
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(64))]
+
+        #[test]
+        fn carrying_tasks_over_matches_the_reference_runner_on_generated_graph_pairs(
+            anchors in proptest::collection::vec(0_usize..3, 2..=8),
+            edges in proptest::collection::vec((0_usize..8, 0_usize..8), 0..=14),
+            dropped in proptest::collection::vec(proptest::prelude::any::<bool>(), 14),
+            owners in proptest::collection::vec(0_u32..4, 8),
+            segments in 2_u32..=4,
+            surviving in 0_u8..8,
+        ) {
+            let Some((schema, migration, plan, graph, partition)) =
+                generated(&anchors, &edges, &owners, segments, surviving)
+            else {
+                return Err(TestCaseError::reject("plan outside the compile domain"));
+            };
+            let mut earlier = graph.clone();
+            earlier
+                .edges
+                .retain(|id, _| !dropped[usize::try_from(*id).unwrap_or(0)]);
+            super::segmented_carry::check_after(
+                &super::segmented_runner::Case {
+                    source: &schema,
+                    target: &schema,
+                    migration: &migration,
+                    plan: &plan,
+                    graph: &graph,
+                    partition: &partition,
+                },
+                &earlier,
+            );
+        }
 
         #[test]
         fn a_checkpointed_restrict_run_matches_the_reference_runner_on_generated_partitions(

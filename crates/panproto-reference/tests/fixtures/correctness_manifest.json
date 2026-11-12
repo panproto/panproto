@@ -5514,6 +5514,27 @@
               "test": "segmented_tree_apply::a_composite_tree_edit_applies_to_a_segmented_family_as_its_factors_do_in_turn"
             }
           ]
+        },
+        {
+          "id": "segments.carried-restrict-tasks",
+          "anchor": "L-segments-29",
+          "references": [
+            "panproto_reference::segment::segmented_restrict_with_progress"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "segmented_carry::carrying_tasks_over_changes_nothing_but_the_reuse_counts_on_every_97th_case"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "segmented_randomized::carrying_tasks_over_matches_the_reference_runner_on_generated_graph_pairs"
+            }
+          ]
         }
       ]
     },

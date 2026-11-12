@@ -72,7 +72,7 @@
 //! | Segment execution as whole-state execution on the glued state | [`segment::segmented`] | `segments.md` |
 //! | Allocation within a range | [`segment::fresh`] | `segments.md` |
 //! | Segmented graph restriction, by whole-state restriction of the glued graph | [`segment::restrict_graph_segmented`] | `segments.md` |
-//! | The checkpointed run of segmented graph restriction | [`segment::segmented_restrict_with_progress`] | `segments.md` |
+//! | The checkpointed run of segmented graph restriction, resumed or carrying tasks over from an earlier run | [`segment::segmented_restrict_with_progress`] | `segments.md` |
 //! | Record streams of segments, by frames of the canonical instance records | [`segment::segment_record_stream`] | `segments.md` |
 //! | Manifest record bytes | [`segment::canonical_record_bytes`] | `segments.md` |
 //! | Manifest records of a family, without the seal floor | [`segment::manifest_records`] | `segments.md` |
