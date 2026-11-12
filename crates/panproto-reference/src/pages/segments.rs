@@ -9189,31 +9189,28 @@ pub mod segment {
         Ok(w.0)
     }
 
-    /// Definition: the Summarize artifact of a segmented tree apply, the
-    /// facts of `segment` about `edit`.
-    ///
-    /// The named nodes are the nodes the edit's steps name (an insertion's
-    /// parent and child, a fan's endpoints, the node a step deletes,
-    /// contracts, relabels or sets a field of), or every node when a step
-    /// moves a subtree or joins features; the deleted hyper-edges are those
-    /// of its `DeleteFan` steps. The artifact lists, each part counted and
-    /// ascending: as node records, the segment's tree nodes (not fan nodes)
-    /// that are named; as edge id, parent, child and label, its tree arcs
-    /// with a named endpoint; as fan node, hyper-edge, parent edge id,
-    /// parent and the children (label, edge id, target, in label order), its
-    /// fans whose fan node, parent or a child is named or whose hyper-edge
-    /// is deleted; as node id and anchor, the anchor the segment holds (its
-    /// own node's or its ghost's) of every endpoint of those arcs and fans
-    /// that is not a listed node. Then the root, the node counter and the
-    /// edge counter the segment holds, each with a presence byte.
-    ///
-    /// # Errors
-    ///
-    /// A decode error for a node outside the canonical value domain.
-    pub fn tree_apply_facts_bytes(
-        segment: &TreeSegment,
-        edit: &crate::edit::TreeEdit,
-    ) -> Result<Vec<u8>, SegmentError> {
+    /// What a tree edit's facts name: the nodes its steps name, the
+    /// hyper-edges its `DeleteFan` steps delete, and whether a step moves a
+    /// subtree or joins features, which names every node.
+    /// The anchor `segment` holds (its own node's or its ghost's) of each of
+    /// `nodes` it holds one for.
+    fn held_anchors<'s, 'n>(
+        segment: &'s TreeSegment,
+        nodes: impl Iterator<Item = &'n u32>,
+    ) -> Vec<(u32, &'s Name)> {
+        nodes
+            .filter_map(|node| {
+                segment
+                    .nodes
+                    .get(node)
+                    .map(|held| &held.anchor)
+                    .or_else(|| segment.boundary.ghosts.get(node).map(|ghost| &ghost.anchor))
+                    .map(|anchor| (*node, anchor))
+            })
+            .collect()
+    }
+
+    fn tree_fact_names(edit: &crate::edit::TreeEdit) -> (BTreeSet<u32>, BTreeSet<&str>, bool) {
         use crate::edit::TreeEdit;
         let mut named: BTreeSet<u32> = BTreeSet::new();
         let mut hypers: BTreeSet<&str> = BTreeSet::new();
@@ -9245,6 +9242,35 @@ pub mod segment {
                 TreeEdit::Identity | TreeEdit::Sequence(_) => {}
             }
         }
+        (named, hypers, every)
+    }
+
+    /// Definition: the Summarize artifact of a segmented tree apply, the
+    /// facts of `segment` about `edit`.
+    ///
+    /// The named nodes are the nodes the edit's steps name (an insertion's
+    /// parent and child, a fan's endpoints, the node a step deletes,
+    /// contracts, relabels or sets a field of), or every node when a step
+    /// moves a subtree or joins features; the deleted hyper-edges are those
+    /// of its `DeleteFan` steps. The artifact lists, each part counted and
+    /// ascending: as node records, the segment's tree nodes (not fan nodes)
+    /// that are named; as edge id, parent, child and label, its tree arcs
+    /// with a named endpoint; as fan node, hyper-edge, parent edge id,
+    /// parent and the children (label, edge id, target, in label order), its
+    /// fans whose fan node, parent or a child is named or whose hyper-edge
+    /// is deleted; as node id and anchor, the anchor the segment holds (its
+    /// own node's or its ghost's) of every endpoint of those arcs and fans
+    /// that is not a listed node. Then the root, the node counter and the
+    /// edge counter the segment holds, each with a presence byte.
+    ///
+    /// # Errors
+    ///
+    /// A decode error for a node outside the canonical value domain.
+    pub fn tree_apply_facts_bytes(
+        segment: &TreeSegment,
+        edit: &crate::edit::TreeEdit,
+    ) -> Result<Vec<u8>, SegmentError> {
+        let (named, hypers, every) = tree_fact_names(edit);
         let is_named = |node: u32| every || named.contains(&node);
         let fan_nodes: BTreeSet<u32> = segment.fans.iter().map(|fan| fan.node).collect();
         let fan_edges: BTreeSet<u32> = segment
@@ -9324,18 +9350,7 @@ pub mod segment {
         }
         w.len(count);
         w.0.extend(fans.0);
-        let anchors: Vec<(u32, &Name)> = ends
-            .into_iter()
-            .filter(|end| !listed.contains(end))
-            .filter_map(|end| {
-                segment
-                    .nodes
-                    .get(&end)
-                    .map(|node| &node.anchor)
-                    .or_else(|| segment.boundary.ghosts.get(&end).map(|ghost| &ghost.anchor))
-                    .map(|anchor| (end, anchor))
-            })
-            .collect();
+        let anchors = held_anchors(segment, ends.difference(&listed));
         w.len(anchors.len());
         for (end, anchor) in anchors {
             w.u32(end);
@@ -10703,17 +10718,21 @@ pub mod segmented_apply {
             }
         }
         for (low, high) in handed {
-            for spec in &p.specs {
-                if spec
-                    .nodes
-                    .iter()
-                    .any(|range| u64::from(range.lo) <= high && low <= u64::from(range.hi))
-                {
-                    read.insert(spec.id);
-                }
-            }
+            read.extend(owners_meeting(p, low, high));
         }
         read
+    }
+
+    /// The segments of `p` owning an id from `low` to `high`, inclusive.
+    fn owners_meeting(p: &Partition, low: u64, high: u64) -> impl Iterator<Item = SegmentId> + '_ {
+        p.specs
+            .iter()
+            .filter(move |spec| {
+                spec.nodes
+                    .iter()
+                    .any(|range| u64::from(range.lo) <= high && low <= u64::from(range.hi))
+            })
+            .map(|spec| spec.id)
     }
 
     /// Definition: the segments a segmented apply of the table delta

@@ -6860,7 +6860,7 @@ mod segmented_tree_apply {
         let production = apply_segmented(&production_edit, &held, &production_partition);
         let expected = segments::apply_tree_segmented(edit, &reference_held, partition);
         let (mut whole_state, mut followed) =
-            assemble_tree(held.clone(), &production_partition).expect("the input glues");
+            assemble_tree(held, &production_partition).expect("the input glues");
         let applied = followed.follow_edit(&mut whole_state, &production_edit);
         match (production, expected) {
             (Ok(output), Ok(expected)) => {
