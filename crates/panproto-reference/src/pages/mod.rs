@@ -1,6 +1,7 @@
 //! Reference semantics partitioned by correctness page.
 
 pub mod ansible;
+pub mod bson;
 pub mod cloudformation;
 pub mod edge_lists;
 pub mod edits;
