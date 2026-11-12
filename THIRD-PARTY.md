@@ -13,6 +13,7 @@ The conformance tests of `panproto-io` read corpora under [`crates/panproto-io/t
 | Directory | Upstream | Commit | Licence (as fetched) | Licence text here |
 |---|---|---|---|---|
 | `ansible` | [geerlingguy/ansible-for-devops](https://github.com/geerlingguy/ansible-for-devops) | `86e1bf80` | MIT | `LICENSE` (upstream `LICENSE`, unchanged) |
+| `asyncapi` | [asyncapi/spec](https://github.com/asyncapi/spec) (tag `v3.1.0`) | `b3fac5bb` | Apache-2.0 | `LICENSE` and `NOTICE` (upstream, unchanged) |
 | `cloudformation` | [aws-cloudformation/aws-cloudformation-templates](https://github.com/aws-cloudformation/aws-cloudformation-templates) | `a0f43bc6` | Apache-2.0 | `LICENSE` and `NOTICE` (upstream `LICENSE.txt` and `NOTICE.txt`, unchanged) |
 | `csv-spectrum` | [max-mapper/csv-spectrum](https://github.com/max-mapper/csv-spectrum) | `d30e80f8` | BSD-2-Clause, declared in `package.json`; no licence file upstream | `LICENSE` (the BSD 2-Clause text with the `package.json` author as copyright holder) |
 | `json-ld-api` | [w3c/json-ld-api](https://github.com/w3c/json-ld-api) | `55514738` | W3C Software and Document License, with the W3C test suite dual licensing | `LICENSE.md` (upstream, unchanged) and `LICENSE-W3C-SOFTWARE-AND-DOCUMENT.md` (notice and licence text) |
@@ -24,7 +25,7 @@ The conformance tests of `panproto-io` read corpora under [`crates/panproto-io/t
 | `sakila` | [jOOQ/sakila](https://github.com/jOOQ/sakila) | `aed53ce6` | BSD-2-Clause | `LICENSE` (upstream, unchanged) |
 | `toml-test` | [toml-lang/toml-test](https://github.com/toml-lang/toml-test) | `96fd0884` | MIT | `LICENSE` (upstream, unchanged) |
 | `yaml-test-suite` | [yaml/yaml-test-suite](https://github.com/yaml/yaml-test-suite) (`data` branch) | `6ad3d2c6` | MIT (the `main` branch's `License` at `da267a5c`; the `data` branch has no licence file) | `License` (upstream, unchanged) |
-| `edgelist`, `bson-spec`, `openapi/invalid` | written for panproto from the specifications each case names | none | MIT, as the repository | none needed |
+| `edgelist`, `bson-spec`, `openapi/invalid`, `asyncapi/invalid` | written for panproto from the specifications each case names | none | MIT, as the repository | none needed |
 
 One corpus is not kept in the repository because its licence is not permissive:
 

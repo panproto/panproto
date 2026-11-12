@@ -188,7 +188,9 @@ static DESCRIPTORS: &[ProtocolDescriptor] = &[
     ProtocolDescriptor {
         name: "asyncapi",
         aliases: &[],
-        parser: Parser::Document(api::asyncapi::parse_asyncapi),
+        parser: Parser::Grammar {
+            reader: "panproto_io::api::asyncapi::read_asyncapi",
+        },
         protocol: api::asyncapi::protocol,
         register_theories: |r| {
             api::asyncapi::register_theories(r);
