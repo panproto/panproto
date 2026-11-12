@@ -7263,6 +7263,224 @@
           ]
         }
       ]
+    },
+    "edge-lists": {
+      "reference_files": [
+        "crates/panproto-reference/src/pages/edge_lists.rs",
+        "crates/panproto-reference/src/enumerate/edge_lists.rs"
+      ],
+      "laws": [
+        {
+          "id": "edge-lists.reading",
+          "anchor": "L-edge-lists-1",
+          "references": [
+            "panproto_reference::pages::edge_lists::read_document"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_edge_lists",
+              "test": "edge_list_documents_read_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_edge_lists",
+              "test": "randomized_edge_list_documents_read_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::edge_lists",
+              "test": "edge_lists_read_records_as_directed_edges_and_keep_parallel_edges_and_loops"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::edge_lists",
+              "test": "edge_list_refusals_follow_the_order_the_page_states"
+            }
+          ]
+        },
+        {
+          "id": "edge-lists.graph-encoding",
+          "anchor": "L-edge-lists-2",
+          "references": [
+            "panproto_reference::pages::edge_lists::encode"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_edge_lists",
+              "test": "the_edge_list_encoding_matches_the_reference_on_every_bounded_list"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::edge_lists",
+              "test": "the_encoding_numbers_nodes_by_record_and_keeps_every_record"
+            }
+          ]
+        },
+        {
+          "id": "edge-lists.canonical-writing",
+          "anchor": "L-edge-lists-3",
+          "references": [
+            "panproto_reference::pages::edge_lists::canonical_text",
+            "panproto_reference::pages::edge_lists::write_graph"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_edge_lists",
+              "test": "canonical_edge_lists_match_the_reference_on_every_bounded_graph"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::edge_lists",
+              "test": "canonical_edge_lists_quote_and_refuse_as_the_page_states"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::edge_lists",
+              "test": "the_writer_refuses_what_no_edge_list_reads_back_as"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::edge_lists",
+              "test": "the_edge_list_scopes_have_their_closed_form_counts"
+            }
+          ]
+        }
+      ]
+    },
+    "migration-search": {
+      "laws": [
+        {
+          "anchor": "L-migration-search-1",
+          "consumers": [
+            {
+              "binary": "panproto-mig::reference_migration_search",
+              "crate": "panproto-mig",
+              "role": "differential",
+              "test": "total_search_returns_exactly_the_reference_optima_on_every_bounded_pair"
+            },
+            {
+              "binary": "panproto-mig::reference_migration_search",
+              "crate": "panproto-mig",
+              "role": "differential",
+              "test": "randomized_total_searches_return_the_reference_optima"
+            },
+            {
+              "binary": "panproto-reference::migration_search",
+              "crate": "panproto-reference",
+              "role": "reference",
+              "test": "requests_restrict_the_morphisms_ranged_over"
+            }
+          ],
+          "id": "migration-search.total-optima",
+          "references": [
+            "panproto_reference::pages::migration_search::optimal_total",
+            "panproto_reference::pages::migration_search::check_total",
+            "panproto_reference::pages::migration_search::cost"
+          ]
+        },
+        {
+          "anchor": "L-migration-search-2",
+          "consumers": [
+            {
+              "binary": "panproto-mig::reference_migration_search",
+              "crate": "panproto-mig",
+              "role": "differential",
+              "test": "span_search_returns_a_reference_optimum_on_every_bounded_pair"
+            },
+            {
+              "binary": "panproto-mig::reference_migration_search",
+              "crate": "panproto-mig",
+              "role": "differential",
+              "test": "randomized_span_searches_return_a_reference_optimum"
+            },
+            {
+              "binary": "panproto-reference::migration_search",
+              "crate": "panproto-reference",
+              "role": "reference",
+              "test": "a_missing_kind_leaves_no_total_morphism_and_a_span_that_drops"
+            }
+          ],
+          "id": "migration-search.span-optimum",
+          "references": [
+            "panproto_reference::pages::migration_search::optimal_span",
+            "panproto_reference::pages::migration_search::check_span",
+            "panproto_reference::pages::migration_search::paired_edge_images"
+          ]
+        },
+        {
+          "anchor": "L-migration-search-3",
+          "consumers": [
+            {
+              "binary": "panproto-mig::reference_migration_search",
+              "crate": "panproto-mig",
+              "role": "differential",
+              "test": "search_answers_are_the_same_in_every_process_and_insertion_order"
+            },
+            {
+              "binary": "panproto-mig::reference_migration_search",
+              "crate": "panproto-mig",
+              "role": "differential",
+              "test": "randomized_insertion_orders_give_the_same_answers"
+            },
+            {
+              "binary": "panproto-reference::migration_search",
+              "crate": "panproto-reference",
+              "role": "reference",
+              "test": "the_digest_is_fnv_1a"
+            }
+          ],
+          "id": "migration-search.determinism",
+          "references": [
+            "panproto_reference::pages::migration_search::digest"
+          ]
+        },
+        {
+          "anchor": "L-migration-search-4",
+          "consumers": [
+            {
+              "binary": "panproto-mig::reference_migration_search",
+              "crate": "panproto-mig",
+              "role": "differential",
+              "test": "a_bounded_search_answers_or_names_its_bound_on_every_bounded_pair"
+            },
+            {
+              "binary": "panproto-mig::reference_migration_search",
+              "crate": "panproto-mig",
+              "role": "differential",
+              "test": "randomized_bounded_searches_answer_or_name_their_bound"
+            },
+            {
+              "binary": "panproto-reference::migration_search",
+              "crate": "panproto-reference",
+              "role": "reference",
+              "test": "the_checker_finds_each_defect"
+            }
+          ],
+          "id": "migration-search.bounded-refusal",
+          "references": [
+            "panproto_reference::pages::migration_search::optimal_total",
+            "panproto_reference::pages::migration_search::check_total",
+            "panproto_reference::pages::migration_search::check_span"
+          ]
+        }
+      ],
+      "reference_files": [
+        "crates/panproto-reference/src/pages/migration_search.rs",
+        "crates/panproto-reference/src/enumerate/migration_search.rs"
+      ]
     }
   }
 }

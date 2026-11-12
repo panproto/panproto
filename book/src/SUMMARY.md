@@ -114,6 +114,8 @@
   - [PostgreSQL DDL](./correctness/postgresql-ddl.md)
   - [PostgreSQL data](./correctness/postgresql-data.md)
   - [RDF formats](./correctness/rdf-formats.md)
+  - [Edge lists](./correctness/edge-lists.md)
+  - [Migration search](./correctness/migration-search.md)
 
 ---
 

@@ -37,7 +37,16 @@ fn edge_lists_read_records_as_directed_edges_and_keep_parallel_edges_and_loops()
 fn edge_list_refusals_follow_the_order_the_page_states() {
     let csv = |text: &str| read_document(text, Dialect::Csv);
     assert_eq!(csv(""), Err(ReadRefusal::NoHeader));
-    assert_eq!(csv("\nsource,target\n"), Err(ReadRefusal::Table));
+    assert_eq!(
+        csv("\nsource,target\n"),
+        Err(ReadRefusal::UnsupportedColumn(0, String::new()))
+    );
+    assert_eq!(csv("source,target\nx\"a,b\"y,c\n"), Err(ReadRefusal::Table));
+    assert_eq!(
+        csv("source,target\n1\"2\"3,b\n"),
+        Ok(vec![edge("1\"2\"3", "b", None)])
+    );
+    assert_eq!(csv("source,target\na,"), Err(ReadRefusal::Table));
     assert_eq!(csv("source,target\n\"a\"b,c\n"), Err(ReadRefusal::Table));
     assert_eq!(csv("source,target\na\rb,c\n"), Err(ReadRefusal::Table));
     assert_eq!(
@@ -147,7 +156,7 @@ fn the_writer_refuses_what_no_edge_list_reads_back_as() {
         write_graph(&parallel, Dialect::Csv),
         Err((3, WriteRefusal::MixedLabels(0)))
     );
-    let mut dropped = graph.clone();
+    let mut dropped = graph;
     dropped.edges.remove(1);
     assert_eq!(
         write_graph(&dropped, Dialect::Csv),
@@ -162,7 +171,7 @@ fn the_writer_refuses_what_no_edge_list_reads_back_as() {
 
 #[test]
 fn the_edge_list_scopes_have_their_closed_form_counts() {
-    for (dialect, count) in [(Dialect::Csv, 25_321), (Dialect::Tsv, 21_547)] {
+    for (dialect, count) in [(Dialect::Csv, 32_761), (Dialect::Tsv, 21_547)] {
         assert_eq!(documents_count(dialect), count);
         assert_eq!(documents(dialect).len(), count);
     }

@@ -22,7 +22,7 @@ Payloads are CBOR (`ciborium`) except where the file name says `.json`.
 
 | Fixture | Entry point | Bytes | Captured from |
 | --- | --- | --- | --- |
-| `builtin-protocols.cbor` | `Raw.registryListBuiltin()` | 442 | the whole built-in catalogue |
+| `builtin-protocols.cbor` | `Raw.registryListBuiltin()` | 468 | the whole built-in catalogue |
 | `protocol-amr.cbor` | `Raw.registryGetBuiltin(name:)` | 5553 | name `amr` |
 | `protocol-ansible.cbor` | `Raw.registryGetBuiltin(name:)` | 1431 | name `ansible` |
 | `protocol-arrow.cbor` | `Raw.registryGetBuiltin(name:)` | 1980 | name `arrow` |
@@ -45,6 +45,8 @@ Payloads are CBOR (`ciborium`) except where the file name says `.json`.
 | `protocol-docx.cbor` | `Raw.registryGetBuiltin(name:)` | 1907 | name `docx` |
 | `protocol-dynamodb.cbor` | `Raw.registryGetBuiltin(name:)` | 1287 | name `dynamodb` |
 | `protocol-edi-x12.cbor` | `Raw.registryGetBuiltin(name:)` | 1372 | name `edi-x12` |
+| `protocol-edgelist-csv.cbor` | `Raw.registryGetBuiltin(name:)` | 1339 | name `edgelist-csv` |
+| `protocol-edgelist-tsv.cbor` | `Raw.registryGetBuiltin(name:)` | 1339 | name `edgelist-tsv` |
 | `protocol-elan.cbor` | `Raw.registryGetBuiltin(name:)` | 2486 | name `elan` |
 | `protocol-fhir.cbor` | `Raw.registryGetBuiltin(name:)` | 1568 | name `fhir` |
 | `protocol-flatbuffers.cbor` | `Raw.registryGetBuiltin(name:)` | 1480 | name `flatbuffers` |

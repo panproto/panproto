@@ -518,12 +518,13 @@ tabular_functor_roundtrip!(
 fn all_protocols_have_roundtrip_tests() {
     // This test ensures we haven't missed any protocol.
     // The count of tests in this file must match the registry.
-    // The generic text-format protocols (yaml, toml, csv, tsv) are added
-    // only under the tree-sitter feature; their round-trip tests below
-    // are gated the same way.
+    // The generic text-format protocols (yaml, toml, csv, tsv), the
+    // PostgreSQL table codec and the RDF and edge-list graph codecs are
+    // added only under the tree-sitter feature; their round-trip tests
+    // below are gated the same way.
     let reg = registry();
     let expected = if cfg!(feature = "tree-sitter") {
-        54
+        59
     } else {
         50
     };
@@ -635,6 +636,89 @@ fn roundtrip_tsv() {
         reparsed.row_count("table"),
         "tsv: row count mismatch after round-trip"
     );
+}
+
+// ── Graph and SQL protocols (tree-sitter only) ─────────────────────────
+
+/// Read `input` as a graph under `schema`, write it, and read the output
+/// back as the same graph.
+#[cfg(feature = "tree-sitter")]
+fn graph_roundtrip(protocol: &str, schema: &panproto_schema::Schema, input: &[u8]) {
+    let reg = registry();
+    let graph = reg
+        .parse_graph(protocol, schema, input)
+        .unwrap_or_else(|e| panic!("parse {protocol}: {e}"));
+    assert!(graph.node_count() > 0, "{protocol}: empty graph");
+    let emitted = reg
+        .emit_graph(protocol, schema, &graph)
+        .unwrap_or_else(|e| panic!("emit {protocol}: {e}"));
+    let reparsed = reg
+        .parse_graph(protocol, schema, &emitted)
+        .unwrap_or_else(|e| panic!("re-parse {protocol}: {e}"));
+    assert_eq!(
+        reg.emit_graph(protocol, schema, &reparsed).unwrap(),
+        emitted,
+        "{protocol}: canonical text changed after round-trip"
+    );
+}
+
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn roundtrip_ntriples() {
+    graph_roundtrip(
+        "ntriples",
+        &panproto_protocols::rdf::ntriples::graph_schema().unwrap(),
+        b"<http://e/s> <http://e/p> \"x\"@en .\n_:b <http://e/p> <http://e/s> .\n",
+    );
+}
+
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn roundtrip_turtle() {
+    graph_roundtrip(
+        "turtle",
+        &panproto_protocols::rdf::turtle::graph_schema().unwrap(),
+        b"@prefix : <http://e/> .\n:s :p 1, ( :a ) ; a :C .\n",
+    );
+}
+
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn roundtrip_edgelist_csv() {
+    graph_roundtrip(
+        "edgelist-csv",
+        &panproto_protocols::edgelist::csv::graph_schema().unwrap(),
+        b"Source,Target,Label\na,b,x\na,b,x\nb,b,\"y,z\"\n",
+    );
+}
+
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn roundtrip_edgelist_tsv() {
+    graph_roundtrip(
+        "edgelist-tsv",
+        &panproto_protocols::edgelist::tsv::graph_schema().unwrap(),
+        b"target\tsource\nb\ta\na\ta\n",
+    );
+}
+
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn roundtrip_postgresql() {
+    let reg = registry();
+    let dump = panproto_io::postgresql::read_dump(
+        "CREATE TABLE t (a integer PRIMARY KEY, b text);\nINSERT INTO t VALUES (1, 'x'), (2, NULL);\n",
+        panproto_protocols::database::postgresql::OtherStatements::List,
+    )
+    .expect("read postgresql dump");
+    let bytes = reg
+        .emit_table("postgresql", &dump.schema, &dump.instance)
+        .expect("emit postgresql");
+    let back = reg
+        .parse_table("postgresql", &dump.schema, &bytes)
+        .expect("re-parse postgresql");
+    assert_eq!(back, dump.instance);
+    assert_eq!(back.row_count("t"), 2);
 }
 
 #[test]

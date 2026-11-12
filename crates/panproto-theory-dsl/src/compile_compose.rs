@@ -1165,7 +1165,9 @@ mod tests {
             let result = compile_document(&document(&format!(
                 r#"{{"bundle": "b", "protocols": [{protocols}]}}"#
             )));
-            let Err(TheoryDslError::TheoryNotFound { name, context }) = result else {
+            let Err(TheoryDslError::TheoryNotFound { name, context }) =
+                result.as_ref().map_err(TheoryDslError::unlocated)
+            else {
                 panic!("{what}: expected TheoryNotFound, got {result:?}");
             };
             assert_eq!(name, "GraphHyper", "{what}");
@@ -1182,7 +1184,9 @@ mod tests {
     #[test]
     fn document_compile_refuses_two_different_compositions_of_one_name() {
         let duplicate = |result: Result<CompiledTheorySet, TheoryDslError>, what: &str| {
-            let Err(TheoryDslError::Duplicate { kind, name }) = result else {
+            let Err(TheoryDslError::Duplicate { kind, name }) =
+                result.as_ref().map_err(TheoryDslError::unlocated)
+            else {
                 panic!("{what}: expected Duplicate, got {result:?}");
             };
             assert_eq!(kind, "theory (from composition)", "{what}");
