@@ -1,6 +1,6 @@
 # PostgreSQL data
 
-A schema read from DDL is only half of a database; the rows are the other half. This page states how the PostgreSQL route reads the rows of a data script, what each column type's values become, what it refuses, how foreign keys are resolved to the rows they name, and the laws its reader satisfies. The DDL the rows are read against is the subject of the [PostgreSQL DDL](postgresql-ddl.md) page.
+A schema read from DDL is only half of a database; the rows are the other half. This page states how the PostgreSQL route reads the rows of a data script or a table directory, what each column type's values become, what it refuses, how foreign keys are resolved to the rows they name, and the laws its reader satisfies. The DDL the rows are read against is the subject of the [PostgreSQL DDL](postgresql-ddl.md) page.
 
 The route reads PostgreSQL 17 data scripts, as the PostgreSQL 17 documentation defines them (the reader and its corpus follow release 17.12): the `INSERT ... VALUES` statements that `pg_dump --inserts` and `pg_dump --column-inserts` write, and those a person writes by hand, after or without the DDL. A data script's syntax is read as a table: the rows are an [`FInstance`](https://docs.rs/panproto-inst/latest/panproto_inst/struct.FInstance.html) of the schema's tables. Its interpreted data is a graph: the `postgresql` protocol declares a table syntactic shape and a graph semantic shape, the graph being the table's graph form with one `foreign-key` edge from each row to the row its foreign key names. The reader is [`read_dump`](https://docs.rs/panproto-io/latest/panproto_io/postgresql/fn.read_dump.html) in `panproto-io` (feature `tree-sitter`), with [`read_data`](https://docs.rs/panproto-io/latest/panproto_io/postgresql/fn.read_data.html) for a data-only script read against a schema given separately. The registry's table codec for the protocol reads either kind of script and writes the canonical one, and its resolution route resolves the foreign keys.
 
@@ -57,7 +57,7 @@ The reader does not compute `jsonb`'s normal form (keys sorted, the last of dupl
 
 ### Declared limit: `COPY ... FROM stdin`
 
-`pg_dump` without `--inserts` writes each table's rows as a `COPY table (columns) FROM stdin;` statement followed by tab-separated data lines and a line `\.`. The grammar has no token for those lines: it parses the statement and then fails inside the data, so the script is refused with `Syntax` at the first data line (the test `copy_from_stdin_data_is_refused_inside_the_data` pins it). Reading them needs a grammar change in [gmr/tree-sitter-postgres](https://github.com/gmr/tree-sitter-postgres): a new external scanner token `COPY_DATA`, scanned after `DOLLAR_QUOTED_STRING` in `postgres/src/scanner.c`, that takes every byte after the newline ending a `COPY ... FROM STDIN` statement up to and including the line `\.`; `$.copy_data` in the grammar's `externals`; and an optional `$.copy_data` after a `CopyStmt` whose source is `STDIN`, made in upstream's `script/codegen.js`, which generates `grammar.js` from `gram.y`. Regenerating the parser after that change needs `tree-sitter generate` on the whole PostgreSQL grammar, which upstream reports needs more than 12.5 GB of memory; the vendored parser has not been regenerated. Until it is, convert such a dump with `pg_dump --inserts`, or load the rows as a table directory.
+`pg_dump` without `--inserts` writes each table's rows as a `COPY table (columns) FROM stdin;` statement followed by tab-separated data lines and a line `\.`. The grammar has no token for those lines: it parses the statement and then fails inside the data, so the script is refused with `Syntax` at the first data line (the test `copy_from_stdin_data_is_refused_inside_the_data` pins it). Reading them needs a grammar change in [gmr/tree-sitter-postgres](https://github.com/gmr/tree-sitter-postgres): a new external scanner token `COPY_DATA`, scanned after `DOLLAR_QUOTED_STRING` in `postgres/src/scanner.c`, that takes every byte after the newline ending a `COPY ... FROM STDIN` statement up to and including the line `\.`; `$.copy_data` in the grammar's `externals`; and an optional `$.copy_data` after a `CopyStmt` whose source is `STDIN`, made in upstream's `script/codegen.js`, which generates `grammar.js` from `gram.y`. Regenerating the parser after that change needs `tree-sitter generate` on the whole PostgreSQL grammar, which upstream reports needs more than 12.5 GB of memory; the vendored parser has not been regenerated. Until it is, write such a dump with `pg_dump --inserts`, or write each table with `COPY ... TO` into a table directory.
 
 ## Keys and foreign keys
 
@@ -66,6 +66,21 @@ The reader checks no key: primary-key, unique and `NOT NULL` violations are repo
 ## Canonical output
 
 [`write_data`](https://docs.rs/panproto-io/latest/panproto_io/postgresql/fn.write_data.html) writes an instance's rows as one `INSERT` statement per table holding rows, tables in name order, every column listed in position order and the rows in id order: `NULL`, `TRUE` and `FALSE`, an integer or a finite `numeric` unquoted, and every other value as a standard string constant holding its output text (a float by its shortest text, `bytea` in the hex format, a temporal as written, an array in `array_out`'s form). Each written value is read back before it is written, and a value that would not read back as itself is refused, as are a table or column the schema does not declare, a row without a cell for a column, foreign-key pairs held in the instance (a script states foreign keys only through column values) and a labelled null. [`write_dump`](https://docs.rs/panproto-io/latest/panproto_io/postgresql/fn.write_dump.html) writes the schema's types and tables, then the rows, then the foreign keys, so the script loads into PostgreSQL whatever order its tables reference each other in. The route claims no format preservation: reading the canonical script gives the same schema and the same instance, its rows numbered as the reader numbers them.
+
+## Table directories
+
+A table directory holds a schema and its rows as files: a schema file of PostgreSQL DDL and one file of rows per table. Its manifest, `manifest.json`, is required, and nothing about the directory is inferred from file names: it declares the format `panproto-table-directory`, its version (1), the protocol `postgresql`, the schema file, the dialect of the table files, and the file of each table. [`read_table_directory`](https://docs.rs/panproto-io/latest/panproto_io/postgresql/fn.read_table_directory.html) reads a directory, given as a map from file names to bytes, into the schema and an `FInstance`; [`write_table_directory`](https://docs.rs/panproto-io/latest/panproto_io/postgresql/fn.write_table_directory.html) writes one, and `load_table_directory` and `store_table_directory` move it to and from disk. The table files are read through the shared CSV and TSV readers of `panproto-io`, and each field is read as the text of an `INSERT` string constant is, by the type table above. The directory's syntax is read as a table, the files' rows, and its foreign keys resolve as a script's do.
+
+The two dialects are those of PostgreSQL 17's `COPY` with `HEADER`, and each file starts with a header line that names every column of its table once, in any order.
+
+| Dialect | Fields and records | `NULL` | Refused |
+|---|---|---|---|
+| `csv`: `COPY ... (FORMAT csv)` | Separated by `,`; a field in `"` quotes with `""` for a quote and line breaks inside; records ended by `\n` or `\r\n` | The unquoted empty field; `""` is the empty string | A bare `\r`, a quote inside an unquoted field, bytes after a closing quote, an unquoted `\.` alone on a line (PostgreSQL's end-of-data marker) |
+| `text`: `COPY ... (FORMAT text)` | Separated by a tab; lines ended by `\n` or `\r\n`; `\b`, `\f`, `\n`, `\r`, `\t`, `\v`, `\\`, one to three octal digits, `\x` and one or two hex digits, a backslash before any other character for that character | `\N` | A carriage return inside a line, a backslash ending a field, an escape decoding to NUL, a line `\.` |
+
+The `csv` dialect is RFC 4180 with `NULL` added: RFC 4180 has no `NULL`, so a file written to it reads its unquoted empty fields as `NULL`, and one with a header but quoted empty fields reads them as empty strings. The `text` dialect is not IANA's `text/tab-separated-values`, whose fields can hold no tab or line break and have no `NULL`. A manifest of another format, version or protocol, a file it names that is missing or is no plain file name, a table listed twice or not declared by the schema, a schema file that holds rows, a header that does not name every column once, a line with another number of fields, and a field its column's type does not read are refused with a typed [`TableDirectoryError`](https://docs.rs/panproto-io/latest/panproto_io/postgresql/enum.TableDirectoryError.html) naming the file and, for a line or field, its byte offset. Rows are numbered as a script's are, by table name and then in file order.
+
+The writer writes `manifest.json` (pretty-printed, its fields in the order above), `schema.sql` in the canonical DDL of `emit_ddl`, and one file per table of the schema, tables in name order, each named from its table with every byte outside `a` to `z`, `0` to `9`, `_` and `-` written as `%` and two uppercase hex digits (so distinct tables have distinct names on a case-insensitive file system), with the extension `.csv` or `.tsv`. Each file has a header of the table's columns in position order and the rows in id order, each field written as `COPY` writes it (see [L-postgresql-data-4](#L-postgresql-data-4)). The output is a function of the schema and the instance, and reading it gives the schema and the instance again; the fixed tests check both on the Sakila subset, on disk, in both dialects.
 
 ## Conformance corpora
 
@@ -171,3 +186,36 @@ $C$ is the canonical output defined above, restricted to the model: for `a` and 
 - Reference test: `the_scopes_have_their_closed_form_counts; command: cargo nextest run -p panproto-reference --test postgresql_data --no-tests=fail -E 'test(=the_scopes_have_their_closed_form_counts)'`
 - File: `crates/panproto-io/src/postgresql/data.rs`
 - File: `crates/panproto-reference/src/pages/postgresql_data.rs`
+
+## Table directory fields are written as COPY writes them {#L-postgresql-data-4}
+
+### Statement
+
+For a field $f$ of the bounded scope (`NULL` or a text), write $F_{csv}(f)$ for `csv_field(f)` and $F_{text}(f)$ for `text_field(f)`. Writing a table `t (b text)` with one row whose cell is $f$ as a table directory of dialect $d$ gives the file `b`, a line break, $F_d(f)$ and a line break, and reading that directory gives the same instance.
+
+### Outside the domain
+
+Fields of other types are their output texts written by the same rule, and they read back by [L-postgresql-data-1](#L-postgresql-data-1) and the check every written value passes; the fixed tests check whole directories, headers, the manifest and the refusals.
+
+### Definitions used
+
+$F_{csv}$ writes `NULL` as the empty field and a text as itself, or in `"` quotes with each quote doubled when it is empty, is `\.`, or holds `,`, `"`, `\n` or `\r` (PostgreSQL 17, `COPY`, CSV Format). $F_{text}$ writes `NULL` as `\N` and a text with `\\`, `\t`, `\n` and `\r` for a backslash, tab, line feed and carriage return (PostgreSQL 17, `COPY`, Text Format).
+
+### Proof
+
+1. The writer applies the same rules: the CSV writer quotes on the same four conditions and doubles quotes; the text writer escapes the same four characters; `NULL` is written as the empty field and `\N`. So the file is the header, $F_d(f)$ and the line breaks.
+2. Reading: under `csv`, the shared CSV reader reads a quoted field to its bytes with doubled quotes undone and records whether it was quoted, so an empty quoted field is the empty string and the unquoted empty field `NULL`; a field that holds a line break is quoted, so the record ends where it was written, and `\.` is quoted, so it is no end-of-data marker. Under `text`, a field holds no tab or line feed after escaping, so the line splits where it was written, `\N` is `NULL`, and each escape decodes to its character, while `\\N` decodes to the text `\N`. In both, the text is read as `text` reads it, unchanged.
+3. The differential checks the file and the reread instance in both dialects on all 1,112 fields: `NULL`, and every text of at most three characters over a letter, `,`, `"`, `\n`, `\r`, `\`, a tab, `.`, a space and `N`.
+
+### Executable counterpart
+
+- Law ID: `postgresql-data.directory-fields`
+- Reference: `panproto_reference::pages::postgresql_data::csv_field`
+- Reference: `panproto_reference::pages::postgresql_data::text_field`
+- Enumerator: `panproto_reference::enumerate::postgresql_data::fields; bound: fields=1112`
+- Exhaustive differential test: `directory_fields_match_the_reference_on_every_bounded_field; command: cargo nextest run -p panproto-io --features tree-sitter --test reference_postgresql_data --no-tests=fail -E 'test(=directory_fields_match_the_reference_on_every_bounded_field)'`
+- Reference test: `directory_fields_are_written_as_copy_writes_them; command: cargo nextest run -p panproto-reference --test postgresql_data --no-tests=fail -E 'test(=directory_fields_are_written_as_copy_writes_them)'`
+- File: `crates/panproto-io/src/postgresql/directory.rs`
+- File: `crates/panproto-io/src/tabular_pathway.rs`
+- File: `crates/panproto-reference/src/pages/postgresql_data.rs`
+- File: `crates/panproto-reference/src/enumerate/postgresql_data.rs`
