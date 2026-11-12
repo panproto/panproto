@@ -239,6 +239,7 @@ fn a_protocol_without_schema_documents_is_refused_by_both_dispatches() {
             "csv",
             "edgelist-csv",
             "edgelist-tsv",
+            "jsonld",
             "ntriples",
             "toml",
             "tsv",

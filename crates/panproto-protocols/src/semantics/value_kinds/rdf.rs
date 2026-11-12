@@ -21,12 +21,22 @@ pub(super) const ROWS: &[ValueKindRow] = &[
         kind: ScalarKind::Str,
     },
     ValueKindRow {
+        protocol: "jsonld",
+        vertex_kind: "iri",
+        kind: ScalarKind::Str,
+    },
+    ValueKindRow {
         protocol: "ntriples",
         vertex_kind: "blank",
         kind: ScalarKind::Str,
     },
     ValueKindRow {
         protocol: "turtle",
+        vertex_kind: "blank",
+        kind: ScalarKind::Str,
+    },
+    ValueKindRow {
+        protocol: "jsonld",
         vertex_kind: "blank",
         kind: ScalarKind::Str,
     },
@@ -37,6 +47,11 @@ pub(super) const ROWS: &[ValueKindRow] = &[
     },
     ValueKindRow {
         protocol: "turtle",
+        vertex_kind: "literal",
+        kind: ScalarKind::Str,
+    },
+    ValueKindRow {
+        protocol: "jsonld",
         vertex_kind: "literal",
         kind: ScalarKind::Str,
     },
@@ -47,6 +62,11 @@ pub(super) const ROWS: &[ValueKindRow] = &[
     },
     ValueKindRow {
         protocol: "turtle",
+        vertex_kind: "language",
+        kind: ScalarKind::Str,
+    },
+    ValueKindRow {
+        protocol: "jsonld",
         vertex_kind: "language",
         kind: ScalarKind::Str,
     },
@@ -80,6 +100,10 @@ pub(super) const NON_SCALAR: &[NonScalarRow] = &[
     },
     NonScalarRow {
         protocol: "turtle",
+        vertex_kind: "triple",
+    },
+    NonScalarRow {
+        protocol: "jsonld",
         vertex_kind: "triple",
     },
 ];

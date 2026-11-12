@@ -243,7 +243,8 @@ mod tests {
 
         // The generic text-format codecs are format-preserving, the
         // PostgreSQL codec reads through the PostgreSQL grammar and the
-        // N-Triples and Turtle codecs through the Turtle grammar, so they are
+        // N-Triples and Turtle codecs through the Turtle grammar and the JSON-LD
+        // codec through the JSON grammar, so they are
         // only registered under the tree-sitter feature.
         #[cfg(feature = "tree-sitter")]
         let extra: &[&str] = &[
@@ -254,6 +255,7 @@ mod tests {
             "postgresql",
             "ntriples",
             "turtle",
+            "jsonld",
             "edgelist-csv",
             "edgelist-tsv",
         ];

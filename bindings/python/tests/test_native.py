@@ -66,11 +66,12 @@ class TestProtocolRegistry:
 
     def test_list_builtin_protocols_includes_semantic(self) -> None:
         names = panproto.list_builtin_protocols()
-        assert len(names) >= 62
+        assert len(names) >= 63
         assert {
             "csv",
             "edgelist-csv",
             "edgelist-tsv",
+            "jsonld",
             "ntriples",
             "toml",
             "tsv",

@@ -23,6 +23,8 @@
 
 use panproto_schema::{EdgeRule, Protocol, Schema, SchemaBuilder, SchemaError};
 
+/// The JSON-LD protocol.
+pub mod jsonld;
 /// The N-Triples protocol.
 pub mod ntriples;
 /// The Turtle protocol.
