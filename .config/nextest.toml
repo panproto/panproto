@@ -45,6 +45,11 @@
 #     which puts every edit of the segmented view of every 97th case of the
 #     segmented restriction carrier back segment by segment (114 s
 #     unoptimised), sharded four ways; its every-eighth-case slice stays in
+#     this profile. Beside it runs
+#     `segmented_graph_put_run_matches_the_reference_runner_at_every_cancellation_point`,
+#     which puts the same views back as checkpointed runs from every
+#     cancellation point against the reference runner (296 s per shard
+#     unoptimised), sharded four ways; its every-64th-case slice stays in
 #     this profile. They run in the
 #     `exhaustive-reference` job of the `corpus-gate` workflow, nightly and on
 #     demand; dispatch it before tagging a release. That job splits
