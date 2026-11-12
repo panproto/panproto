@@ -913,3 +913,128 @@ The converse of the composition claim does not hold. A composite may apply where
 - File: `crates/panproto-inst/src/graph_edit/compose.rs`
 - File: `crates/panproto-inst/tests/reference_edits.rs`
 - File: `crates/panproto-reference/src/enumerate/segments.rs`
+
+## A segmented table edit assembles to whole-state application and reads only the owners of the rows it names {#L-segments-23}
+
+### Statement
+
+Let $P$ be a table partition and $S$ a family of table segments that `verify_partition` accepts under $P$ and that glues to a table $T = \operatorname{glue}_P(S)$ (`assemble_table`), so that every pair of $T$ joins its edge's endpoint tables. Let $\delta$ be a table delta and write $\operatorname{apply}$ for whole-state application, `TableDelta::apply` ([L-edits-5](edits.md#L-edits-5)). Write $R(\delta)$ for the *read set*: the owners under $P$ of the rows $\delta$ names (`TableDelta::touched_rows`, the rows it deletes, adds or changes and the endpoints of the pairs it deletes or adds). Then `apply_segmented` of $\delta$ over $S$ and $P$ reads the segments of $R(\delta)$ and no other, and:
+
+1. when $\operatorname{apply}(\delta, T)$ succeeds and every row it adds is owned, the output is $\operatorname{split}_P(\operatorname{apply}(\delta, T))$ (`partition_table`), so that $\operatorname{glue}_P$ of the output is $\operatorname{apply}(\delta, T)$, and every segment outside $R(\delta)$ is returned unchanged;
+2. when $\operatorname{apply}(\delta, T)$ refuses, the output is that refusal;
+3. otherwise the output is `Unowned` for the least added row no range covers, the refusal that splitting the edited table returns.
+
+A row added under an identifier from `FreshIds::node` of the segment that will own it is never refused as unowned.
+
+### Outside the domain
+
+A family that `verify_partition` refuses is refused with its error before any delta check. A family whose pairs do not join their edge's tables does not glue, and is outside the domain: the facts of such a family need not reproduce the whole-state refusal. A table has no edge identifiers, so `FreshIds::edge` refuses with `NoAllocationRange` and no floor rule applies.
+
+### Definitions used
+
+The *incident* rows of a segment are the rows it owns that $\delta$ deletes or moves to another table. The *facts* of a read segment (`SegmentDelta::facts`) are the rows it owns that $\delta$ names, with their tables and cells; the pairs it holds that $\delta$ deletes or adds, and those with an incident endpoint; the in-stubs entering an incident row, as their pairs; and the table, as the segment holds it (its own row, a ghost's anchor or an in-stub's source anchor), of every endpoint of those pairs and in-stubs that is not a reported row. The *facts table* $F$ glues the facts of every read segment, giving an endpoint reported only by its table a row without cells in that table.
+
+### Proof
+
+1. A table change needs no boundary peer. Let $\delta$ move a row $r$ from table $t$ to $t' \ne t$ and keep a pair $p$ of edge $e$ at $r$, say with source $r$. Since $T$ is well formed, $e$ leaves $t$; check 6 of `TableDelta::check` asks $p$ to join $e$'s tables after $\delta$, so that $e$ leaves $t'$; both cannot hold. The same holds at the target end. Hence when $\delta$ applies, no kept pair meets a row whose table changes, and every ghost or in-stub copying such a row's table belongs to a pair $\delta$ deletes or adds.
+2. Segments outside the read set do not change. A segment holds its own rows and the pairs whose source it owns, and a boundary of ghosts and in-stubs, each a copy of one crossing pair and the table of its remote endpoint. Every row $\delta$ names is owned in $R(\delta)$, and every pair it deletes or adds is held by the owner of its source and recorded as an in-stub by the owner of its target, both in $R(\delta)$. A cell change touches only the row's owner, and by step 1 a table change of an applied delta alters no boundary record outside the owners of the endpoints of pairs it deletes or adds. The record of a segment is a function of its content ([L-segments-4](#L-segments-4)), so every record outside $R(\delta)$ is unchanged.
+3. The facts decide checks 1 to 6. Checks 1 and 3 read the current table and cells of each row $\delta$ deletes or changes, which its owner reports in full. Check 2 and the pair half of check 5 read whether each pair $\delta$ deletes or adds exists, which the owner of its source reports. Check 4 reads the pairs at each deleted row, which its owner holds as its own pairs or records as in-stubs, all reported; `incident_pairs` lists them in ascending order, and $F$ holds no other pair at that row, since every pair of $F$ is a pair of $T$. The row half of check 5 reads whether each added row exists, which its owner reports. Check 6 reads, for every added pair and every kept pair at a row whose table changes, the tables of its endpoints after $\delta$: an endpoint $\delta$ names is reported in full, and the remote endpoint of a reported pair is reported by its table, which the segment's ghost or in-stub copies from the owner. Every row of $F$ is a row of $T$ (a cell-less row standing only for an endpoint of a pair of $T$, whose cells no check reads), and every pair of $F$ is a pair of $T$. Thus $F$ and $T$ agree on everything the checks read, and the checks, run in their order on $F$, return the refusal they return on $T$.
+4. Layout. With every check passed, $\operatorname{apply}(\delta, T)$ exists. Every row of $T$ is owned, so the least row `partition_table` refuses as `Unowned` is the least unowned added row; the endpoints of every pair of the result exist, so no pair is refused. Sealing a table split checks no identifier floor.
+5. Rewriting. Each read segment applies $\delta$ to its own rows and pairs (a row belongs to it when the segment owns it, a pair when it owns the pair's source) and rebuilds its boundary from its pairs and in-stubs after $\delta$, taking each remote table after $\delta$ from $\delta$ itself (a table change or an added row), from the facts (which report every endpoint of an added pair) or, for a row $\delta$ leaves alone, from the segment's own copy. This is the segment `partition_table` writes for $\operatorname{apply}(\delta, T)$. Together with step 2, the output is $\operatorname{split}_P(\operatorname{apply}(\delta, T))$.
+6. Fresh identifiers. `FreshIds::node` draws from the owner's node allocation range above every row it holds there; the owner's ranges cover it, and no other segment owns it, so it is free and owned.
+7. The reference `apply_table_segmented` glues the family, applies the delta with the independent `edit::apply_table`, splits the result with `partition_table` and seals it, refusing at the first step that refuses; the reference `table_read_set` computes the read set from the delta and the partition. The finite certificate walks `segmented_table_apply_cases`: the 105 tables of the edit carrier (at most three rows in table `a`, each with or without the cell `f = 0`, and at most one pair under `a -e-> a`), the 19 partitions of the identifiers $0$ to $3$ of [L-segments-20](#L-segments-20) without allocation ranges, and the 43 atomic deltas over the rows $0$, $2$ and $3$ (each row deleted or added with two payloads, each of the nine pairs deleted or added, the cell `f` set or removed, and the table moved from `a` to `b` or back), $85{,}785$ cases. For each it compares the read set with the reference, every output segment's canonical bytes with the reference, the glued output with production whole-state application and that with the reference application, every unread segment with its input, and every refusal with the reference and with whole-state application. Of the cases, $19{,}375$ apply, $65{,}360$ are refused by the delta checks and $1{,}050$ by the layout. A property test compares the law on tables of up to six rows in tables `a` and `b` with pairs between any two of them, under the delta the reference differ gives toward a second table whose rows may change table or be unowned.
+
+### Executable counterpart
+
+- Law ID: `segments.segmented-table-apply`
+- Reference: `panproto_reference::segment::apply_table_segmented`
+- Reference: `panproto_reference::segment::table_read_set`
+- Enumerator: `panproto_reference::enumerate::segments::segmented_table_apply_cases; bound: tables=105, partitions=19, deltas=43, cases=85785`
+- Exhaustive differential test: `segmented_table_apply::segmented_table_apply_agrees_with_the_reference_on_every_case_of_the_carrier; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=segmented_table_apply::segmented_table_apply_agrees_with_the_reference_on_every_case_of_the_carrier)'`
+- Property differential test: `segmented_table_apply::segmented_table_apply_agrees_with_the_reference_on_generated_families; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=segmented_table_apply::segmented_table_apply_agrees_with_the_reference_on_generated_families)'`
+- Property scope: `tables of 1 to 6 rows in tables a and b (one cell value) with up to 8 pairs, owners in 1 to 3 segments for 6 identifiers and two more possibly unowned, deltas to a second table of up to 8 rows and 8 pairs; 256 cases`
+- Production certificate: `segmented_table_apply::fresh_row_ids_come_from_the_owners_range_and_are_never_refused; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=segmented_table_apply::fresh_row_ids_come_from_the_owners_range_and_are_never_refused)'`
+- File: `crates/panproto-inst/src/segment/apply.rs`
+- File: `crates/panproto-inst/src/segment/table_apply.rs`
+- File: `crates/panproto-inst/tests/reference_edits.rs`
+- File: `crates/panproto-reference/src/pages/segments.rs`
+- File: `crates/panproto-reference/src/enumerate/segments.rs`
+
+## A checkpointed segmented table edit reads only its read set and resumes to the uninterrupted run {#L-segments-24}
+
+### Statement
+
+Let $P$, $S$ and $\delta$ satisfy the hypotheses of [L-segments-23](#L-segments-23), let $M$ be a manifest sealing $S$ under $P$ with trusted digest $d$, and let $B$ be a budget. Write $k$ for the size of $R(\delta)$, $\operatorname{run}_c$ for `apply_run` of $\delta$ over $M$, $d$ and the canonical bytes of $S$, under $B$, stopped once $c$ tasks are done, and $\operatorname{ref}_c$ for the reference runner `segmented_table_apply_with_progress` on the same inputs. The production run is `run_segmented` of the phase operation `SegmentApply` over a table delta, whose shape (`PhaseOperation::shape`) is the table shape and whose affected set is $R(\delta)$: $4k + 2$ tasks. For every $c$ from $0$ to $4k + 2$ the three claims of [L-segments-21](#L-segments-21) hold with these runs in place of the graph runs, the run identity being $\operatorname{RunJournal::run\_digest}(\lambda, d, P, \texttt{table apply})$ with $\lambda$ the delta's digest, `TableDelta::digest`.
+
+An uninterrupted run reads each segment of $R(\delta)$ from its source once and no other segment. When it completes, the emitted segment of each read segment (`read_emitted_segment`) is the corresponding segment of $\operatorname{split}_P(\operatorname{apply}(\delta, T))$, its Emit artifact holds no complement section, and the output manifest, which verifies against its digest, is the seal of that split as a source with the input's schema and binding and no instance digest; the record of every segment outside $R(\delta)$ is its input record. When the delta is refused, the run fails at Assemble with the refusal of L-segments-23, after the $3k$ tasks of the first three phases, and its journal holds no Emit or Seal task: a refused edit seals nothing and leaves every segment as it was.
+
+### Outside the domain
+
+As for [L-segments-21](#L-segments-21): a manifest that fails verification against $d$, or one of another shape, is refused before any task; the affected segments and the working set decline the run before any task, the summary budget at Assemble after the refusal check, and no complement budget declines it; a store failure stops the run as incomplete and reports each staged artifact the journal does not name as an orphan.
+
+### Definitions used
+
+The artifacts are those of [L-segments-21](#L-segments-21), with Summarize writing a table segment's facts (`table_apply_facts_bytes`): its row records, then its pair records, then its in-stubs as pair records, then each reported endpoint's identifier and table name, each part counted and ascending. A table segment holds no edge identifier, so resealing merges no identifier run.
+
+### Proof
+
+1. The runner is shared with [L-segments-21](#L-segments-21): task order, accounting, identity, reuse and the reseal do not depend on the operation, and the runner refuses an input manifest whose shape is not the operation's. Steps 1, 3 and 5 of that proof hold as written, with the table read set of [L-segments-23](#L-segments-23) as the affected set; the identifier runs of step 3 are empty.
+2. Outputs. Summarize writes the facts of one read segment. Assemble glues every read segment's facts and runs the checks of steps 3 and 4 of the proof of L-segments-23, returning the refusal before it commits. Emit rewrites one read segment, reading every Summarize artifact for the tables after the delta, as in step 5 of that proof.
+3. Agreement with the reference. The reference defines the read set from the delta and the partition, each Summarize artifact from its own facts definition and canonical writers, the outcome from the glued table through L-segments-23's reference, each Emit artifact from its record and frame writers, and the manifest by sealing the whole edited family as a source and clearing the instance digest. The reference runner for graph and table edits is one runner over these definitions, as the production runner is.
+4. The finite certificate takes every 31st case of the carrier of L-segments-23, $2{,}768$ cases ($617$ complete and $2{,}151$ refused), and compares the production and reference reports uninterrupted, at each of the $20{,}080$ cancellation points and after resuming; for a complete run it compares the reads of a counting source with the read set, the emitted segments with the reference byte for byte, and the manifest's canonical bytes with the reference's; for a refused run it checks the journal for an Emit or Seal task. Witnesses cover a family of four segments in which a cell change and a table change of a row without pairs read its owner alone, a pair between two segments reads both, and a row added under a fresh identifier with a pair to another segment reads the two owners, each with $4k + 2$ tasks and every unread record kept; a table change at a row with pairs, refused from its owner alone; a row deletion that leaves pairs, refused at Assemble with nothing sealed; each budget, compared with the reference at every cancellation point; and a store whose commit fails at each task, after which the resumed run ends as the uninterrupted run.
+
+### Executable counterpart
+
+- Law ID: `segments.checkpointed-table-apply`
+- Reference: `panproto_reference::segment::segmented_table_apply_with_progress`
+- Reference: `panproto_reference::segment::table_apply_facts_bytes`
+- Enumerator: `panproto_reference::enumerate::segments::segmented_table_apply_cases; bound: every 31st case, cases=2768, cancellation points=20080`
+- Exhaustive differential test: `segmented_table_apply::segmented_table_apply_run_matches_the_reference_runner_at_every_cancellation_point; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=segmented_table_apply::segmented_table_apply_run_matches_the_reference_runner_at_every_cancellation_point)'`
+- Property differential test: `segmented_table_apply::segmented_table_apply_run_matches_the_reference_runner_on_generated_families; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=segmented_table_apply::segmented_table_apply_run_matches_the_reference_runner_on_generated_families)'`
+- Property scope: `tables of 1 to 5 rows in tables a and b with up to 6 pairs, owners in 1 to 3 segments and one more identifier possibly unowned, deltas to a second table of up to 6 rows and 6 pairs; every cancellation point; 32 cases`
+- Production certificate: `segmented_table_apply::a_segmented_table_apply_reads_only_the_owners_of_the_rows_it_names; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=segmented_table_apply::a_segmented_table_apply_reads_only_the_owners_of_the_rows_it_names)'`
+- Production certificate: `segmented_table_apply::a_table_change_at_a_row_with_pairs_is_refused_from_its_owner_alone; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=segmented_table_apply::a_table_change_at_a_row_with_pairs_is_refused_from_its_owner_alone)'`
+- Production certificate: `segmented_table_apply::a_refused_table_delta_fails_at_assemble_with_the_whole_state_refusal_and_seals_nothing; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=segmented_table_apply::a_refused_table_delta_fails_at_assemble_with_the_whole_state_refusal_and_seals_nothing)'`
+- Production certificate: `segmented_table_apply::a_segmented_table_apply_run_declines_each_exceeded_budget_like_the_reference; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=segmented_table_apply::a_segmented_table_apply_run_declines_each_exceeded_budget_like_the_reference)'`
+- Production certificate: `segmented_table_apply::a_segmented_table_apply_run_stopped_by_a_failed_commit_at_any_task_resumes_to_the_uninterrupted_run; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=segmented_table_apply::a_segmented_table_apply_run_stopped_by_a_failed_commit_at_any_task_resumes_to_the_uninterrupted_run)'`
+- File: `crates/panproto-inst/src/segment/runner.rs`
+- File: `crates/panproto-inst/src/segment/apply.rs`
+- File: `crates/panproto-inst/src/segment/table_apply.rs`
+- File: `crates/panproto-inst/tests/reference_edits.rs`
+- File: `crates/panproto-reference/src/pages/segments.rs`
+
+## Segmented table edits compose and invert as whole-state edits do {#L-segments-25}
+
+### Statement
+
+Let $P$ and $S$ satisfy the hypotheses of [L-segments-23](#L-segments-23) and write $\operatorname{seg}(\delta, S)$ for `apply_segmented` of a table delta $\delta$ over $S$ and $P$. The three claims of [L-segments-22](#L-segments-22) hold for table deltas, with `TableDelta::compose` and `TableDelta::invert` ([L-edits-2](edits.md#L-edits-2)) in place of the graph algebra and `apply_run` of table deltas in place of the graph runs: a composite applies to $S$ as its factors do in turn, the inverse of an applied edit restores every segment byte for byte, and the inverse run over a completed run's manifest restores the input manifest with its instance digest cleared.
+
+### Outside the domain
+
+As for [L-segments-22](#L-segments-22), the converse of the composition claim does not hold: $a$ may add a row no range owns that $b$ deletes, so that $\operatorname{seg}(a, S)$ is refused at layout while the composite, which never holds the row, applies. When `compose(a, b)` is undefined there is no composite to compare.
+
+### Definitions used
+
+Write $T = \operatorname{glue}_P(S)$.
+
+### Proof
+
+1. The proof of [L-segments-22](#L-segments-22) uses of the graph case only the law it rests on, [L-segments-20](#L-segments-20) and [L-segments-21](#L-segments-21), and the facts that the net delta of two composable deltas applies as they do in turn and that the inverse of an applied delta restores its input ([L-edits-2](edits.md#L-edits-2) for both, for tables). With [L-segments-23](#L-segments-23) and [L-segments-24](#L-segments-24) in their place, each step holds as written: the composite's added rows lie in the result $S''$ lays out, so no layout refusal arises; the inverse returns $\operatorname{split}_P(T) = S$; and the inverse run's manifest seals $S$ with the input's schema, binding and role, and no instance digest.
+2. The finite certificate takes every ordered pair of the 25 atomic deltas of `segmented_table_deltas` over the rows $0$ and $3$ on each of the 100 families of `segmented_table_compose_families` (the 25 tables over at most two rows under four partitions with row allocation ranges), $62{,}500$ pairs, and compares the composite's segments with those of the factors in turn and with the reference composite; $4{,}068$ pairs apply in turn and compose, $48{,}000$ are refused at the first delta and $10{,}432$ at the second, and every pair that applies in turn composes. Inversion is checked in memory against the reference on all $19{,}375$ cases of the carrier of L-segments-23 that apply, and as checkpointed runs on the $617$ cases of the every-31st slice whose run completes. A property test checks both claims with the reference differences from a generated table to a second and from it to a third.
+
+### Executable counterpart
+
+- Law ID: `segments.segmented-table-edit-algebra`
+- Reference: `panproto_reference::segment::apply_table_segmented`
+- Reference: `panproto_reference::edit::compose_table`
+- Reference: `panproto_reference::edit::invert_table`
+- Enumerator: `panproto_reference::enumerate::segments::segmented_table_compose_families; bound: families=100, deltas=25, ordered pairs=62500`
+- Exhaustive differential test: `segmented_table_apply::a_composite_table_delta_applies_to_a_segmented_family_as_its_factors_do_in_turn; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=segmented_table_apply::a_composite_table_delta_applies_to_a_segmented_family_as_its_factors_do_in_turn)'`
+- Exhaustive differential test: `segmented_table_apply::the_inverse_of_an_applied_segmented_table_edit_restores_every_segment_byte_for_byte; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=segmented_table_apply::the_inverse_of_an_applied_segmented_table_edit_restores_every_segment_byte_for_byte)'`
+- Production certificate: `segmented_table_apply::the_inverse_run_of_a_completed_segmented_table_edit_restores_the_manifest_but_its_instance_digest; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=segmented_table_apply::the_inverse_run_of_a_completed_segmented_table_edit_restores_the_manifest_but_its_instance_digest)'`
+- Property differential test: `segmented_table_apply::table_composition_and_inversion_hold_over_segments_on_generated_families; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=segmented_table_apply::table_composition_and_inversion_hold_over_segments_on_generated_families)'`
+- Property scope: `tables of 1 to 5 rows with up to 6 pairs, two further tables of up to 7 rows and 6 pairs, owners in 1 to 3 segments; 256 cases`
+- File: `crates/panproto-inst/src/segment/table_apply.rs`
+- File: `crates/panproto-inst/src/table_delta.rs`
+- File: `crates/panproto-inst/tests/reference_edits.rs`
+- File: `crates/panproto-reference/src/enumerate/segments.rs`

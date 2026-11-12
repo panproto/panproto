@@ -5328,6 +5328,79 @@
               "test": "segmented_apply::composition_and_inversion_hold_over_segments_on_generated_families"
             }
           ]
+        },
+        {
+          "id": "segments.segmented-table-apply",
+          "anchor": "L-segments-23",
+          "references": [
+            "panproto_reference::segment::apply_table_segmented",
+            "panproto_reference::segment::table_read_set"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "segmented_table_apply::segmented_table_apply_agrees_with_the_reference_on_every_case_of_the_carrier"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "segmented_table_apply::segmented_table_apply_agrees_with_the_reference_on_generated_families"
+            }
+          ]
+        },
+        {
+          "id": "segments.checkpointed-table-apply",
+          "anchor": "L-segments-24",
+          "references": [
+            "panproto_reference::segment::segmented_table_apply_with_progress",
+            "panproto_reference::segment::table_apply_facts_bytes"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "segmented_table_apply::segmented_table_apply_run_matches_the_reference_runner_at_every_cancellation_point"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "segmented_table_apply::segmented_table_apply_run_matches_the_reference_runner_on_generated_families"
+            }
+          ]
+        },
+        {
+          "id": "segments.segmented-table-edit-algebra",
+          "anchor": "L-segments-25",
+          "references": [
+            "panproto_reference::segment::apply_table_segmented",
+            "panproto_reference::edit::compose_table",
+            "panproto_reference::edit::invert_table"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "segmented_table_apply::a_composite_table_delta_applies_to_a_segmented_family_as_its_factors_do_in_turn"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "segmented_table_apply::the_inverse_of_an_applied_segmented_table_edit_restores_every_segment_byte_for_byte"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "segmented_table_apply::table_composition_and_inversion_hold_over_segments_on_generated_families"
+            }
+          ]
         }
       ]
     },
