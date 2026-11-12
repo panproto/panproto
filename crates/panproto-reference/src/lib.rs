@@ -79,6 +79,8 @@
 //! | The checkpointed run of segmented graph put | [`segment::segmented_put_with_progress`] | `segments.md` |
 //! | Segmented graph extension, by whole-state extension of the glued graph | [`segment::extend_graph_segmented`], [`segment::extend_graph`] | `segments.md` |
 //! | The checkpointed run of segmented graph extension | [`segment::segmented_extend_with_progress`] | `segments.md` |
+//! | Segmented graph edits, by whole-state application of the delta to the glued graph, and the segments they read | [`segment::apply_graph_segmented`], [`segment::read_set`] | `segments.md` |
+//! | The checkpointed run of segmented graph edits | [`segment::segmented_apply_with_progress`], [`segment::apply_facts_bytes`] | `segments.md` |
 //! | Graph complement segment bytes and their decoding | [`segment::canonical_complement_segment_bytes`], [`segment::decode_complement_segment_bytes`] | `segments.md` |
 //! | Signature type checking | [`theory::typecheck_signature`] | `theories.md` |
 //! | Theory colimits | [`theory::compose`] | `theories.md` |

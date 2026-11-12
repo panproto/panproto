@@ -5249,6 +5249,56 @@
               "test": "segmented_extend_run::segmented_extend_run_matches_the_reference_runner_on_generated_partitions"
             }
           ]
+        },
+        {
+          "id": "segments.segmented-graph-apply",
+          "anchor": "L-segments-20",
+          "references": [
+            "panproto_reference::segment::apply_graph_segmented",
+            "panproto_reference::segment::read_set"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "segmented_apply::segmented_apply_agrees_with_the_reference_on_every_case_of_the_carrier"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "segmented_apply::segmented_apply_agrees_with_the_reference_on_every_97th_case_of_the_carrier"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "segmented_apply::segmented_apply_agrees_with_the_reference_on_generated_families"
+            }
+          ]
+        },
+        {
+          "id": "segments.checkpointed-graph-apply",
+          "anchor": "L-segments-21",
+          "references": [
+            "panproto_reference::segment::segmented_apply_with_progress",
+            "panproto_reference::segment::apply_facts_bytes"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "segmented_apply::segmented_apply_run_matches_the_reference_runner_at_every_cancellation_point"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "segmented_apply::segmented_apply_run_matches_the_reference_runner_on_generated_families"
+            }
+          ]
         }
       ]
     },
