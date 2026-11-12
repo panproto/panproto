@@ -2691,7 +2691,7 @@ pub mod encode {
             ) else {
                 continue;
             };
-            vertices.push((source_arrow.tgt.clone(), target_arrow.tgt.clone()));
+            vertices.push((source_arrow.tgt, target_arrow.tgt));
         }
         vertices.sort();
         vertices.dedup();
