@@ -217,3 +217,73 @@ impl Repository {
             .collect()
     }
 }
+
+/// What decoding a payload gives.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum PayloadOutcome {
+    /// The payload decodes to its value.
+    Decoded,
+    /// The encoding's version is not 1.
+    Unsupported,
+    /// The bytes do not decode whole as the stated value, or the value
+    /// contradicts the object's count.
+    Undecodable,
+    /// The bytes decode, but are not the encoding of their value.
+    NonCanonical,
+}
+
+/// The facts about a payload that decide what decoding it gives.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct PayloadFacts {
+    /// The shape the object records.
+    pub shape: Shape,
+    /// The version the object records.
+    pub version: u32,
+    /// Whether the bytes are exactly one value of the shape's payload type.
+    pub decodes_whole: bool,
+    /// Whether the bytes are the encoding of that value.
+    pub canonical: bool,
+    /// Whether the object's record or edit count is the value's.
+    pub count_agrees: bool,
+}
+
+/// What decoding a payload with these facts gives.
+///
+/// The version is checked first, then that the bytes decode whole, then,
+/// for a table or graph
+/// payload, that they are canonical, and last the count. A tree payload's
+/// canonicity is not checked.
+#[must_use]
+pub const fn payload_outcome(facts: &PayloadFacts) -> PayloadOutcome {
+    if facts.version != 1 {
+        PayloadOutcome::Unsupported
+    } else if !facts.decodes_whole {
+        PayloadOutcome::Undecodable
+    } else if !matches!(facts.shape, Shape::Tree) && !facts.canonical {
+        PayloadOutcome::NonCanonical
+    } else if !facts.count_agrees {
+        PayloadOutcome::Undecodable
+    } else {
+        PayloadOutcome::Decoded
+    }
+}
+
+/// The encoding an object holds given the encoding field it records.
+///
+/// It is the recorded shape and version, or version 1 of the tree encoding
+/// when the object records none.
+#[must_use]
+pub const fn recorded_encoding(field: Option<(Shape, u32)>) -> (Shape, u32) {
+    match field {
+        Some(encoding) => encoding,
+        None => (Shape::Tree, 1),
+    }
+}
+
+/// Whether an object holding `encoding` writes the encoding field.
+///
+/// Every encoding but version 1 of the tree encoding is written.
+#[must_use]
+pub const fn writes_encoding_field(encoding: (Shape, u32)) -> bool {
+    !(matches!(encoding.0, Shape::Tree) && encoding.1 == 1)
+}

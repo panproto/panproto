@@ -275,3 +275,32 @@ pub const OBJECTS_PER_REPOSITORY: usize = 5 + 5 * 3 + 3;
 /// root keeps nothing. The total is `3 * 41,472 + 3 * 54,784 + 58,880 +
 /// 12,288`.
 pub const GC_KEPT_TOTAL: usize = 3 * 41_472 + 3 * 54_784 + 58_880 + 12_288;
+
+/// Every encoding of the scope: each shape with each version below
+/// `versions`.
+#[must_use]
+pub fn encodings(versions: u32) -> Vec<(Shape, u32)> {
+    Shape::ALL
+        .into_iter()
+        .flat_map(|shape| (0..versions).map(move |version| (shape, version)))
+        .collect()
+}
+
+/// Every combination of payload facts of the scope: each encoding of
+/// [`encodings`] with each truth value of the three byte facts.
+#[must_use]
+pub fn payload_facts(versions: u32) -> Vec<crate::pages::instance_version_control::PayloadFacts> {
+    let mut out = Vec::new();
+    for (shape, version) in encodings(versions) {
+        for bits in 0u8..8 {
+            out.push(crate::pages::instance_version_control::PayloadFacts {
+                shape,
+                version,
+                decodes_whole: bits & 1 != 0,
+                canonical: bits & 2 != 0,
+                count_agrees: bits & 4 != 0,
+            });
+        }
+    }
+    out
+}

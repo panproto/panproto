@@ -19,9 +19,11 @@ use panproto_reference::enumerate::edits as carrier;
 use panproto_reference::enumerate::instance_version_control::{
     GC_CASES_COUNT, GC_KEPT_TOTAL, Roots, gc_cases,
 };
+use panproto_reference::enumerate::instance_version_control::{encodings, payload_facts};
 use panproto_reference::model as reference_model;
 use panproto_reference::pages::instance_version_control::{
-    Head, Object as ModelObject, Repository as ModelRepository, Shape,
+    Head, Object as ModelObject, PayloadFacts, PayloadOutcome, Repository as ModelRepository,
+    Shape, payload_outcome, recorded_encoding, writes_encoding_field,
 };
 use panproto_reference::value::{Presence as ReferencePresence, Value as ReferenceValue};
 use panproto_schema::Edge;
@@ -605,30 +607,32 @@ const fn production_shape(shape: Shape) -> InstanceShape {
     }
 }
 
-/// The refusal a decode gives, by variant name, or `"ok"`.
-fn refusal<T>(result: Result<T, VcsError>) -> &'static str {
+/// The outcome a decode gives, as the reference names it.
+fn outcome<T>(result: Result<T, VcsError>) -> PayloadOutcome {
     match result {
-        Ok(_) => "ok",
-        Err(VcsError::UnsupportedPayloadEncoding { .. }) => "unsupported",
-        Err(VcsError::UndecodablePayload { .. }) => "undecodable",
-        Err(VcsError::NonCanonicalPayload { .. }) => "non-canonical",
+        Ok(_) => PayloadOutcome::Decoded,
+        Err(VcsError::UnsupportedPayloadEncoding { .. }) => PayloadOutcome::Unsupported,
+        Err(VcsError::UndecodablePayload { .. }) => PayloadOutcome::Undecodable,
+        Err(VcsError::NonCanonicalPayload { .. }) => PayloadOutcome::NonCanonical,
         Err(other) => panic!("an untyped refusal: {other}"),
     }
 }
 
-/// The ways a payload is damaged, each with the refusal it must give for
-/// a tree payload and for a table or graph payload.
-const DAMAGES: [(&str, &str, &str); 6] = [
-    ("version 0", "unsupported", "unsupported"),
-    ("version 2", "unsupported", "unsupported"),
-    ("trailing byte", "undecodable", "undecodable"),
-    ("truncated", "undecodable", "undecodable"),
-    ("empty", "undecodable", "undecodable"),
-    ("wrong shape", "undecodable", "undecodable"),
+/// The ways a payload is damaged, the first leaving it intact.
+const DAMAGES: [&str; 8] = [
+    "none",
+    "version 0",
+    "version 2",
+    "trailing byte",
+    "truncated",
+    "empty",
+    "wrong shape",
+    "non-minimal header",
 ];
 
 fn damage(bytes: &mut Vec<u8>, encoding: &mut PayloadEncoding, how: &str) {
     match how {
+        "none" => {}
         "version 0" => encoding.version = 0,
         "version 2" => encoding.version = 2,
         "trailing byte" => bytes.push(0xc0),
@@ -643,69 +647,54 @@ fn damage(bytes: &mut Vec<u8>, encoding: &mut PayloadEncoding, how: &str) {
                 InstanceShape::Graph => InstanceShape::Table,
             };
         }
+        "non-minimal header" => {
+            // Every payload opens with a fixed array; the same array under
+            // a 16-bit length is the same value in other bytes.
+            let first = bytes[0];
+            assert_eq!(first & 0xf0, 0x90, "a payload opens with a fixed array");
+            bytes.splice(0..1, [0xdc, 0x00, first & 0x0f]);
+        }
         other => panic!("unknown damage {other}"),
     }
 }
 
-#[test]
-fn every_damaged_payload_is_refused_with_its_typed_refusal() {
-    let mut checked = 0usize;
-    for shape in Shape::ALL {
-        for (how, tree_refusal, other_refusal) in DAMAGES {
-            let expected = if shape == Shape::Tree {
-                tree_refusal
-            } else {
-                other_refusal
-            };
-
-            let mut dataset =
-                DataSetObject::from_instance(ObjectId::ZERO, &sample_instance(shape), None)
-                    .unwrap();
-            assert_eq!(refusal(dataset.decode()), "ok");
-            damage(&mut dataset.data, &mut dataset.encoding, how);
-            assert_eq!(
-                refusal(dataset.decode()),
-                expected,
-                "{shape:?} data set, {how}"
-            );
-
-            let mut complement = ComplementObject::from_payload(
-                ObjectId::ZERO,
-                ObjectId::ZERO,
-                &sample_complement(shape),
-            )
-            .unwrap();
-            assert_eq!(refusal(complement.decode()), "ok");
-            damage(&mut complement.complement, &mut complement.encoding, how);
-            assert_eq!(
-                refusal(complement.decode()),
-                expected,
-                "{shape:?} complement, {how}"
-            );
-
-            let mut log = EditLogObject::from_payload(
-                ObjectId::ZERO,
-                ObjectId::ZERO,
-                &sample_edits(shape),
-                ObjectId::ZERO,
-            )
-            .unwrap();
-            assert_eq!(refusal(log.decode()), "ok");
-            damage(&mut log.edits, &mut log.encoding, how);
-            assert_eq!(refusal(log.decode()), expected, "{shape:?} edit log, {how}");
-            checked += 3;
-        }
+const fn model_shape(shape: InstanceShape) -> Shape {
+    match shape {
+        InstanceShape::Tree => Shape::Tree,
+        InstanceShape::Table => Shape::Table,
+        InstanceShape::Graph => Shape::Graph,
     }
-    assert_eq!(checked, 3 * DAMAGES.len() * 3);
 }
 
-#[test]
-fn a_count_other_than_the_payloads_is_refused() {
-    for shape in Shape::ALL {
+/// The facts of a payload damaged by `how`, now recording `encoding`.
+fn facts(encoding: PayloadEncoding, how: &str, count_agrees: bool) -> PayloadFacts {
+    PayloadFacts {
+        shape: model_shape(encoding.shape),
+        version: encoding.version,
+        decodes_whole: !matches!(how, "trailing byte" | "truncated" | "empty" | "wrong shape"),
+        canonical: how != "non-minimal header",
+        count_agrees,
+    }
+}
+
+/// Decode a data set and an edit log of `shape` damaged by `how`, with and
+/// without an agreeing count, and check each against the reference.
+fn check_counted_payloads(shape: Shape, how: &str, checked: &mut BTreeMap<PayloadOutcome, usize>) {
+    for count_agrees in [true, false] {
         let mut dataset =
             DataSetObject::from_instance(ObjectId::ZERO, &sample_instance(shape), None).unwrap();
-        dataset.record_count += 1;
-        assert_eq!(refusal(dataset.decode()), "undecodable", "{shape:?}");
+        damage(&mut dataset.data, &mut dataset.encoding, how);
+        if !count_agrees {
+            dataset.record_count += 1;
+        }
+        let expected = payload_outcome(&facts(dataset.encoding, how, count_agrees));
+        assert_eq!(
+            outcome(dataset.decode()),
+            expected,
+            "{shape:?} data set, {how}"
+        );
+        *checked.entry(expected).or_default() += 1;
+
         let mut log = EditLogObject::from_payload(
             ObjectId::ZERO,
             ObjectId::ZERO,
@@ -713,8 +702,130 @@ fn a_count_other_than_the_payloads_is_refused() {
             ObjectId::ZERO,
         )
         .unwrap();
-        log.edit_count = 0;
-        assert_eq!(refusal(log.decode()), "undecodable", "{shape:?}");
+        damage(&mut log.edits, &mut log.encoding, how);
+        if !count_agrees {
+            log.edit_count += 1;
+        }
+        let expected = payload_outcome(&facts(log.encoding, how, count_agrees));
+        assert_eq!(outcome(log.decode()), expected, "{shape:?} edit log, {how}");
+        *checked.entry(expected).or_default() += 1;
+    }
+}
+
+#[test]
+fn every_damaged_payload_gives_the_outcome_the_reference_gives() {
+    let mut checked: BTreeMap<PayloadOutcome, usize> = BTreeMap::new();
+    for shape in Shape::ALL {
+        for how in DAMAGES {
+            check_counted_payloads(shape, how, &mut checked);
+            // A complement records no count.
+            let mut complement = ComplementObject::from_payload(
+                ObjectId::ZERO,
+                ObjectId::ZERO,
+                &sample_complement(shape),
+            )
+            .unwrap();
+            damage(&mut complement.complement, &mut complement.encoding, how);
+            let expected = payload_outcome(&facts(complement.encoding, how, true));
+            assert_eq!(
+                outcome(complement.decode()),
+                expected,
+                "{shape:?} complement, {how}"
+            );
+            *checked.entry(expected).or_default() += 1;
+        }
+    }
+    // Per shape, eight damages, each decoded five times: as a data set and
+    // an edit log with and without an agreeing count, and as a complement.
+    // An intact payload decodes three times and is refused twice for its
+    // count; a non-minimal tree payload does the same, while a non-minimal
+    // table or graph payload is refused five times as non-canonical. Each
+    // other version is refused five times as unsupported, and each of the
+    // four damages that break the bytes five times as undecodable.
+    assert_eq!(checked.values().sum::<usize>(), 3 * 8 * 5);
+    assert_eq!(
+        checked,
+        BTreeMap::from([
+            (PayloadOutcome::Decoded, 3 * 3 + 3),
+            (PayloadOutcome::Unsupported, 3 * 2 * 5),
+            (PayloadOutcome::Undecodable, 3 * 4 * 5 + 3 * 2 + 2),
+            (PayloadOutcome::NonCanonical, 2 * 5),
+        ])
+    );
+}
+
+#[test]
+fn every_combination_of_payload_facts_is_decided_in_the_stated_order() {
+    let all = payload_facts(3);
+    assert_eq!(all.len(), 3 * 3 * 8);
+    let decoded = all
+        .iter()
+        .filter(|facts| payload_outcome(facts) == PayloadOutcome::Decoded)
+        .count();
+    // Version 1, decoding whole and an agreeing count decode a tree payload
+    // whether or not it is canonical, and a table or graph payload only
+    // when it is.
+    assert_eq!(decoded, 2 + 1 + 1);
+}
+
+#[test]
+fn an_object_writes_its_encoding_exactly_when_the_reference_says_so() {
+    /// The number of fields of the object's positional array.
+    fn field_count(object: &Object) -> u8 {
+        let bytes = rmp_serde::to_vec(object).unwrap();
+        // A one-entry map, the variant name as a fixed string, then the
+        // fields as a fixed array.
+        let name_len = usize::from(bytes[1] & 0x1f);
+        let header = bytes[2 + name_len];
+        assert_eq!(header & 0xf0, 0x90);
+        header & 0x0f
+    }
+
+    for (shape, version) in encodings(3) {
+        let encoding = PayloadEncoding {
+            shape: production_shape(shape),
+            version,
+        };
+        let written = writes_encoding_field((shape, version));
+        let extra = u8::from(written);
+        let dataset = Object::DataSet(DataSetObject {
+            schema_id: ObjectId::ZERO,
+            data: Vec::new(),
+            record_count: 0,
+            key: None,
+            encoding,
+        });
+        let complement = Object::Complement(ComplementObject {
+            migration_id: ObjectId::ZERO,
+            data_id: ObjectId::ZERO,
+            complement: Vec::new(),
+            encoding,
+        });
+        let log = Object::EditLog(EditLogObject {
+            schema_id: ObjectId::ZERO,
+            data_id: ObjectId::ZERO,
+            edits: Vec::new(),
+            edit_count: 0,
+            final_complement: ObjectId::ZERO,
+            encoding,
+        });
+        assert_eq!(field_count(&dataset), 4 + extra);
+        assert_eq!(field_count(&complement), 3 + extra);
+        assert_eq!(field_count(&log), 5 + extra);
+        for object in [dataset, complement, log] {
+            let read: Object = rmp_serde::from_slice(&rmp_serde::to_vec(&object).unwrap()).unwrap();
+            let recorded = match read {
+                Object::DataSet(o) => o.encoding,
+                Object::Complement(o) => o.encoding,
+                Object::EditLog(o) => o.encoding,
+                other => panic!("read back a {}", other.type_name()),
+            };
+            let field = written.then_some((shape, version));
+            assert_eq!(
+                (model_shape(recorded.shape), recorded.version),
+                recorded_encoding(field)
+            );
+        }
     }
 }
 
@@ -767,12 +878,7 @@ fn a_table_or_graph_payload_out_of_canonical_order_is_refused() {
     let canonical = dataset.data.clone();
     dataset.data = rmp_serde::to_vec(&Descending(&graph)).unwrap();
     assert_ne!(dataset.data, canonical);
-    assert_eq!(refusal(dataset.decode()), "non-canonical");
-
-    // A tree payload is read as written: its identity is its bytes.
-    let tree = sample_instance(Shape::Tree);
-    let dataset = DataSetObject::from_instance(ObjectId::ZERO, &tree, None).unwrap();
-    assert_eq!(refusal(dataset.decode()), "ok");
+    assert_eq!(outcome(dataset.decode()), PayloadOutcome::NonCanonical);
 }
 
 #[test]
@@ -1485,8 +1591,86 @@ fn arbitrary_repository() -> impl Strategy<Value = ModelRepository> {
         })
 }
 
+/// A random graph over the anchors `a` and `b` with arbitrary integer
+/// values, as a reference model graph.
+fn arbitrary_graph() -> impl Strategy<Value = reference_model::Graph> {
+    (
+        proptest::collection::btree_map(
+            0u32..8,
+            (any::<bool>(), proptest::option::of(any::<i64>())),
+            0..6,
+        ),
+        proptest::collection::vec((any::<u8>(), any::<u8>()), 0..8),
+    )
+        .prop_map(|(nodes, edges)| {
+            let anchor = |b: bool| if b { "b" } else { "a" };
+            let nodes: BTreeMap<u32, reference_model::Node> = nodes
+                .into_iter()
+                .map(|(id, (b, value))| {
+                    let mut node = reference_model::Node::new(id, anchor(b));
+                    node.value = value.map(|v| ReferencePresence::Present(ReferenceValue::Int(v)));
+                    (id, node)
+                })
+                .collect();
+            let ids: Vec<u32> = nodes.keys().copied().collect();
+            let edges = if ids.is_empty() {
+                BTreeMap::new()
+            } else {
+                edges
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, (s, t))| {
+                        let (src, tgt) = (
+                            ids[usize::from(s) % ids.len()],
+                            ids[usize::from(t) % ids.len()],
+                        );
+                        let label = reference_model::SEdge::new(
+                            &nodes[&src].anchor,
+                            &nodes[&tgt].anchor,
+                            "e",
+                            None,
+                        );
+                        (
+                            u32::try_from(index).unwrap(),
+                            reference_model::GEdge {
+                                src,
+                                tgt,
+                                label,
+                                position: None,
+                            },
+                        )
+                    })
+                    .collect()
+            };
+            reference_model::Graph { nodes, edges }
+        })
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(256))]
+
+    #[test]
+    fn randomized_graph_payloads_round_trip_in_any_insertion_order(graph in arbitrary_graph()) {
+        let mut store = MemStore::new();
+        let forward = DataSetObject::from_instance(
+            ObjectId::ZERO,
+            &Instance::Graph(graph_to_production(&graph, false)),
+            None,
+        )
+        .unwrap();
+        let backward = DataSetObject::from_instance(
+            ObjectId::ZERO,
+            &Instance::Graph(graph_to_production(&graph, true)),
+            None,
+        )
+        .unwrap();
+        prop_assert_eq!(&forward.data, &backward.data);
+        let (_, decoded) = stored_instance(&mut store, forward);
+        let Instance::Graph(decoded) = decoded else {
+            panic!("a graph data set decodes to a graph");
+        };
+        prop_assert_eq!(graph_to_reference(&decoded), graph);
+    }
 
     #[test]
     fn randomized_repositories_keep_exactly_what_the_reference_reaches(model in arbitrary_repository()) {
