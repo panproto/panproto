@@ -47,7 +47,7 @@ type SourceEntry = (
     fn() -> Protocol,
 );
 
-const DOCUMENT_PROTOCOLS: [DocEntry; 7] = [
+const DOCUMENT_PROTOCOLS: &[DocEntry] = &[
     (
         "atproto",
         web_document::atproto::parse_lexicon,
@@ -58,7 +58,11 @@ const DOCUMENT_PROTOCOLS: [DocEntry; 7] = [
         data_schema::json_schema::parse_json_schema,
         data_schema::json_schema::protocol,
     ),
-    ("openapi", api::openapi::parse_openapi, api::openapi::protocol),
+    (
+        "openapi",
+        api::openapi::parse_openapi,
+        api::openapi::protocol,
+    ),
     (
         "avro",
         serialization::avro::parse_avsc,
@@ -76,7 +80,7 @@ const DOCUMENT_PROTOCOLS: [DocEntry; 7] = [
     ),
 ];
 
-const SOURCE_PROTOCOLS: [SourceEntry; 2] = [
+const SOURCE_PROTOCOLS: &[SourceEntry] = &[
     ("graphql", api::graphql::parse_sdl, api::graphql::protocol),
     (
         "protobuf",
