@@ -63,6 +63,7 @@
 - [Haskell SDK](./reference/sdk-haskell.md)
 - [Swift SDK](./reference/sdk-swift.md)
 - [Protocol catalog](./reference/protocols.md)
+- [Supported formats](./reference/formats.md)
 - [Expression language](./reference/expression-language.md)
 - [Resource limits](./reference/resource-limits.md)
 - [Lens combinators](./reference/lens-combinators.md)

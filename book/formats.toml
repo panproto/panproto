@@ -1,0 +1,347 @@
+# The records the book's format tables are generated from.
+#
+# `crates/panproto-io/tests/the_book_format_tables_are_generated.rs` reads
+# this file, checks every record against the protocol registry, the grammar
+# registry, the conformance corpora and the correctness pages, and writes the
+# tables of `src/reference/formats.md` from what it finds. A protocol of the
+# registry with no `[[format]]` record is listed as not under the format
+# contract. Regenerate the page after changing this file or the registry with
+# `PP_FORMAT_TABLES=bless cargo test -p panproto-io --features tree-sitter --test the_book_format_tables_are_generated`.
+#
+# A `[[format]]` record is a format under the format contract:
+#   name      the format, as the tables name it
+#   protocols the registry protocols that read it; each must be read by a
+#             grammar reader of panproto-io or by its instance codecs, never
+#             by a reader that predates the contract
+#   standard  the standard or implementation version read, as the table states it
+#   pinned    text that the first correctness page must contain verbatim, so the
+#             version the table states is the version the page proves against
+#   pages     correctness pages, by path below book/src/correctness without .md
+#   corpora   conformance corpora under crates/panproto-io/tests/fixtures/conformance
+#   limits    the files there that list the corpus cases the reader does not pass
+#   grammars  the tree-sitter grammars the reader parses with
+#
+# An `[[excluded]]` record is a format or a variant named as unsupported:
+#   name       the format or variant
+#   reason     why it is not supported
+#   page       the correctness page, with an optional anchor, that states it
+#   protocol   the registry protocol it concerns, when there is one
+#   unregistered  names no protocol and no instance codec may answer to
+#   ungrammared   names no grammar of the grammar registry may have
+#   refusals   probes of the test, each a reader run on a document of the
+#              variant that must return the typed refusal the probe names
+
+[[format]]
+name = "YAML"
+protocols = ["yaml"]
+standard = "YAML 1.2.2, one document, core schema"
+pinned = "YAML 1.2.2"
+pages = ["text-formats"]
+corpora = ["yaml-test-suite"]
+limits = ["yaml-test-suite-limits.txt"]
+grammars = ["yaml"]
+
+[[format]]
+name = "TOML"
+protocols = ["toml"]
+standard = "TOML 1.0.0"
+pinned = "TOML 1.0.0"
+pages = ["text-formats"]
+corpora = ["toml-test"]
+limits = ["toml-test-limits.txt"]
+grammars = ["toml"]
+
+[[format]]
+name = "CSV"
+protocols = ["csv"]
+standard = "RFC 4180, with a header record"
+pinned = "RFC 4180"
+pages = ["text-formats"]
+corpora = ["csv-spectrum"]
+limits = []
+grammars = ["csv"]
+
+[[format]]
+name = "TSV"
+protocols = ["tsv"]
+standard = "IANA `text/tab-separated-values`, with a header record"
+pinned = "text/tab-separated-values"
+pages = ["text-formats"]
+corpora = ["csv-spectrum"]
+limits = []
+grammars = ["tsv"]
+
+[[format]]
+name = "PostgreSQL DDL and data scripts"
+protocols = ["postgresql"]
+standard = "PostgreSQL 17 (release 17.12): DDL, and `INSERT ... VALUES` data scripts"
+pinned = "17.12"
+pages = ["postgresql-ddl", "postgresql-data"]
+corpora = ["postgresql-docs", "sakila"]
+limits = ["postgresql-ddl-limits.txt", "postgresql-data-limits.txt"]
+grammars = ["postgresql"]
+
+[[format]]
+name = "N-Triples"
+protocols = ["ntriples"]
+standard = "RDF 1.1 N-Triples (W3C Recommendation, 2014-02-25)"
+pinned = "RDF 1.1 N-Triples"
+pages = ["rdf-formats"]
+corpora = ["rdf-tests"]
+limits = ["rdf-tests-limits.txt"]
+grammars = ["turtle"]
+
+[[format]]
+name = "Turtle"
+protocols = ["turtle"]
+standard = "RDF 1.1 Turtle (W3C Recommendation, 2014-02-25)"
+pinned = "RDF 1.1 Turtle"
+pages = ["rdf-formats"]
+corpora = ["rdf-tests"]
+limits = ["rdf-tests-limits.txt"]
+grammars = ["turtle"]
+
+[[format]]
+name = "JSON-LD"
+protocols = ["jsonld"]
+standard = "JSON-LD 1.1 and its Processing Algorithms and API (W3C Recommendations, 2020-07-16), processing mode `json-ld-1.1`"
+pinned = "json-ld-1.1"
+pages = ["rdf-formats"]
+corpora = ["json-ld-api"]
+limits = ["json-ld-api-limits.txt"]
+grammars = ["json"]
+
+[[format]]
+name = "Edge lists"
+protocols = ["edgelist-csv", "edgelist-tsv"]
+standard = "the edges table of Gephi's spreadsheet import, written as RFC 4180 CSV or IANA TSV"
+pinned = "Gephi"
+pages = ["edge-lists"]
+corpora = ["edgelist"]
+limits = []
+grammars = ["csv", "tsv"]
+
+[[format]]
+name = "Kubernetes CRDs"
+protocols = ["k8s-crd"]
+standard = "`apiextensions.k8s.io/v1` CustomResourceDefinition of Kubernetes 1.37"
+pinned = "Kubernetes 1.37"
+pages = ["kubernetes-crds"]
+corpora = ["k8s-crd"]
+limits = ["k8s-crd-limits.txt"]
+grammars = ["yaml"]
+
+[[format]]
+name = "CloudFormation"
+protocols = ["cloudformation"]
+standard = "AWS CloudFormation templates, format version `2010-09-09`"
+pinned = "2010-09-09"
+pages = ["cloudformation"]
+corpora = ["cloudformation"]
+limits = ["cloudformation-limits.txt"]
+grammars = ["json", "yaml"]
+
+[[format]]
+name = "Ansible"
+protocols = ["ansible"]
+standard = "playbooks, task files and variables files of ansible-core 2.22.0"
+pinned = "2.22.0"
+pages = ["ansible"]
+corpora = ["ansible"]
+limits = ["ansible-limits.txt"]
+grammars = ["yaml"]
+
+[[format]]
+name = "OpenAPI"
+protocols = ["openapi"]
+standard = "OpenAPI 3.1, read against the text of 3.1.2"
+pinned = "3.1.2"
+pages = ["openapi"]
+corpora = ["openapi"]
+limits = ["openapi-limits.txt"]
+grammars = ["json", "yaml"]
+
+[[format]]
+name = "AsyncAPI"
+protocols = ["asyncapi"]
+standard = "AsyncAPI 3.0 and 3.1, read against the text of 3.1.0"
+pinned = "3.1.0"
+pages = ["asyncapi"]
+corpora = ["asyncapi"]
+limits = ["asyncapi-limits.txt"]
+grammars = ["json", "yaml"]
+
+[[format]]
+name = "JSON Schema"
+protocols = ["json-schema"]
+standard = "JSON Schema 2020-12 (Core and Validation)"
+pinned = "2020-12"
+pages = ["json-schema"]
+corpora = ["json-schema-test-suite"]
+limits = ["json-schema-test-suite-limits.txt"]
+grammars = ["json"]
+
+[[format]]
+name = "BSON"
+protocols = ["bson"]
+standard = "BSON 1.1, and MongoDB Extended JSON version 2"
+pinned = "BSON 1.1"
+pages = ["bson"]
+corpora = ["bson-corpus", "bson-spec"]
+limits = ["bson-corpus-limits.txt"]
+grammars = ["json"]
+
+[[excluded]]
+name = "INI"
+reason = "Not a format of this release: no INI standard fixes its value types or its nesting"
+unregistered = ["ini"]
+
+[[excluded]]
+name = "JSON5"
+reason = "Not a format of this release"
+unregistered = ["json5"]
+
+[[excluded]]
+name = "NDJSON and JSON Lines"
+reason = "Not a format of this release: the JSON route reads exactly one RFC 8259 value"
+unregistered = ["ndjson", "jsonl", "json-lines"]
+
+[[excluded]]
+name = "`.env` files"
+reason = "Not a format of this release: no standard fixes their quoting or expansion"
+unregistered = ["env", "dotenv"]
+
+[[excluded]]
+name = "YAML 1.1 documents"
+reason = "The YAML route reads YAML 1.2 and refuses a `%YAML` directive naming another version"
+page = "text-formats"
+refusals = ["yaml-1.1"]
+
+[[excluded]]
+name = "SQL dialects other than PostgreSQL 17"
+reason = "The `postgresql` reader reads one dialect and refuses another where its syntax first departs"
+page = "postgresql-ddl"
+refusals = ["mysql-quoted-identifier"]
+
+[[excluded]]
+name = "SQLite database files"
+reason = "Binary database files are not read; SQL text is read as PostgreSQL 17"
+unregistered = ["sqlite", "sqlite3"]
+
+[[excluded]]
+name = "N-Quads"
+reason = "No vendored grammar reads N-Quads; the one surveyed declares no licence in its repository, so the route waits on vendoring it"
+page = "rdf-formats#n-quads"
+unregistered = ["nquads"]
+ungrammared = ["nquads"]
+refusals = ["nquads-graph-label"]
+
+[[excluded]]
+name = "TriG"
+reason = "Named graphs are outside the RDF graph encoding"
+page = "rdf-formats"
+unregistered = ["trig"]
+refusals = ["trig-graph-block"]
+
+[[excluded]]
+name = "RDF/XML"
+reason = "Not a format of this release"
+page = "rdf-formats"
+unregistered = ["rdf-xml", "rdfxml"]
+
+[[excluded]]
+name = "RDF-star and RDF 1.2 triple terms"
+reason = "The RDF graph encoding holds RDF 1.1 terms"
+page = "rdf-formats"
+refusals = ["rdf-star-quoted-triple"]
+
+[[excluded]]
+name = "JSON-LD named graphs"
+reason = "Named graphs are outside the RDF graph encoding"
+page = "rdf-formats"
+refusals = ["jsonld-named-graph"]
+
+[[excluded]]
+name = "Swagger 2.0 and OpenAPI 3.0"
+reason = "Their Schema Objects and fields differ from 3.1's"
+page = "openapi"
+refusals = ["swagger-2.0", "openapi-3.0"]
+
+[[excluded]]
+name = "OpenAPI 3.2"
+reason = "It adds fields the 3.1 reader would drop"
+page = "openapi"
+refusals = ["openapi-3.2"]
+
+[[excluded]]
+name = "AsyncAPI 2"
+reason = "Its channels and operations differ from version 3's"
+page = "asyncapi"
+refusals = ["asyncapi-2"]
+
+[[excluded]]
+name = "JSON Schema drafts 04 to 2019-09"
+reason = "Their keywords mean other things than 2020-12's"
+page = "json-schema"
+refusals = ["json-schema-draft-07"]
+
+[[excluded]]
+name = "CDDL under the format contract"
+reason = "No tree-sitter CDDL grammar is vendored; the `cddl` protocol keeps its earlier line-based reader, outside the contract"
+page = "json-schema"
+protocol = "cddl"
+ungrammared = ["cddl"]
+
+[[excluded]]
+name = "XML Schema"
+reason = "Not a format of this release"
+page = "json-schema"
+unregistered = ["xsd", "xml-schema"]
+
+[[excluded]]
+name = "CloudFormation transforms and macros"
+reason = "Their expansion is computed by AWS when the stack is deployed"
+page = "cloudformation"
+refusals = ["cloudformation-transform"]
+
+[[excluded]]
+name = "Kubernetes conversion webhooks"
+reason = "A webhook converts objects between versions in code the CRD does not hold"
+page = "kubernetes-crds"
+refusals = ["k8s-conversion-webhook"]
+
+[[excluded]]
+name = "The native brat standoff pair (`.ann` with `.txt`)"
+reason = "The `brat` protocol reads brat's JSON rendering only"
+protocol = "brat"
+refusals = ["brat-ann"]
+
+[[excluded]]
+name = "ORC, HDF5, NetCDF and Feather V1"
+reason = "Not formats of this release"
+unregistered = ["orc", "hdf5", "netcdf", "feather"]
+
+[[excluded]]
+name = "Python pickle"
+reason = "Loading a pickle can execute arbitrary code"
+unregistered = ["pickle"]
+
+[[excluded]]
+name = "Native iCalendar and vCard text (`.ics`, `.vcf`), GPX and KML"
+reason = "Not formats of this release"
+unregistered = ["ics", "icalendar", "vcf", "vcard", "gpx", "kml"]
+
+[[excluded]]
+name = "Binary Avro, the Protobuf wire format, DER and BER, and Bond binary protocols"
+reason = "Not formats of this release: these protocols read schemas, and no instance codec reads their binary encodings"
+refusals = ["avro-binary", "protobuf-wire", "asn1-der", "bond-binary"]
+
+[[excluded]]
+name = "Amazon Ion and Cap'n Proto"
+reason = "Not formats of this release"
+unregistered = ["ion", "capnp", "capnproto"]
+
+[[excluded]]
+name = "HTML and Markdown as document formats"
+reason = "Not semantic formats of this release"
+unregistered = ["html", "markdown"]
