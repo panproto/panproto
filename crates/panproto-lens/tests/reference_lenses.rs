@@ -18497,7 +18497,7 @@ mod segmented_graph_put {
     /// between every ordered pair of nodes in different segments, every
     /// node's anchor changed to every other vertex, and a node added to
     /// every segment.
-    fn edits(view: &RefGraph, partition: &reference::Partition) -> Vec<RefGraph> {
+    pub fn edits(view: &RefGraph, partition: &reference::Partition) -> Vec<RefGraph> {
         let owner = |node: u32| partition.owner_of_node(node);
         let label = |src: &str, tgt: &str| {
             super::RefSEdge::new(src, tgt, "prop", Some(&format!("{src}{tgt}")))
@@ -18694,7 +18694,7 @@ mod segmented_graph_put {
 
     /// The segment-get of the reference definition: each segment's view and
     /// complement.
-    fn reference_get(
+    pub fn reference_get(
         schema: &RefSchema,
         migration: &RefMigration,
         graph: &RefGraph,
@@ -18761,7 +18761,7 @@ mod segmented_graph_put {
 
     /// Whether the reference's get refuses the glued restored source of an
     /// accepted reference put.
-    fn reference_get_refuses(
+    pub fn reference_get_refuses(
         lens: &RefGraphLens<'_>,
         expected: &Result<Vec<reference::GraphSegment>, reference::SegmentedPutRefusal>,
     ) -> bool {
@@ -19093,5 +19093,864 @@ mod segmented_graph_put {
             ),
             "a dropped node filed under a segment that does not own it"
         );
+    }
+}
+
+/// Segmented graph put as a checkpointed run: the production run against
+/// the reference runner, at every cancellation point and under budgets.
+mod segmented_graph_put_run {
+    use std::collections::BTreeMap;
+
+    use panproto_inst::identity::{ComplementShape, Digest};
+    use panproto_inst::segment::{
+        AnySegment, ArtifactKey, Budget, EdgeIdRun, GraphSegment, ManifestHeader, ManifestRole,
+        MemoryStore, Partition, Phase, RecordSource, Residual, Resource, RunIncompleteReason,
+        RunJournal, RunStatus, SegmentId, SegmentManifest, SegmentRecord, SegmentRunReport,
+        SegmentStore, TaskRecord, graph_restrict_segmented, partition_graph, read_emitted,
+        seal_full,
+    };
+    use panproto_inst::{PredicateRefusal, PutDomainError, RestrictPlan};
+    use panproto_lens::graph_lens::{self, GraphPutRun, HeldView, SegmentedPutError};
+    use panproto_lens::{Lens, LensError};
+    use panproto_reference::enumerate::segments::segmented_restrict_cases;
+    use panproto_reference::restrict::NoValueLayer;
+    use panproto_reference::segment as reference;
+
+    use super::segmented_graph_get::{generated, lens_of, prod_partition};
+    use super::segmented_graph_put::{edits, reference_get, reference_get_refuses};
+    use super::{
+        RefGraph, RefGraphLens, RefMigration, RefSchema, lens_reason, prod_graph, ref_lens_reason,
+    };
+
+    const VIEW_SCHEMA: [u8; 32] = [11; 32];
+
+    /// A report in a form both implementations project to.
+    #[derive(Debug, PartialEq, Eq)]
+    struct Seen {
+        status: String,
+        locality: String,
+        budget: (u64, Option<u64>, u64, u32),
+        progress: (String, u32, u32, u64, u64),
+        peak: (u64, Option<u64>),
+        complement: (u64, u64, Vec<(u32, u64, u64)>),
+        tasks: (u32, u32),
+        orphans: Vec<([u8; 32], String, Option<u32>, String)>,
+        phases: Vec<(String, u32, u32, u64, Option<u64>)>,
+    }
+
+    fn seen_production(report: &SegmentRunReport<SegmentedPutError>) -> Seen {
+        let status = match &report.status {
+            RunStatus::Complete { manifest } => format!("complete {:?}", manifest.0),
+            RunStatus::Incomplete { reason } => format!("incomplete {reason:?}"),
+            RunStatus::Residual(residual) => format!("residual {residual:?}"),
+            RunStatus::Failed(SegmentedPutError::Lens(error)) => {
+                format!("put {:?}", lens_reason(error))
+            }
+            RunStatus::Failed(SegmentedPutError::Segment(error)) => format!("segment {error:?}"),
+            RunStatus::Failed(other) => format!("other {other:?}"),
+        };
+        Seen {
+            status,
+            locality: format!("{:?}", report.locality),
+            budget: (
+                report.budget.working_set,
+                report.budget.complement,
+                report.budget.summary,
+                report.budget.affected_segments,
+            ),
+            progress: (
+                format!("{:?}", report.progress.phase),
+                report.progress.tasks_done,
+                report.progress.tasks_total,
+                report.progress.elements_done,
+                report.progress.elements_total,
+            ),
+            peak: (report.peak_estimated_bytes, report.observed_peak_bytes),
+            complement: (
+                report.complement.elements,
+                report.complement.bytes,
+                report
+                    .complement
+                    .per_segment
+                    .iter()
+                    .map(|(id, (elements, bytes))| (id.0, *elements, *bytes))
+                    .collect(),
+            ),
+            tasks: (report.tasks_run, report.tasks_reused),
+            orphans: report
+                .orphans
+                .iter()
+                .map(|key| {
+                    (
+                        key.run.0,
+                        format!("{:?}", key.task.phase),
+                        key.task.segment.map(|segment| segment.0),
+                        format!("{:?}", key.kind),
+                    )
+                })
+                .collect(),
+            phases: report
+                .phases
+                .iter()
+                .map(|phase| {
+                    (
+                        format!("{:?}", phase.phase),
+                        phase.tasks,
+                        phase.reused,
+                        phase.peak_estimated_bytes,
+                        phase.wall_ms,
+                    )
+                })
+                .collect(),
+        }
+    }
+
+    fn seen_reference(
+        report: &reference::SegmentRunReport<reference::SegmentedPutRefusal>,
+    ) -> Seen {
+        let status = match &report.status {
+            reference::RunStatus::Complete { manifest } => format!("complete {:?}", manifest.0),
+            reference::RunStatus::Incomplete { reason } => format!("incomplete {reason:?}"),
+            reference::RunStatus::Residual(residual) => format!("residual {residual:?}"),
+            reference::RunStatus::Failed(reference::SegmentedPutRefusal::Put(error)) => {
+                format!("put {:?}", ref_lens_reason(error))
+            }
+            reference::RunStatus::Failed(reference::SegmentedPutRefusal::Segment(error)) => {
+                format!("segment {error:?}")
+            }
+        };
+        Seen {
+            status,
+            locality: format!("{:?}", report.locality.put),
+            budget: (
+                report.budget.working_set,
+                report.budget.complement,
+                report.budget.summary,
+                report.budget.affected_segments,
+            ),
+            progress: (
+                format!("{:?}", report.progress.phase),
+                report.progress.tasks_done,
+                report.progress.tasks_total,
+                report.progress.elements_done,
+                report.progress.elements_total,
+            ),
+            peak: (report.peak_estimated_bytes, report.observed_peak_bytes),
+            complement: (
+                report.complement.elements,
+                report.complement.bytes,
+                report
+                    .complement
+                    .per_segment
+                    .iter()
+                    .map(|(id, (elements, bytes))| (id.0, *elements, *bytes))
+                    .collect(),
+            ),
+            tasks: (report.tasks_run, report.tasks_reused),
+            orphans: report
+                .orphans
+                .iter()
+                .map(|key| {
+                    (
+                        key.run.0,
+                        format!("{:?}", key.task.phase),
+                        key.task.segment.map(|segment| segment.0),
+                        format!("{:?}", key.kind),
+                    )
+                })
+                .collect(),
+            phases: report
+                .phases
+                .iter()
+                .map(|phase| {
+                    (
+                        format!("{:?}", phase.phase),
+                        phase.tasks,
+                        phase.reused,
+                        phase.peak_estimated_bytes,
+                        phase.wall_ms,
+                    )
+                })
+                .collect(),
+        }
+    }
+
+    /// A view held as segments: its sealed manifest, each segment's bytes
+    /// and each segment's complement bytes.
+    struct Held {
+        manifest: SegmentManifest,
+        views: BTreeMap<SegmentId, Vec<u8>>,
+        complements: BTreeMap<SegmentId, Vec<u8>>,
+    }
+
+    impl Held {
+        fn of(
+            segments: &[GraphSegment],
+            complements: &[panproto_inst::segment::GraphComplementSegment],
+            partition: &Partition,
+        ) -> Self {
+            let schema = Digest(VIEW_SCHEMA);
+            let any: Vec<AnySegment> = segments.iter().cloned().map(AnySegment::Graph).collect();
+            let records = any
+                .iter()
+                .zip(partition.specs())
+                .map(|(segment, spec)| SegmentRecord::of(segment, spec, &schema))
+                .collect();
+            let runs: Vec<EdgeIdRun<'_>> = any
+                .iter()
+                .map(|segment| {
+                    (
+                        segment.segment(),
+                        Box::new(segment.edge_id_run().into_iter())
+                            as Box<dyn Iterator<Item = panproto_inst::EdgeId>>,
+                    )
+                })
+                .collect();
+            let sources = any
+                .iter()
+                .map(|segment| Box::new(segment.records()) as Box<dyn RecordSource + '_>)
+                .collect();
+            let manifest = seal_full(
+                records,
+                ManifestHeader {
+                    shape: panproto_inst::InstanceShapeKind::Graph,
+                    schema,
+                    role: ManifestRole::Source,
+                    binding: None,
+                },
+                runs,
+                sources,
+            )
+            .expect("the view seals");
+            Self {
+                manifest,
+                views: any
+                    .iter()
+                    .map(|segment| {
+                        (
+                            segment.segment(),
+                            segment
+                                .canonical_bytes(&schema, partition)
+                                .expect("view bytes"),
+                        )
+                    })
+                    .collect(),
+                complements: complements
+                    .iter()
+                    .map(|complement| {
+                        (
+                            complement.segment,
+                            complement.canonical_bytes().expect("complement bytes"),
+                        )
+                    })
+                    .collect(),
+            }
+        }
+
+        fn input(
+            &self,
+        ) -> HeldView<'_, BTreeMap<SegmentId, Vec<u8>>, BTreeMap<SegmentId, Vec<u8>>> {
+            HeldView {
+                manifest: &self.manifest,
+                input: self.manifest.digest(),
+                views: &self.views,
+                complements: &self.complements,
+            }
+        }
+    }
+
+    /// One put of the carrier on both sides.
+    struct Case<'a> {
+        lens: &'a Lens,
+        reference_lens: &'a RefGraphLens<'a>,
+        held: &'a Held,
+        reference_views: &'a [reference::GraphSegment],
+        reference_complements: &'a [reference::GraphComplementSegment],
+        partition: &'a reference::Partition,
+    }
+
+    impl Case<'_> {
+        fn production<S: SegmentStore>(
+            &self,
+            budget: Budget,
+            store: &mut S,
+            cancel: Option<u32>,
+        ) -> GraphPutRun {
+            graph_lens::put_segmented_run(self.lens, &self.held.input(), budget, store, cancel)
+                .expect("the carrier's plan compiles")
+        }
+
+        fn reference(
+            &self,
+            budget: Budget,
+            store: &mut reference::MemoryStore,
+            cancel: Option<u32>,
+        ) -> reference::PutRun {
+            let identity = self.lens.identity(ComplementShape::Graph);
+            reference::segmented_put_with_progress(
+                self.reference_lens,
+                (self.reference_views, self.reference_complements),
+                self.partition,
+                &reference::PutRunSpec {
+                    lens: reference::Digest(identity.lens.0),
+                    view_schema: reference::Digest(VIEW_SCHEMA),
+                    view_role: reference::ManifestRole::Source,
+                    source_schema: reference::Digest(identity.source_schema.0),
+                    binding: None,
+                    cancel_after_tasks: cancel,
+                },
+                reference::Budget {
+                    working_set: budget.working_set,
+                    complement: budget.complement,
+                    summary: budget.summary,
+                    affected_segments: budget.affected_segments,
+                },
+                store,
+                &mut |_| {},
+            )
+        }
+    }
+
+    /// Whether a production refusal is the one the reference admits
+    /// differently: production put refuses a view whose restored source its
+    /// own get refuses with an evaluation failure, which the reference's
+    /// clause (5) accepts.
+    fn admitted_disagreement(
+        production: &GraphPutRun,
+        expected: &reference::PutRun,
+        reference_lens: &RefGraphLens<'_>,
+    ) -> bool {
+        let RunStatus::Failed(SegmentedPutError::Lens(LensError::PutDomain(found))) =
+            &production.report.status
+        else {
+            return false;
+        };
+        matches!(
+            **found,
+            PutDomainError::SurvivalPredicateRefused {
+                refusal: PredicateRefusal::EvaluationFailed { .. },
+                ..
+            }
+        ) && expected
+            .output
+            .as_ref()
+            .is_some_and(|segments| reference_get_refuses(reference_lens, &Ok(segments.clone())))
+    }
+
+    /// What the run law showed.
+    #[derive(Debug, Default)]
+    struct Tally {
+        complete: u64,
+        refused: u64,
+        declined: u64,
+        admitted: u64,
+        cancellations: u64,
+    }
+
+    /// The journal of a run holds no Emit or Seal task.
+    fn sealed_nothing(store: &MemoryStore, run: Digest) -> bool {
+        let journal: RunJournal = store.journal(&run).unwrap_or_else(|never| match never {});
+        journal
+            .tasks
+            .keys()
+            .all(|task| !matches!(task.phase, Phase::Emit | Phase::Seal))
+    }
+
+    /// Check the run law on one put under `budget`: the production report
+    /// equals the reference runner's uninterrupted and at every
+    /// cancellation point, a resumed run ends as the uninterrupted one
+    /// reusing every task the stopped run committed, a complete run emits
+    /// the restored segments of in-memory segmented put and of the
+    /// reference, and a refused or declined run seals nothing.
+    fn check_put(case: &Case<'_>, budget: Budget, every_point: bool, tally: &mut Tally) {
+        let mut store = MemoryStore::default();
+        let baseline = case.production(budget, &mut store, None);
+        let mut reference_store = reference::MemoryStore::default();
+        let expected = case.reference(budget, &mut reference_store, None);
+        if admitted_disagreement(&baseline, &expected, case.reference_lens) {
+            tally.admitted += 1;
+            return;
+        }
+        assert_eq!(
+            seen_production(&baseline.report),
+            seen_reference(&expected.report),
+            "uninterrupted put under {:?}",
+            case.partition
+        );
+        let run = baseline.run.expect("a run identity");
+        assert_eq!(run.0, expected.run.0, "run identity");
+        match &baseline.report.status {
+            RunStatus::Complete { manifest } => {
+                tally.complete += 1;
+                assert_eq!(
+                    baseline.manifest.as_ref().map(SegmentManifest::digest),
+                    Some(*manifest)
+                );
+                let partition = prod_partition(case.partition);
+                let restored: Vec<GraphSegment> = partition
+                    .specs()
+                    .iter()
+                    .map(|spec| {
+                        let emitted = read_emitted(&store, run, &partition, spec.id)
+                            .expect("an emitted segment");
+                        assert_eq!(
+                            emitted.complement,
+                            Vec::<u8>::new(),
+                            "put emits no complement"
+                        );
+                        emitted.view
+                    })
+                    .collect();
+                let schema = case.lens.identity(ComplementShape::Graph).source_schema;
+                for (segment, expected) in restored
+                    .iter()
+                    .zip(expected.output.as_ref().expect("output"))
+                {
+                    assert_eq!(
+                        AnySegment::Graph(segment.clone())
+                            .canonical_bytes(&schema, &partition)
+                            .expect("restored bytes"),
+                        reference::canonical_segment_bytes(
+                            &reference::AnySegment::Graph(expected.clone()),
+                            reference::Digest(schema.0),
+                            case.partition,
+                        )
+                        .expect("reference restored bytes"),
+                        "restored segment under {:?}",
+                        case.partition
+                    );
+                }
+            }
+            RunStatus::Failed(_) => {
+                tally.refused += 1;
+                assert!(sealed_nothing(&store, run), "a refused put seals nothing");
+            }
+            RunStatus::Residual(_) => {
+                tally.declined += 1;
+                assert!(sealed_nothing(&store, run), "a declined put seals nothing");
+            }
+            RunStatus::Incomplete { reason } => panic!("an uninterrupted put stopped: {reason:?}"),
+        }
+        if !every_point {
+            return;
+        }
+        let total = baseline.report.progress.tasks_total;
+        let done = baseline.report.progress.tasks_done;
+        for cancel in 0..=total {
+            tally.cancellations += 1;
+            let mut store = MemoryStore::default();
+            let interrupted = case.production(budget, &mut store, Some(cancel));
+            let mut reference_store = reference::MemoryStore::default();
+            let stopped = case.reference(budget, &mut reference_store, Some(cancel));
+            assert_eq!(
+                seen_production(&interrupted.report),
+                seen_reference(&stopped.report),
+                "put cancelled after {cancel} tasks"
+            );
+            let resumed = case.production(budget, &mut store, None);
+            let again = case.reference(budget, &mut reference_store, None);
+            assert_eq!(
+                seen_production(&resumed.report),
+                seen_reference(&again.report),
+                "put resumed after {cancel} tasks"
+            );
+            assert_eq!(resumed.report.tasks_reused, cancel.min(done));
+            assert_eq!(
+                format!("{:?}", resumed.report.status),
+                format!("{:?}", baseline.report.status)
+            );
+            assert_eq!(resumed.manifest, baseline.manifest);
+            assert_eq!(
+                store
+                    .staged_uncommitted(&run)
+                    .unwrap_or_else(|never| match never {}),
+                Vec::<ArtifactKey>::new()
+            );
+        }
+    }
+
+    /// The puts of one carrier case: its segmented get's view and every
+    /// edit of it, against the get's complement segments.
+    fn check_case(
+        schema: &RefSchema,
+        migration: &RefMigration,
+        graph: &RefGraph,
+        partition: &reference::Partition,
+        every_point: bool,
+        tally: &mut Tally,
+    ) {
+        let lens = lens_of(schema, migration);
+        let prod_p = prod_partition(partition);
+        let plan = RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, &lens.compiled)
+            .expect("the carrier compiles");
+        let source = partition_graph(&prod_graph(graph), &prod_p).expect("production split");
+        let Ok(got) = graph_restrict_segmented(&plan, &source, &prod_p) else {
+            return;
+        };
+        let (reference_views, reference_complements) =
+            reference_get(schema, migration, graph, partition);
+        let reference_plan = panproto_reference::restrict::compile(schema, schema, migration)
+            .expect("the reference plan compiles");
+        let reference_lens = RefGraphLens::new(
+            schema,
+            schema,
+            migration,
+            &reference_plan,
+            &BTreeMap::new(),
+            &NoValueLayer,
+        )
+        .expect("the reference lens");
+        let view = reference::assemble_graph(&reference_views, partition).expect("glued view");
+        for edited in edits(&view, partition) {
+            let views = partition_graph(&prod_graph(&edited), &prod_p).expect("edited split");
+            let reference_edited =
+                reference::partition_graph(&edited, partition).expect("reference edited split");
+            let held = Held::of(&views, &got.complements, &prod_p);
+            let case = Case {
+                lens: &lens,
+                reference_lens: &reference_lens,
+                held: &held,
+                reference_views: &reference_edited,
+                reference_complements: &reference_complements,
+                partition,
+            };
+            check_put(&case, Budget::unlimited(), every_point, tally);
+            let in_memory = graph_lens::put_segmented(&lens, &views, &got.complements, &prod_p);
+            let mut store = MemoryStore::default();
+            let run = case.production(Budget::unlimited(), &mut store, None);
+            match (&run.report.status, &in_memory) {
+                (RunStatus::Complete { .. }, Ok(_)) => {}
+                (
+                    RunStatus::Failed(SegmentedPutError::Lens(run)),
+                    Err(SegmentedPutError::Lens(held)),
+                ) => {
+                    assert_eq!(lens_reason(run), lens_reason(held), "{edited:?}");
+                }
+                outcomes => {
+                    panic!("the run and in-memory put disagree on {edited:?}: {outcomes:?}")
+                }
+            }
+        }
+    }
+
+    fn sweep(select: impl Fn(usize) -> bool, every_point: bool) -> (usize, usize, Tally) {
+        let mut tally = Tally::default();
+        let (mut cases, mut selected) = (0, 0);
+        for (position, case) in segmented_restrict_cases().step_by(97).enumerate() {
+            cases += 1;
+            if !select(position) {
+                continue;
+            }
+            selected += 1;
+            check_case(
+                &case.schema,
+                &case.migration,
+                &case.graph,
+                &case.partition,
+                every_point,
+                &mut tally,
+            );
+        }
+        (cases, selected, tally)
+    }
+
+    /// Every 97th case of the segmented restriction carrier with every edit
+    /// of its segmented view, put back as a checkpointed run: the report
+    /// equals the reference runner's uninterrupted and at every
+    /// cancellation point, a resumed run ends as the uninterrupted one, a
+    /// complete run emits the reference's restored segments and agrees with
+    /// in-memory segmented put, and a refused put seals nothing.
+    /// `PANPROTO_TEST_SHARD=i/n` restricts the check to the cases at
+    /// positions `i` modulo `n`.
+    #[test]
+    fn segmented_graph_put_run_matches_the_reference_runner_at_every_cancellation_point() {
+        let shard = super::LawShard::from_environment();
+        let (cases, selected, tally) = sweep(
+            |position| shard.is_none_or(|shard| shard.contains(position)),
+            true,
+        );
+        assert_eq!(cases, 1_323);
+        assert_eq!(selected, shard.map_or(cases, |shard| shard.share(cases)));
+        assert!(
+            tally.complete > 0 && tally.refused > 0 && tally.cancellations > 0,
+            "{tally:?}"
+        );
+    }
+
+    /// The certificate's cases at positions divisible by 64, uninterrupted
+    /// and from every cancellation point, checked on every run.
+    #[test]
+    fn segmented_graph_put_run_slice_matches_the_reference_runner() {
+        let (cases, selected, tally) = sweep(|position| position % 64 == 0, true);
+        assert_eq!((cases, selected), (1_323, 21));
+        assert!(tally.complete > 0 && tally.refused > 0, "{tally:?}");
+    }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(16))]
+
+        #[test]
+        fn segmented_graph_put_run_matches_the_reference_runner_on_generated_partitions(
+            anchors in proptest::collection::vec(0_usize..3, 2..=6),
+            edges in proptest::collection::vec((0_usize..6, 0_usize..6), 0..=8),
+            owners in proptest::collection::vec(0_u32..4, 6),
+            segments in 2_u32..=3,
+            surviving in 0_u8..8,
+        ) {
+            let (schema, migration, graph, partition) =
+                generated(&anchors, &edges, &owners, segments, surviving);
+            check_case(&schema, &migration, &graph, &partition, false, &mut Tally::default());
+        }
+    }
+
+    /// The witness case: a three-segment carrier case with an edge crossing
+    /// segments, its unedited view held with its get's complements.
+    fn witness(tally: &mut Tally, check: &mut dyn FnMut(&Case<'_>, &mut Tally)) {
+        let case = segmented_restrict_cases()
+            .find(|case| {
+                case.partition.specs.len() == 3
+                    && case.graph.edges.len() >= 2
+                    && case.migration.surviving_verts.len() == 3
+            })
+            .expect("a three-segment case keeping every vertex");
+        let lens = lens_of(&case.schema, &case.migration);
+        let prod_p = prod_partition(&case.partition);
+        let plan = RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, &lens.compiled)
+            .expect("the carrier compiles");
+        let source = partition_graph(&prod_graph(&case.graph), &prod_p).expect("split");
+        let got = graph_restrict_segmented(&plan, &source, &prod_p).expect("get");
+        let (reference_views, reference_complements) =
+            reference_get(&case.schema, &case.migration, &case.graph, &case.partition);
+        let reference_plan =
+            panproto_reference::restrict::compile(&case.schema, &case.schema, &case.migration)
+                .expect("the reference plan");
+        let reference_lens = RefGraphLens::new(
+            &case.schema,
+            &case.schema,
+            &case.migration,
+            &reference_plan,
+            &BTreeMap::new(),
+            &NoValueLayer,
+        )
+        .expect("the reference lens");
+        let held = Held::of(&got.views, &got.complements, &prod_p);
+        check(
+            &Case {
+                lens: &lens,
+                reference_lens: &reference_lens,
+                held: &held,
+                reference_views: &reference_views,
+                reference_complements: &reference_complements,
+                partition: &case.partition,
+            },
+            tally,
+        );
+    }
+
+    /// Each budget below what a put needs declines it where the reference
+    /// runner declines it, with equal reports at every cancellation point:
+    /// the number of segments and the working set (a view segment's estimate
+    /// plus its complement's length) before any task, the summary bytes at
+    /// Assemble; a complement budget of zero bytes completes, since put
+    /// emits no complement.
+    #[test]
+    fn a_put_run_declines_each_exceeded_budget_like_the_reference() {
+        let mut tally = Tally::default();
+        witness(&mut tally, &mut |case, tally| {
+            let mut store = MemoryStore::default();
+            let full = case.production(Budget::unlimited(), &mut store, None);
+            let RunStatus::Complete { .. } = full.report.status else {
+                panic!("the witness put completes: {:?}", full.report.status);
+            };
+            let peak = full.report.peak_estimated_bytes;
+            let summaries = {
+                let mut store = MemoryStore::default();
+                let probe = case.production(
+                    Budget {
+                        summary: 0,
+                        ..Budget::unlimited()
+                    },
+                    &mut store,
+                    None,
+                );
+                match probe.report.status {
+                    RunStatus::Residual(Residual::BudgetExceeded {
+                        resource: Resource::Summary,
+                        needed,
+                        ..
+                    }) => needed,
+                    other => panic!("a zero summary budget declines at Assemble: {other:?}"),
+                }
+            };
+            for (budget, resource) in [
+                (
+                    Budget {
+                        affected_segments: 2,
+                        ..Budget::unlimited()
+                    },
+                    Some(Resource::AffectedSegments),
+                ),
+                (
+                    Budget {
+                        working_set: peak - 1,
+                        ..Budget::unlimited()
+                    },
+                    Some(Resource::WorkingSet),
+                ),
+                (
+                    Budget {
+                        summary: summaries - 1,
+                        ..Budget::unlimited()
+                    },
+                    Some(Resource::Summary),
+                ),
+                (
+                    Budget {
+                        summary: summaries,
+                        working_set: peak,
+                        complement: Some(0),
+                        ..Budget::unlimited()
+                    },
+                    None,
+                ),
+            ] {
+                let mut store = MemoryStore::default();
+                let run = case.production(budget, &mut store, None);
+                match (resource, &run.report.status) {
+                    (
+                        Some(expected),
+                        RunStatus::Residual(Residual::BudgetExceeded { resource, .. }),
+                    ) => {
+                        assert_eq!(*resource, expected);
+                    }
+                    (None, RunStatus::Complete { .. }) => {}
+                    (_, status) => panic!("{budget:?} ends as {status:?}"),
+                }
+                check_put(case, budget, true, tally);
+            }
+        });
+        assert_eq!((tally.complete, tally.declined), (1, 3), "{tally:?}");
+    }
+
+    /// A store whose commit fails at one commit, leaving that artifact
+    /// staged.
+    #[derive(Default)]
+    struct FailingStore {
+        inner: MemoryStore,
+        fail_at: u32,
+        commits: u32,
+    }
+
+    #[derive(Debug)]
+    struct CommitRefused;
+
+    impl std::fmt::Display for CommitRefused {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("the commit is refused")
+        }
+    }
+
+    impl std::error::Error for CommitRefused {}
+
+    impl SegmentStore for FailingStore {
+        type Error = CommitRefused;
+
+        fn read(&self, key: &ArtifactKey) -> Result<Option<Vec<u8>>, Self::Error> {
+            Ok(self.inner.read(key).unwrap_or_else(|never| match never {}))
+        }
+
+        fn read_at(
+            &self,
+            key: &ArtifactKey,
+            offset: u64,
+            len: u64,
+        ) -> Result<Option<Vec<u8>>, Self::Error> {
+            Ok(self
+                .inner
+                .read_at(key, offset, len)
+                .unwrap_or_else(|never| match never {}))
+        }
+
+        fn stage(&mut self, key: &ArtifactKey, bytes: Vec<u8>) -> Result<(), Self::Error> {
+            self.inner
+                .stage(key, bytes)
+                .unwrap_or_else(|never| match never {});
+            Ok(())
+        }
+
+        fn commit(&mut self, key: &ArtifactKey, record: &TaskRecord) -> Result<(), Self::Error> {
+            let at = self.commits;
+            self.commits += 1;
+            if at == self.fail_at {
+                return Err(CommitRefused);
+            }
+            self.inner
+                .commit(key, record)
+                .unwrap_or_else(|never| match never {});
+            Ok(())
+        }
+
+        fn journal(&self, run: &Digest) -> Result<RunJournal, Self::Error> {
+            Ok(self
+                .inner
+                .journal(run)
+                .unwrap_or_else(|never| match never {}))
+        }
+
+        fn staged_uncommitted(&self, run: &Digest) -> Result<Vec<ArtifactKey>, Self::Error> {
+            Ok(self
+                .inner
+                .staged_uncommitted(run)
+                .unwrap_or_else(|never| match never {}))
+        }
+    }
+
+    /// A commit that fails at any task stops the put with a store failure,
+    /// reports the staged artifact of that task as its one orphan, and a
+    /// run resumed against the store reuses every committed task and ends
+    /// as the uninterrupted run.
+    #[test]
+    fn a_put_run_stopped_by_a_failed_commit_at_any_task_resumes_to_the_uninterrupted_run() {
+        let mut tally = Tally::default();
+        witness(&mut tally, &mut |case, tally| {
+            let mut store = MemoryStore::default();
+            let baseline = case.production(Budget::unlimited(), &mut store, None);
+            let total = baseline.report.progress.tasks_total;
+            assert_eq!(baseline.report.progress.tasks_done, total);
+            for fail_at in 0..total {
+                let mut failing = FailingStore {
+                    fail_at,
+                    ..FailingStore::default()
+                };
+                let stopped = case.production(Budget::unlimited(), &mut failing, None);
+                assert!(
+                    matches!(
+                        &stopped.report.status,
+                        RunStatus::Incomplete {
+                            reason: RunIncompleteReason::Store { message }
+                        } if message == "the commit is refused"
+                    ),
+                    "{:?}",
+                    stopped.report.status
+                );
+                assert_eq!(stopped.report.progress.tasks_done, fail_at);
+                assert_eq!(
+                    stopped.report.orphans.len(),
+                    1,
+                    "the failed task's artifact"
+                );
+                let mut store = failing.inner;
+                let resumed = case.production(Budget::unlimited(), &mut store, None);
+                assert_eq!(resumed.report.tasks_reused, fail_at);
+                assert_eq!(resumed.manifest, baseline.manifest);
+                assert_eq!(
+                    format!("{:?}", resumed.report.status),
+                    format!("{:?}", baseline.report.status)
+                );
+                assert_eq!(resumed.report.orphans, Vec::<ArtifactKey>::new());
+                tally.cancellations += 1;
+            }
+        });
+        assert!(tally.cancellations >= 14, "{tally:?}");
     }
 }

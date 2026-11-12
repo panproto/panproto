@@ -7241,7 +7241,9 @@ pub mod segment {
         bytes: Vec<u8>,
     }
 
-    /// Definition: the Emit artifact of one view segment. A header of seven
+    /// Definition: the Emit artifact of one output segment and, when the
+    /// operation emits one, its complement (without one, the entry count and
+    /// the complement section are empty). A header of seven
     /// little-endian `u64` (the complement's entry count; the lengths of the
     /// view segment's canonical bytes, the complement's canonical bytes and
     /// the view's manifest record; the number of the view's edge ids; the
@@ -7254,15 +7256,19 @@ pub mod segment {
     /// when there is one, and its longest frame with its length.
     fn restrict_emit_bytes(
         view: &GraphSegment,
-        complement: &GraphComplementSegment,
+        complement: Option<&GraphComplementSegment>,
         record: &SegmentRecord,
         schema: Digest,
         p: &Partition,
     ) -> Result<EmitArtifact, SegmentError> {
         let size = |bytes: &[u8]| u64::try_from(bytes.len()).unwrap_or(u64::MAX);
-        let complement = AnyComplementSegment::Graph(complement.clone());
-        let elements = complement.element_count();
-        let complement_bytes = complement.canonical_bytes()?;
+        let (elements, complement_bytes) = match complement {
+            Some(complement) => {
+                let complement = AnyComplementSegment::Graph(complement.clone());
+                (complement.element_count(), complement.canonical_bytes()?)
+            }
+            None => (0, Vec::new()),
+        };
         let view = AnySegment::Graph(view.clone());
         let view_bytes = canonical_segment_bytes(&view, schema, p)?;
         let record_bytes = canonical_record_bytes(record);
@@ -7520,7 +7526,7 @@ pub mod segment {
                     complement: bytes,
                     seal_held: held,
                     bytes: artifact,
-                } = restrict_emit_bytes(view, complement, record, self.spec.schema, self.p)
+                } = restrict_emit_bytes(view, Some(complement), record, self.spec.schema, self.p)
                     .map_err(PipelineStop::Failed)?;
                 seal_held = seal_held.saturating_add(held);
                 let needed = self.report.complement.bytes.saturating_add(bytes);
@@ -7619,8 +7625,8 @@ pub mod segment {
     }
 
     /// The run identity: the lens, the input manifest digest, the partition
-    /// bytes and [`GRAPH_RESTRICT_OP`] under [`RUN_JOURNAL_CONTEXT`].
-    fn restrict_run_identity(lens: Digest, input: Digest, p: &Partition) -> Digest {
+    /// bytes and the operation bytes `op` under [`RUN_JOURNAL_CONTEXT`].
+    fn restrict_run_identity(lens: Digest, input: Digest, p: &Partition, op: &[u8]) -> Digest {
         let mut identity = Canonical::default();
         identity.digest(lens);
         identity.digest(input);
@@ -7631,7 +7637,7 @@ pub mod segment {
             write_spec(&mut partition, item);
         }
         identity.bytes(&partition.0);
-        identity.bytes(GRAPH_RESTRICT_OP);
+        identity.bytes(op);
         Digest::derive(RUN_JOURNAL_CONTEXT, &identity.0)
     }
 
@@ -7791,7 +7797,7 @@ pub mod segment {
             Ok(manifest) => Digest::derive(MANIFEST_CONTEXT, &canonical_manifest_bytes(&manifest)),
             Err(error) => return refused(report, error),
         };
-        let run = restrict_run_identity(spec.lens, input, p);
+        let run = restrict_run_identity(spec.lens, input, p, GRAPH_RESTRICT_OP);
         let mut state = RunnerState {
             p,
             spec: RunSpec {
@@ -7835,6 +7841,605 @@ pub mod segment {
         };
         let outcome = state.restrict_phases(&facts, input);
         finish_restrict(state, facts, outcome)
+    }
+
+    /// Inputs naming a reference run of segmented graph put.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct PutRunSpec {
+        /// Lens identity.
+        pub lens: Digest,
+        /// Schema digest of the view segments.
+        pub view_schema: Digest,
+        /// Role of the view manifest.
+        pub view_role: ManifestRole,
+        /// Schema digest of the restored segments.
+        pub source_schema: Digest,
+        /// Binding digest of the input and output manifests.
+        pub binding: Option<Digest>,
+        /// Optional cancellation boundary measured in committed or reused tasks.
+        pub cancel_after_tasks: Option<u32>,
+    }
+
+    /// A reference run of segmented graph put.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct PutRun {
+        /// Run identity naming the artifacts in the store.
+        pub run: Digest,
+        /// The restored segments when complete.
+        pub output: Option<Vec<GraphSegment>>,
+        /// Output manifest when complete.
+        pub manifest: Option<SegmentManifest>,
+        /// Deterministic execution report.
+        pub report: SegmentRunReport<super::segmented_put::SegmentedPutRefusal>,
+    }
+
+    /// Operation bytes of graph put in a run identity.
+    pub const GRAPH_PUT_OP: &[u8] = b"graph put";
+
+    /// The view segments of a put with the complement segments of the get
+    /// that made them, one per segment in partition order.
+    pub type HeldView<'a> = (&'a [GraphSegment], &'a [GraphComplementSegment]);
+
+    type PutOutcome = Result<Vec<GraphSegment>, super::segmented_put::SegmentedPutRefusal>;
+
+    fn put_report(
+        report: SegmentRunReport,
+    ) -> SegmentRunReport<super::segmented_put::SegmentedPutRefusal> {
+        use super::segmented_put::SegmentedPutRefusal;
+        let status = match report.status {
+            RunStatus::Complete { manifest } => RunStatus::Complete { manifest },
+            RunStatus::Incomplete { reason } => RunStatus::Incomplete { reason },
+            RunStatus::Residual(residual) => RunStatus::Residual(residual),
+            RunStatus::Failed(error) => RunStatus::Failed(SegmentedPutRefusal::Segment(error)),
+        };
+        SegmentRunReport {
+            status,
+            locality: report.locality,
+            budget: report.budget,
+            progress: report.progress,
+            peak_estimated_bytes: report.peak_estimated_bytes,
+            observed_peak_bytes: report.observed_peak_bytes,
+            complement: report.complement,
+            tasks_run: report.tasks_run,
+            tasks_reused: report.tasks_reused,
+            orphans: report.orphans,
+            phases: report.phases,
+        }
+    }
+
+    /// Definition: the first entry of a complement segment, in field order
+    /// and ascending id, about an element segment `holder` does not own: a
+    /// node's entries belong to its owner, an edge's to the owner of its
+    /// source, a synthesized edge's to the owner of its chain's first node
+    /// (the source of the dropped edge an expansion names).
+    fn foreign_complement_entry(
+        complement: &GraphComplementSegment,
+        holder: SegmentId,
+        p: &Partition,
+    ) -> Option<SegmentError> {
+        let place = |elem: ViewRef, node: Option<u32>| match node.and_then(|n| p.owner_of_node(n)) {
+            None => Some(SegmentError::Unowned { elem }),
+            Some(owner) if owner != holder => Some(SegmentError::WrongOwner {
+                elem,
+                expected: owner,
+                found: holder,
+            }),
+            Some(_) => None,
+        };
+        let nodes = complement
+            .dropped_nodes
+            .keys()
+            .chain(complement.original_anchors.keys())
+            .chain(complement.original_fields.keys())
+            .chain(complement.original_values.keys())
+            .chain(complement.synthesized_nodes.keys());
+        for id in nodes {
+            if let Some(error) = place(ViewRef::Node(*id), Some(*id)) {
+                return Some(error);
+            }
+        }
+        for (id, edge) in complement
+            .dropped_edges
+            .iter()
+            .chain(&complement.original_edges)
+        {
+            if let Some(error) = place(ViewRef::Edge(*id), Some(edge.src)) {
+                return Some(error);
+            }
+        }
+        for (id, key) in &complement.synthesized_edges {
+            let chain = match key {
+                SynthKey::Contract { src, .. } | SynthKey::ContractExpand { src, .. } => Some(*src),
+                SynthKey::Expand { source_edge, .. } => complement
+                    .dropped_edges
+                    .get(source_edge)
+                    .map(|edge| edge.src),
+            };
+            if let Some(error) = place(ViewRef::Edge(*id), chain) {
+                return Some(error);
+            }
+        }
+        None
+    }
+
+    /// Definition: the remote nodes segment `view`'s restoration reads, by
+    /// owner: the targets of its view edges, both ends of its dropped edges
+    /// and both ends of its contracted chains, that another segment owns.
+    fn put_requests(
+        view: &GraphSegment,
+        complement: &GraphComplementSegment,
+        p: &Partition,
+    ) -> BTreeMap<SegmentId, BTreeSet<u32>> {
+        let mut nodes: BTreeSet<u32> = view.edges.values().map(|edge| edge.tgt).collect();
+        nodes.extend(
+            complement
+                .dropped_edges
+                .values()
+                .flat_map(|edge| [edge.src, edge.tgt]),
+        );
+        for key in complement
+            .synthesized_nodes
+            .values()
+            .chain(complement.synthesized_edges.values())
+        {
+            if let SynthKey::Contract { src, tgt, .. } | SynthKey::ContractExpand { src, tgt, .. } =
+                key
+            {
+                nodes.extend([*src, *tgt]);
+            }
+        }
+        let mut by_owner: BTreeMap<SegmentId, BTreeSet<u32>> = BTreeMap::new();
+        for node in nodes {
+            if let Some(owner) = p.owner_of_node(node)
+                && owner != view.segment
+            {
+                by_owner.entry(owner).or_default().insert(node);
+            }
+        }
+        by_owner
+    }
+
+    /// Definition: the Summarize artifact of a put: the count of the nodes
+    /// other segments request of the segment, then per node ascending its
+    /// id, its view anchor (a presence byte and the name) when the segment's
+    /// view holds it, and the node of the restored source with that id,
+    /// reduced to its anchor and value (a presence byte and the node record),
+    /// when the put restores one.
+    fn put_facts_bytes(
+        view: &GraphSegment,
+        wanted: &BTreeSet<u32>,
+        restored: Option<&Graph>,
+    ) -> Result<Vec<u8>, SegmentError> {
+        let mut w = Canonical::default();
+        w.len(wanted.len());
+        for node in wanted {
+            w.u32(*node);
+            match view.nodes.get(node) {
+                None => w.tag(0),
+                Some(shown) => {
+                    w.tag(1);
+                    w.string(&shown.anchor);
+                }
+            }
+            match restored.and_then(|graph| graph.nodes.get(node)) {
+                None => w.bool(false),
+                Some(found) => {
+                    w.bool(true);
+                    let mut placeholder = Node::new(*node, &found.anchor);
+                    placeholder.value.clone_from(&found.value);
+                    let mut record = Writer::default();
+                    write_node(&mut record, &placeholder).ok_or_else(|| {
+                        decode_error(ArtifactKind::Summary, "noncanonical restored node")
+                    })?;
+                    w.0.extend(record.bytes);
+                }
+            }
+        }
+        Ok(w.0)
+    }
+
+    /// Definition: the checkpointed run of segmented graph put.
+    ///
+    /// The run seals the view segments of `held` under `p` into the view
+    /// manifest (with `spec.view_schema` and `spec.view_role`, refusing an
+    /// invalid family with that refusal), names itself by the lens, the view
+    /// manifest digest, the partition bytes and [`GRAPH_PUT_OP`], and
+    /// declines a family with more segments than the budget or a segment
+    /// whose [`MemoryModel`] estimate plus its complement's canonical length
+    /// exceeds the working set. It then commits `4n + 2` tasks: per segment
+    /// Validate, which refuses the first complement entry about an element
+    /// the segment does not own; per segment Export; per segment Summarize,
+    /// the facts of [`put_facts_bytes`] from the restored source of
+    /// [`super::segmented_put::put_graph_segmented`]; the coordinator's
+    /// Assemble, which refuses with that put's refusal and otherwise declines
+    /// when the summary bytes and its own artifact (the count of segments and
+    /// each restored segment's boundary) exceed the summary budget; per
+    /// segment Emit, the restored segment without a complement in the Emit
+    /// layout; and Seal, which seals the restored segments as a source under
+    /// `spec.source_schema`, its phase peak the bytes Seal holds of the Emit
+    /// artifacts. The locality reported is a sorted merge. It stops before
+    /// any task once `cancel_after_tasks` tasks are done, and reuses every
+    /// committed task whose inputs and artifact are unchanged.
+    pub fn segmented_put_with_progress<S: SegmentStore>(
+        lens: &crate::pages::lenses::GraphLens<'_>,
+        held: HeldView<'_>,
+        p: &Partition,
+        spec: &PutRunSpec,
+        budget: Budget,
+        store: &mut S,
+        progress: &mut dyn FnMut(&Progress),
+    ) -> PutRun {
+        let (views, complements) = held;
+        let per = u32::try_from(views.len()).unwrap_or(u32::MAX);
+        let total = per.saturating_mul(4).saturating_add(2);
+        let mut report = base_report(InstanceShapeKind::Graph, budget, total);
+        report.locality.put = Locality::Summary(SummaryKind::SortedMerge);
+        let any: Vec<AnySegment> = views.iter().cloned().map(AnySegment::Graph).collect();
+        let input = match seal_manifest(
+            &any,
+            p,
+            spec.view_schema,
+            spec.view_role.clone(),
+            spec.binding,
+        ) {
+            Ok(manifest) => Digest::derive(MANIFEST_CONTEXT, &canonical_manifest_bytes(&manifest)),
+            Err(error) => {
+                return PutRun {
+                    run: Digest::default(),
+                    output: None,
+                    manifest: None,
+                    report: put_report(failed::<()>(report, error).report),
+                };
+            }
+        };
+        let run = restrict_run_identity(spec.lens, input, p, GRAPH_PUT_OP);
+        let mut state = RunnerState {
+            p,
+            spec: RunSpec {
+                operation: spec.lens,
+                schema: spec.source_schema,
+                binding: spec.binding,
+                cancel_after_tasks: spec.cancel_after_tasks,
+            },
+            budget,
+            store,
+            progress,
+            run,
+            peak: 0,
+            segment_inputs: Vec::new(),
+            preflight_summaries: Vec::new(),
+            restrict_source_schema: spec.view_schema,
+            report,
+        };
+        match put_preflight(&any, complements, p, spec.view_schema, budget) {
+            Ok((peak, inputs)) => {
+                state.peak = peak;
+                state.segment_inputs = inputs;
+            }
+            Err(stop) => {
+                return PutRun {
+                    run,
+                    output: None,
+                    manifest: None,
+                    report: put_report(stop_run::<(), S>(state, stop).report),
+                };
+            }
+        }
+        let whole = super::segmented_put::put_graph_segmented(lens, views, complements, p);
+        let outcome = state.put_phases(held, &whole);
+        finish_put(state, whole, outcome)
+    }
+
+    enum PutStop {
+        Pipeline(PipelineStop),
+        Refused(super::segmented_put::SegmentedPutRefusal),
+    }
+
+    impl From<PipelineStop> for PutStop {
+        fn from(stop: PipelineStop) -> Self {
+            Self::Pipeline(stop)
+        }
+    }
+
+    fn pipeline_failed(error: SegmentError) -> PutStop {
+        PutStop::Pipeline(PipelineStop::Failed(error))
+    }
+
+    /// The outcome of the phases of a reference put run.
+    fn finish_put<S: SegmentStore>(
+        mut state: RunnerState<'_, '_, S>,
+        whole: PutOutcome,
+        outcome: Result<(Vec<u8>, SegmentManifest), PutStop>,
+    ) -> PutRun {
+        let run = state.run;
+        let stopped = |report| PutRun {
+            run,
+            output: None,
+            manifest: None,
+            report,
+        };
+        state.report.peak_estimated_bytes = state.peak;
+        match outcome {
+            Ok((bytes, manifest)) => match state.store.staged_uncommitted(&state.run) {
+                Ok(orphans) => {
+                    state.report.orphans = orphans;
+                    state.report.status = RunStatus::Complete {
+                        manifest: Digest::derive(MANIFEST_CONTEXT, &bytes),
+                    };
+                    PutRun {
+                        run,
+                        output: whole.ok(),
+                        manifest: Some(manifest),
+                        report: put_report(state.report),
+                    }
+                }
+                Err(error) => {
+                    state.report.status = RunStatus::Incomplete {
+                        reason: RunIncompleteReason::Store {
+                            message: error.to_string(),
+                        },
+                    };
+                    stopped(put_report(state.report))
+                }
+            },
+            Err(PutStop::Pipeline(stop)) => {
+                stopped(put_report(stop_run::<(), S>(state, stop).report))
+            }
+            Err(PutStop::Refused(refusal)) => {
+                let mut report = put_report(state.report);
+                report.status = RunStatus::Failed(refusal);
+                stopped(report)
+            }
+        }
+    }
+
+    /// The checks before the first task of a put: the number of segments,
+    /// then each segment's working-set estimate with its complement's
+    /// length; the peak estimate and each segment's Validate input (its
+    /// canonical bytes and its complement's).
+    fn put_preflight(
+        segments: &[AnySegment],
+        complements: &[GraphComplementSegment],
+        p: &Partition,
+        schema: Digest,
+        budget: Budget,
+    ) -> Result<(u64, Vec<Vec<u8>>), PipelineStop> {
+        let affected = u64::try_from(segments.len()).unwrap_or(u64::MAX);
+        if affected > u64::from(budget.affected_segments) {
+            return Err(PipelineStop::Residual(Residual::BudgetExceeded {
+                resource: Resource::AffectedSegments,
+                phase: Phase::Validate,
+                segment: None,
+                needed: affected,
+                budget: u64::from(budget.affected_segments),
+            }));
+        }
+        let mut peak = 0;
+        let mut inputs = Vec::with_capacity(segments.len());
+        for (segment, complement) in segments.iter().zip(complements) {
+            let complement_bytes = AnyComplementSegment::Graph(complement.clone())
+                .canonical_bytes()
+                .map_err(PipelineStop::Failed)?;
+            let estimate = MemoryModel::estimate(
+                &segment_summary(segment, p)
+                    .map_err(PipelineStop::Failed)?
+                    .stats,
+            )
+            .saturating_add(u64::try_from(complement_bytes.len()).unwrap_or(u64::MAX));
+            if estimate > budget.working_set {
+                return Err(PipelineStop::Residual(Residual::BudgetExceeded {
+                    resource: Resource::WorkingSet,
+                    phase: Phase::Validate,
+                    segment: Some(segment.segment()),
+                    needed: estimate,
+                    budget: budget.working_set,
+                }));
+            }
+            peak = peak.max(estimate);
+            let mut input = Canonical::default();
+            input
+                .bytes(&canonical_segment_bytes(segment, schema, p).map_err(PipelineStop::Failed)?);
+            input.bytes(&complement_bytes);
+            inputs.push(input.0);
+        }
+        Ok((peak, inputs))
+    }
+
+    impl<S: SegmentStore> RunnerState<'_, '_, S> {
+        /// The phases of a put run over `held`, whose whole-state outcome is
+        /// `whole`.
+        fn put_phases(
+            &mut self,
+            held: HeldView<'_>,
+            whole: &PutOutcome,
+        ) -> Result<(Vec<u8>, SegmentManifest), PutStop> {
+            let (summaries, summary_total) = self.put_local_phases(held, whole)?;
+            if self.cancelled() {
+                return Err(PipelineStop::Cancelled.into());
+            }
+            let outputs = whole
+                .as_ref()
+                .map_err(|refusal| PutStop::Refused(refusal.clone()))?;
+            let mut assembly = Canonical::default();
+            assembly.len(outputs.len());
+            for segment in outputs {
+                write_boundary(&mut assembly, &segment.boundary);
+            }
+            let needed =
+                summary_total.saturating_add(u64::try_from(assembly.0.len()).unwrap_or(u64::MAX));
+            if needed > self.budget.summary {
+                return Err(PipelineStop::Residual(Residual::BudgetExceeded {
+                    resource: Resource::Summary,
+                    phase: Phase::Assemble,
+                    segment: None,
+                    needed,
+                    budget: self.budget.summary,
+                })
+                .into());
+            }
+            let (run_before, reuse_before) = (self.report.tasks_run, self.report.tasks_reused);
+            self.task(
+                Phase::Assemble,
+                None,
+                ArtifactKind::Assembly,
+                &summaries,
+                || Ok(assembly.0.clone()),
+            )?;
+            finish_phase(
+                &mut self.report,
+                Phase::Assemble,
+                run_before,
+                reuse_before,
+                self.peak,
+            );
+            let emitted = self.put_emit(outputs, &assembly.0)?;
+            self.put_seal(outputs, emitted)
+        }
+
+        /// Validate, Export and Summarize of a put; the summary bytes in
+        /// task order and their total length.
+        fn put_local_phases(
+            &mut self,
+            (views, complements): HeldView<'_>,
+            whole: &PutOutcome,
+        ) -> Result<(Vec<u8>, u64), PutStop> {
+            let restored = whole
+                .as_ref()
+                .ok()
+                .map(|segments| assemble_graph(segments, self.p))
+                .transpose()
+                .map_err(pipeline_failed)?;
+            let requests: Vec<BTreeMap<SegmentId, BTreeSet<u32>>> = views
+                .iter()
+                .zip(complements)
+                .map(|(view, complement)| put_requests(view, complement, self.p))
+                .collect();
+            let mut summaries = Canonical::default();
+            let mut summary_total: u64 = 0;
+            for phase in [Phase::Validate, Phase::Export, Phase::Summarize] {
+                let (run_before, reuse_before) = (self.report.tasks_run, self.report.tasks_reused);
+                for (position, (view, complement)) in views.iter().zip(complements).enumerate() {
+                    if self.cancelled() {
+                        return Err(PipelineStop::Cancelled.into());
+                    }
+                    let input = self.segment_inputs[position].clone();
+                    let (kind, output) = match phase {
+                        Phase::Validate => {
+                            if let Some(error) =
+                                foreign_complement_entry(complement, view.segment, self.p)
+                            {
+                                return Err(PutStop::Refused(
+                                    super::segmented_put::SegmentedPutRefusal::Segment(error),
+                                ));
+                            }
+                            (ArtifactKind::Segment, input.clone())
+                        }
+                        Phase::Export => {
+                            let mut w = Canonical::default();
+                            for (owner, nodes) in &requests[position] {
+                                w.u32(owner.0);
+                                write_ids(&mut w, nodes);
+                            }
+                            (ArtifactKind::Export, w.0)
+                        }
+                        _ => {
+                            let wanted: BTreeSet<u32> = requests
+                                .iter()
+                                .filter_map(|by_owner| by_owner.get(&view.segment))
+                                .flatten()
+                                .copied()
+                                .collect();
+                            let bytes = put_facts_bytes(view, &wanted, restored.as_ref())
+                                .map_err(pipeline_failed)?;
+                            (ArtifactKind::Summary, bytes)
+                        }
+                    };
+                    let stored = self.task(phase, Some(view.segment), kind, &input, || {
+                        Ok(output.clone())
+                    })?;
+                    if phase == Phase::Summarize {
+                        summaries.bytes(&stored);
+                        summary_total = summary_total
+                            .saturating_add(u64::try_from(stored.len()).unwrap_or(u64::MAX));
+                    }
+                }
+                finish_phase(&mut self.report, phase, run_before, reuse_before, self.peak);
+            }
+            Ok((summaries.0, summary_total))
+        }
+
+        /// Emit each restored segment without a complement; the emitted
+        /// artifacts and the bytes Seal holds of them.
+        fn put_emit(
+            &mut self,
+            outputs: &[GraphSegment],
+            assembly: &[u8],
+        ) -> Result<(Vec<u8>, u64), PutStop> {
+            let (run_before, reuse_before) = (self.report.tasks_run, self.report.tasks_reused);
+            let any: Vec<AnySegment> = outputs.iter().cloned().map(AnySegment::Graph).collect();
+            let records =
+                manifest_records(&any, self.p, self.spec.schema).map_err(pipeline_failed)?;
+            let mut emitted = Canonical::default();
+            let mut seal_held: u64 = 0;
+            for (segment, record) in outputs.iter().zip(&records) {
+                if self.cancelled() {
+                    return Err(PipelineStop::Cancelled.into());
+                }
+                let artifact = restrict_emit_bytes(segment, None, record, self.spec.schema, self.p)
+                    .map_err(pipeline_failed)?;
+                seal_held = seal_held.saturating_add(artifact.seal_held);
+                self.task(
+                    Phase::Emit,
+                    Some(segment.segment),
+                    ArtifactKind::ComplementSegment,
+                    assembly,
+                    || Ok(artifact.bytes.clone()),
+                )?;
+                emitted.bytes(&artifact.bytes);
+            }
+            finish_phase(
+                &mut self.report,
+                Phase::Emit,
+                run_before,
+                reuse_before,
+                self.peak,
+            );
+            Ok((emitted.0, seal_held))
+        }
+
+        /// Seal the restored segments as a source, holding `seal_held`
+        /// bytes at once.
+        fn put_seal(
+            &mut self,
+            outputs: &[GraphSegment],
+            (emitted, seal_held): (Vec<u8>, u64),
+        ) -> Result<(Vec<u8>, SegmentManifest), PutStop> {
+            if self.cancelled() {
+                return Err(PipelineStop::Cancelled.into());
+            }
+            let any: Vec<AnySegment> = outputs.iter().cloned().map(AnySegment::Graph).collect();
+            let manifest = seal_manifest(
+                &any,
+                self.p,
+                self.spec.schema,
+                ManifestRole::Source,
+                self.spec.binding,
+            )
+            .map_err(pipeline_failed)?;
+            let bytes = canonical_manifest_bytes(&manifest);
+            let (run_before, reuse_before) = (self.report.tasks_run, self.report.tasks_reused);
+            self.task(Phase::Seal, None, ArtifactKind::Manifest, &emitted, || {
+                Ok(bytes.clone())
+            })?;
+            finish_phase(
+                &mut self.report,
+                Phase::Seal,
+                run_before,
+                reuse_before,
+                seal_held,
+            );
+            Ok((bytes, manifest))
+        }
     }
 
     /// Run validate/export/summarize/assemble/emit/seal, with deterministic
