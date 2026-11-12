@@ -10,3 +10,4 @@ pub use crate::pages::segments::segmented_restrict::*;
 pub use crate::pages::segments::segmented_table_edit_lens::*;
 pub use crate::pages::segments::segmented_table_put::*;
 pub use crate::pages::segments::segmented_table_restrict::*;
+pub use crate::pages::segments::segmented_tree_restrict::*;

@@ -148,6 +148,21 @@ impl GraphComplementSegment {
         let mut sink = CanonicalWriter::new();
         sink.write(&SEGMENT_FORMAT_VERSION.to_le_bytes());
         sink.tag(2);
+        self.write_fields(&mut sink)?;
+        sink.u32(self.floors.node);
+        sink.u32(self.floors.edge);
+        Ok(sink.into_bytes())
+    }
+
+    /// Write the fields between the shape tag and the floors, from the
+    /// dropped nodes to the synthesized edges, as
+    /// [`Self::canonical_bytes`] lays them out; a tree complement segment
+    /// writes the same fields.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::canonical_bytes`].
+    pub(super) fn write_fields(&self, sink: &mut CanonicalWriter) -> Result<(), SegmentError> {
         sink.len(self.dropped_nodes.len());
         for (key, node) in &self.dropped_nodes {
             if *key != node.id {
@@ -156,12 +171,12 @@ impl GraphComplementSegment {
                     found: node.id,
                 });
             }
-            write_node_record(&mut sink, node);
+            write_node_record(sink, node);
         }
         for edges in [&self.dropped_edges, &self.original_edges] {
             sink.len(edges.len());
             for (id, edge) in edges {
-                write_edge_record(&mut sink, *id, edge);
+                write_edge_record(sink, *id, edge);
             }
         }
         sink.len(self.original_anchors.len());
@@ -194,16 +209,50 @@ impl GraphComplementSegment {
         sink.len(self.synthesized_nodes.len());
         for (id, key) in &self.synthesized_nodes {
             sink.u32(*id);
-            write_synth_key(&mut sink, key)?;
+            write_synth_key(sink, key)?;
         }
         sink.len(self.synthesized_edges.len());
         for (id, key) in &self.synthesized_edges {
             sink.u32(id.0);
-            write_synth_key(&mut sink, key)?;
+            write_synth_key(sink, key)?;
         }
-        sink.u32(self.floors.node);
-        sink.u32(self.floors.edge);
-        Ok(sink.into_bytes())
+        Ok(())
+    }
+
+    /// Read the fields [`Self::write_fields`] writes, with floors 0.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::from_canonical_bytes`] for those fields.
+    pub(super) fn read_fields(
+        r: &mut Reader<'_>,
+        segment: SegmentId,
+    ) -> Result<Self, SegmentError> {
+        let dropped_nodes = read_nodes(r)?;
+        let dropped_edges = read_edges(r)?;
+        let original_edges = read_edges(r)?;
+        let original_anchors = read_keyed(r, 12, Reader::name)?;
+        let original_extra_fields = read_keyed(r, 12, |r| {
+            Ok(r.value_entries(0)?.into_iter().collect::<BTreeMap<_, _>>())
+        })?;
+        let original_values = read_keyed(r, 5, Reader::presence)?;
+        let synthesized_nodes = read_keyed(r, 11, read_synth_key)?;
+        let synthesized_edges = read_keyed(r, 11, read_synth_key)?
+            .into_iter()
+            .map(|(id, key)| (EdgeId(id), key))
+            .collect();
+        Ok(Self {
+            segment,
+            dropped_nodes,
+            dropped_edges,
+            original_edges,
+            original_anchors,
+            original_extra_fields,
+            original_values,
+            synthesized_nodes,
+            synthesized_edges,
+            floors: IdFloor { node: 0, edge: 0 },
+        })
     }
 
     /// The complement segment of `segment` whose canonical bytes are
@@ -229,36 +278,13 @@ impl GraphComplementSegment {
         if shape != 2 {
             return Err(r.error(format!("complement shape tag {shape}")));
         }
-        let dropped_nodes = read_nodes(&mut r)?;
-        let dropped_edges = read_edges(&mut r)?;
-        let original_edges = read_edges(&mut r)?;
-        let original_anchors = read_keyed(&mut r, 12, Reader::name)?;
-        let original_extra_fields = read_keyed(&mut r, 12, |r| {
-            Ok(r.value_entries(0)?.into_iter().collect::<BTreeMap<_, _>>())
-        })?;
-        let original_values = read_keyed(&mut r, 5, Reader::presence)?;
-        let synthesized_nodes = read_keyed(&mut r, 11, read_synth_key)?;
-        let synthesized_edges = read_keyed(&mut r, 11, read_synth_key)?
-            .into_iter()
-            .map(|(id, key)| (EdgeId(id), key))
-            .collect();
-        let floors = IdFloor {
+        let mut segment = Self::read_fields(&mut r, segment)?;
+        segment.floors = IdFloor {
             node: r.u32()?,
             edge: r.u32()?,
         };
         r.finish()?;
-        Ok(Self {
-            segment,
-            dropped_nodes,
-            dropped_edges,
-            original_edges,
-            original_anchors,
-            original_extra_fields,
-            original_values,
-            synthesized_nodes,
-            synthesized_edges,
-            floors,
-        })
+        Ok(segment)
     }
 
     /// The complement segment's digest: its canonical bytes under
@@ -1122,7 +1148,7 @@ fn held_ids<I: Copy>(held: &BTreeMap<I, SynthKey>, raw: fn(I) -> u32) -> BTreeMa
 /// a key took, and at least the range's lower bound, saturating; it is 0
 /// when the segment declares no range of the kind. With nothing held this
 /// is allocation by the append-floor rule of [`IdAllocator`].
-fn number_keys<'k>(
+pub(super) fn number_keys<'k>(
     (segment, kind): (SegmentId, IdKind),
     range: Option<super::ids::IdRange>,
     source: &BTreeSet<u32>,

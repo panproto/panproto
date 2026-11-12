@@ -25136,3 +25136,772 @@ mod segmented_graph_edit_lens_collection {
         assert!(steps > 0);
     }
 }
+
+/// Segmented tree get against its reference definition and whole-state
+/// tree get.
+mod segmented_tree_get {
+    use std::collections::{BTreeMap, BTreeSet, HashMap};
+
+    use panproto_inst::identity::{ComplementShape, Digest};
+    use panproto_inst::segment::{
+        AnySegment, Budget, EdgeIdRun, IdRange, ManifestHeader, ManifestRole, MemoryStore,
+        Partition, RecordSource, Residual, RunIncompleteReason, RunStatus, SegmentId,
+        SegmentManifest, SegmentRecord, SegmentSpec, SegmentedRestrictError, SegmentedRun,
+        TreeComplementSegment, TreeSegment, assemble_tree, partition_tree, read_emitted_segment,
+        seal_full,
+    };
+    use panproto_inst::{
+        EdgeId, FanEmbedding, InstanceShapeKind, SynthKey, TreeEmbedding, WInstance,
+    };
+    use panproto_lens::tree_lens;
+    use panproto_reference::encode::TreeEmbedding as RefTreeEmbedding;
+    use panproto_reference::enumerate::segments::{
+        segmented_tree_restrict_case_counts, segmented_tree_restrict_lenses,
+        segmented_tree_restrict_partitions, segmented_tree_restrict_schema,
+        segmented_tree_restrict_trees,
+    };
+    use panproto_reference::model::Tree as RefTree;
+    use panproto_reference::segment as reference;
+    use proptest::prelude::*;
+
+    use super::{
+        Pair, Reason, TreeResidue, lens_reason, prod_tree, ref_edge, ref_fields, ref_node,
+        ref_presence, ref_restrict_reason, ref_synth_key, ref_tree, restrict_reason,
+    };
+
+    /// The schema digest of a sealed source family.
+    const SOURCE_SCHEMA: [u8; 32] = [13; 32];
+
+    /// The lens of the carrier at `index`.
+    fn lens(index: usize) -> Pair {
+        let (_, target, migration) = segmented_tree_restrict_lenses().swap_remove(index);
+        Pair::new(segmented_tree_restrict_schema(), target, migration)
+    }
+
+    /// The production partition of a reference tree partition.
+    fn prod_partition(partition: &reference::Partition) -> Partition {
+        let range = |r: &reference::IdRange| IdRange { lo: r.lo, hi: r.hi };
+        Partition::new(
+            InstanceShapeKind::Tree,
+            partition
+                .specs
+                .iter()
+                .map(|spec| SegmentSpec {
+                    id: SegmentId(spec.id.0),
+                    nodes: spec.nodes.iter().map(range).collect(),
+                    alloc_nodes: spec.alloc_nodes.as_ref().map(range),
+                    alloc_edges: spec.alloc_edges.as_ref().map(range),
+                })
+                .collect(),
+        )
+    }
+
+    /// The production embedding of a reference embedding.
+    fn prod_embedding(embedding: &RefTreeEmbedding) -> TreeEmbedding {
+        TreeEmbedding {
+            arcs: embedding
+                .arcs
+                .iter()
+                .map(|(child, id)| (*child, EdgeId(*id)))
+                .collect(),
+            fans: embedding
+                .fans
+                .iter()
+                .map(|(node, parent, children)| FanEmbedding {
+                    node: *node,
+                    parent_edge: EdgeId(*parent),
+                    child_edges: children
+                        .iter()
+                        .map(|(label, id)| (label.clone(), EdgeId(*id)))
+                        .collect(),
+                })
+                .collect(),
+            next_node: embedding.next_node,
+            next_edge: embedding.next_edge,
+        }
+    }
+
+    /// A sealed source family.
+    struct Input {
+        manifest: SegmentManifest,
+        bytes: BTreeMap<SegmentId, Vec<u8>>,
+        partition: Partition,
+        tree: WInstance,
+        embedding: TreeEmbedding,
+    }
+
+    fn input(
+        (tree, embedding): (&RefTree, &RefTreeEmbedding),
+        partition: &reference::Partition,
+    ) -> Input {
+        let partition = prod_partition(partition);
+        let tree = prod_tree(tree);
+        let embedding = prod_embedding(embedding);
+        let segments: Vec<AnySegment> = partition_tree(&tree, &embedding, &partition)
+            .expect("production split")
+            .into_iter()
+            .map(AnySegment::Tree)
+            .collect();
+        let schema = Digest(SOURCE_SCHEMA);
+        let records = segments
+            .iter()
+            .zip(partition.specs())
+            .map(|(segment, spec)| SegmentRecord::of(segment, spec, &schema))
+            .collect();
+        let runs: Vec<EdgeIdRun<'_>> = segments
+            .iter()
+            .map(|segment| {
+                (
+                    segment.segment(),
+                    Box::new(segment.edge_id_run().into_iter()) as Box<dyn Iterator<Item = EdgeId>>,
+                )
+            })
+            .collect();
+        let sources = segments
+            .iter()
+            .map(|segment| Box::new(segment.records()) as Box<dyn RecordSource + '_>)
+            .collect();
+        let manifest = seal_full(
+            records,
+            ManifestHeader {
+                shape: InstanceShapeKind::Tree,
+                schema,
+                role: ManifestRole::Source,
+                binding: None,
+            },
+            runs,
+            sources,
+        )
+        .expect("the carrier seals");
+        let bytes = segments
+            .iter()
+            .map(|segment| {
+                (
+                    segment.segment(),
+                    segment
+                        .canonical_bytes(&schema, &partition)
+                        .expect("canonical bytes"),
+                )
+            })
+            .collect();
+        Input {
+            manifest,
+            bytes,
+            partition,
+            tree,
+            embedding,
+        }
+    }
+
+    fn run(
+        pair: &Pair,
+        input: &Input,
+        store: &mut MemoryStore,
+        cancel: Option<u32>,
+    ) -> SegmentedRun<SegmentedRestrictError> {
+        tree_lens::get_segmented(
+            &pair.production,
+            (&input.manifest, input.manifest.digest()),
+            &input.bytes,
+            Budget::unlimited(),
+            store,
+            cancel,
+        )
+        .expect("the lens's plan compiles")
+    }
+
+    /// The outcome census of the carrier.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    struct Counts {
+        complete: u64,
+        refused: u64,
+        contracted: u64,
+        expanded: u64,
+        outside: u64,
+    }
+
+    /// The whole-state tree key of a graph-form key: an expanded arc named
+    /// by its position in the source's arc order rather than its edge id.
+    fn tree_key(key: &SynthKey, embedding: &TreeEmbedding, tree: &WInstance) -> SynthKey {
+        match key {
+            SynthKey::Expand { source_edge, hop } => {
+                let index = tree
+                    .arcs
+                    .iter()
+                    .position(|(_, child, _)| embedding.arcs.get(child) == Some(source_edge))
+                    .expect("an expanded arc of the source");
+                SynthKey::Expand {
+                    source_edge: EdgeId(u32::try_from(index).expect("an arc index")),
+                    hop: *hop,
+                }
+            }
+            other => other.clone(),
+        }
+    }
+
+    /// Glue a complete run's views and complements and compare them, with
+    /// the synthesized nodes renamed by key as whole-state get numbers them,
+    /// with whole-state tree get of the glued source.
+    fn compare_whole(
+        pair: &Pair,
+        input: &Input,
+        views: Vec<TreeSegment>,
+        complements: &[TreeComplementSegment],
+    ) -> (bool, bool) {
+        let (whole_view, whole) =
+            panproto_lens::get(&pair.production, &input.tree).expect("whole-state get accepts");
+        let view_arcs: BTreeMap<EdgeId, (u32, u32)> = views
+            .iter()
+            .flat_map(|view| {
+                view.arcs
+                    .iter()
+                    .map(|(id, (src, tgt, _))| (*id, (*src, *tgt)))
+            })
+            .collect();
+        let (glued, _) = assemble_tree(views, &input.partition).expect("the views assemble");
+        let by_key: BTreeMap<SynthKey, u32> = whole
+            .synthesized_keys
+            .iter()
+            .map(|(id, key)| (key.clone(), *id))
+            .collect();
+        let mut rename: HashMap<u32, u32> = HashMap::new();
+        let mut synthesized = BTreeMap::new();
+        let mut edge_keys: BTreeMap<(u32, u32), SynthKey> = BTreeMap::new();
+        for complement in complements {
+            for (id, key) in &complement.graph.synthesized_nodes {
+                let key = tree_key(key, &input.embedding, &input.tree);
+                let whole_id = by_key[&key];
+                rename.insert(*id, whole_id);
+                synthesized.insert(whole_id, ref_synth_key(&key));
+            }
+        }
+        let node = |id: u32| rename.get(&id).copied().unwrap_or(id);
+        for complement in complements {
+            for (id, key) in &complement.graph.synthesized_edges {
+                let (src, tgt) = view_arcs[id];
+                edge_keys.insert(
+                    (node(src), node(tgt)),
+                    tree_key(key, &input.embedding, &input.tree),
+                );
+            }
+        }
+        let renamed = WInstance::new(
+            glued
+                .nodes
+                .iter()
+                .map(|(id, held)| {
+                    let mut held = held.clone();
+                    held.id = node(*id);
+                    (node(*id), held)
+                })
+                .collect(),
+            {
+                let mut arcs: Vec<(Option<SynthKey>, u32, u32, panproto_schema::Edge)> = glued
+                    .arcs
+                    .iter()
+                    .map(|(p, c, e)| {
+                        let pair = (node(*p), node(*c));
+                        (edge_keys.get(&pair).cloned(), pair.0, pair.1, e.clone())
+                    })
+                    .collect();
+                arcs.sort_by(|a, b| match (&a.0, &b.0) {
+                    (None, None) => std::cmp::Ordering::Equal,
+                    (None, Some(_)) => std::cmp::Ordering::Less,
+                    (Some(_), None) => std::cmp::Ordering::Greater,
+                    (Some(x), Some(y)) => x.cmp(y),
+                });
+                arcs.into_iter().map(|(_, p, c, e)| (p, c, e)).collect()
+            },
+            glued.fans.clone(),
+            glued.root,
+            glued.schema_root.clone(),
+        );
+        assert_eq!(ref_tree(&renamed), ref_tree(&whole_view), "the glued view");
+        let source_pairs: BTreeSet<(u32, u32)> =
+            input.tree.arcs.iter().map(|(p, c, _)| (*p, *c)).collect();
+        let child_of: BTreeMap<EdgeId, (u32, u32)> = input
+            .tree
+            .arcs
+            .iter()
+            .map(|(p, c, _)| (input.embedding.arcs[c], (*p, *c)))
+            .collect();
+        let mut dropped_arcs = Vec::new();
+        let mut dropped_nodes = BTreeMap::new();
+        let mut arc_order = BTreeMap::new();
+        let mut residue = TreeResidue {
+            dropped_nodes: BTreeMap::new(),
+            dropped_arcs: Vec::new(),
+            contraction_choices: renamed
+                .arcs
+                .iter()
+                .filter(|(p, c, _)| !source_pairs.contains(&(*p, *c)))
+                .map(|(p, c, e)| ((*p, *c), ref_edge(e)))
+                .collect(),
+            arc_order: Vec::new(),
+            original_anchors: BTreeMap::new(),
+            original_fields: BTreeMap::new(),
+            original_values: BTreeMap::new(),
+            synthesized,
+            floor: whole.id_floor,
+        };
+        for complement in complements {
+            let graph = &complement.graph;
+            for (id, held) in &graph.dropped_nodes {
+                if held.shape != panproto_inst::NodeShape::HyperEdge {
+                    dropped_nodes.insert(*id, ref_node(held));
+                }
+            }
+            for edge in graph.dropped_edges.values() {
+                if edge.edge.kind != panproto_inst::HYPER_PARENT_KIND
+                    && edge.edge.kind != panproto_inst::HYPER_LABEL_KIND
+                {
+                    dropped_arcs.push((edge.src, edge.tgt, ref_edge(&edge.edge)));
+                }
+            }
+            for id in &complement.arc_order {
+                arc_order.insert(*id, child_of[id]);
+            }
+            for (id, anchor) in &graph.original_anchors {
+                residue.original_anchors.insert(*id, anchor.to_string());
+            }
+            for (id, fields) in &graph.original_extra_fields {
+                let fields: HashMap<String, panproto_inst::Value> =
+                    fields.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+                residue.original_fields.insert(*id, ref_fields(&fields));
+            }
+            for (id, value) in &graph.original_values {
+                residue
+                    .original_values
+                    .insert(*id, value.as_ref().map(ref_presence));
+            }
+        }
+        dropped_arcs.sort();
+        residue.dropped_nodes = dropped_nodes;
+        residue.dropped_arcs = dropped_arcs;
+        residue.arc_order = arc_order.into_values().collect();
+        assert_eq!(
+            residue,
+            super::production_tree_residue(&whole),
+            "the glued complement"
+        );
+        let original_arcs: BTreeSet<(u32, u32)> = complements
+            .iter()
+            .flat_map(|complement| {
+                complement
+                    .graph
+                    .original_edges
+                    .values()
+                    .map(|edge| (edge.src, edge.tgt))
+            })
+            .collect();
+        let kept: BTreeSet<(u32, u32)> = whole
+            .arc_edges
+            .keys()
+            .copied()
+            .filter(|pair| !whole.contraction_choices.contains_key(pair))
+            .filter(|pair| renamed.arcs.iter().any(|(p, c, _)| (*p, *c) == *pair))
+            .collect();
+        assert_eq!(original_arcs, kept, "the recorded arc labels");
+        (
+            whole
+                .synthesized_keys
+                .values()
+                .any(|key| matches!(key, SynthKey::Expand { .. })),
+            complements.iter().any(|complement| {
+                complement
+                    .graph
+                    .synthesized_edges
+                    .values()
+                    .any(|key| matches!(key, SynthKey::Contract { .. }))
+            }),
+        )
+    }
+
+    fn emitted(
+        store: &MemoryStore,
+        run: &SegmentedRun<SegmentedRestrictError>,
+        partition: &Partition,
+    ) -> Vec<(AnySegment, Vec<u8>)> {
+        let identity = run.run.expect("a run identity");
+        partition
+            .specs()
+            .iter()
+            .map(|spec| {
+                read_emitted_segment(store, identity, partition, spec.id).expect("emitted segment")
+            })
+            .collect()
+    }
+
+    /// Check the law on one case: a complete run's segments are, byte for
+    /// byte, the reference definition's, and glued they are whole-state
+    /// tree get; a refusal is whole-state get's, in the segment the
+    /// reference names.
+    fn check_case(
+        pair: &Pair,
+        (tree, embedding): (&RefTree, &RefTreeEmbedding),
+        partition: &reference::Partition,
+        counts: &mut Counts,
+    ) -> SegmentedRun<SegmentedRestrictError> {
+        let input = input((tree, embedding), partition);
+        let mut store = MemoryStore::default();
+        let baseline = run(pair, &input, &mut store, None);
+        let segments =
+            reference::partition_tree(tree, embedding, partition).expect("reference split");
+        let expected = pair.with_reference(|lens| {
+            reference::restrict_tree_segmented(
+                lens.expect("the plan compiles"),
+                &segments,
+                partition,
+            )
+        });
+        let whole = panproto_lens::get(&pair.production, &input.tree);
+        let view_schema = pair
+            .production
+            .identity(ComplementShape::WType)
+            .target_schema;
+        match (&baseline.report.status, expected) {
+            (RunStatus::Complete { manifest }, expected) => {
+                assert_eq!(
+                    Some(*manifest),
+                    baseline.manifest.as_ref().map(SegmentManifest::digest)
+                );
+                let output = emitted(&store, &baseline, &input.partition);
+                let outside = matches!(
+                    expected,
+                    Err(reference::SegmentedTreeRestrictRefusal::OutsideDomain)
+                );
+                let expected = if outside {
+                    None
+                } else {
+                    Some(expected.unwrap_or_else(|refusal| {
+                        panic!("the reference refuses {tree:?} under {partition:?}: {refusal:?}")
+                    }))
+                };
+                let mut views = Vec::new();
+                let mut complements = Vec::new();
+                for (position, (spec, (view, bytes))) in
+                    input.partition.specs().iter().zip(&output).enumerate()
+                {
+                    let decoded = TreeComplementSegment::from_canonical_bytes(bytes, spec.id)
+                        .expect("the emitted complement decodes");
+                    assert_eq!(&decoded.canonical_bytes().expect("bytes"), bytes);
+                    if let Some(expected) = &expected {
+                        let (expected_view, expected_complement) = &expected[position];
+                        assert_eq!(
+                            view.canonical_bytes(&view_schema, &input.partition)
+                                .expect("view bytes"),
+                            reference::canonical_segment_bytes(
+                                &reference::AnySegment::Tree(expected_view.clone()),
+                                reference::Digest(view_schema.0),
+                                partition,
+                            )
+                            .expect("reference view bytes"),
+                            "view segment {position} of {tree:?} under {partition:?} by {:?}",
+                            pair.production.compiled
+                        );
+                        assert_eq!(
+                            *bytes,
+                            reference::canonical_complement_segment_bytes(
+                                &reference::AnyComplementSegment::Tree(expected_complement.clone()),
+                            )
+                            .expect("reference complement bytes"),
+                            "complement segment {position} of {tree:?} under {partition:?} by {:?}",
+                            pair.production.compiled
+                        );
+                    }
+                    let AnySegment::Tree(view) = view.clone() else {
+                        panic!("a tree view segment");
+                    };
+                    views.push(view);
+                    complements.push(decoded);
+                }
+                let (expanded, contracted) = compare_whole(pair, &input, views, &complements);
+                counts.complete += 1;
+                counts.outside += u64::from(outside);
+                counts.expanded += u64::from(expanded);
+                counts.contracted += u64::from(contracted);
+            }
+            (
+                RunStatus::Failed(SegmentedRestrictError::Restrict { segment, error }),
+                Err(reference::SegmentedTreeRestrictRefusal::Restrict {
+                    segment: expected_segment,
+                    error: expected,
+                }),
+            ) => {
+                let expected = match &expected {
+                    super::RefRestrictError::At { error, .. } => super::ref_engine_reason(error),
+                    other => ref_restrict_reason(other),
+                };
+                assert_eq!(
+                    restrict_reason(error),
+                    expected,
+                    "refusal of {tree:?} under {partition:?}"
+                );
+                assert_eq!(
+                    whole.map(|_| ()).map_err(|refusal| lens_reason(&refusal)),
+                    Err(Reason::Restrict(expected))
+                );
+                assert_eq!(segment.0, expected_segment.0, "the refusing segment");
+                counts.refused += 1;
+            }
+            (status, expected) => panic!(
+                "segmented tree get disagrees on {tree:?} under {partition:?}: {status:?} / {expected:?}"
+            ),
+        }
+        baseline
+    }
+
+    /// Stopping the run at every cancellation point and resuming it against
+    /// the same store ends as `baseline`, reusing every committed task.
+    fn check_resumption(
+        pair: &Pair,
+        input: &Input,
+        baseline: &SegmentedRun<SegmentedRestrictError>,
+    ) -> u64 {
+        let finished = baseline.report.progress.tasks_done;
+        let mut points = 0;
+        for cancel in 0..=baseline.report.progress.tasks_total {
+            points += 1;
+            let mut store = MemoryStore::default();
+            let stopped = run(pair, input, &mut store, Some(cancel));
+            assert_eq!(stopped.run, baseline.run, "run identity");
+            if cancel < finished {
+                assert!(
+                    matches!(
+                        stopped.report.status,
+                        RunStatus::Incomplete {
+                            reason: RunIncompleteReason::Cancelled
+                        }
+                    ),
+                    "{:?}",
+                    stopped.report.status
+                );
+            }
+            let resumed = run(pair, input, &mut store, None);
+            assert_eq!(resumed.report.tasks_reused, cancel.min(finished));
+            assert_eq!(
+                format!("{:?}", resumed.report.status),
+                format!("{:?}", baseline.report.status)
+            );
+            assert_eq!(
+                resumed.manifest.as_ref().map(SegmentManifest::digest),
+                baseline.manifest.as_ref().map(SegmentManifest::digest)
+            );
+        }
+        points
+    }
+
+    /// The carrier census is the closed form.
+    #[test]
+    fn segmented_tree_get_carrier_census_is_the_closed_form() {
+        let (trees, partitions, lenses, cases) = segmented_tree_restrict_case_counts();
+        assert_eq!(
+            u64::try_from(segmented_tree_restrict_trees().len()).expect("count"),
+            trees
+        );
+        assert_eq!(trees, 42);
+        assert_eq!(
+            u64::try_from(segmented_tree_restrict_partitions().len()).expect("count"),
+            partitions
+        );
+        assert_eq!(
+            u64::try_from(segmented_tree_restrict_lenses().len()).expect("count"),
+            lenses
+        );
+        assert_eq!(cases, 3_780);
+    }
+
+    /// The pinned outcome census of the exhaustive differential, derived
+    /// apart from it. Of the `42` trees, `21` are rooted at `b` and `21` at
+    /// `a`. The identity, the lens dropping the edge `ab` (which removes the
+    /// subtree below each such arc and lies outside the reference's tree
+    /// lens domain) and the expanding lens complete on every tree; the
+    /// lenses dropping `b` refuse the `21` trees rooted at `b` with
+    /// `RootPruned`, and the lens dropping `a` the `21` rooted at `a`. A
+    /// contraction needs the chain `0 -> 1 -> 2` anchored `a, b, a` (or `b,
+    /// a, b` when `a` is dropped), two trees with and without the fan: the
+    /// lenses resolving the pair contract them, and the lens with two `aa`
+    /// edges refuses them as ambiguous. An expansion needs an arc from `a`
+    /// to `b`: one anchoring of `0 -> 1`, three of the star and four of the
+    /// chain, each with and without the fan, `16` trees. Under `15`
+    /// partitions: `(42 * 3 + 21 * 2 + 19) * 15 = 2,805` complete,
+    /// `(21 * 2 + 23) * 15 = 975` refused, `4 * 15 = 60` contracted,
+    /// `16 * 15 = 240` expanded and `42 * 15 = 630` outside the reference's
+    /// domain.
+    const SEGMENTED_TREE_GET_COUNTS: Counts = Counts {
+        complete: 2_805,
+        refused: 975,
+        contracted: 60,
+        expanded: 240,
+        outside: 630,
+    };
+
+    /// Every case of the carrier agrees with the reference definition
+    /// segment by segment and glues to whole-state tree get, or refuses as
+    /// it does in the segment the reference names.
+    #[test]
+    fn segmented_tree_get_agrees_with_the_reference_on_every_case() {
+        let trees = segmented_tree_restrict_trees();
+        let partitions = segmented_tree_restrict_partitions();
+        let mut counts = Counts::default();
+        for index in 0..segmented_tree_restrict_lenses().len() {
+            let pair = lens(index);
+            for (tree, embedding) in &trees {
+                for partition in &partitions {
+                    check_case(&pair, (tree, embedding), partition, &mut counts);
+                }
+            }
+        }
+        println!("segmented tree get: {counts:?}");
+        assert_eq!(
+            counts.complete + counts.refused,
+            segmented_tree_restrict_case_counts().3
+        );
+        assert_eq!(counts, SEGMENTED_TREE_GET_COUNTS);
+    }
+
+    /// Every 17th case of the carrier, stopped at each cancellation point
+    /// and resumed, ends as the uninterrupted run.
+    #[test]
+    fn segmented_tree_get_resumes_from_every_cancellation_point() {
+        let trees = segmented_tree_restrict_trees();
+        let partitions = segmented_tree_restrict_partitions();
+        let mut cases = 0_u64;
+        let mut points = 0_u64;
+        let mut counts = Counts::default();
+        let mut index = 0_usize;
+        for lens_index in 0..segmented_tree_restrict_lenses().len() {
+            let pair = lens(lens_index);
+            for (tree, embedding) in &trees {
+                for partition in &partitions {
+                    index += 1;
+                    if !index.is_multiple_of(17) {
+                        continue;
+                    }
+                    let baseline = check_case(&pair, (tree, embedding), partition, &mut counts);
+                    points +=
+                        check_resumption(&pair, &input((tree, embedding), partition), &baseline);
+                    cases += 1;
+                }
+            }
+        }
+        println!("segmented tree get resumption: cases={cases} points={points}");
+        assert_eq!(cases, 3_780 / 17);
+    }
+
+    /// A lens whose survival carries a predicate is declined with a global
+    /// residual before any task.
+    #[test]
+    fn segmented_tree_get_declines_an_expression_before_any_task() {
+        let mut pair = lens(0);
+        pair.production.compiled.conditional_survival.insert(
+            "a".into(),
+            panproto_expr::Expr::Lit(panproto_expr::Literal::Bool(true)),
+        );
+        let trees = segmented_tree_restrict_trees();
+        let (tree, embedding) = trees.last().expect("a tree");
+        let partitions = segmented_tree_restrict_partitions();
+        let input = input((tree, embedding), &partitions[partitions.len() - 1]);
+        let mut store = MemoryStore::default();
+        let declined = run(&pair, &input, &mut store, None);
+        assert!(
+            matches!(
+                declined.report.status,
+                RunStatus::Residual(Residual::Global { .. })
+            ),
+            "{:?}",
+            declined.report.status
+        );
+        assert_eq!(declined.report.progress.tasks_done, 0);
+    }
+
+    /// A generated tree: node `i` below node `parents[i - 1] % i`, anchored
+    /// at `b` when `anchors[i]` is odd, with the fan of `h` from the root to
+    /// the last node when `fan` holds and the tree has two nodes or more.
+    fn generated_tree(parents: &[u8], anchors: &[bool], fan: bool) -> RefTree {
+        use panproto_reference::enumerate::lenses::bounded_lens_edge;
+        let n = u32::try_from(parents.len()).expect("small") + 1;
+        let anchor = |id: u32| if anchors[id as usize] { "b" } else { "a" };
+        RefTree {
+            nodes: (0..n)
+                .map(|id| (id, panproto_reference::model::Node::new(id, anchor(id))))
+                .collect(),
+            arcs: (1..n)
+                .map(|child| {
+                    let parent = u32::from(parents[(child - 1) as usize]) % child;
+                    (
+                        parent,
+                        child,
+                        bounded_lens_edge(anchor(parent), anchor(child)),
+                    )
+                })
+                .collect(),
+            fans: if fan && n > 1 {
+                vec![panproto_reference::model::Fan {
+                    parent: 0,
+                    hyper_edge: "h".to_owned(),
+                    children: BTreeMap::from([("l".to_owned(), n - 1)]),
+                }]
+            } else {
+                Vec::new()
+            },
+            root: 0,
+        }
+    }
+
+    /// A generated partition of the ids `0` to `7` into up to three
+    /// segments, each allocating from its own range above them.
+    fn generated_partition(owners: &[u8]) -> reference::Partition {
+        let segments = owners
+            .iter()
+            .map(|owner| u32::from(*owner % 3))
+            .max()
+            .unwrap_or(0)
+            + 1;
+        reference::Partition {
+            shape: reference::InstanceShapeKind::Tree,
+            specs: (0..segments)
+                .map(|segment| {
+                    let range = reference::IdRange {
+                        lo: 10 + 10 * segment,
+                        hi: 19 + 10 * segment,
+                    };
+                    reference::SegmentSpec {
+                        id: reference::SegmentId(segment),
+                        nodes: (0_u32..)
+                            .zip(owners)
+                            .filter(|(_, owner)| u32::from(**owner % 3) == segment)
+                            .map(|(id, _)| reference::IdRange { lo: id, hi: id })
+                            .chain(std::iter::once(range))
+                            .collect(),
+                        alloc_nodes: Some(range),
+                        alloc_edges: Some(range),
+                    }
+                })
+                .collect(),
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        /// Generated trees of up to seven nodes, with and without a fan,
+        /// under generated partitions into up to three segments, by every
+        /// lens of the carrier.
+        #[test]
+        fn segmented_tree_get_agrees_with_the_reference_on_generated_trees(
+            parents in prop::collection::vec(0_u8..8, 0..7),
+            anchors in prop::collection::vec(any::<bool>(), 7),
+            fan in any::<bool>(),
+            owners in prop::collection::vec(0_u8..3, 8),
+            lens_index in 0_usize..6,
+        ) {
+            let tree = generated_tree(&parents, &anchors, fan);
+            let (_, embedding) = panproto_reference::encode::tree_to_graph(&tree, None)
+                .expect("a generated tree encodes");
+            let partition = generated_partition(&owners);
+            let mut counts = Counts::default();
+            check_case(&lens(lens_index), (&tree, &embedding), &partition, &mut counts);
+        }
+    }
+}

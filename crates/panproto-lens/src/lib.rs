@@ -69,6 +69,7 @@ pub mod table_lens;
 pub mod table_protolens;
 pub mod table_shape;
 pub mod table_symmetric;
+pub mod tree_lens;
 pub mod view_alignment;
 
 // Re-exports for convenience.

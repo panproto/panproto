@@ -10243,7 +10243,7 @@ pub mod segmented_restrict {
     /// `floor_in(range, source)` that is not `u32::MAX` and that no kept key
     /// or earlier new key took. With nothing held this is the append-floor
     /// rule.
-    fn allocate(
+    pub(super) fn allocate(
         range: Option<IdRange>,
         keys: &BTreeSet<SynthKey>,
         source: &BTreeSet<u32>,
@@ -11662,6 +11662,378 @@ pub mod segmented_table_edit_lens {
             return Err(SegmentedTableEditRefusal::PutGetMismatch);
         }
         Ok((d, next))
+    }
+}
+
+pub mod segmented_tree_restrict {
+    //! Segmented tree restriction, defined by restricting the glued tree
+    //! and laying the result out again.
+    //!
+    //! This is the executable definition of L-segments-36. It never runs
+    //! segment by segment: it glues the segments, runs tree get over the
+    //! glued tree's recorded embedding ([`tree_get_embedded`]), gives each
+    //! synthesized element to the segment owning the source of its chain,
+    //! renumbers it from that segment's allocation ranges, and splits the
+    //! view and the complement by owner.
+
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use super::segment::{
+        IdKind, Partition, SegmentError, SegmentFloors, SegmentId, TreeComplementSegment,
+        TreeSegment, assemble_tree, partition_tree,
+    };
+    use super::segmented_restrict::allocate;
+    use crate::encode::TreeEmbedding;
+    use crate::model::{Node, Tree};
+    use crate::pages::lenses::lens::{GraphLens, tree_get_embedded};
+    use crate::restrict::{Complement, RestrictError, SynthKey, floor_of, is_fan_kind};
+
+    /// Why a segmented tree restriction returns no output.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum SegmentedTreeRestrictRefusal {
+        /// The family is invalid, or a segment cannot allocate a
+        /// synthesized id.
+        Segment(SegmentError),
+        /// Tree get refuses the glued tree; `segment` owns the element the
+        /// refusal is about.
+        Restrict {
+            /// The owning segment.
+            segment: SegmentId,
+            /// The whole-state refusal.
+            error: RestrictError,
+        },
+        /// Tree get refuses with an error about no single element.
+        Unlocated(RestrictError),
+        /// The lens or the glued tree lies outside the domain of tree get
+        /// ([`tree_get_embedded`]).
+        OutsideDomain,
+    }
+
+    /// One segment's view and complement.
+    pub type TreeSegmentOutput = (TreeSegment, TreeComplementSegment);
+
+    /// The parent of the arc an embedding names by `edge`.
+    fn arc_parent(t: &Tree, e: &TreeEmbedding, edge: u32) -> Option<u32> {
+        t.arcs
+            .iter()
+            .find(|(_, child, _)| e.arcs.get(child) == Some(&edge))
+            .map(|(parent, _, _)| *parent)
+    }
+
+    /// The segment owning the source of the chain a synthesized key names:
+    /// the owner of a contracted pair's first node, or of an expanded arc's
+    /// parent.
+    fn chain_owner(
+        key: &SynthKey,
+        t: &Tree,
+        e: &TreeEmbedding,
+        p: &Partition,
+    ) -> Option<SegmentId> {
+        let node = match key {
+            SynthKey::Contract { src, .. } | SynthKey::ContractExpand { src, .. } => *src,
+            SynthKey::Expand { source_edge, .. } => arc_parent(t, e, *source_edge)?,
+        };
+        p.owner_of_node(node)
+    }
+
+    /// The segment owning the element a refusal of tree get is about: the
+    /// root, an arc's parent, the first node of a contracted pair, a fan's
+    /// node, or the parent of a merged field.
+    fn refusal_owner(
+        error: &RestrictError,
+        t: &Tree,
+        e: &TreeEmbedding,
+        p: &Partition,
+    ) -> Option<SegmentId> {
+        match error {
+            RestrictError::RootPruned { root } => p.owner_of_node(*root),
+            RestrictError::At { key, .. } if key.stage == 1 => {
+                p.owner_of_node(arc_parent(t, e, key.id)?)
+            }
+            RestrictError::At { key, .. } if key.stage < 5 => p.owner_of_node(key.id),
+            RestrictError::MultipleArcsOnSingleValuedEdge { parent, .. } => {
+                p.owner_of_node(*parent)
+            }
+            _ => None,
+        }
+    }
+
+    /// The ids each synthesized element takes in its chain owner's ranges,
+    /// nodes then edges, keyed by its whole-state id, with every segment's
+    /// floors.
+    type Presentation = (
+        BTreeMap<u32, u32>,
+        BTreeMap<u32, u32>,
+        BTreeMap<SegmentId, SegmentFloors>,
+    );
+
+    /// Number the synthesized elements of `c` segment by segment, in id
+    /// order, nodes before edges, each in ascending key order over the
+    /// owning segment's range and the ids of the source graph form it
+    /// owns (a node by its id, an arc or fan edge by its source).
+    fn present(
+        c: &Complement,
+        (t, e): (&Tree, &TreeEmbedding),
+        source_edges: &BTreeMap<u32, u32>,
+        p: &Partition,
+    ) -> Result<Presentation, SegmentError> {
+        let mut node_ids = BTreeMap::new();
+        let mut edge_ids = BTreeMap::new();
+        let mut floors = BTreeMap::new();
+        let source_nodes: BTreeSet<u32> = t
+            .nodes
+            .keys()
+            .copied()
+            .chain(e.fans.iter().map(|(node, _, _)| *node))
+            .collect();
+        for spec in &p.specs {
+            let owned = |key: &&SynthKey| chain_owner(key, t, e, p) == Some(spec.id);
+            let node_keys: BTreeSet<SynthKey> = c
+                .synthesized_nodes
+                .values()
+                .filter(owned)
+                .cloned()
+                .collect();
+            let edge_keys: BTreeSet<SynthKey> = c
+                .synthesized_edges
+                .values()
+                .filter(owned)
+                .cloned()
+                .collect();
+            let nodes_held: BTreeSet<u32> = source_nodes
+                .iter()
+                .copied()
+                .filter(|id| p.owner_of_node(*id) == Some(spec.id))
+                .collect();
+            let edges_held: BTreeSet<u32> = source_edges
+                .iter()
+                .filter(|(_, src)| p.owner_of_node(**src) == Some(spec.id))
+                .map(|(id, _)| *id)
+                .collect();
+            let nothing = BTreeMap::new();
+            let (nodes, node) = allocate(
+                spec.alloc_nodes,
+                &node_keys,
+                &nodes_held,
+                &nothing,
+                (spec.id, IdKind::Node),
+            )?;
+            let (edges, edge) = allocate(
+                spec.alloc_edges,
+                &edge_keys,
+                &edges_held,
+                &nothing,
+                (spec.id, IdKind::Edge),
+            )?;
+            for (id, key) in &c.synthesized_nodes {
+                if let Some(new) = nodes.get(key) {
+                    node_ids.insert(*id, *new);
+                }
+            }
+            for (id, key) in &c.synthesized_edges {
+                if let Some(new) = edges.get(key) {
+                    edge_ids.insert(*id, *new);
+                }
+            }
+            floors.insert(spec.id, SegmentFloors { node, edge });
+        }
+        Ok((node_ids, edge_ids, floors))
+    }
+
+    /// Definition: segmented tree restriction, by tree get of the glued
+    /// tree.
+    ///
+    /// Glue `segments` under `p` and refuse an invalid family with the glue
+    /// refusal; run [`tree_get_embedded`] on the glued tree and its
+    /// recorded embedding, refusing outside its domain and returning its
+    /// refusal in the segment owning the element it is about. Otherwise
+    /// give each synthesized element to the segment owning the source of
+    /// its chain and number it there, segment by segment in id order, nodes
+    /// before edges, each in ascending key order by the append-floor rule
+    /// over that segment's range and the ids it owns in the source's graph
+    /// form; rename the view and its embedding accordingly, the embedding's
+    /// counters being the source's counters raised to one above every id
+    /// the view holds; split the view with [`partition_tree`]; and split
+    /// the complement by owner (a node's entries to its owner, an edge's to
+    /// the owner of its source, a synthesized element's to its chain's
+    /// owner), each segment holding the ids of the source tree arcs whose
+    /// parent it owns, ascending, and the floors of its ranges.
+    ///
+    /// # Errors
+    ///
+    /// As stated above.
+    pub fn restrict_tree_segmented(
+        lens: &GraphLens<'_>,
+        segments: &[TreeSegment],
+        p: &Partition,
+    ) -> Result<Vec<TreeSegmentOutput>, SegmentedTreeRestrictRefusal> {
+        let (t, e) = assemble_tree(segments, p).map_err(SegmentedTreeRestrictRefusal::Segment)?;
+        let (view, c, view_embedding) = tree_get_embedded(lens, &t, &e)
+            .ok_or(SegmentedTreeRestrictRefusal::OutsideDomain)?
+            .map_err(|error| match refusal_owner(&error, &t, &e, p) {
+                Some(segment) => SegmentedTreeRestrictRefusal::Restrict { segment, error },
+                None => SegmentedTreeRestrictRefusal::Unlocated(error),
+            })?;
+        let mut source_edges: BTreeMap<u32, u32> = t
+            .arcs
+            .iter()
+            .filter_map(|(parent, child, _)| e.arcs.get(child).map(|id| (*id, *parent)))
+            .collect();
+        for (node, parent_edge, children) in &e.fans {
+            source_edges.insert(*parent_edge, *node);
+            source_edges.extend(children.values().map(|id| (*id, *node)));
+        }
+        let (node_ids, edge_ids, floors) = present(&c, (&t, &e), &source_edges, p)
+            .map_err(SegmentedTreeRestrictRefusal::Segment)?;
+        let node = |id: u32| node_ids.get(&id).copied().unwrap_or(id);
+        let edge = |id: u32| edge_ids.get(&id).copied().unwrap_or(id);
+        let presented = Tree {
+            nodes: view
+                .nodes
+                .iter()
+                .map(|(id, held)| {
+                    (
+                        node(*id),
+                        Node {
+                            id: node(*id),
+                            ..held.clone()
+                        },
+                    )
+                })
+                .collect(),
+            arcs: {
+                let mut arcs: Vec<(u32, u32, crate::model::SEdge, u32)> = view
+                    .arcs
+                    .iter()
+                    .map(|(parent, child, label)| {
+                        let id = view_embedding
+                            .arcs
+                            .get(child)
+                            .map_or(u32::MAX, |id| edge(*id));
+                        (node(*parent), node(*child), label.clone(), id)
+                    })
+                    .collect();
+                arcs.sort_by_key(|(.., id)| *id);
+                arcs.into_iter()
+                    .map(|(parent, child, label, _)| (parent, child, label))
+                    .collect()
+            },
+            fans: view.fans.clone(),
+            root: view.root,
+        };
+        let ids_held = presented
+            .nodes
+            .keys()
+            .copied()
+            .chain(view_embedding.fans.iter().map(|(node, _, _)| *node));
+        let edges_held = view_embedding.arcs.values().map(|id| edge(*id)).chain(
+            view_embedding
+                .fans
+                .iter()
+                .flat_map(|(_, parent, children)| {
+                    std::iter::once(*parent).chain(children.values().copied())
+                }),
+        );
+        let embedding = TreeEmbedding {
+            arcs: view_embedding
+                .arcs
+                .iter()
+                .map(|(child, id)| (node(*child), edge(*id)))
+                .collect(),
+            fans: view_embedding.fans.clone(),
+            next_node: e.next_node.max(floor_of(ids_held)),
+            next_edge: e.next_edge.max(floor_of(edges_held)),
+        };
+        let views = partition_tree(&presented, &embedding, p)
+            .map_err(SegmentedTreeRestrictRefusal::Segment)?;
+        let complements = split_tree_complement(
+            &c,
+            (&t, &e),
+            &source_edges,
+            p,
+            (&node_ids, &edge_ids),
+            &floors,
+        );
+        Ok(views.into_iter().zip(complements).collect())
+    }
+
+    /// Definition: the tree complement segments of the graph-form tree
+    /// complement `c` of the source `(t, e)` under `p`, with the
+    /// synthesized ids renumbered by `ids` and the segments' floors
+    /// `floors`.
+    #[must_use]
+    pub fn split_tree_complement(
+        c: &Complement,
+        (t, e): (&Tree, &TreeEmbedding),
+        source_edges: &BTreeMap<u32, u32>,
+        p: &Partition,
+        (node_ids, edge_ids): (&BTreeMap<u32, u32>, &BTreeMap<u32, u32>),
+        floors: &BTreeMap<SegmentId, SegmentFloors>,
+    ) -> Vec<TreeComplementSegment> {
+        p.specs
+            .iter()
+            .map(|spec| {
+                let mine = |node: u32| p.owner_of_node(node) == Some(spec.id);
+                let keyed = |map: &BTreeMap<u32, SynthKey>, ids: &BTreeMap<u32, u32>| {
+                    map.iter()
+                        .filter_map(|(id, key)| {
+                            let new = ids.get(id)?;
+                            (chain_owner(key, t, e, p) == Some(spec.id))
+                                .then(|| (*new, key.clone()))
+                        })
+                        .collect()
+                };
+                let mut arc_order: Vec<u32> = t
+                    .arcs
+                    .iter()
+                    .filter(|(parent, _, label)| mine(*parent) && !is_fan_kind(&label.kind))
+                    .filter_map(|(_, child, _)| e.arcs.get(child).copied())
+                    .collect();
+                arc_order.sort_unstable();
+                TreeComplementSegment {
+                    dropped_nodes: c
+                        .dropped_nodes
+                        .iter()
+                        .filter(|(id, _)| mine(**id))
+                        .map(|(id, n)| (*id, n.clone()))
+                        .collect(),
+                    dropped_edges: c
+                        .dropped_edges
+                        .iter()
+                        .filter(|(_, edge)| mine(edge.src))
+                        .map(|(id, edge)| (*id, edge.clone()))
+                        .collect(),
+                    original_edges: c
+                        .original_edges
+                        .iter()
+                        .filter(|(id, _)| source_edges.get(id).is_some_and(|src| mine(*src)))
+                        .map(|(id, edge)| (*id, edge.clone()))
+                        .collect(),
+                    original_anchors: c
+                        .original_anchors
+                        .iter()
+                        .filter(|(id, _)| mine(**id))
+                        .map(|(id, a)| (*id, a.clone()))
+                        .collect(),
+                    original_fields: c
+                        .original_fields
+                        .iter()
+                        .filter(|(id, _)| mine(**id))
+                        .map(|(id, f)| (*id, f.clone()))
+                        .collect(),
+                    original_values: c
+                        .original_values
+                        .iter()
+                        .filter(|(id, _)| mine(**id))
+                        .map(|(id, v)| (*id, v.clone()))
+                        .collect(),
+                    synthesized_nodes: keyed(&c.synthesized_nodes, node_ids),
+                    synthesized_edges: keyed(&c.synthesized_edges, edge_ids),
+                    arc_order,
+                    floors: floors.get(&spec.id).copied().unwrap_or_default(),
+                }
+            })
+            .collect()
     }
 }
 

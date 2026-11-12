@@ -76,6 +76,7 @@
 //! | The segmented graph edit lens, by application to the glued source, stable segmented restriction and the differ of the glued views | [`segment::bind_segmented_edit`], [`segment::segmented_edit_get`], [`segment::segmented_edit_put`] | `segments.md` |
 //! | Segmented table get, by whole-state table get of the glued table split by owner | [`segment::restrict_table_segmented`], [`segment::split_table_complement`] | `segments.md` |
 //! | Segmented table put, by whole-state table put of the glued view split by owner | [`segment::put_table_segmented`] | `segments.md` |
+//! | Segmented tree get, by tree get over the glued tree's recorded embedding split by owner | [`segment::restrict_tree_segmented`], [`segment::split_tree_complement`], [`lens::tree_get_embedded`] | `segments.md` |
 //! | The segmented table edit lens, by segmented application, segmented table get and put, and the differ of the glued tables | [`segment::bind_segmented_table_edit`], [`segment::segmented_table_edit_get`], [`segment::segmented_table_edit_put`] | `segments.md` |
 //! | Store collection, by reachability through the journals of the root runs | [`segment::collected`] | `segments.md` |
 //! | The checkpointed run of segmented graph restriction, resumed or carrying tasks over from an earlier run | [`segment::segmented_restrict_with_progress`] | `segments.md` |

@@ -26,6 +26,9 @@
 //! - segmented graph extension ([`graph_extend_segmented`]), which runs the
 //!   graph extend engine segment by segment under the source's partition,
 //!   and its checkpointed run ([`graph_extend_run`]);
+//! - segmented table and tree restriction ([`TableRestrict`],
+//!   [`TreeRestrict`]), which run table get and tree get as the phases of
+//!   a checkpointed run;
 //! - segmented edits ([`apply_segmented`]), which apply a
 //!   [`GraphDelta`](crate::graph_edit::GraphDelta), a
 //!   [`TableDelta`](crate::table_delta::TableDelta) or a
@@ -61,6 +64,7 @@ mod table_restrict;
 mod tests;
 mod tree_apply;
 mod tree_bytes;
+mod tree_restrict;
 mod validate;
 
 pub use crate::identity::SEGMENT_EDGE_IDS_CONTEXT;
@@ -118,5 +122,9 @@ pub use tree_apply::TREE_APPLY_OP;
 pub use tree_bytes::{
     FanRecord, canonical_winstance_bytes, winstance_digest, write_arc_record, write_winstance,
     write_winstance_header,
+};
+pub use tree_restrict::{
+    FetchTreeSegment, TREE_RESTRICT_OP, TreeComplementSegment, TreeRestrict,
+    tree_restrict_segmented_with,
 };
 pub use validate::validate_segment;

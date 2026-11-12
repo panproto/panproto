@@ -397,7 +397,8 @@ fn native_map_back_label(
     }
 }
 
-type NativeTreeGet =
+/// What native tree get returns: `None` outside its domain.
+pub type NativeTreeGet =
     Option<Result<(Tree, Complement, crate::encode::TreeEmbedding), RestrictError>>;
 
 struct NativeGetState<'a> {
@@ -921,7 +922,120 @@ fn native_tree_get(lens: &GraphLens<'_>, source: &Tree) -> NativeTreeGet {
     if let Err(error) = lens.plan.validate_for(lens.src, lens.tgt, lens.m) {
         return Some(Err(RestrictError::Plan(error)));
     }
-    let (source_graph, source_embedding) = native_source_carrier(source, lens.src)?;
+    let carrier = native_source_carrier(source, lens.src)?;
+    native_tree_get_on(lens, source, carrier)
+}
+
+/// Independently lay a tree out as the graph its recorded embedding names,
+/// each fan edge labelled as a tree segment labels it: from the hyper-edge
+/// to the target's anchor, of the parent kind without a name or of the
+/// label kind under its label. `None` when the embedding does not name
+/// every arc and fan edge with distinct ids or a fan node is a tree node.
+fn native_embedded_carrier(
+    tree: &Tree,
+    embedding: &crate::encode::TreeEmbedding,
+) -> Option<(Graph, crate::encode::TreeEmbedding)> {
+    if embedding.fans.len() != tree.fans.len() {
+        return None;
+    }
+    let mut graph = Graph {
+        nodes: tree.nodes.clone(),
+        edges: BTreeMap::new(),
+    };
+    let insert = |graph: &mut Graph, id: u32, edge: GEdge| {
+        graph.edges.insert(id, edge).is_none().then_some(())
+    };
+    for (parent, child, label) in &tree.arcs {
+        let id = *embedding.arcs.get(child)?;
+        insert(
+            &mut graph,
+            id,
+            GEdge {
+                src: *parent,
+                tgt: *child,
+                label: label.clone(),
+                position: None,
+            },
+        )?;
+    }
+    for (fan, (node, parent_edge, children)) in tree.fans.iter().zip(&embedding.fans) {
+        if graph.nodes.contains_key(node) {
+            return None;
+        }
+        let mut fan_node = Node::new(*node, &fan.hyper_edge);
+        fan_node.shape = NodeShape::HyperEdge;
+        graph.nodes.insert(*node, fan_node);
+        let parent_anchor = tree.nodes.get(&fan.parent)?.anchor.clone();
+        insert(
+            &mut graph,
+            *parent_edge,
+            fan_edge(
+                *node,
+                &fan.hyper_edge,
+                HYPER_PARENT,
+                None,
+                (fan.parent, parent_anchor),
+            ),
+        )?;
+        if children.keys().ne(fan.children.keys()) {
+            return None;
+        }
+        for (label, child) in &fan.children {
+            let child_anchor = tree.nodes.get(child)?.anchor.clone();
+            insert(
+                &mut graph,
+                *children.get(label)?,
+                fan_edge(
+                    *node,
+                    &fan.hyper_edge,
+                    HYPER_LABEL,
+                    Some(label.clone()),
+                    (*child, child_anchor),
+                ),
+            )?;
+        }
+    }
+    Some((graph, embedding.clone()))
+}
+
+/// Definition: tree get over a recorded embedding.
+///
+/// As [`tree_get`], on the same domain, except that the tree's graph form
+/// is the one its embedding `embedding` names, each fan edge labelled as a
+/// tree segment labels it, instead of the initial embedding: the dropped
+/// and original edges are named by the recorded ids, and synthesized
+/// elements are numbered from one above every id of that graph form. `None`
+/// outside the domain of [`tree_get`] or when the embedding does not lay the
+/// tree out.
+///
+/// Book anchors: `L-segments-36`.
+#[must_use]
+pub fn tree_get_embedded(
+    lens: &GraphLens<'_>,
+    t: &Tree,
+    embedding: &crate::encode::TreeEmbedding,
+) -> NativeTreeGet {
+    let keeps_shape =
+        !lens.plan.fates.iter().any(|(e, f)| {
+            *f == EdgeFate::Drop && lens.m.survives(&e.src) && lens.m.survives(&e.tgt)
+        });
+    if !keeps_shape || !native_tree_structure_is_valid(t) {
+        return None;
+    }
+    if let Err(error) = lens.plan.validate_for(lens.src, lens.tgt, lens.m) {
+        return Some(Err(RestrictError::Plan(error)));
+    }
+    let carrier = native_embedded_carrier(t, embedding)?;
+    native_tree_get_on(lens, t, carrier)
+}
+
+/// Native tree get of `source` on the graph form `(source_graph,
+/// source_embedding)`.
+fn native_tree_get_on(
+    lens: &GraphLens<'_>,
+    source: &Tree,
+    (source_graph, source_embedding): (Graph, crate::encode::TreeEmbedding),
+) -> NativeTreeGet {
     let complement = Complement {
         floor: (
             floor_of(source_graph.nodes.keys().copied()),

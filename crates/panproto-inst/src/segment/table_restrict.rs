@@ -442,6 +442,8 @@ pub enum ComplementSegment {
     Graph(GraphComplementSegment),
     /// A table restriction's complement segment.
     Table(TableComplementSegment),
+    /// A tree restriction's complement segment.
+    Tree(super::tree_restrict::TreeComplementSegment),
 }
 
 impl ComplementSegment {
@@ -449,11 +451,14 @@ impl ComplementSegment {
     ///
     /// # Errors
     ///
-    /// As [`GraphComplementSegment::canonical_bytes`].
+    /// As [`GraphComplementSegment::canonical_bytes`], or
+    /// [`TreeComplementSegment::canonical_bytes`](super::TreeComplementSegment::canonical_bytes)
+    /// for a tree's.
     pub fn canonical_bytes(&self) -> Result<Vec<u8>, SegmentError> {
         match self {
             Self::Graph(segment) => segment.canonical_bytes(),
             Self::Table(segment) => Ok(segment.canonical_bytes()),
+            Self::Tree(segment) => segment.canonical_bytes(),
         }
     }
 
@@ -463,6 +468,7 @@ impl ComplementSegment {
         match self {
             Self::Graph(segment) => segment.element_count(),
             Self::Table(segment) => segment.element_count(),
+            Self::Tree(segment) => segment.element_count(),
         }
     }
 }

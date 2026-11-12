@@ -1718,3 +1718,206 @@ pub fn segmented_table_restrict_partitions() -> Vec<Partition> {
     }
     out
 }
+
+/// The source schema of the segmented tree restriction carrier: the
+/// vertices `a` and `b`, the four bounded lens edges between them, and the
+/// hyper-edge `h` from a parent at `a` (label `p`) to a child at `b`
+/// (label `l`).
+#[must_use]
+pub fn segmented_tree_restrict_schema() -> crate::schema::Schema {
+    use crate::enumerate::lenses::bounded_lens_schema;
+    let mut schema = bounded_lens_schema(
+        &["a", "b"],
+        &[("a", "a"), ("a", "b"), ("b", "a"), ("b", "b")],
+    );
+    schema.hyper_edges.insert(
+        "h".to_owned(),
+        crate::schema::HyperEdge {
+            kind: "fan".to_owned(),
+            signature: BTreeMap::from([
+                ("l".to_owned(), "b".to_owned()),
+                ("p".to_owned(), "a".to_owned()),
+            ]),
+            parent_label: "p".to_owned(),
+        },
+    );
+    schema
+}
+
+/// The lenses of the segmented tree restriction carrier, by name, each a
+/// target schema and a migration from [`segmented_tree_restrict_schema`].
+///
+/// In order: the identity; dropping `b` with the target edge `a -> a` as
+/// the resolution of the pair `(a, a)`; dropping `b` into a target holding
+/// a second edge from `a` to `a`, named `g`, so that the pair `(a, a)` has
+/// two candidate edges; dropping the edge `a -> b` between surviving vertices; expanding the
+/// edge `a -> b` through a node at `b`; and dropping `a` with the target
+/// edge `b -> b` as the resolution of `(b, b)`. Every target declares the
+/// hyper-edge `h`.
+#[must_use]
+pub fn segmented_tree_restrict_lenses() -> Vec<(
+    &'static str,
+    crate::schema::Schema,
+    crate::migration::Migration,
+)> {
+    use crate::enumerate::lenses::{bounded_lens_edge, bounded_lens_schema};
+    let source = segmented_tree_restrict_schema();
+    let with_fan = |mut schema: crate::schema::Schema| {
+        schema.hyper_edges.clone_from(&source.hyper_edges);
+        schema
+    };
+    let keep = |schema: &crate::schema::Schema| crate::migration::Migration {
+        surviving_verts: schema.vertices.keys().cloned().collect(),
+        surviving_edges: schema.edges.iter().cloned().collect(),
+        ..crate::migration::Migration::default()
+    };
+    let mut out = Vec::new();
+    out.push(("identity", source.clone(), keep(&source)));
+    let a = with_fan(bounded_lens_schema(&["a"], &[("a", "a")]));
+    let mut contract_a = keep(&a);
+    contract_a.resolver.insert(
+        ("a".to_owned(), "a".to_owned()),
+        bounded_lens_edge("a", "a"),
+    );
+    out.push(("drop b, contract to aa", a, contract_a));
+    let mut ambiguous = with_fan(bounded_lens_schema(&["a"], &[("a", "a")]));
+    let mut second = bounded_lens_edge("a", "a");
+    second.name = Some("g".to_owned());
+    ambiguous.edges.insert(second);
+    let ambiguous_migration = keep(&ambiguous);
+    out.push(("drop b, two aa edges", ambiguous, ambiguous_migration));
+    let no_ab = with_fan(bounded_lens_schema(
+        &["a", "b"],
+        &[("a", "a"), ("b", "a"), ("b", "b")],
+    ));
+    let no_ab_migration = keep(&no_ab);
+    out.push(("drop the edge ab", no_ab, no_ab_migration));
+    let mut expand = keep(&source);
+    expand
+        .expansion_path
+        .insert(("a".to_owned(), "b".to_owned()), vec!["b".to_owned()]);
+    out.push(("expand ab through b", source.clone(), expand));
+    let b = with_fan(bounded_lens_schema(&["b"], &[("b", "b")]));
+    let mut contract_b = keep(&b);
+    contract_b.resolver.insert(
+        ("b".to_owned(), "b".to_owned()),
+        bounded_lens_edge("b", "b"),
+    );
+    out.push(("drop a, contract to bb", b, contract_b));
+    out
+}
+
+/// The trees of the segmented tree restriction carrier, with their
+/// initial embeddings.
+///
+/// Over the node ids `0 .. n - 1` rooted at `0`, for `n` from one to three,
+/// the shapes are the root alone, `0 -> 1`, `0 -> 1, 0 -> 2` and
+/// `0 -> 1 -> 2`; each node is anchored at `a` or `b` (node `i` at `b`
+/// exactly when bit `i` of the anchor code is set), each arc carries the
+/// one carrier edge between its endpoints' anchors, and a tree of two or
+/// three nodes comes without a fan and with the fan of `h` from the root to
+/// the last node under the label `l`. The embedding is the graph
+/// encoding's, so the fan node is `n`.
+#[must_use]
+pub fn segmented_tree_restrict_trees() -> Vec<(Tree, TreeEmbedding)> {
+    use crate::enumerate::lenses::bounded_lens_edge;
+    let shapes: [&[(u32, u32)]; 4] = [&[], &[(0, 1)], &[(0, 1), (0, 2)], &[(0, 1), (1, 2)]];
+    let mut out = Vec::new();
+    for arcs in shapes {
+        let n = u32::try_from(arcs.len()).unwrap_or(u32::MAX) + 1;
+        for code in 0..(1_u32 << n) {
+            let anchor = |id: u32| if code & (1 << id) == 0 { "a" } else { "b" };
+            for fan in [false, true] {
+                if fan && n == 1 {
+                    continue;
+                }
+                let tree = Tree {
+                    nodes: (0..n).map(|id| (id, Node::new(id, anchor(id)))).collect(),
+                    arcs: arcs
+                        .iter()
+                        .map(|(parent, child)| {
+                            (
+                                *parent,
+                                *child,
+                                bounded_lens_edge(anchor(*parent), anchor(*child)),
+                            )
+                        })
+                        .collect(),
+                    fans: if fan {
+                        vec![Fan {
+                            parent: 0,
+                            hyper_edge: "h".to_owned(),
+                            children: BTreeMap::from([("l".to_owned(), n - 1)]),
+                        }]
+                    } else {
+                        Vec::new()
+                    },
+                    root: 0,
+                };
+                if let Ok((_, embedding)) = crate::encode::tree_to_graph(&tree, None) {
+                    out.push((tree, embedding));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// The partitions of the segmented tree restriction carrier: every set
+/// partition of the ids `0` to `3`, ordered by restricted growth string
+/// (id `i` in segment `s_i`) read as `sum s_i 4^i`, each segment owning its
+/// ids as singleton ranges and the range `10 + 10 s .. 19 + 10 s`, from
+/// which it allocates synthesized nodes and edges. There are `15`, the Bell
+/// number of four.
+#[must_use]
+pub fn segmented_tree_restrict_partitions() -> Vec<Partition> {
+    let mut out = Vec::new();
+    for code in 0..256_u32 {
+        let owners: Vec<u32> = (0..4).map(|i| (code >> (2 * i)) & 3).collect();
+        let restricted = owners
+            .iter()
+            .enumerate()
+            .all(|(i, owner)| *owner <= owners[..i].iter().max().map_or(0, |max| max + 1));
+        if !restricted {
+            continue;
+        }
+        let segments = owners.iter().max().map_or(0, |max| max + 1);
+        out.push(Partition {
+            shape: InstanceShapeKind::Tree,
+            specs: (0..segments)
+                .map(|id| {
+                    let range = IdRange {
+                        lo: 10 + 10 * id,
+                        hi: 19 + 10 * id,
+                    };
+                    SegmentSpec {
+                        id: SegmentId(id),
+                        nodes: (0_u32..)
+                            .zip(&owners)
+                            .filter(|(_, owner)| **owner == id)
+                            .map(|(node, _)| IdRange { lo: node, hi: node })
+                            .chain(std::iter::once(range))
+                            .collect(),
+                        alloc_nodes: Some(range),
+                        alloc_edges: Some(range),
+                    }
+                })
+                .collect(),
+        });
+    }
+    out
+}
+
+/// Independent census of the segmented tree restriction carrier.
+///
+/// Trees: one shape of one node, one of two and two of three, each node at
+/// `a` or `b`, so `2 + 4 + 2 * 8 = 22` anchorings, and the trees of two or
+/// three nodes again with the fan: `2 + 2 * (4 + 16) = 42`. Partitions:
+/// `15`. Lenses: `6`. So `42 * 15 * 6 = 3_780` cases.
+#[must_use]
+pub const fn segmented_tree_restrict_case_counts() -> (u64, u64, u64, u64) {
+    let trees = 2 + 2 * (4 + 2 * 8);
+    let partitions = 15;
+    let lenses = 6;
+    (trees, partitions, lenses, trees * partitions * lenses)
+}

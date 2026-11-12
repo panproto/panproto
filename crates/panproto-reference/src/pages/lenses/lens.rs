@@ -353,4 +353,7 @@ pub use super::squares::{
     SquareRouteObservation, TableSquareObservation, graph_put_square, graph_square,
     relational_table_get, relational_table_put, table_put_square, table_square,
 };
-pub use super::tree::{TreeOperationalError, tree_check_put_domain, tree_get, tree_put};
+pub use super::tree::{
+    NativeTreeGet, TreeOperationalError, tree_check_put_domain, tree_get, tree_get_embedded,
+    tree_put,
+};
