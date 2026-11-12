@@ -991,7 +991,99 @@ impl ProtolensChain {
             return self.steps[0].instantiate(schema, protocol);
         }
         let fused = self.fuse()?;
-        fused.instantiate(schema, protocol)
+        let mut lens = fused.instantiate(schema, protocol)?;
+        self.follow_elements_through_steps(&mut lens, protocol)?;
+        Ok(lens)
+    }
+
+    /// Record in a fused lens the fate of each source vertex and edge as the
+    /// steps carry it, each step at the schema its predecessors produce.
+    ///
+    /// The fused lens compares its source with its target in one pass, which
+    /// cannot tell which of several renamed edges between two vertices a
+    /// source edge became when two steps rename it (an operation rename
+    /// followed by an edge-name rename, say), and reads a vertex one step
+    /// drops and another adds with the same kind as one vertex renamed.
+    /// Following each vertex and edge through the steps' own maps does: it
+    /// survives under its last image when every step keeps it, and is
+    /// dropped when a step drops it, even when a later step adds an element
+    /// with its name. The resolver keeps only pairs of surviving vertices.
+    fn follow_elements_through_steps(
+        &self,
+        lens: &mut Lens,
+        protocol: &Protocol,
+    ) -> Result<(), LensError> {
+        let mut vertices: Vec<(Name, Option<Name>)> = lens
+            .src_schema
+            .vertices
+            .keys()
+            .map(|vertex| (vertex.clone(), Some(vertex.clone())))
+            .collect();
+        let mut edges: Vec<(Edge, Option<Edge>)> = lens
+            .src_schema
+            .edges
+            .keys()
+            .map(|edge| (edge.clone(), Some(edge.clone())))
+            .collect();
+        let mut running = lens.src_schema.clone();
+        for step in &self.steps {
+            let stage = step.instantiate(&running, protocol)?;
+            for (_, image) in &mut vertices {
+                *image = image.take().and_then(|vertex| {
+                    let next = stage
+                        .compiled
+                        .vertex_remap
+                        .get(&vertex)
+                        .cloned()
+                        .unwrap_or(vertex);
+                    stage
+                        .tgt_schema
+                        .vertices
+                        .contains_key(&next)
+                        .then_some(next)
+                });
+            }
+            for (_, image) in &mut edges {
+                *image = image.take().and_then(|edge| {
+                    let next = stage
+                        .compiled
+                        .edge_remap
+                        .get(&edge)
+                        .cloned()
+                        .unwrap_or(edge);
+                    stage.tgt_schema.edges.contains_key(&next).then_some(next)
+                });
+            }
+            running = stage.tgt_schema;
+        }
+        let compiled = &mut lens.compiled;
+        compiled.vertex_remap = HashMap::new();
+        compiled.surviving_verts = HashSet::new();
+        for (vertex, image) in vertices {
+            if let Some(image) = image {
+                compiled.surviving_verts.insert(vertex.clone());
+                compiled.surviving_verts.insert(image.clone());
+                if image != vertex {
+                    compiled.vertex_remap.insert(vertex, image);
+                }
+            }
+        }
+        compiled.edge_remap = HashMap::new();
+        compiled.surviving_edges = HashSet::new();
+        for (edge, image) in edges {
+            if let Some(image) = image {
+                compiled.surviving_edges.insert(edge.clone());
+                compiled.surviving_edges.insert(image.clone());
+                if image != edge {
+                    compiled.edge_remap.insert(edge, image);
+                }
+            }
+        }
+        let surviving = &compiled.surviving_verts;
+        compiled
+            .resolver
+            .retain(|(src, tgt), _| surviving.contains(src) && surviving.contains(tgt));
+        Ok(())
     }
 
     /// Sequential instantiation: instantiate each step at the running
@@ -2591,9 +2683,23 @@ fn compute_migration_between(
 
     // A generated endpoint resolver may repeat a unique target edge, but it
     // must not choose one of several parallel edges. Such a choice is
-    // semantic and cannot be recovered from the endpoint pair alone.
+    // semantic and cannot be recovered from the endpoint pair alone. It
+    // resolves only a pair the source joins by no edge, so it contracts a
+    // path whose interior was dropped and never carries a dropped or
+    // unmatched direct edge onto another target edge.
+    let joined: HashSet<(Name, Name)> = src
+        .edges
+        .keys()
+        .map(|edge| {
+            let end = |vertex: &Name| vertex_remap.get(vertex).unwrap_or(vertex).clone();
+            (end(&edge.src), end(&edge.tgt))
+        })
+        .collect();
     let mut resolver_candidates: HashMap<(Name, Name), Option<Edge>> = HashMap::new();
     for edge in tgt.edges.keys() {
+        if joined.contains(&(edge.src.clone(), edge.tgt.clone())) {
+            continue;
+        }
         let src_in =
             final_surviving.contains(&edge.src) || vertex_remap.values().any(|v| *v == edge.src);
         let tgt_in =
@@ -3022,8 +3128,9 @@ fn apply_strip_enrichment(schema: &Schema, kind: panproto_gat::EnrichmentKind) -
 /// Schema-level counterpart of
 /// [`crate::schema_functor::apply_scoped_transform`]:
 /// extract the sub-schema reachable from `focus`, apply `inner` to it,
-/// and pushout-merge the result back into the full schema. Cross-boundary
-/// edges are preserved; adjacency indices are rebuilt.
+/// and pushout-merge the result back into the full schema. A cross-boundary
+/// edge is preserved unless the inner transform removed its endpoint, in
+/// which case it goes with that vertex; adjacency indices are rebuilt.
 #[allow(clippy::only_used_in_recursion)]
 fn apply_scoped_schema_transform(
     schema: &Schema,
@@ -3090,12 +3197,24 @@ fn apply_scoped_schema_transform(
         .retain(|e, _| !(reachable.contains(&e.src) && reachable.contains(&e.tgt)));
     result.constraints.retain(|id, _| !reachable.contains(id));
     result.defaults.retain(|id, _| !reachable.contains(id));
+    let removed: Vec<Name> = reachable
+        .iter()
+        .filter(|id| !transformed_sub.vertices.contains_key(*id))
+        .cloned()
+        .collect();
     result.vertices.extend(transformed_sub.vertices);
     result.edges.extend(transformed_sub.edges);
     result.constraints.extend(transformed_sub.constraints);
     result.defaults.extend(transformed_sub.defaults);
 
-    // 5. Rebuild adjacency indices.
+    // 5. A vertex the inner transform removed takes with it every edge and
+    //    declaration outside the scope that names it, so no edge keeps an
+    //    endpoint that is not a vertex.
+    for id in &removed {
+        result = apply_drop_schema_vertex(&result, &Arc::from(id.as_str()));
+    }
+
+    // 6. Rebuild adjacency indices.
     rebuild_adjacency(&mut result);
     Ok(result)
 }
@@ -6222,6 +6341,104 @@ mod renames_keep_every_edge {
         assert_eq!(
             vertex_kind(&lens.tgt_schema, "obj").as_deref(),
             Some("thing")
+        );
+        Ok(())
+    }
+}
+
+/// A scoped protolens that removes a vertex removes the edges that reach it
+/// from outside its scope.
+#[cfg(test)]
+mod scoped_drops_take_their_edges {
+    use std::error::Error;
+
+    use panproto_schema::{Protocol, SchemaBuilder};
+
+    use super::elementary;
+
+    type TestResult = Result<(), Box<dyn Error>>;
+
+    #[test]
+    fn a_scoped_sort_drop_removes_the_edge_into_it_from_outside_the_scope() -> TestResult {
+        let protocol = Protocol::default();
+        let schema = SchemaBuilder::new(&protocol)
+            .vertex("p", "object", None)?
+            .vertex("c", "string", None)?
+            .edge("p", "c", "prop", Some("c"))?
+            .build()?;
+        let lens = elementary::scoped("c", elementary::drop_sort("c"))
+            .instantiate_checked(&schema, &protocol)?;
+        assert!(!lens.tgt_schema.vertices.contains_key("c"));
+        assert!(lens.tgt_schema.edges.is_empty());
+        assert!(lens.tgt_schema.vertices.contains_key("p"));
+        Ok(())
+    }
+}
+
+/// A dropped edge stays dropped, and a fused chain follows each edge through
+/// its steps' renames.
+#[cfg(test)]
+mod fused_edges_follow_their_steps {
+    use std::error::Error;
+
+    use panproto_inst::{EdgeId, GEdge, GInstance, Node};
+    use panproto_schema::{Edge, Protocol, Schema, SchemaBuilder};
+
+    use super::{ProtolensChain, elementary};
+
+    type TestResult = Result<(), Box<dyn Error>>;
+
+    fn edge(kind: &str, name: &str) -> Edge {
+        Edge {
+            src: "a".into(),
+            tgt: "b".into(),
+            kind: kind.into(),
+            name: Some(name.into()),
+        }
+    }
+
+    fn pair_schema(edges: &[(&str, &str)]) -> Result<Schema, Box<dyn Error>> {
+        let mut builder = SchemaBuilder::new(&Protocol::default())
+            .vertex("a", "s", None)?
+            .vertex("b", "t", None)?;
+        for (kind, name) in edges {
+            builder = builder.edge("a", "b", kind, Some(name))?;
+        }
+        Ok(builder.build()?)
+    }
+
+    #[test]
+    fn dropping_an_operation_drops_its_edge_beside_a_unique_other_edge() -> TestResult {
+        let protocol = Protocol::default();
+        let schema = pair_schema(&[("p", "x"), ("o", "o")])?;
+        let lens = elementary::drop_op("p").instantiate_checked(&schema, &protocol)?;
+        let mut source = GInstance::new();
+        source.insert_node(Node::new(0, "a"))?;
+        source.insert_node(Node::new(1, "b"))?;
+        source.insert_edge(EdgeId(0), GEdge::new(0, 1, edge("p", "x")))?;
+        let (view, complement) = crate::graph_lens::get(&lens, &source)?;
+        assert!(view.edges().is_empty());
+        assert!(complement.dropped_edges.contains_key(&EdgeId(0)));
+        Ok(())
+    }
+
+    #[test]
+    fn a_fused_operation_rename_then_edge_name_rename_keeps_each_edge_its_own_image() -> TestResult
+    {
+        let protocol = Protocol::default();
+        let schema = pair_schema(&[("p", "x"), ("p", "y")])?;
+        let chain = ProtolensChain::new(vec![
+            elementary::rename_op("p", "r"),
+            elementary::rename_edge_name("a", "b", "x", "z"),
+        ]);
+        let lens = chain.instantiate(&schema, &protocol)?;
+        assert_eq!(
+            lens.compiled.edge_remap.get(&edge("p", "x")),
+            Some(&edge("r", "z"))
+        );
+        assert_eq!(
+            lens.compiled.edge_remap.get(&edge("p", "y")),
+            Some(&edge("r", "y"))
         );
         Ok(())
     }

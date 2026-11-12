@@ -6101,3 +6101,441 @@ pub fn elementary_protolens_count_certificate() -> ElementaryProtolensCountCerti
         put_cases,
     }
 }
+
+// ---------------------------------------------------------------------------
+// Fused chains, scoped protolenses and sequential composites
+// ---------------------------------------------------------------------------
+
+/// The vertices of the fused protolens carrier, with their kinds.
+pub const FUSED_VERTICES: [(&str, &str); 3] = [("c", "string"), ("i", "object"), ("p", "object")];
+/// The candidate edges of the fused protolens carrier, `(src, tgt, kind,
+/// name)`: a path `p -> i -> c` and a direct edge `p -> c`.
+pub const FUSED_EDGE_LABELS: [(&str, &str, &str, &str); 3] = [
+    ("p", "i", "prop", "i"),
+    ("i", "c", "prop", "c"),
+    ("p", "c", "prop", "c"),
+];
+/// Most nodes and edges in a fused-carrier source state.
+pub const FUSED_SOURCE_BOUND: (usize, usize) = (3, 2);
+/// Most nodes and edges in a source state of the two-step composite carrier.
+pub const COMPOSITE_SOURCE_BOUND: (usize, usize) = (2, 1);
+
+/// The schemas of the fused protolens carrier: the three vertices with each
+/// subset of the candidate edges, in subset order.
+#[must_use]
+pub fn fused_protolens_schemas() -> Vec<Schema> {
+    let labels: Vec<(&str, &str, &str, &str)> = FUSED_EDGE_LABELS.to_vec();
+    super::subsets(&labels, labels.len())
+        .into_iter()
+        .map(|edges| {
+            let mut schema = Schema::default();
+            for (vertex, kind) in FUSED_VERTICES {
+                schema = schema.vertex(vertex, kind);
+            }
+            for (src, tgt, kind, name) in edges {
+                schema = schema.edge(src, tgt, kind, Some(name));
+            }
+            schema
+        })
+        .collect()
+}
+
+/// The fused protolens alphabet: the chains the lens DSL's `add_field`,
+/// `hoist_field` and `nest_field` steps compile to and the scoped protolenses
+/// its `scoped` steps compile to.
+///
+/// In order: add the integer field `f` under `p` with its default; hoist `c`
+/// from under `i` to `p`; nest `c` under a new `m` between `p` and `c`; and
+/// scoped at `i`, drop sort `c`, rename sort `string` to `text`, rename the
+/// edge `i -> c` named `c` to `d`, drop that edge, and add the sort `z`;
+/// scoped at `p`, the fused hoist of `c`; and scoped at `c`, drop sort `c`.
+#[must_use]
+pub fn fused_protolens_alphabet() -> Vec<crate::lens::ProtolensTerm> {
+    use crate::lens::ElementaryProtolens as E;
+    use crate::lens::ProtolensTerm as T;
+    let name = |text: &str| text.to_owned();
+    let hoist = T::Fused(vec![
+        T::Elementary(E::AddEdge(SEdge::new("p", "c", "c", Some("c")))),
+        T::Elementary(E::DropSort(name("i"))),
+    ]);
+    let scoped = |focus: &str, inner: T| T::Scoped {
+        focus: name(focus),
+        inner: Box::new(inner),
+    };
+    vec![
+        T::Defaulted {
+            term: Box::new(T::Fused(vec![
+                T::Elementary(E::AddSort {
+                    sort: name("f"),
+                    kind: name("integer"),
+                }),
+                T::Elementary(E::AddEdge(SEdge::new("p", "f", "prop", Some("f")))),
+            ])),
+            parent: name("p"),
+            field: name(BOUNDED_LENS_FIELD),
+        },
+        hoist.clone(),
+        T::Fused(vec![
+            T::Elementary(E::AddSort {
+                sort: name("m"),
+                kind: name("object"),
+            }),
+            T::Elementary(E::AddEdge(SEdge::new("p", "m", "prop", Some("m")))),
+            T::Elementary(E::AddEdge(SEdge::new("m", "c", "prop", Some("c")))),
+            T::Elementary(E::DropEdge {
+                src: name("p"),
+                tgt: name("c"),
+                name: Some(name("c")),
+            }),
+        ]),
+        scoped("i", T::Elementary(E::DropSort(name("c")))),
+        scoped(
+            "i",
+            T::Elementary(E::RenameSort {
+                old: name("string"),
+                new: name("text"),
+            }),
+        ),
+        scoped(
+            "i",
+            T::Elementary(E::RenameEdgeName {
+                src: name("i"),
+                tgt: name("c"),
+                old: name("c"),
+                new: name("d"),
+            }),
+        ),
+        scoped(
+            "i",
+            T::Elementary(E::DropEdge {
+                src: name("i"),
+                tgt: name("c"),
+                name: Some(name("c")),
+            }),
+        ),
+        scoped(
+            "i",
+            T::Elementary(E::AddSort {
+                sort: name("z"),
+                kind: name("string"),
+            }),
+        ),
+        scoped("p", hoist),
+        scoped("c", T::Elementary(E::DropSort(name("c")))),
+    ]
+}
+
+/// The value layer of the fused carrier's `add_field`.
+///
+/// Get writes [`BOUNDED_LENS_VALUE`] under [`BOUNDED_LENS_FIELD`] on every
+/// node anchored at `p` that lacks the field, and put requires an inserted
+/// default to stay unedited and removes it, while a field the source
+/// already had stays an ordinary editable field.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct FusedAddFieldDefault;
+
+impl crate::restrict::ValueLayer for FusedAddFieldDefault {
+    fn canonical_semantics(&self) -> crate::restrict::ValueLayerSemantics {
+        crate::restrict::ValueLayerSemantics {
+            domain: "panproto-reference/fused-add-field-default",
+            version: 1,
+            canonical_payload: Vec::new(),
+        }
+    }
+
+    fn survives(&self, _: &Graph, _: &Node) -> Result<bool, crate::restrict::PredicateRefusal> {
+        Ok(true)
+    }
+
+    fn transform(
+        &self,
+        _: &Graph,
+        node: &Node,
+    ) -> Result<
+        (BTreeMap<String, Value>, Option<crate::value::Presence>),
+        crate::restrict::LayerRefusal,
+    > {
+        let mut fields = node.fields.clone();
+        if node.anchor == "p" {
+            fields
+                .entry(BOUNDED_LENS_FIELD.to_owned())
+                .or_insert(BOUNDED_LENS_VALUE);
+        }
+        Ok((fields, node.value.clone()))
+    }
+
+    fn restore(
+        &self,
+        view: &Node,
+        original_fields: Option<&BTreeMap<String, Value>>,
+        _: Option<&Option<crate::value::Presence>>,
+    ) -> Result<
+        (BTreeMap<String, Value>, Option<crate::value::Presence>),
+        crate::restrict::PutFieldRefusal,
+    > {
+        let mut fields = view.fields.clone();
+        if view.anchor != "p" {
+            return Ok((fields, view.value.clone()));
+        }
+        let derived = crate::restrict::PutFieldRefusal::DerivedCellEdited {
+            field: BOUNDED_LENS_FIELD.to_owned(),
+        };
+        if original_fields.is_some_and(|original| !original.contains_key(BOUNDED_LENS_FIELD)) {
+            if fields.get(BOUNDED_LENS_FIELD) != Some(&BOUNDED_LENS_VALUE) {
+                return Err(derived);
+            }
+            fields.remove(BOUNDED_LENS_FIELD);
+        } else if !fields.contains_key(BOUNDED_LENS_FIELD) {
+            return Err(derived);
+        }
+        Ok((fields, view.value.clone()))
+    }
+}
+
+/// The value layer a fused-carrier term is instantiated with:
+/// [`FusedAddFieldDefault`] for a defaulted term, none otherwise.
+#[must_use]
+pub fn fused_protolens_layer(
+    term: &crate::lens::ProtolensTerm,
+) -> &'static dyn crate::restrict::ValueLayer {
+    if matches!(term, crate::lens::ProtolensTerm::Defaulted { .. }) {
+        &FusedAddFieldDefault
+    } else {
+        &crate::restrict::NoValueLayer
+    }
+}
+
+/// The views a put case of a lens instance puts back: the get view itself,
+/// then its one-step edits ([`bounded_lens_graph_edits`]) over the target.
+#[must_use]
+pub fn put_views_of(
+    view: &Graph,
+    target: &Schema,
+    complement: &crate::restrict::Complement,
+) -> Vec<Graph> {
+    std::iter::once(view.clone())
+        .chain(
+            bounded_lens_graph_edits(view, target, complement)
+                .into_iter()
+                .map(|edit| edit.view),
+        )
+        .collect()
+}
+
+/// Census of a protolens instance carrier.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ProtolensCarrierCertificate {
+    /// Terms (or term pairs) in the alphabet.
+    pub kinds: usize,
+    /// Schemas in the carrier.
+    pub schemas: usize,
+    /// Source states summed over the schemas.
+    pub source_states: usize,
+    /// `(kind, schema, source)` get cases.
+    pub get_cases: usize,
+    /// `(kind, schema)` pairs some precondition refuses.
+    pub inapplicable: usize,
+    /// `(kind, schema)` pairs refused for identifying two edges.
+    pub identifying: usize,
+    /// `(kind, schema)` pairs that instantiate.
+    pub instantiated: usize,
+    /// Instantiated get cases whose get refuses.
+    pub get_refusals: usize,
+    /// `(kind, schema, source, view)` put cases: the view and each of its
+    /// one-step edits, for every instantiated get case whose get succeeds.
+    pub put_cases: usize,
+}
+
+impl ProtolensCarrierCertificate {
+    const fn tally(&mut self, refusal: &crate::lens::TermRefusal) {
+        match refusal {
+            crate::lens::TermRefusal::Inapplicable => self.inapplicable += 1,
+            crate::lens::TermRefusal::Elementary(_) => self.identifying += 1,
+        }
+    }
+}
+
+/// One put case's count: the get view and its one-step edits, from the
+/// closed-form edit count.
+fn put_case_count(
+    view: &Graph,
+    target: &Schema,
+    complement: &crate::restrict::Complement,
+) -> usize {
+    1 + bounded_lens_graph_edit_count(view, target, complement)
+}
+
+/// Count the fused protolens carrier: closed-form source counts, the
+/// reference's instantiation verdicts, and per source the closed-form count
+/// of one-step edits of the reference view.
+#[must_use]
+pub fn fused_protolens_count_certificate() -> ProtolensCarrierCertificate {
+    let alphabet = fused_protolens_alphabet();
+    let schemas = fused_protolens_schemas();
+    let (nodes, edges) = FUSED_SOURCE_BOUND;
+    let mut certificate = ProtolensCarrierCertificate {
+        kinds: alphabet.len(),
+        schemas: schemas.len(),
+        source_states: schemas
+            .iter()
+            .map(|schema| graph_state_count_up_to(schema, nodes, edges))
+            .sum(),
+        ..ProtolensCarrierCertificate::default()
+    };
+    certificate.get_cases = certificate.kinds * certificate.source_states;
+    for term in &alphabet {
+        for schema in &schemas {
+            let protolens = match term.at(schema) {
+                Ok(protolens) => protolens,
+                Err(refusal) => {
+                    certificate.tally(&refusal);
+                    continue;
+                }
+            };
+            certificate.instantiated += 1;
+            let Ok(plan) =
+                crate::restrict::compile(schema, &protolens.target, &protolens.migration)
+            else {
+                certificate.get_refusals += graph_state_count_up_to(schema, nodes, edges);
+                continue;
+            };
+            let Ok(lens) = crate::lens::GraphLens::new(
+                schema,
+                &protolens.target,
+                &protolens.migration,
+                &plan,
+                &BTreeMap::new(),
+                fused_protolens_layer(term),
+            ) else {
+                unreachable!("a plan binds the schemas it was compiled for")
+            };
+            for source in graph_states_up_to(schema, nodes, edges) {
+                match lens.get(&source) {
+                    Ok((view, complement)) => {
+                        certificate.put_cases +=
+                            put_case_count(&view, &protolens.target, &complement);
+                    }
+                    Err(_) => certificate.get_refusals += 1,
+                }
+            }
+        }
+    }
+    certificate
+}
+
+/// The two-step composites of the composite carrier, as pairs of indexes
+/// into [`elementary_protolens_alphabet`]: every ordered pair.
+#[must_use]
+pub fn composite_protolens_pairs() -> Vec<(usize, usize)> {
+    let kinds = elementary_protolens_alphabet().len();
+    (0..kinds)
+        .flat_map(|first| (0..kinds).map(move |second| (first, second)))
+        .collect()
+}
+
+/// Census of the two-step composite carrier, sequential and fused.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CompositeCarrierCertificate {
+    /// The sequential composites, as [`crate::lens::CompositeLens`].
+    pub sequential: ProtolensCarrierCertificate,
+    /// The same pairs fused into one lens, as
+    /// [`crate::lens::ProtolensTerm::Fused`].
+    pub fused: ProtolensCarrierCertificate,
+}
+
+/// Count the two-step composite carrier.
+///
+/// The carrier is the elementary carrier's schemas with sources of at most
+/// [`COMPOSITE_SOURCE_BOUND`]. The count uses closed-form source counts, the
+/// reference's instantiation verdicts and the closed-form edit counts of the
+/// reference views, the sequential put views being edits over the second
+/// part's target against its complement.
+#[must_use]
+pub fn composite_protolens_count_certificate() -> CompositeCarrierCertificate {
+    use crate::lens::{CompositeInstantiationError, CompositeLens, ProtolensTerm};
+    let alphabet = elementary_protolens_alphabet();
+    let pairs = composite_protolens_pairs();
+    let schemas = elementary_protolens_schemas();
+    let (nodes, edges) = COMPOSITE_SOURCE_BOUND;
+    let source_states: usize = schemas
+        .iter()
+        .map(|schema| graph_state_count_up_to(schema, nodes, edges))
+        .sum();
+    let base = ProtolensCarrierCertificate {
+        kinds: pairs.len(),
+        schemas: schemas.len(),
+        source_states,
+        get_cases: pairs.len() * source_states,
+        ..ProtolensCarrierCertificate::default()
+    };
+    let mut out = CompositeCarrierCertificate {
+        sequential: base,
+        fused: base,
+    };
+    for (first, second) in pairs {
+        let parts = [
+            ProtolensTerm::Elementary(alphabet[first].clone()),
+            ProtolensTerm::Elementary(alphabet[second].clone()),
+        ];
+        for schema in &schemas {
+            let sources = graph_states_up_to(schema, nodes, edges);
+            match CompositeLens::instantiate(&parts, schema) {
+                Err(refusal) => match refusal.error {
+                    CompositeInstantiationError::Term(term) => out.sequential.tally(&term),
+                    CompositeInstantiationError::Plan(_) => {
+                        out.sequential.instantiated += 1;
+                        out.sequential.get_refusals += sources.len();
+                    }
+                },
+                Ok(composite) => {
+                    out.sequential.instantiated += 1;
+                    let Some(target) = composite.target() else {
+                        unreachable!("a two-step composite has a target")
+                    };
+                    for source in &sources {
+                        match composite.get(source) {
+                            Ok((view, complements)) => {
+                                out.sequential.put_cases +=
+                                    put_case_count(&view, target, &complements[1]);
+                            }
+                            Err(_) => out.sequential.get_refusals += 1,
+                        }
+                    }
+                }
+            }
+            let fused = ProtolensTerm::Fused(parts.to_vec());
+            match fused.at(schema) {
+                Err(refusal) => out.fused.tally(&refusal),
+                Ok(protolens) => {
+                    out.fused.instantiated += 1;
+                    let Ok(plan) =
+                        crate::restrict::compile(schema, &protolens.target, &protolens.migration)
+                    else {
+                        out.fused.get_refusals += sources.len();
+                        continue;
+                    };
+                    let Ok(lens) = crate::lens::GraphLens::new(
+                        schema,
+                        &protolens.target,
+                        &protolens.migration,
+                        &plan,
+                        &BTreeMap::new(),
+                        &crate::restrict::NoValueLayer,
+                    ) else {
+                        unreachable!("a plan binds the schemas it was compiled for")
+                    };
+                    for source in &sources {
+                        match lens.get(source) {
+                            Ok((view, complement)) => {
+                                out.fused.put_cases +=
+                                    put_case_count(&view, &protolens.target, &complement);
+                            }
+                            Err(_) => out.fused.get_refusals += 1,
+                        }
+                    }
+                }
+            }
+        }
+    }
+    out
+}

@@ -4939,6 +4939,7 @@
       "reference_files": [
         "crates/panproto-reference/src/pages/lenses.rs",
         "crates/panproto-reference/src/pages/lenses/alignment.rs",
+        "crates/panproto-reference/src/pages/lenses/composite.rs",
         "crates/panproto-reference/src/pages/lenses/constructions.rs",
         "crates/panproto-reference/src/pages/lenses/domain.rs",
         "crates/panproto-reference/src/pages/lenses/elementary.rs",
@@ -5580,6 +5581,83 @@
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_lenses",
               "test": "randomized_elementary_protolens_differential"
+            }
+          ]
+        },
+        {
+          "id": "lenses.fused-protolens-instances",
+          "anchor": "L-lenses-22",
+          "references": [
+            "panproto_reference::lens::ProtolensTerm::at",
+            "panproto_reference::lens::ProtolensTerm::target",
+            "panproto_reference::lens::ProtolensTerm::surviving_vertices",
+            "panproto_reference::lens::ProtolensTerm::edge_images",
+            "panproto_reference::lens::structural_migration"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "fused_and_scoped_protolenses_agree_with_the_reference_exhaustively"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "fused_two_step_chains_of_elementary_protolenses_agree_with_the_reference_exhaustively"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "randomized_fused_and_scoped_protolens_differential"
+            }
+          ]
+        },
+        {
+          "id": "lenses.scoped-protolens-instances",
+          "anchor": "L-lenses-23",
+          "references": [
+            "panproto_reference::lens::ProtolensTerm::transform",
+            "panproto_reference::lens::ProtolensTerm::at"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "fused_and_scoped_protolenses_agree_with_the_reference_exhaustively"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "randomized_fused_and_scoped_protolens_differential"
+            }
+          ]
+        },
+        {
+          "id": "lenses.sequential-protolens-composites",
+          "anchor": "L-lenses-24",
+          "references": [
+            "panproto_reference::lens::CompositeLens::instantiate",
+            "panproto_reference::lens::CompositeLens::get",
+            "panproto_reference::lens::CompositeLens::put",
+            "panproto_reference::lens::CompositeLens::check_put_domain"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "sequential_composites_of_elementary_protolenses_agree_with_the_reference_exhaustively"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "randomized_sequential_composite_differential"
             }
           ]
         }

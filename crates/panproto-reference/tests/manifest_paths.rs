@@ -30,10 +30,10 @@ fn the_crate_table_is_exactly_the_manifest_reference_population() {
         .values()
         .flat_map(|page| &page.laws)
         .collect();
-    assert_eq!(laws.len(), 262);
+    assert_eq!(laws.len(), 265);
     assert_eq!(
         laws.iter().map(|law| law.references.len()).sum::<usize>(),
-        473
+        484
     );
 
     let value_io_cst_presentation = manifest.pages["value-io"]
@@ -55,15 +55,15 @@ fn the_crate_table_is_exactly_the_manifest_reference_population() {
         .flat_map(|law| &law.references)
         .cloned()
         .collect();
-    assert_eq!(lens_laws.len(), 21);
+    assert_eq!(lens_laws.len(), 24);
     assert_eq!(
         lens_laws
             .iter()
             .map(|law| law.references.len())
             .sum::<usize>(),
-        78,
+        89,
     );
-    assert_eq!(lens_paths.len(), 42);
+    assert_eq!(lens_paths.len(), 52);
 
     let expected: std::collections::BTreeSet<_> = manifest
         .pages
@@ -73,8 +73,8 @@ fn the_crate_table_is_exactly_the_manifest_reference_population() {
         .cloned()
         .collect();
     let documented = documented_table_functions();
-    assert_eq!(expected.len(), 336);
-    assert_eq!(documented.len(), 336);
+    assert_eq!(expected.len(), 346);
+    assert_eq!(documented.len(), 346);
     assert_eq!(documented, expected);
 }
 
@@ -160,20 +160,20 @@ fn lenses_law_to_public_path_incidences_are_exact() {
         let law = page.laws.iter().find(|law| law.id == id).unwrap();
         assert_eq!(law.references, references, "unexpected references for {id}");
     }
-    assert_eq!(page.laws.len(), 21);
+    assert_eq!(page.laws.len(), 24);
     assert_eq!(
         page.laws
             .iter()
             .map(|law| law.references.len())
             .sum::<usize>(),
-        78,
+        89,
     );
     let unique_paths = page
         .laws
         .iter()
         .flat_map(|law| &law.references)
         .collect::<std::collections::BTreeSet<_>>();
-    assert_eq!(unique_paths.len(), 42);
+    assert_eq!(unique_paths.len(), 52);
 }
 
 /// The validation page's laws and their reference paths, in manifest order.
@@ -520,7 +520,10 @@ fn block_named_tests_are_exactly_the_manifest_consumers() {
             }
         }
     }
-    assert_eq!(strict_laws, 21, "the lenses page registers twenty-one laws");
+    assert_eq!(
+        strict_laws, 24,
+        "the lenses page registers twenty-four laws"
+    );
     assert!(
         strict_drift.is_empty(),
         "block-named tests differ from manifest consumers:\n{}",
