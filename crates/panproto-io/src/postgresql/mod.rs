@@ -16,6 +16,8 @@
 //! byte offset of the token it is about; a script that is not `PostgreSQL`
 //! syntax is refused at the first place the parser could not read.
 
+mod explore;
+
 use std::cell::RefCell;
 
 use panproto_protocols::database::postgresql::{
