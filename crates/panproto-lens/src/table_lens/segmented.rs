@@ -238,7 +238,7 @@ struct Pulled {
 
 /// The row a put-domain violation is about: a row's own, a pair's source
 /// row; `None` for a violation about no single element.
-fn about(error: &PutDomainError) -> Option<RowId> {
+const fn about(error: &PutDomainError) -> Option<RowId> {
     match error {
         PutDomainError::IdCollision { elem }
         | PutDomainError::SynthesizedEdited { elem }
@@ -487,7 +487,7 @@ fn family_segment(
         };
         let owner = index
             .owner_of_node(tgt.0)
-            .ok_or(SegmentError::Unowned { elem: elem.clone() })?;
+            .ok_or_else(|| SegmentError::Unowned { elem: elem.clone() })?;
         let table = |row: RowId| source.table_of(row).cloned().unwrap_or_default();
         out.boundary.ghosts.entry(tgt.0).or_insert_with(|| Ghost {
             node: tgt.0,
@@ -623,7 +623,7 @@ fn least(mut found: Vec<PutDomainError>) -> Option<PutDomainError> {
 /// A refusal of the restored source's get as a put stop: the get's
 /// refusal as the clause's violation, any other stop as it is.
 enum GetStop {
-    Refused(PutDomainError),
+    Refused(Box<PutDomainError>),
     Stop(PutStop),
 }
 
@@ -640,7 +640,7 @@ impl From<StreamStop<PutStop>> for GetStop {
                             },
                         )))
                     },
-                    Self::Refused,
+                    |error| Self::Refused(Box::new(error)),
                 )
             }
             StreamStop::Refused(SegmentedRestrictError::Segment(error)) => {
@@ -796,7 +796,7 @@ impl<C: SegmentSource> TablePut<'_, C> {
         let ids = cx.segments();
         match self.family_get(cx, shared, boundaries, false, &mut |_, _| Ok(())) {
             Ok(()) => {}
-            Err(GetStop::Refused(error)) => return Ok(vec![error]),
+            Err(GetStop::Refused(error)) => return Ok(vec![*error]),
             Err(GetStop::Stop(stop)) => return Err(stop),
         }
         let mut trace_refusal: Option<PutDomainError> = None;
@@ -847,7 +847,7 @@ impl<C: SegmentSource> TablePut<'_, C> {
                 Some(refusal) => found.push(refusal),
                 None => found.extend(stability),
             },
-            Err(GetStop::Refused(error)) => found.push(error),
+            Err(GetStop::Refused(error)) => found.push(*error),
             Err(GetStop::Stop(stop)) => return Err(stop),
         }
         for &segment in &ids {

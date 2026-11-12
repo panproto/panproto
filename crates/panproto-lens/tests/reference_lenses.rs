@@ -19059,7 +19059,7 @@ mod segmented_graph_put {
             Locality::Global(GlobalReason::ExpressionDemand { .. })
         ));
 
-        let mut misplaced = got.complements.clone();
+        let mut misplaced = got.complements;
         let moved = misplaced[1]
             .dropped_nodes
             .pop_first()
@@ -23218,6 +23218,67 @@ mod segmented_table_put {
         }
     }
 
+    /// Whole-state table put of `edited` against the joined complement
+    /// segments of `got`, stamped as whole-state get stamps them.
+    fn whole_put(
+        pair: &TablePair,
+        got: &Got,
+        edited: &RefTable,
+    ) -> Result<panproto_inst::FInstance, panproto_lens::LensError> {
+        let mut joined = TableComplementSegment::glue(&got.complements);
+        joined.stamp(
+            pair.production.identity(ComplementShape::Functor),
+            &pair.production.src_schema,
+        );
+        table_lens::put(
+            &pair.production,
+            &prod_table(edited),
+            &joined,
+            pair.protocols(),
+        )
+    }
+
+    /// The restored segments a complete run emitted, each compared byte for
+    /// byte with the reference definition's.
+    fn restored_segments(
+        pair: &TablePair,
+        partition: &reference::Partition,
+        store: &MemoryStore,
+        baseline: &SegmentedRun<SegmentedPutError>,
+        expected: &[reference::TableSegment],
+    ) -> Vec<TableSegment> {
+        let prod_p = prod_partition(partition);
+        let schema = pair
+            .production
+            .identity(ComplementShape::Functor)
+            .source_schema;
+        let identity = baseline.run.expect("a run identity");
+        let mut restored = Vec::new();
+        for (spec, expected) in prod_p.specs().iter().zip(expected) {
+            let (segment, complement) = read_emitted_segment(store, identity, &prod_p, spec.id)
+                .expect("an emitted segment");
+            assert!(complement.is_empty(), "put emits no complement");
+            assert_eq!(
+                segment
+                    .canonical_bytes(&schema, &prod_p)
+                    .expect("restored bytes"),
+                reference::canonical_segment_bytes(
+                    &reference::AnySegment::Table(expected.clone()),
+                    reference::Digest(schema.0),
+                    partition,
+                )
+                .expect("reference restored bytes"),
+                "restored segment under {partition:?} by {:?}",
+                pair.production.compiled
+            );
+            let AnySegment::Table(segment) = segment else {
+                panic!("a table segment");
+            };
+            restored.push(segment);
+        }
+        restored
+    }
+
     /// Check one put: the run's restored segments are, byte for byte, the
     /// reference definition's, and glued they are whole-state table put of
     /// the glued view; a refusal is whole-state put's and the reference's,
@@ -23249,52 +23310,14 @@ mod segmented_table_put {
                 partition,
             )
         });
-        let mut joined = TableComplementSegment::glue(&got.complements);
-        joined.stamp(
-            pair.production.identity(ComplementShape::Functor),
-            &pair.production.src_schema,
-        );
-        let whole = table_lens::put(
-            &pair.production,
-            &prod_table(edited),
-            &joined,
-            pair.protocols(),
-        );
-        let schema = pair
-            .production
-            .identity(ComplementShape::Functor)
-            .source_schema;
+        let whole = whole_put(pair, got, edited);
         match (&baseline.report.status, &expected, &whole) {
             (RunStatus::Complete { manifest }, Ok(expected), Ok(whole)) => {
                 assert_eq!(
                     Some(*manifest),
                     baseline.manifest.as_ref().map(SegmentManifest::digest)
                 );
-                let identity = baseline.run.expect("a run identity");
-                let mut restored = Vec::new();
-                for (spec, expected) in prod_p.specs().iter().zip(expected) {
-                    let (segment, complement) =
-                        read_emitted_segment(&store, identity, &prod_p, spec.id)
-                            .expect("an emitted segment");
-                    assert!(complement.is_empty(), "put emits no complement");
-                    assert_eq!(
-                        segment
-                            .canonical_bytes(&schema, &prod_p)
-                            .expect("restored bytes"),
-                        reference::canonical_segment_bytes(
-                            &reference::AnySegment::Table(expected.clone()),
-                            reference::Digest(schema.0),
-                            partition,
-                        )
-                        .expect("reference restored bytes"),
-                        "restored segment of {edited:?} under {partition:?} by {:?}",
-                        pair.production.compiled
-                    );
-                    let AnySegment::Table(segment) = segment else {
-                        panic!("a table segment");
-                    };
-                    restored.push(segment);
-                }
+                let restored = restored_segments(pair, partition, &store, &baseline, expected);
                 if restored
                     .iter()
                     .any(|segment| !segment.boundary.ghosts.is_empty())
@@ -23469,161 +23492,151 @@ mod segmented_table_put {
     /// same under each of the five partitions.
     fn derived_census() -> Census {
         let mut census = Census::default();
-        let add_restored = |census: &mut Census, kind: EditKind, n: u64| {
-            if n > 0 {
-                *census.restored.entry(kind).or_default() += 5 * n;
-            }
-        };
-        let add_refused = |census: &mut Census, kind: EditKind, why: &str, n: u64| {
-            if n > 0 {
-                *census.refused.entry((kind, why.to_owned())).or_default() += 5 * n;
-            }
-        };
         for lens_index in 0..LENSES.len() {
             for table in segmented_table_put_tables() {
-                let rows_of = |name: &str| -> Vec<u32> {
-                    table
-                        .rows
-                        .iter()
-                        .filter(|(_, (t, _))| t == name)
-                        .map(|(id, _)| *id)
-                        .collect()
-                };
-                let pairs_of = |name: &str| -> Vec<(u32, u32)> {
-                    table
-                        .pairs
-                        .iter()
-                        .filter(|(edge, _, _)| edge.name.as_deref() == Some(name))
-                        .map(|(_, s, t)| (*s, *t))
-                        .collect()
-                };
-                let chains =
-                    |first: &str, second: &str| -> std::collections::BTreeSet<(u32, u32)> {
-                        let mut out = std::collections::BTreeSet::new();
-                        for (s, m) in pairs_of(first) {
-                            for (m2, t) in pairs_of(second) {
-                                if m == m2 {
-                                    out.insert((s, t));
-                                }
-                            }
-                        }
-                        out
-                    };
-                let (a, b) = (rows_of("a"), rows_of("b"));
-                let (ab, ba) = (pairs_of("ab").len() as u64, pairs_of("ba").len() as u64);
-                // (view rows with whether each has a column, kept pairs,
-                // synthesized pairs, relations as (sources, targets, held,
-                // contraction), dropped ids, view tables)
-                let (rows, kept, synth, relations, dropped, tables): (
-                    Vec<bool>,
-                    u64,
-                    u64,
-                    Vec<(u64, u64, u64, bool)>,
-                    Vec<u32>,
-                    u64,
-                ) = match lens_index {
-                    0 => (
-                        vec![true; a.len() + b.len()],
-                        ab + ba,
-                        0,
-                        vec![
-                            (a.len() as u64, b.len() as u64, ab, false),
-                            (b.len() as u64, a.len() as u64, ba, false),
-                        ],
-                        vec![],
-                        2,
-                    ),
-                    1 => {
-                        let c = chains("ab", "ba").len() as u64;
-                        (
-                            vec![true; a.len()],
-                            0,
-                            c,
-                            vec![(a.len() as u64, a.len() as u64, c, true)],
-                            b.clone(),
-                            1,
-                        )
-                    }
-                    2 => {
-                        if !chains("ab", "ba").is_empty() {
-                            census.get_refused += 5;
-                            continue;
-                        }
-                        (vec![true; a.len()], 0, 0, vec![], b.clone(), 1)
-                    }
-                    3 => (
-                        vec![true; a.len() + b.len()],
-                        ab,
-                        0,
-                        vec![(a.len() as u64, b.len() as u64, ab, false)],
-                        vec![],
-                        2,
-                    ),
-                    4 => (
-                        a.iter()
-                            .map(|_| false)
-                            .chain(b.iter().map(|_| true))
-                            .collect(),
-                        ab + ba,
-                        0,
-                        vec![
-                            (a.len() as u64, b.len() as u64, ab, false),
-                            (b.len() as u64, a.len() as u64, ba, false),
-                        ],
-                        vec![],
-                        2,
-                    ),
-                    _ => {
-                        let c = chains("ba", "ab").len() as u64;
-                        (
-                            vec![true; b.len()],
-                            0,
-                            c,
-                            vec![(b.len() as u64, b.len() as u64, c, true)],
-                            a.clone(),
-                            1,
-                        )
-                    }
-                };
-                let r = rows.len() as u64;
-                add_restored(&mut census, EditKind::Identity, 1);
-                add_restored(&mut census, EditKind::DeleteRow, r);
-                add_restored(
-                    &mut census,
-                    EditKind::SetCell,
-                    rows.iter().filter(|has| **has).count() as u64,
-                );
-                add_restored(&mut census, EditKind::DeletePair, kept);
-                add_refused(
-                    &mut census,
-                    EditKind::DeletePair,
-                    "SynthesizedEdited",
-                    synth,
-                );
-                for (sources, targets, held, contraction) in relations {
-                    let n = sources * targets - held;
-                    if contraction {
-                        add_refused(&mut census, EditKind::AddPair, "ContractedEdgeInserted", n);
-                    } else {
-                        add_restored(&mut census, EditKind::AddPair, n);
-                    }
+                match LensView::of(lens_index, &table) {
+                    Some(view) => view.tally(&mut census),
+                    None => census.get_refused += 5,
                 }
-                let free = 3 - r;
-                let colliding = dropped.len() as u64;
-                add_restored(
-                    &mut census,
-                    EditKind::InsertRow,
-                    (free - colliding) * tables,
-                );
-                add_refused(
-                    &mut census,
-                    EditKind::InsertRow,
-                    "IdCollision",
-                    colliding * tables,
-                );
             }
         }
         census
+    }
+
+    /// What the census reads of a lens's view of one table: whether each
+    /// view row's table has a column, the kept and synthesized pairs, each
+    /// view relation as (source rows, target rows, pairs held, whether it
+    /// is a contraction label), the number of rows the lens drops, and the
+    /// number of view tables.
+    struct LensView {
+        columns: Vec<bool>,
+        kept: u64,
+        synthesized: u64,
+        relations: Vec<(u64, u64, u64, bool)>,
+        dropped: u64,
+        tables: u64,
+    }
+
+    impl LensView {
+        /// The view of `table` by lens `lens_index`, or `None` when its get
+        /// refuses.
+        fn of(lens_index: usize, table: &RefTable) -> Option<Self> {
+            let rows_of = |name: &str| -> u64 {
+                table.rows.values().filter(|(t, _)| t == name).count() as u64
+            };
+            let pairs_of = |name: &str| -> Vec<(u32, u32)> {
+                table
+                    .pairs
+                    .iter()
+                    .filter(|(edge, _, _)| edge.name.as_deref() == Some(name))
+                    .map(|(_, s, t)| (*s, *t))
+                    .collect()
+            };
+            let chains = |first: &str, second: &str| -> u64 {
+                let mut out = std::collections::BTreeSet::new();
+                for (s, m) in pairs_of(first) {
+                    for (m2, t) in pairs_of(second) {
+                        if m == m2 {
+                            out.insert((s, t));
+                        }
+                    }
+                }
+                out.len() as u64
+            };
+            let (a, b) = (rows_of("a"), rows_of("b"));
+            let (ab, ba) = (pairs_of("ab").len() as u64, pairs_of("ba").len() as u64);
+            let rows = |n: u64, has: bool| vec![has; usize::try_from(n).unwrap_or(0)];
+            let both = vec![(a, b, ab, false), (b, a, ba, false)];
+            Some(match lens_index {
+                0 => Self {
+                    columns: rows(a + b, true),
+                    kept: ab + ba,
+                    synthesized: 0,
+                    relations: both,
+                    dropped: 0,
+                    tables: 2,
+                },
+                1 => Self {
+                    columns: rows(a, true),
+                    kept: 0,
+                    synthesized: chains("ab", "ba"),
+                    relations: vec![(a, a, chains("ab", "ba"), true)],
+                    dropped: b,
+                    tables: 1,
+                },
+                2 if chains("ab", "ba") > 0 => return None,
+                2 => Self {
+                    columns: rows(a, true),
+                    kept: 0,
+                    synthesized: 0,
+                    relations: Vec::new(),
+                    dropped: b,
+                    tables: 1,
+                },
+                3 => Self {
+                    columns: rows(a + b, true),
+                    kept: ab,
+                    synthesized: 0,
+                    relations: vec![(a, b, ab, false)],
+                    dropped: 0,
+                    tables: 2,
+                },
+                4 => Self {
+                    columns: [rows(a, false), rows(b, true)].concat(),
+                    kept: ab + ba,
+                    synthesized: 0,
+                    relations: both,
+                    dropped: 0,
+                    tables: 2,
+                },
+                _ => Self {
+                    columns: rows(b, true),
+                    kept: 0,
+                    synthesized: chains("ba", "ab"),
+                    relations: vec![(b, b, chains("ba", "ab"), true)],
+                    dropped: a,
+                    tables: 1,
+                },
+            })
+        }
+
+        /// Add this view's puts, under each of the five partitions.
+        fn tally(&self, census: &mut Census) {
+            let mut restored = |kind: EditKind, n: u64| {
+                if n > 0 {
+                    *census.restored.entry(kind).or_default() += 5 * n;
+                }
+            };
+            let r = self.columns.len() as u64;
+            restored(EditKind::Identity, 1);
+            restored(EditKind::DeleteRow, r);
+            restored(
+                EditKind::SetCell,
+                self.columns.iter().filter(|has| **has).count() as u64,
+            );
+            restored(EditKind::DeletePair, self.kept);
+            let mut refused = Vec::new();
+            refused.push((EditKind::DeletePair, "SynthesizedEdited", self.synthesized));
+            for (sources, targets, held, contraction) in &self.relations {
+                let n = sources * targets - held;
+                if *contraction {
+                    refused.push((EditKind::AddPair, "ContractedEdgeInserted", n));
+                } else {
+                    restored(EditKind::AddPair, n);
+                }
+            }
+            restored(EditKind::InsertRow, (3 - r - self.dropped) * self.tables);
+            refused.push((
+                EditKind::InsertRow,
+                "IdCollision",
+                self.dropped * self.tables,
+            ));
+            for (kind, why, n) in refused {
+                if n > 0 {
+                    *census.refused.entry((kind, why.to_owned())).or_default() += 5 * n;
+                }
+            }
+        }
     }
 
     /// Every 23rd put of the carrier, stopped at each cancellation point and
@@ -23715,7 +23728,7 @@ mod segmented_table_put {
             assert_eq!(outcome.report.progress.tasks_done, 0);
         }
 
-        let mut misplaced = got.complements.clone();
+        let mut misplaced = got.complements;
         let moved = misplaced[1]
             .dropped_rows
             .pop_first()

@@ -1673,7 +1673,9 @@ pub const fn segmented_table_put_table_count() -> u64 {
 }
 
 /// The partitions of the segmented table put carrier: every set partition
-/// of the row ids `0` to `2`, by restricted growth string ordered by
+/// of the row ids `0` to `2`.
+///
+/// A partition is given by its restricted growth string ordered by
 /// `sum s_i 4^i`, each segment owning its ids as singleton ranges and
 /// allocating nothing. There are `5`, the Bell number of three.
 #[must_use]
