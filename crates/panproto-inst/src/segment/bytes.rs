@@ -118,7 +118,7 @@ pub fn payload_bytes(segment: &AnySegment) -> u64 {
 
 /// Write the boundary: ghosts ascending by node, then in-stubs ascending by
 /// element.
-pub(super) fn write_boundary<S: CanonicalSink + ?Sized>(sink: &mut S, boundary: &Boundary) {
+pub fn write_boundary<S: CanonicalSink + ?Sized>(sink: &mut S, boundary: &Boundary) {
     sink.len(boundary.ghosts.len());
     for ghost in boundary.ghosts.values() {
         sink.u32(ghost.node);
@@ -269,8 +269,13 @@ pub(super) fn read_edges(r: &mut Reader<'_>) -> Result<BTreeMap<EdgeId, GEdge>, 
     Ok(edges)
 }
 
-/// Read a boundary.
-pub(super) fn read_boundary(r: &mut Reader<'_>) -> Result<Boundary, SegmentError> {
+/// Read a boundary written by [`write_boundary`].
+///
+/// # Errors
+///
+/// [`SegmentError::Decode`] when the bytes are malformed or the ghosts or
+/// in-stubs do not strictly ascend.
+pub fn read_boundary(r: &mut Reader<'_>) -> Result<Boundary, SegmentError> {
     let mut boundary = Boundary::default();
     let n = r.count(16)?;
     let mut last = None;

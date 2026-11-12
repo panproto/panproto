@@ -229,6 +229,22 @@ impl RunParts {
             .flat_map(|chain| chain.arcs(node_ids))
             .collect()
     }
+
+    /// The keys of the synthesized arcs of the chains, which do not depend
+    /// on the ids chosen for the synthesized nodes.
+    pub(crate) fn arc_keys(&self) -> Vec<SynthKey> {
+        self.chains
+            .iter()
+            .flat_map(|chain| {
+                let ids = chain
+                    .node_keys()
+                    .into_iter()
+                    .map(|(key, _)| (key, 0))
+                    .collect();
+                chain.arcs(&ids).into_iter().map(|(key, ..)| key)
+            })
+            .collect()
+    }
 }
 
 /// The stage 0 fate of every node of `local` outside `foreign`, or the

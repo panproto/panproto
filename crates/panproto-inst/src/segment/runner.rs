@@ -261,15 +261,16 @@ pub struct SegmentRunReport<E> {
     pub phases: Vec<PhaseReport>,
 }
 
-/// What names a run of graph restriction.
+/// What names a segmented run.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RunSpec {
     /// The identity of the lens the plan compiles.
     pub lens: Digest,
     /// The trusted digest of the input manifest.
     pub input: Digest,
-    /// The schema digest the view segments are written under.
-    pub view_schema: Digest,
+    /// The schema digest the output segments are written under: the view
+    /// schema of a restriction, the source schema of a put.
+    pub output_schema: Digest,
     /// Stop once this many tasks are committed or reused.
     pub cancel_after_tasks: Option<u32>,
 }
@@ -285,6 +286,16 @@ pub trait SegmentSource {
     ///
     /// The source's error when they cannot be read.
     fn read(&self, segment: SegmentId) -> Result<Vec<u8>, Self::Error>;
+
+    /// The length of the canonical bytes of segment `segment`, which a run
+    /// reads to check a budget before it reads any segment.
+    ///
+    /// # Errors
+    ///
+    /// The source's error when the length cannot be read.
+    fn byte_len(&self, segment: SegmentId) -> Result<u64, Self::Error> {
+        self.read(segment).map(|bytes| length(&bytes))
+    }
 }
 
 /// A segment a [`SegmentSource`] does not hold.
@@ -297,6 +308,12 @@ impl SegmentSource for BTreeMap<SegmentId, Vec<u8>> {
 
     fn read(&self, segment: SegmentId) -> Result<Vec<u8>, Self::Error> {
         self.get(&segment).cloned().ok_or(MissingSegment(segment))
+    }
+
+    fn byte_len(&self, segment: SegmentId) -> Result<u64, Self::Error> {
+        self.get(&segment)
+            .map(|bytes| length(bytes))
+            .ok_or(MissingSegment(segment))
     }
 }
 
@@ -363,17 +380,20 @@ impl SegmentStore for MemoryStore {
     }
 }
 
-/// The outcome of [`graph_restrict_run`].
+/// The outcome of a run of [`run_segmented`].
 #[derive(Debug)]
-pub struct GraphRestrictRun {
+pub struct SegmentedRun<E> {
     /// The run's identity, which names its artifacts in the store; `None`
     /// when the input manifest is refused before the run has one.
     pub run: Option<Digest>,
     /// The output manifest of a complete run.
     pub manifest: Option<SegmentManifest>,
     /// The run's report.
-    pub report: SegmentRunReport<SegmentedRestrictError>,
+    pub report: SegmentRunReport<E>,
 }
+
+/// The outcome of [`graph_restrict_run`].
+pub type GraphRestrictRun = SegmentedRun<SegmentedRestrictError>;
 
 /// One emitted segment of a complete run, read back from the store.
 #[derive(Clone, Debug)]
@@ -387,22 +407,64 @@ pub struct EmittedSegment {
     pub complement: Vec<u8>,
 }
 
-/// Why a run stopped, inside the runner.
-enum Stop {
-    Cancelled,
+/// Why a phase of an operation stopped.
+#[derive(Debug)]
+pub enum PhaseStop<E> {
+    /// The store or a source failed, with its message; the run can be
+    /// resumed.
     Store(String),
-    Failed(SegmentedRestrictError),
+    /// The input is refused.
+    Failed(E),
+    /// The run is declined within its budget or locality.
     Residual(Residual),
 }
 
-impl From<SegmentError> for Stop {
+impl<E: From<SegmentError>> From<SegmentError> for PhaseStop<E> {
     fn from(error: SegmentError) -> Self {
-        Self::Failed(SegmentedRestrictError::Segment(error))
+        Self::Failed(E::from(error))
     }
 }
 
-fn store_stop(error: impl fmt::Display) -> Stop {
-    Stop::Store(error.to_string())
+/// The store failure of a phase, with the failure's message.
+pub fn store_failure<E>(error: impl fmt::Display) -> PhaseStop<E> {
+    PhaseStop::Store(error.to_string())
+}
+
+/// Why a run stopped, inside the runner.
+enum Stop<E> {
+    Cancelled,
+    Phase(PhaseStop<E>),
+}
+
+impl<E> From<PhaseStop<E>> for Stop<E> {
+    fn from(stop: PhaseStop<E>) -> Self {
+        Self::Phase(stop)
+    }
+}
+
+impl<E: From<SegmentError>> From<SegmentError> for Stop<E> {
+    fn from(error: SegmentError) -> Self {
+        Self::Phase(PhaseStop::from(error))
+    }
+}
+
+fn store_stop<E>(error: impl fmt::Display) -> Stop<E> {
+    Stop::Phase(store_failure(error))
+}
+
+/// A failure met while reading the sections of an artifact.
+enum ReadStop {
+    Store(String),
+    Segment(SegmentError),
+}
+
+impl<E: From<SegmentError>> From<ReadStop> for Stop<E> {
+    fn from(stop: ReadStop) -> Self {
+        match stop {
+            ReadStop::Store(message) => Self::Phase(PhaseStop::Store(message)),
+            ReadStop::Segment(error) => Self::from(error),
+        }
+    }
 }
 
 /// The digest naming an artifact's bytes in its task record.
@@ -751,14 +813,19 @@ impl EmitLayout {
     }
 }
 
-/// The Emit artifact of one view segment and its complement segment.
+/// The Emit artifact of one output segment and, when the operation emits
+/// one, its complement segment; without one the complement section is
+/// empty and its entry count 0.
 fn emit_bytes(
     view: &AnySegment,
     view_bytes: &[u8],
-    complement: &GraphComplementSegment,
+    complement: Option<&GraphComplementSegment>,
     record: &SegmentRecord,
 ) -> Result<Vec<u8>, SegmentError> {
-    let complement_bytes = complement.canonical_bytes()?;
+    let complement_bytes = match complement {
+        Some(complement) => complement.canonical_bytes()?,
+        None => Vec::new(),
+    };
     let record_bytes = record.canonical_bytes();
     let run = view.edge_id_run();
     let records = view.records();
@@ -771,7 +838,7 @@ fn emit_bytes(
     }
     let stream = stream.into_bytes();
     let layout = EmitLayout {
-        elements: complement.element_count(),
+        elements: complement.map_or(0, GraphComplementSegment::element_count),
         view: length(view_bytes),
         complement: length(&complement_bytes),
         record: length(&record_bytes),
@@ -817,9 +884,9 @@ fn decode_emit(bytes: &[u8]) -> Result<(EmitLayout, &[u8], &[u8]), SegmentError>
 
 /// A failure met while Seal reads from the store, kept until the seal
 /// returns, since an edge id run cannot return one.
-type ReadFailure = RefCell<Option<Stop>>;
+type ReadFailure = RefCell<Option<ReadStop>>;
 
-fn fail(failure: &ReadFailure, stop: Stop) {
+fn fail(failure: &ReadFailure, stop: ReadStop) {
     failure.borrow_mut().get_or_insert(stop);
 }
 
@@ -846,7 +913,7 @@ impl<St: SegmentStore> Iterator for StoredIds<'_, St> {
                 return None;
             }
             Err(error) => {
-                fail(self.failure, store_stop(error));
+                fail(self.failure, ReadStop::Store(error.to_string()));
                 return None;
             }
         };
@@ -876,7 +943,7 @@ impl<St: SegmentStore> StoredRecords<'_, St> {
         let stop = match self.store.read_at(&self.key, offset, len) {
             Ok(Some(bytes)) if length(&bytes) == len => return Ok(bytes),
             Ok(_) => missing_section(self.key.kind),
-            Err(error) => store_stop(error),
+            Err(error) => ReadStop::Store(error.to_string()),
         };
         fail(self.failure, stop);
         Err(malformed(
@@ -911,8 +978,8 @@ impl<St: SegmentStore> RecordSource for StoredRecords<'_, St> {
 }
 
 /// The failure of a section the store does not hold.
-fn missing_section(kind: ArtifactKind) -> Stop {
-    Stop::from(malformed(
+fn missing_section(kind: ArtifactKind) -> ReadStop {
+    ReadStop::Segment(malformed(
         kind,
         "a section of a committed artifact is missing",
     ))
@@ -954,9 +1021,448 @@ pub fn read_emitted<S: SegmentStore>(
     })
 }
 
+/// The artifact kind each phase's task writes: the validated input segment,
+/// an export, a summary, the coordinator's assembly, an Emit artifact and
+/// the output manifest.
+#[must_use]
+pub const fn phase_artifact(phase: Phase) -> ArtifactKind {
+    match phase {
+        Phase::Validate => ArtifactKind::Segment,
+        Phase::Export => ArtifactKind::Export,
+        Phase::Summarize => ArtifactKind::Summary,
+        Phase::Assemble => ArtifactKind::Assembly,
+        Phase::Emit => ArtifactKind::ComplementSegment,
+        Phase::Seal => ArtifactKind::Manifest,
+    }
+}
+
+/// What a phase of an operation reads: the input manifest, its partition
+/// and owner index, the run's spec, and the committed artifacts of earlier
+/// phases.
+pub struct PhaseContext<'r> {
+    input: &'r SegmentManifest,
+    partition: &'r Partition,
+    index: &'r OwnerIndex,
+    spec: &'r RunSpec,
+    read: &'r dyn Fn(TaskKey) -> Result<Option<Vec<u8>>, String>,
+}
+
+impl PhaseContext<'_> {
+    /// The input manifest.
+    #[must_use]
+    pub const fn input(&self) -> &SegmentManifest {
+        self.input
+    }
+
+    /// The input's partition.
+    #[must_use]
+    pub const fn partition(&self) -> &Partition {
+        self.partition
+    }
+
+    /// The owner index of the partition.
+    #[must_use]
+    pub const fn index(&self) -> &OwnerIndex {
+        self.index
+    }
+
+    /// The run's spec.
+    #[must_use]
+    pub const fn spec(&self) -> &RunSpec {
+        self.spec
+    }
+
+    /// The segments of the partition, in id order.
+    #[must_use]
+    pub fn segments(&self) -> Vec<SegmentId> {
+        self.partition.specs().iter().map(|spec| spec.id).collect()
+    }
+
+    /// The committed artifact of the task of `phase` for `segment` (`None`
+    /// for a coordinator task).
+    ///
+    /// # Errors
+    ///
+    /// [`PhaseStop::Store`] when the store fails, and a
+    /// [`SegmentError::Decode`] refusal when the artifact is missing.
+    pub fn artifact<E: From<SegmentError>>(
+        &self,
+        phase: Phase,
+        segment: Option<SegmentId>,
+    ) -> Result<Vec<u8>, PhaseStop<E>> {
+        let kind = phase_artifact(phase);
+        (self.read)(task_key(phase, segment))
+            .map_err(PhaseStop::Store)?
+            .ok_or_else(|| PhaseStop::from(malformed(kind, "a committed artifact is missing")))
+    }
+}
+
+/// One output segment an Emit task writes, with the complement segment of
+/// an operation that emits one.
+#[derive(Clone, Debug)]
+pub struct Emission {
+    /// The output segment, laid out under the input's partition.
+    pub segment: GraphSegment,
+    /// Its complement segment, `None` for an operation that emits none.
+    pub complement: Option<GraphComplementSegment>,
+}
+
+/// An operation [`run_segmented`] runs as the six phases of a segmented
+/// run: what each task computes from the artifacts of earlier phases.
+///
+/// The runner owns everything else: the order of the tasks, their input
+/// digests, journalling and reuse, cancellation, the budgets, the Emit
+/// artifact's layout and the seal. Every method must be deterministic in
+/// what it reads, so a resumed run produces the artifacts of an
+/// uninterrupted one.
+pub trait PhaseOperation {
+    /// The operation's refusal.
+    type Error: From<SegmentError>;
+
+    /// The operation bytes of the run's identity
+    /// ([`RunJournal::run_digest`]).
+    fn op(&self) -> &'static [u8];
+
+    /// The operation a global residual names.
+    fn segment_op(&self) -> SegmentOp;
+
+    /// The operation's locality class; a global class is declined before
+    /// any task.
+    fn locality(&self) -> Locality;
+
+    /// The working-set estimate of the input segment `record` describes,
+    /// checked against [`Budget::working_set`] before any task.
+    ///
+    /// # Errors
+    ///
+    /// A source's failure message.
+    fn working_set(&self, record: &SegmentRecord) -> Result<u64, String> {
+        Ok(MemoryModel::estimate(&record.stats))
+    }
+
+    /// The digests the Validate task of `segment` reads beyond the input
+    /// segment's manifest leaf.
+    ///
+    /// # Errors
+    ///
+    /// A source's failure message.
+    fn validate_inputs(&self, segment: SegmentId) -> Result<Vec<Digest>, String> {
+        let _ = segment;
+        Ok(Vec::new())
+    }
+
+    /// The Validate artifact of `segment`, from the input segment's
+    /// canonical bytes `bytes`, already checked against the input manifest.
+    ///
+    /// # Errors
+    ///
+    /// A refusal or a source failure.
+    fn validate(
+        &self,
+        cx: &PhaseContext<'_>,
+        segment: SegmentId,
+        bytes: Vec<u8>,
+    ) -> Result<Vec<u8>, PhaseStop<Self::Error>> {
+        let _ = (cx, segment);
+        Ok(bytes)
+    }
+
+    /// The Export artifact of `segment`.
+    ///
+    /// # Errors
+    ///
+    /// A refusal or a store failure.
+    fn export(
+        &self,
+        cx: &PhaseContext<'_>,
+        segment: SegmentId,
+    ) -> Result<Vec<u8>, PhaseStop<Self::Error>>;
+
+    /// The Summarize artifact of `segment`, which may read every Export
+    /// artifact.
+    ///
+    /// # Errors
+    ///
+    /// A refusal or a store failure.
+    fn summarize(
+        &self,
+        cx: &PhaseContext<'_>,
+        segment: SegmentId,
+    ) -> Result<Vec<u8>, PhaseStop<Self::Error>>;
+
+    /// The coordinator's Assemble artifact, which may read every earlier
+    /// artifact; the operation's refusal is returned here.
+    ///
+    /// # Errors
+    ///
+    /// A refusal or a store failure.
+    fn assemble(&self, cx: &PhaseContext<'_>) -> Result<Vec<u8>, PhaseStop<Self::Error>>;
+
+    /// The output segment of `segment`, which may read every earlier
+    /// artifact.
+    ///
+    /// # Errors
+    ///
+    /// A refusal or a store failure.
+    fn emit(
+        &self,
+        cx: &PhaseContext<'_>,
+        segment: SegmentId,
+    ) -> Result<Emission, PhaseStop<Self::Error>>;
+
+    /// The role the output manifest records.
+    fn output_role(&self, cx: &PhaseContext<'_>) -> ManifestRole;
+}
+
+/// Graph restriction along a plan as a [`PhaseOperation`]: the phases
+/// described in the module documentation.
+pub struct GraphRestrict<'p> {
+    /// The compiled plan.
+    pub plan: &'p RestrictPlan,
+}
+
+impl GraphRestrict<'_> {
+    fn validated(
+        cx: &PhaseContext<'_>,
+        segment: SegmentId,
+    ) -> Result<GraphSegment, PhaseStop<SegmentedRestrictError>> {
+        let bytes = cx.artifact(Phase::Validate, Some(segment))?;
+        match AnySegment::from_canonical_bytes(&bytes, cx.partition())?.0 {
+            AnySegment::Graph(segment) => Ok(segment),
+            _ => Err(PhaseStop::from(malformed(
+                ArtifactKind::Segment,
+                "not a graph segment",
+            ))),
+        }
+    }
+
+    fn exported(
+        cx: &PhaseContext<'_>,
+        segment: SegmentId,
+    ) -> Result<Export, PhaseStop<SegmentedRestrictError>> {
+        Ok(Export::decode(&cx.artifact(Phase::Export, Some(segment))?)?)
+    }
+
+    /// The fates the other segments exported to `segment`; `None` when a
+    /// segment refused.
+    fn imports(
+        cx: &PhaseContext<'_>,
+        segment: SegmentId,
+    ) -> Result<Option<BTreeMap<u32, RemoteFate>>, PhaseStop<SegmentedRestrictError>> {
+        let mut imports = BTreeMap::new();
+        for id in cx.segments() {
+            match Self::exported(cx, id)? {
+                Export::Fates(fates) => imports.extend(
+                    fates
+                        .into_iter()
+                        .filter(|((owner, _), _)| *owner == segment)
+                        .map(|((_, node), fate)| (node, fate)),
+                ),
+                Export::Fan(_) | Export::Refused(_) => return Ok(None),
+            }
+        }
+        Ok(Some(imports))
+    }
+
+    /// The least refusal of the fan domain and stage 0, recomputed in the
+    /// segment that recorded it.
+    fn first_refusal(
+        &self,
+        cx: &PhaseContext<'_>,
+    ) -> Result<Option<PhaseStop<SegmentedRestrictError>>, PhaseStop<SegmentedRestrictError>> {
+        let mut fan: Option<(u32, SegmentId)> = None;
+        let mut refused: Option<(Option<super::error::ErrorKey>, SegmentId)> = None;
+        for id in cx.segments() {
+            match Self::exported(cx, id)? {
+                Export::Fan(node) => {
+                    if fan.is_none_or(|(least, _)| node < least) {
+                        fan = Some((node, id));
+                    }
+                }
+                Export::Refused(key) => {
+                    if refused.is_none_or(|(least, _)| key < least) {
+                        refused = Some((key, id));
+                    }
+                }
+                Export::Fates(_) => {}
+            }
+        }
+        let Some(id) = fan.map(|(_, id)| id).or_else(|| refused.map(|(_, id)| id)) else {
+            return Ok(None);
+        };
+        let segment = Self::validated(cx, id)?;
+        let local = Local::of(&segment)?;
+        if let Some((node, reason)) = local.fan_violation() {
+            return Ok(Some(restrict_stop(
+                id,
+                RestrictError::MalformedFan { node, reason },
+            )));
+        }
+        match decide_nodes(&local.graph, self.plan, local.foreign.clone()) {
+            Err(error) => Ok(Some(restrict_stop(id, error))),
+            Ok(_) => Err(PhaseStop::from(malformed(
+                ArtifactKind::Export,
+                "an export records a refusal its segment does not give",
+            ))),
+        }
+    }
+
+    fn summaries(
+        cx: &PhaseContext<'_>,
+    ) -> Result<Vec<ReachSummary>, PhaseStop<SegmentedRestrictError>> {
+        let mut summaries = Vec::new();
+        for id in cx.segments() {
+            summaries.push(decode_summary(&cx.artifact(Phase::Summarize, Some(id))?)?);
+        }
+        Ok(summaries)
+    }
+}
+
+impl PhaseOperation for GraphRestrict<'_> {
+    type Error = SegmentedRestrictError;
+
+    fn op(&self) -> &'static [u8] {
+        GRAPH_RESTRICT_OP
+    }
+
+    fn segment_op(&self) -> SegmentOp {
+        SegmentOp::Restrict
+    }
+
+    fn locality(&self) -> Locality {
+        graph_restrict_locality(self.plan)
+    }
+
+    fn export(
+        &self,
+        cx: &PhaseContext<'_>,
+        segment: SegmentId,
+    ) -> Result<Vec<u8>, PhaseStop<Self::Error>> {
+        let held = Self::validated(cx, segment)?;
+        let local = Local::of(&held)?;
+        let export = if let Some((node, _)) = local.fan_violation() {
+            Export::Fan(node)
+        } else {
+            match decide_nodes(&local.graph, self.plan, local.foreign.clone()) {
+                Err(error) => Export::Refused(refusal_key(&error)),
+                Ok(own) => Export::Fates(
+                    held.boundary
+                        .in_stubs
+                        .values()
+                        .filter_map(|stub| {
+                            own.get(&stub.tgt)
+                                .map(|fate| ((stub.src_owner, stub.tgt), fate.clone()))
+                        })
+                        .collect(),
+                ),
+            }
+        };
+        Ok(export.bytes())
+    }
+
+    fn summarize(
+        &self,
+        cx: &PhaseContext<'_>,
+        segment: SegmentId,
+    ) -> Result<Vec<u8>, PhaseStop<Self::Error>> {
+        let Some(imports) = Self::imports(cx, segment)? else {
+            return Ok(summary_bytes(&ReachSummary::default()));
+        };
+        let held = Self::validated(cx, segment)?;
+        let local = Local::of(&held)?;
+        let own = decide_nodes(&local.graph, self.plan, local.foreign.clone())
+            .map_err(|error| restrict_stop(segment, error))?;
+        Ok(summary_bytes(&summarize(&held, &local, &own, &imports)))
+    }
+
+    fn assemble(&self, cx: &PhaseContext<'_>) -> Result<Vec<u8>, PhaseStop<Self::Error>> {
+        if let Some(stop) = self.first_refusal(cx)? {
+            return Err(stop);
+        }
+        let summaries = Self::summaries(cx)?;
+        let closed = close_reach(&summaries);
+        let mut first: Option<(SegmentId, RestrictError)> = None;
+        let mut allocation: Option<SegmentError> = None;
+        let mut boundaries = ViewBoundaries::default();
+        for (id, summary) in cx.segments().into_iter().zip(&summaries) {
+            let segment = Self::validated(cx, id)?;
+            let local = Local::of(&segment)?;
+            let imports = Self::imports(cx, id)?.unwrap_or_default();
+            let outside = outside_of(&local, &imports, &closed);
+            match run_scoped(&local.graph, self.plan, outside) {
+                Err(error) => keep_least(&mut first, id, error),
+                Ok(parts) => match emit_segment(&segment, cx.partition(), parts) {
+                    Err(error) => {
+                        allocation.get_or_insert(error);
+                    }
+                    Ok((view, _)) => {
+                        let targets: BTreeSet<u32> = segment
+                            .boundary
+                            .in_stubs
+                            .values()
+                            .map(|stub| stub.tgt)
+                            .chain(summary.kept.keys().copied())
+                            .collect();
+                        boundaries.add(&view, cx.index(), |node| targets.contains(&node))?;
+                    }
+                },
+            }
+        }
+        if let Some((segment, error)) = first {
+            return Err(restrict_stop(segment, error));
+        }
+        if let Some(error) = allocation {
+            return Err(PhaseStop::from(error));
+        }
+        let boundaries = boundaries.finish(summaries.len())?;
+        Ok(assembly_bytes(&closed, &boundaries))
+    }
+
+    fn emit(
+        &self,
+        cx: &PhaseContext<'_>,
+        segment: SegmentId,
+    ) -> Result<Emission, PhaseStop<Self::Error>> {
+        let assembly = decode_assembly(&cx.artifact(Phase::Assemble, None)?)?;
+        let held = Self::validated(cx, segment)?;
+        let local = Local::of(&held)?;
+        let imports = Self::imports(cx, segment)?.unwrap_or_default();
+        let outside = outside_of(&local, &imports, &assembly.closed);
+        let parts = run_scoped(&local.graph, self.plan, outside)
+            .map_err(|error| restrict_stop(segment, error))?;
+        let (mut view, complement) = emit_segment(&held, cx.partition(), parts)?;
+        let position = usize::try_from(segment.0).unwrap_or(usize::MAX);
+        view.boundary = assembly
+            .boundaries
+            .into_iter()
+            .nth(position)
+            .ok_or_else(|| malformed(ArtifactKind::Assembly, "a boundary is missing"))?;
+        Ok(Emission {
+            segment: view,
+            complement: Some(complement),
+        })
+    }
+
+    fn output_role(&self, cx: &PhaseContext<'_>) -> ManifestRole {
+        ManifestRole::View {
+            source: cx.spec().input,
+            envelope: IdentityEnvelope {
+                version: IDENTITY_ENVELOPE_VERSION,
+                source_schema: cx.input().schema,
+                target_schema: cx.spec().output_schema,
+                lens: cx.spec().lens,
+                complement_format: ComplementFormat {
+                    shape: ComplementShape::Graph,
+                    version: GRAPH_COMPLEMENT_FORMAT_VERSION,
+                },
+            },
+        }
+    }
+}
+
 /// A run in progress.
-struct Runner<'a, Src, St> {
-    plan: &'a RestrictPlan,
+struct Runner<'a, O: PhaseOperation, Src, St> {
+    op: &'a O,
     input: &'a SegmentManifest,
     source: &'a Src,
     partition: Partition,
@@ -968,10 +1474,10 @@ struct Runner<'a, Src, St> {
     run: Digest,
     peak: u64,
     outputs: BTreeMap<TaskKey, Digest>,
-    report: SegmentRunReport<SegmentedRestrictError>,
+    report: SegmentRunReport<O::Error>,
 }
 
-impl<Src: SegmentSource, St: SegmentStore> Runner<'_, Src, St> {
+impl<O: PhaseOperation, Src: SegmentSource, St: SegmentStore> Runner<'_, O, Src, St> {
     fn ids(&self) -> Vec<SegmentId> {
         self.partition.specs().iter().map(|spec| spec.id).collect()
     }
@@ -990,6 +1496,28 @@ impl<Src: SegmentSource, St: SegmentStore> Runner<'_, Src, St> {
         }
     }
 
+    /// Run `f` with the phase context of this run.
+    fn with_cx<T>(&self, f: impl FnOnce(&PhaseContext<'_>) -> T) -> T {
+        let store: &St = self.store;
+        let run = self.run;
+        let read = move |task: TaskKey| {
+            store
+                .read(&ArtifactKey {
+                    run,
+                    task,
+                    kind: phase_artifact(task.phase),
+                })
+                .map_err(|error| error.to_string())
+        };
+        f(&PhaseContext {
+            input: self.input,
+            partition: &self.partition,
+            index: &self.index,
+            spec: &self.spec,
+            read: &read,
+        })
+    }
+
     /// The digest of task `task`'s inputs, from the outputs of `from`.
     fn inputs(&self, task: TaskKey, from: &[TaskKey]) -> Digest {
         let digests: Vec<Digest> = from
@@ -1005,7 +1533,7 @@ impl<Src: SegmentSource, St: SegmentStore> Runner<'_, Src, St> {
         task: TaskKey,
         kind: ArtifactKind,
         inputs: &Digest,
-    ) -> Result<Option<Vec<u8>>, Stop> {
+    ) -> Result<Option<Vec<u8>>, Stop<O::Error>> {
         let journal = self.store.journal(&self.run).map_err(store_stop)?;
         let Some(record) = journal.tasks.get(&task) else {
             return Ok(None);
@@ -1028,7 +1556,7 @@ impl<Src: SegmentSource, St: SegmentStore> Runner<'_, Src, St> {
         kind: ArtifactKind,
         inputs: Digest,
         bytes: &[u8],
-    ) -> Result<(), Stop> {
+    ) -> Result<(), Stop<O::Error>> {
         let key = self.key(task, kind);
         let record = TaskRecord {
             inputs,
@@ -1060,10 +1588,10 @@ impl<Src: SegmentSource, St: SegmentStore> Runner<'_, Src, St> {
     fn task(
         &mut self,
         task: TaskKey,
-        kind: ArtifactKind,
         inputs: Digest,
-        compute: impl FnOnce(&Self) -> Result<Vec<u8>, Stop>,
-    ) -> Result<Vec<u8>, Stop> {
+        compute: impl FnOnce(&Self) -> Result<Vec<u8>, Stop<O::Error>>,
+    ) -> Result<Vec<u8>, Stop<O::Error>> {
+        let kind = phase_artifact(task.phase);
         if let Some(bytes) = self.reusable(task, kind, &inputs)? {
             self.account(task, &bytes, true);
             return Ok(bytes);
@@ -1090,48 +1618,15 @@ impl<Src: SegmentSource, St: SegmentStore> Runner<'_, Src, St> {
     }
 
     /// The committed artifact of an earlier task of this invocation.
-    fn artifact(&self, task: TaskKey, kind: ArtifactKind) -> Result<Vec<u8>, Stop> {
+    fn artifact(&self, task: TaskKey) -> Result<Vec<u8>, Stop<O::Error>> {
+        let kind = phase_artifact(task.phase);
         self.store
             .read(&self.key(task, kind))
             .map_err(store_stop)?
             .ok_or_else(|| Stop::from(malformed(kind, "a committed artifact is missing")))
     }
 
-    fn validated(&self, segment: SegmentId) -> Result<GraphSegment, Stop> {
-        let bytes = self.artifact(validate_key(segment), ArtifactKind::Segment)?;
-        match AnySegment::from_canonical_bytes(&bytes, &self.partition)?.0 {
-            AnySegment::Graph(segment) => Ok(segment),
-            _ => Err(Stop::from(malformed(
-                ArtifactKind::Segment,
-                "not a graph segment",
-            ))),
-        }
-    }
-
-    fn export(&self, segment: SegmentId) -> Result<Export, Stop> {
-        let bytes = self.artifact(export_key(segment), ArtifactKind::Export)?;
-        Ok(Export::decode(&bytes)?)
-    }
-
-    /// The fates the other segments exported to `segment`; `None` when a
-    /// segment refused.
-    fn imports(&self, segment: SegmentId) -> Result<Option<BTreeMap<u32, RemoteFate>>, Stop> {
-        let mut imports = BTreeMap::new();
-        for id in self.ids() {
-            match self.export(id)? {
-                Export::Fates(fates) => imports.extend(
-                    fates
-                        .into_iter()
-                        .filter(|((owner, _), _)| *owner == segment)
-                        .map(|((_, node), fate)| (node, fate)),
-                ),
-                Export::Fan(_) | Export::Refused(_) => return Ok(None),
-            }
-        }
-        Ok(Some(imports))
-    }
-
-    fn validate(&mut self) -> Result<(), Stop> {
+    fn validate(&mut self) -> Result<(), Stop<O::Error>> {
         let before = self.counts();
         for id in self.ids() {
             if self.cancelled() {
@@ -1141,54 +1636,35 @@ impl<Src: SegmentSource, St: SegmentStore> Runner<'_, Src, St> {
                 .input
                 .record(id)
                 .ok_or_else(|| malformed(ArtifactKind::Manifest, "a record is missing"))?;
-            let inputs =
-                TaskRecord::inputs_digest(&self.spec.lens, validate_key(id), &[record.leaf()]);
-            self.task(validate_key(id), ArtifactKind::Segment, inputs, |runner| {
+            let mut read = vec![record.leaf()];
+            read.extend(self.op.validate_inputs(id).map_err(store_stop)?);
+            let inputs = TaskRecord::inputs_digest(&self.spec.lens, validate_key(id), &read);
+            self.task(validate_key(id), inputs, |runner| {
                 let bytes = runner.source.read(id).map_err(store_stop)?;
                 verify_segment_bytes(runner.input, &bytes)?;
-                Ok(bytes)
+                Ok(runner.with_cx(|cx| runner.op.validate(cx, id, bytes))?)
             })?;
         }
         self.finish_phase(Phase::Validate, before, self.peak);
         Ok(())
     }
 
-    fn exports(&mut self) -> Result<(), Stop> {
+    fn exports(&mut self) -> Result<(), Stop<O::Error>> {
         let before = self.counts();
         for id in self.ids() {
             if self.cancelled() {
                 return Err(Stop::Cancelled);
             }
             let inputs = self.inputs(export_key(id), &[validate_key(id)]);
-            self.task(export_key(id), ArtifactKind::Export, inputs, |runner| {
-                let segment = runner.validated(id)?;
-                let local = Local::of(&segment)?;
-                let export = if let Some((node, _)) = local.fan_violation() {
-                    Export::Fan(node)
-                } else {
-                    match decide_nodes(&local.graph, runner.plan, local.foreign.clone()) {
-                        Err(error) => Export::Refused(refusal_key(&error)),
-                        Ok(own) => Export::Fates(
-                            segment
-                                .boundary
-                                .in_stubs
-                                .values()
-                                .filter_map(|stub| {
-                                    own.get(&stub.tgt)
-                                        .map(|fate| ((stub.src_owner, stub.tgt), fate.clone()))
-                                })
-                                .collect(),
-                        ),
-                    }
-                };
-                Ok(export.bytes())
+            self.task(export_key(id), inputs, |runner| {
+                Ok(runner.with_cx(|cx| runner.op.export(cx, id))?)
             })?;
         }
         self.finish_phase(Phase::Export, before, self.peak);
         Ok(())
     }
 
-    fn summaries(&mut self) -> Result<(), Stop> {
+    fn summaries(&mut self) -> Result<(), Stop<O::Error>> {
         let before = self.counts();
         let exports: Vec<TaskKey> = self.ids().into_iter().map(export_key).collect();
         for id in self.ids() {
@@ -1198,110 +1674,15 @@ impl<Src: SegmentSource, St: SegmentStore> Runner<'_, Src, St> {
             let mut from = vec![validate_key(id)];
             from.extend(&exports);
             let inputs = self.inputs(summary_key(id), &from);
-            self.task(summary_key(id), ArtifactKind::Summary, inputs, |runner| {
-                let Some(imports) = runner.imports(id)? else {
-                    return Ok(summary_bytes(&ReachSummary::default()));
-                };
-                let segment = runner.validated(id)?;
-                let local = Local::of(&segment)?;
-                let own = decide_nodes(&local.graph, runner.plan, local.foreign.clone())
-                    .map_err(|error| restrict_stop(id, error))?;
-                Ok(summary_bytes(&summarize(&segment, &local, &own, &imports)))
+            self.task(summary_key(id), inputs, |runner| {
+                Ok(runner.with_cx(|cx| runner.op.summarize(cx, id))?)
             })?;
         }
         self.finish_phase(Phase::Summarize, before, self.peak);
         Ok(())
     }
 
-    /// The least refusal of the fan domain and stage 0, recomputed in the
-    /// segment that recorded it.
-    fn first_refusal(&self) -> Result<Option<Stop>, Stop> {
-        let mut fan: Option<(u32, SegmentId)> = None;
-        let mut refused: Option<(Option<super::error::ErrorKey>, SegmentId)> = None;
-        for id in self.ids() {
-            match self.export(id)? {
-                Export::Fan(node) => {
-                    if fan.is_none_or(|(least, _)| node < least) {
-                        fan = Some((node, id));
-                    }
-                }
-                Export::Refused(key) => {
-                    if refused.is_none_or(|(least, _)| key < least) {
-                        refused = Some((key, id));
-                    }
-                }
-                Export::Fates(_) => {}
-            }
-        }
-        let Some(id) = fan.map(|(_, id)| id).or_else(|| refused.map(|(_, id)| id)) else {
-            return Ok(None);
-        };
-        let segment = self.validated(id)?;
-        let local = Local::of(&segment)?;
-        if let Some((node, reason)) = local.fan_violation() {
-            return Ok(Some(restrict_stop(
-                id,
-                RestrictError::MalformedFan { node, reason },
-            )));
-        }
-        match decide_nodes(&local.graph, self.plan, local.foreign.clone()) {
-            Err(error) => Ok(Some(restrict_stop(id, error))),
-            Ok(_) => Err(Stop::from(malformed(
-                ArtifactKind::Export,
-                "an export records a refusal its segment does not give",
-            ))),
-        }
-    }
-
-    /// The coordinator's task.
-    fn assemble_artifact(&self) -> Result<Vec<u8>, Stop> {
-        if let Some(stop) = self.first_refusal()? {
-            return Err(stop);
-        }
-        let mut summaries = Vec::new();
-        for id in self.ids() {
-            let bytes = self.artifact(summary_key(id), ArtifactKind::Summary)?;
-            summaries.push(decode_summary(&bytes)?);
-        }
-        let closed = close_reach(&summaries);
-        let mut first: Option<(SegmentId, RestrictError)> = None;
-        let mut allocation: Option<SegmentError> = None;
-        let mut boundaries = ViewBoundaries::default();
-        for (id, summary) in self.ids().into_iter().zip(&summaries) {
-            let segment = self.validated(id)?;
-            let local = Local::of(&segment)?;
-            let imports = self.imports(id)?.unwrap_or_default();
-            let outside = outside_of(&local, &imports, &closed);
-            match run_scoped(&local.graph, self.plan, outside) {
-                Err(error) => keep_least(&mut first, id, error),
-                Ok(parts) => match emit_segment(&segment, &self.partition, parts) {
-                    Err(error) => {
-                        allocation.get_or_insert(error);
-                    }
-                    Ok((view, _)) => {
-                        let targets: BTreeSet<u32> = segment
-                            .boundary
-                            .in_stubs
-                            .values()
-                            .map(|stub| stub.tgt)
-                            .chain(summary.kept.keys().copied())
-                            .collect();
-                        boundaries.add(&view, &self.index, |node| targets.contains(&node))?;
-                    }
-                },
-            }
-        }
-        if let Some((segment, error)) = first {
-            return Err(restrict_stop(segment, error));
-        }
-        if let Some(error) = allocation {
-            return Err(Stop::from(error));
-        }
-        let boundaries = boundaries.finish(summaries.len())?;
-        Ok(assembly_bytes(&closed, &boundaries))
-    }
-
-    fn assemble(&mut self) -> Result<(), Stop> {
+    fn assemble(&mut self) -> Result<(), Stop<O::Error>> {
         if self.cancelled() {
             return Err(Stop::Cancelled);
         }
@@ -1315,21 +1696,21 @@ impl<Src: SegmentSource, St: SegmentStore> Runner<'_, Src, St> {
         let inputs = self.inputs(task, &from);
         let (bytes, reused) = match self.reusable(task, kind, &inputs)? {
             Some(bytes) => (bytes, true),
-            None => (self.assemble_artifact()?, false),
+            None => (self.with_cx(|cx| self.op.assemble(cx))?, false),
         };
         let mut needed = length(&bytes);
         for id in self.ids() {
-            let summary = self.artifact(summary_key(id), ArtifactKind::Summary)?;
+            let summary = self.artifact(summary_key(id))?;
             needed = needed.saturating_add(length(&summary));
         }
         if needed > self.budget.summary {
-            return Err(Stop::Residual(Residual::BudgetExceeded {
+            return Err(Stop::Phase(PhaseStop::Residual(Residual::BudgetExceeded {
                 resource: Resource::Summary,
                 phase: Phase::Assemble,
                 segment: None,
                 needed,
                 budget: self.budget.summary,
-            }));
+            })));
         }
         if !reused {
             self.commit(task, kind, inputs, &bytes)?;
@@ -1340,35 +1721,32 @@ impl<Src: SegmentSource, St: SegmentStore> Runner<'_, Src, St> {
     }
 
     /// One segment's Emit artifact.
-    fn emit_artifact(&self, id: SegmentId) -> Result<Vec<u8>, Stop> {
-        let assembly = decode_assembly(&self.artifact(assemble_key(), ArtifactKind::Assembly)?)?;
-        let segment = self.validated(id)?;
-        let local = Local::of(&segment)?;
-        let imports = self.imports(id)?.unwrap_or_default();
-        let outside = outside_of(&local, &imports, &assembly.closed);
-        let parts =
-            run_scoped(&local.graph, self.plan, outside).map_err(|e| restrict_stop(id, e))?;
-        let (mut view, complement) = emit_segment(&segment, &self.partition, parts)?;
+    fn emit_artifact(&self, id: SegmentId) -> Result<Vec<u8>, Stop<O::Error>> {
+        let Emission {
+            segment,
+            complement,
+        } = self.with_cx(|cx| self.op.emit(cx, id))?;
         let position = usize::try_from(id.0).unwrap_or(usize::MAX);
-        view.boundary = assembly
-            .boundaries
-            .into_iter()
-            .nth(position)
-            .ok_or_else(|| malformed(ArtifactKind::Assembly, "a boundary is missing"))?;
         let spec = self
             .partition
             .specs()
             .get(position)
             .ok_or_else(|| malformed(ArtifactKind::Assembly, "a segment spec is missing"))?;
-        let view = AnySegment::Graph(view);
-        let view_bytes = view.canonical_bytes(&self.spec.view_schema, &self.partition)?;
-        let record = SegmentRecord::of(&view, spec, &self.spec.view_schema);
-        Ok(emit_bytes(&view, &view_bytes, &complement, &record)?)
+        let view = AnySegment::Graph(segment);
+        let view_bytes = view.canonical_bytes(&self.spec.output_schema, &self.partition)?;
+        let record = SegmentRecord::of(&view, spec, &self.spec.output_schema);
+        Ok(emit_bytes(
+            &view,
+            &view_bytes,
+            complement.as_ref(),
+            &record,
+        )?)
     }
 
-    fn emit(&mut self) -> Result<(), Stop> {
+    fn emit(&mut self) -> Result<(), Stop<O::Error>> {
         let before = self.counts();
         let mut shared: Vec<TaskKey> = self.ids().into_iter().map(export_key).collect();
+        shared.extend(self.ids().into_iter().map(summary_key));
         shared.push(assemble_key());
         for id in self.ids() {
             if self.cancelled() {
@@ -1389,13 +1767,13 @@ impl<Src: SegmentSource, St: SegmentStore> Runner<'_, Src, St> {
             if let Some(limit) = self.budget.complement
                 && needed > limit
             {
-                return Err(Stop::Residual(Residual::BudgetExceeded {
+                return Err(Stop::Phase(PhaseStop::Residual(Residual::BudgetExceeded {
                     resource: Resource::Complement,
                     phase: Phase::Emit,
                     segment: Some(id),
                     needed,
                     budget: limit,
-                }));
+                })));
             }
             if !reused {
                 self.commit(task, kind, inputs, &bytes)?;
@@ -1404,7 +1782,9 @@ impl<Src: SegmentSource, St: SegmentStore> Runner<'_, Src, St> {
             let complement = &mut self.report.complement;
             complement.elements = complement.elements.saturating_add(elements);
             complement.bytes = needed;
-            complement.per_segment.insert(id, (elements, size));
+            if size > 0 {
+                complement.per_segment.insert(id, (elements, size));
+            }
         }
         self.finish_phase(Phase::Emit, before, self.peak);
         Ok(())
@@ -1419,7 +1799,7 @@ impl<Src: SegmentSource, St: SegmentStore> Runner<'_, Src, St> {
     /// its header, its record, one id when the run is not empty and at most
     /// its longest frame with its length prefix; the sum over the artifacts
     /// bounds what it holds at once.
-    fn sealed(&self) -> Result<(SegmentManifest, u64), Stop> {
+    fn sealed(&self) -> Result<(SegmentManifest, u64), Stop<O::Error>> {
         let journal = self.store.journal(&self.run).map_err(store_stop)?;
         let kind = ArtifactKind::ComplementSegment;
         let mut sections = Vec::new();
@@ -1431,7 +1811,7 @@ impl<Src: SegmentSource, St: SegmentStore> Runner<'_, Src, St> {
                 .store
                 .read_at(&key, 0, EMIT_HEADER_LEN)
                 .map_err(store_stop)?
-                .ok_or_else(|| missing_section(kind))?;
+                .ok_or_else(|| Stop::from(missing_section(kind)))?;
             let layout = EmitLayout::decode(&header)?;
             if journal.tasks.get(&emit_key(id)).map(|task| task.bytes) != Some(layout.end()?) {
                 return Err(Stop::from(malformed(
@@ -1443,7 +1823,7 @@ impl<Src: SegmentSource, St: SegmentStore> Runner<'_, Src, St> {
                 .store
                 .read_at(&key, layout.record_at(), layout.record)
                 .map_err(store_stop)?
-                .ok_or_else(|| missing_section(kind))?;
+                .ok_or_else(|| Stop::from(missing_section(kind)))?;
             let record = SegmentRecord::from_canonical_bytes(&record)?;
             let one_id = if layout.run_ids == 0 { 0 } else { 4 };
             held = held
@@ -1486,30 +1866,18 @@ impl<Src: SegmentSource, St: SegmentStore> Runner<'_, Src, St> {
             .collect();
         let header = ManifestHeader {
             shape: InstanceShapeKind::Graph,
-            schema: self.spec.view_schema,
-            role: ManifestRole::View {
-                source: self.spec.input,
-                envelope: IdentityEnvelope {
-                    version: IDENTITY_ENVELOPE_VERSION,
-                    source_schema: self.input.schema,
-                    target_schema: self.spec.view_schema,
-                    lens: self.spec.lens,
-                    complement_format: ComplementFormat {
-                        shape: ComplementShape::Graph,
-                        version: GRAPH_COMPLEMENT_FORMAT_VERSION,
-                    },
-                },
-            },
+            schema: self.spec.output_schema,
+            role: self.with_cx(|cx| self.op.output_role(cx)),
             binding: self.input.binding,
         };
         let sealed = seal_full(records, header, runs, sources);
         if let Some(stop) = failure.into_inner() {
-            return Err(stop);
+            return Err(Stop::from(stop));
         }
         Ok((sealed?, held))
     }
 
-    fn seal(&mut self) -> Result<SegmentManifest, Stop> {
+    fn seal(&mut self) -> Result<SegmentManifest, Stop<O::Error>> {
         if self.cancelled() {
             return Err(Stop::Cancelled);
         }
@@ -1518,9 +1886,7 @@ impl<Src: SegmentSource, St: SegmentStore> Runner<'_, Src, St> {
         let inputs = self.inputs(seal_key(), &from);
         let (manifest, held) = self.sealed()?;
         let computed = manifest.canonical_bytes();
-        let bytes = self.task(seal_key(), ArtifactKind::Manifest, inputs, |_| {
-            Ok(computed.clone())
-        })?;
+        let bytes = self.task(seal_key(), inputs, |_| Ok(computed.clone()))?;
         self.finish_phase(Phase::Seal, before, held);
         if bytes != computed {
             return Err(Stop::from(malformed(
@@ -1531,7 +1897,7 @@ impl<Src: SegmentSource, St: SegmentStore> Runner<'_, Src, St> {
         Ok(manifest)
     }
 
-    fn phases(&mut self) -> Result<SegmentManifest, Stop> {
+    fn phases(&mut self) -> Result<SegmentManifest, Stop<O::Error>> {
         self.validate()?;
         self.exports()?;
         self.summaries()?;
@@ -1550,7 +1916,7 @@ impl<Src: SegmentSource, St: SegmentStore> Runner<'_, Src, St> {
         }
     }
 
-    fn stop(mut self, stop: Stop) -> GraphRestrictRun {
+    fn stop(mut self, stop: Stop<O::Error>) -> SegmentedRun<O::Error> {
         self.report.peak_estimated_bytes = self.peak;
         self.report.status = match stop {
             Stop::Cancelled => match self.orphans() {
@@ -1563,7 +1929,7 @@ impl<Src: SegmentSource, St: SegmentStore> Runner<'_, Src, St> {
                     },
                 },
             },
-            Stop::Store(message) => match self.orphans() {
+            Stop::Phase(PhaseStop::Store(message)) => match self.orphans() {
                 Ok(()) => RunStatus::Incomplete {
                     reason: RunIncompleteReason::Store { message },
                 },
@@ -1573,10 +1939,10 @@ impl<Src: SegmentSource, St: SegmentStore> Runner<'_, Src, St> {
                     },
                 },
             },
-            Stop::Failed(error) => RunStatus::Failed(error),
-            Stop::Residual(residual) => RunStatus::Residual(residual),
+            Stop::Phase(PhaseStop::Failed(error)) => RunStatus::Failed(error),
+            Stop::Phase(PhaseStop::Residual(residual)) => RunStatus::Residual(residual),
         };
-        GraphRestrictRun {
+        SegmentedRun {
             run: Some(self.run),
             manifest: None,
             report: self.report,
@@ -1584,8 +1950,11 @@ impl<Src: SegmentSource, St: SegmentStore> Runner<'_, Src, St> {
     }
 }
 
-const fn restrict_stop(segment: SegmentId, error: RestrictError) -> Stop {
-    Stop::Failed(SegmentedRestrictError::Restrict { segment, error })
+const fn restrict_stop(
+    segment: SegmentId,
+    error: RestrictError,
+) -> PhaseStop<SegmentedRestrictError> {
+    PhaseStop::Failed(SegmentedRestrictError::Restrict { segment, error })
 }
 
 const fn task_key(phase: Phase, segment: Option<SegmentId>) -> TaskKey {
@@ -1618,7 +1987,7 @@ const fn seal_key() -> TaskKey {
 
 /// A run refused before its first task: its status and, when the partition
 /// gives one, its identity.
-type Refused = (RunStatus<SegmentedRestrictError>, Option<Digest>);
+type Refused<E> = (RunStatus<E>, Option<Digest>);
 
 /// What the checks before the first task establish.
 struct Prepared {
@@ -1629,21 +1998,16 @@ struct Prepared {
 }
 
 /// The checks before the first task: the input manifest, its shape and
-/// partition, the plan's locality, the number of segments, and each
+/// partition, the operation's locality, the number of segments, and each
 /// record's working-set estimate. A refusal comes with the run identity
 /// when the partition gives one.
-fn preflight(
-    plan: &RestrictPlan,
+fn preflight<O: PhaseOperation>(
+    op: &O,
     input: &SegmentManifest,
     spec: RunSpec,
     budget: Budget,
-) -> Result<Prepared, Box<Refused>> {
-    let failed = |error: SegmentError| {
-        Box::new((
-            RunStatus::Failed(SegmentedRestrictError::Segment(error)),
-            None,
-        ))
-    };
+) -> Result<Prepared, Box<Refused<O::Error>>> {
+    let failed = |error: SegmentError| Box::new((RunStatus::Failed(O::Error::from(error)), None));
     verify_manifest(input, spec.input).map_err(failed)?;
     if input.shape != InstanceShapeKind::Graph {
         return Err(failed(SegmentError::ShapeMismatch {
@@ -1653,11 +2017,11 @@ fn preflight(
     }
     let partition = input.partition().map_err(failed)?;
     let index = partition.owner_index().map_err(failed)?;
-    let run = RunJournal::run_digest(&spec.lens, &spec.input, &partition, GRAPH_RESTRICT_OP);
+    let run = RunJournal::run_digest(&spec.lens, &spec.input, &partition, op.op());
     let declined = |residual| Box::new((RunStatus::Residual(residual), Some(run)));
-    if let Locality::Global(reason) = graph_restrict_locality(plan) {
+    if let Locality::Global(reason) = op.locality() {
         return Err(declined(Residual::Global {
-            op: SegmentOp::Restrict,
+            op: op.segment_op(),
             reason,
         }));
     }
@@ -1673,7 +2037,14 @@ fn preflight(
     }
     let mut peak = 0;
     for record in &input.segments {
-        let estimate = MemoryModel::estimate(&record.stats);
+        let estimate = op.working_set(record).map_err(|message| {
+            Box::new((
+                RunStatus::Incomplete {
+                    reason: RunIncompleteReason::Store { message },
+                },
+                Some(run),
+            ))
+        })?;
         if estimate > budget.working_set {
             return Err(declined(Residual::BudgetExceeded {
                 resource: Resource::WorkingSet,
@@ -1693,42 +2064,46 @@ fn preflight(
     })
 }
 
-/// Run segmented graph restriction along `plan` over the graph the input
-/// manifest `input` seals, reading its segments from `source`, as a
-/// checkpointed run in `store`.
+/// Run the operation `op` over the graph the input manifest `input` seals,
+/// reading its segments from `source`, as a checkpointed run in `store`.
 ///
 /// The run's identity is [`RunJournal::run_digest`] of the lens, the input
-/// manifest's digest, the partition and [`GRAPH_RESTRICT_OP`]. Before any
-/// task the input manifest is verified against `spec.input`
-/// ([`verify_manifest`]), a plan [`graph_restrict_locality`] classifies as
-/// global is declined, and the number of segments and the working-set
-/// estimate of every record are checked against `budget`. The phases then
-/// run as the module documentation describes; `progress` is called after
-/// every committed or reused task, and the run stops once
-/// `spec.cancel_after_tasks` tasks are done.
-///
-/// The view segments and complement segments of a complete run are the
-/// output of [`graph_restrict_segmented`] on the input segments, with the
-/// view segments written under `spec.view_schema`; read them back with
-/// [`read_emitted`].
-///
-/// [`graph_restrict_segmented`]: super::graph_restrict_segmented
-pub fn graph_restrict_run<Src: SegmentSource, St: SegmentStore>(
-    plan: &RestrictPlan,
+/// manifest's digest, the partition and the operation's bytes
+/// ([`PhaseOperation::op`]). Before any task the input manifest is verified
+/// against `spec.input` ([`verify_manifest`]), an operation whose locality
+/// is global is declined, and the number of segments and the working-set
+/// estimate of every record ([`PhaseOperation::working_set`]) are checked
+/// against `budget`. The six phases then run, `4n + 2` tasks for `n`
+/// segments, each task committing one artifact ([`phase_artifact`]) with its
+/// journal record and reading only the artifacts of the tasks its input
+/// digest names: Validate of a segment its input segment, Export the
+/// segment's Validate, Summarize the segment's Validate and every Export,
+/// Assemble every earlier task, Emit the segment's Validate, every Export
+/// and Summarize and Assemble, and Seal every Emit. Validate checks the
+/// input segment against the input manifest before the operation reads it;
+/// Assemble declines when the summaries and its own artifact exceed the
+/// summary budget; each Emit task writes the operation's output segment and
+/// complement in the Emit layout and is preceded by the running complement
+/// budget; Seal seals the output segments under `spec.output_schema` with
+/// the operation's role, reading each Emit artifact a section at a time.
+/// `progress` is called after every committed or reused task, and the run
+/// stops once `spec.cancel_after_tasks` tasks are done.
+pub fn run_segmented<O: PhaseOperation, Src: SegmentSource, St: SegmentStore>(
+    op: &O,
     input: &SegmentManifest,
     source: &Src,
     spec: RunSpec,
     budget: Budget,
     store: &mut St,
     progress: &mut dyn FnMut(&Progress),
-) -> GraphRestrictRun {
+) -> SegmentedRun<O::Error> {
     let segments = u32::try_from(input.segments.len()).unwrap_or(u32::MAX);
     let total = segments.saturating_mul(4).saturating_add(2);
     let mut report = SegmentRunReport {
         status: RunStatus::Incomplete {
             reason: RunIncompleteReason::Cancelled,
         },
-        locality: graph_restrict_locality(plan),
+        locality: op.locality(),
         budget,
         progress: Progress {
             phase: Phase::Validate,
@@ -1745,12 +2120,12 @@ pub fn graph_restrict_run<Src: SegmentSource, St: SegmentStore>(
         orphans: Vec::new(),
         phases: Vec::new(),
     };
-    let prepared = match preflight(plan, input, spec, budget) {
+    let prepared = match preflight(op, input, spec, budget) {
         Ok(prepared) => prepared,
         Err(refused) => {
             let (status, run) = *refused;
             report.status = status;
-            return GraphRestrictRun {
+            return SegmentedRun {
                 run,
                 manifest: None,
                 report,
@@ -1765,7 +2140,7 @@ pub fn graph_restrict_run<Src: SegmentSource, St: SegmentStore>(
     } = prepared;
     report.peak_estimated_bytes = peak;
     let mut runner = Runner {
-        plan,
+        op,
         input,
         source,
         partition,
@@ -1787,7 +2162,7 @@ pub fn graph_restrict_run<Src: SegmentSource, St: SegmentStore>(
         runner.report.status = RunStatus::Incomplete {
             reason: RunIncompleteReason::Store { message },
         };
-        return GraphRestrictRun {
+        return SegmentedRun {
             run: Some(run),
             manifest: None,
             report: runner.report,
@@ -1796,9 +2171,40 @@ pub fn graph_restrict_run<Src: SegmentSource, St: SegmentStore>(
     runner.report.status = RunStatus::Complete {
         manifest: manifest.digest(),
     };
-    GraphRestrictRun {
+    SegmentedRun {
         run: Some(run),
         manifest: Some(manifest),
         report: runner.report,
     }
+}
+
+/// Run segmented graph restriction along `plan` over the graph the input
+/// manifest `input` seals, reading its segments from `source`, as a
+/// checkpointed run in `store`: [`run_segmented`] of [`GraphRestrict`],
+/// whose phases the module documentation describes.
+///
+/// The view segments and complement segments of a complete run are the
+/// output of [`graph_restrict_segmented`] on the input segments, with the
+/// view segments written under `spec.output_schema`; read them back with
+/// [`read_emitted`].
+///
+/// [`graph_restrict_segmented`]: super::graph_restrict_segmented
+pub fn graph_restrict_run<Src: SegmentSource, St: SegmentStore>(
+    plan: &RestrictPlan,
+    input: &SegmentManifest,
+    source: &Src,
+    spec: RunSpec,
+    budget: Budget,
+    store: &mut St,
+    progress: &mut dyn FnMut(&Progress),
+) -> GraphRestrictRun {
+    run_segmented(
+        &GraphRestrict { plan },
+        input,
+        source,
+        spec,
+        budget,
+        store,
+        progress,
+    )
 }

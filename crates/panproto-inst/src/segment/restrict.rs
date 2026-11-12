@@ -34,6 +34,7 @@
 //!
 //! [`graph_restrict_with_plan`]: crate::graph_restrict_with_plan
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 
 use panproto_gat::Name;
@@ -377,6 +378,12 @@ pub enum SegmentedRestrictError {
     Residual(Residual),
 }
 
+impl From<SegmentError> for SegmentedRestrictError {
+    fn from(error: SegmentError) -> Self {
+        Self::Segment(error)
+    }
+}
+
 /// The locality class of graph restrict along `plan`.
 ///
 /// [`Locality::Global`] with [`GlobalReason::ExpressionDemand`] at the least
@@ -657,22 +664,16 @@ pub fn graph_restrict_segmented(
 /// This is the part of [`graph_restrict_segmented`] that needs no id
 /// allocation, so the family need not satisfy the seal floor rule: the
 /// segments are checked as [`verify_partition`](super::verify_partition)
-/// checks them and run through the same stages. The nodes of segment `i` are
-/// the nodes of whole-state restriction of the assembled graph that segment
-/// `i` owns, other than the synthesized ones. Whole-state restriction
-/// numbers its synthesized elements from one above the greatest id of each
-/// kind the graph holds, and refuses a graph whose ids of a kind run out
-/// (stage 5); the same numbering is checked here from every segment's
-/// greatest ids and synthesized keys, so a refusal is the whole-state one.
+/// checks them and run by [`graph_restrict_segmented_nodes_with`]. The nodes
+/// of segment `i` are the nodes of whole-state restriction of the assembled
+/// graph that segment `i` owns, other than the synthesized ones.
 ///
 /// # Errors
 ///
 /// [`SegmentedRestrictError::Residual`] when [`graph_restrict_locality`]
 /// classifies the plan as global; [`SegmentedRestrictError::Segment`] with
-/// the error of `verify_partition`; [`SegmentedRestrictError::Restrict`]
-/// with the refusal whole-state restriction returns, in the segment owning
-/// its element, a stage 5 exhaustion in the segment holding the greatest id
-/// of its kind.
+/// the error of `verify_partition`; otherwise the refusal of
+/// [`graph_restrict_segmented_nodes_with`].
 pub fn graph_restrict_segmented_nodes(
     plan: &RestrictPlan,
     segments: &[GraphSegment],
@@ -690,45 +691,117 @@ pub fn graph_restrict_segmented_nodes(
         .map(super::body::AnySegment::Graph)
         .collect();
     super::check::verify_partition(&any, partition).map_err(SegmentedRestrictError::Segment)?;
-    let parts = run_stages(plan, segments)?;
-    check_numbering(segments, &parts)?;
-    Ok(parts.into_iter().map(|run| run.nodes).collect())
+    let ids: Vec<SegmentId> = segments.iter().map(|segment| segment.segment).collect();
+    let mut nodes = Vec::with_capacity(segments.len());
+    let outcome = graph_restrict_segmented_nodes_with::<std::convert::Infallible>(
+        plan,
+        &ids,
+        &mut |id| Ok(Cow::Borrowed(&segments[slot(id)])),
+        &mut |_, regenerated| {
+            nodes.push(regenerated);
+            Ok(())
+        },
+    );
+    match outcome {
+        Ok(()) => Ok(nodes),
+        Err(StreamStop::Refused(error)) => Err(error),
+        Err(StreamStop::Source(never)) => match never {},
+    }
 }
 
-/// Whole-state restriction's stage 5 over a segmented run: number every
-/// segment's synthesized keys, nodes then edges, from one above the
-/// greatest id of each kind any segment holds, as
+/// Why [`graph_restrict_segmented_nodes_with`] stopped.
+#[derive(Debug)]
+pub enum StreamStop<E> {
+    /// The caller's segment source or visitor failed.
+    Source(E),
+    /// Restriction refuses the family.
+    Refused(SegmentedRestrictError),
+}
+
+/// A caller's source of the segments of a family, one at a time.
+pub type FetchSegment<'f, 's, E> = dyn FnMut(SegmentId) -> Result<Cow<'s, GraphSegment>, E> + 'f;
+
+/// Run the stages of [`graph_restrict_segmented_nodes`] over the family
+/// whose segments `ids` names (segment `i` at position `i`, in id order),
+/// reading each segment from `fetch` whenever a pass reaches it and never
+/// holding two at once, and give `visit` each segment's surviving nodes as
+/// the last pass reaches it.
+///
+/// Three passes read the family: the fan domain and stage 0 in every
+/// segment, with the fates of in-stub targets exported to the owners of the
+/// in-stubs' sources; the reach summaries; and stages 1 to 3 in every
+/// segment, after the coordinator closes the summaries over the boundary.
+/// Between passes the run holds the exported fates, the summaries and their
+/// closure, which grow with the boundary, and the synthesized keys of the
+/// last pass, whose numbering it checks as whole-state restriction numbers
+/// them (stage 5): from one above the greatest id of each kind the family
+/// holds, refusing a family whose ids of a kind run out. The caller must
+/// supply a family [`verify_partition`](super::verify_partition) accepts and
+/// the same segment each time one is fetched; a visit made before a refusal
+/// is a visit of a family restriction refuses, which the caller discards.
+///
+/// # Errors
+///
+/// [`StreamStop::Source`] with the first error of `fetch` or `visit`;
+/// [`StreamStop::Refused`] with [`SegmentedRestrictError::Segment`] when a
+/// segment's local graph cannot be built, and otherwise
+/// [`SegmentedRestrictError::Restrict`] with the refusal whole-state
+/// restriction returns, in the segment owning its element, a stage 5
+/// exhaustion in the segment holding the greatest id of its kind.
+pub fn graph_restrict_segmented_nodes_with<'s, E>(
+    plan: &RestrictPlan,
+    ids: &[SegmentId],
+    fetch: &mut FetchSegment<'_, 's, E>,
+    visit: &mut dyn FnMut(SegmentId, BTreeMap<u32, Node>) -> Result<(), E>,
+) -> Result<(), StreamStop<E>> {
+    let mut node_max: Option<(u32, SegmentId)> = None;
+    let mut edge_max: Option<(u32, SegmentId)> = None;
+    let mut node_keys: BTreeSet<SynthKey> = BTreeSet::new();
+    let mut arc_keys: BTreeSet<SynthKey> = BTreeSet::new();
+    run_stages_with(plan, ids, fetch, &mut |segment, parts| {
+        let held = |max: &mut Option<(u32, SegmentId)>, id: Option<u32>| {
+            if let Some(id) = id {
+                *max = (*max).max(Some((id, segment.segment)));
+            }
+        };
+        held(&mut node_max, segment.nodes.keys().next_back().copied());
+        held(
+            &mut edge_max,
+            segment.edges.keys().next_back().map(|id| id.0),
+        );
+        node_keys.extend(parts.synth_nodes.keys().cloned());
+        arc_keys.extend(parts.arc_keys());
+        visit(segment.segment, parts.nodes)
+    })?;
+    check_numbering(node_max, edge_max, node_keys, arc_keys).map_err(StreamStop::Refused)
+}
+
+/// Whole-state restriction's stage 5 over a segmented run: number the
+/// synthesized node keys `node_keys` from one above `node_max` and the arc
+/// keys `arc_keys` from one above `edge_max`, as
 /// [`graph_restrict_with_plan`](crate::graph_restrict_with_plan) numbers
-/// them, and refuse when the ids of a kind run out.
+/// them, and refuse when the ids of a kind run out. Each maximum is the
+/// greatest id of its kind any segment holds, with that segment.
 fn check_numbering(
-    segments: &[GraphSegment],
-    parts: &[RunParts],
+    node_max: Option<(u32, SegmentId)>,
+    edge_max: Option<(u32, SegmentId)>,
+    node_keys: BTreeSet<SynthKey>,
+    arc_keys: BTreeSet<SynthKey>,
 ) -> Result<(), SegmentedRestrictError> {
-    let node_max = segments
-        .iter()
-        .flat_map(|segment| segment.nodes.keys().map(|id| (*id, segment.segment)))
-        .max();
-    let edge_max = segments
-        .iter()
-        .flat_map(|segment| segment.edges.keys().map(|id| (id.0, segment.segment)))
-        .max();
     let exhausted = |kind: IdKind, max: Option<(u32, SegmentId)>, error: RestrictError| {
         SegmentedRestrictError::Restrict {
             segment: max.map_or(SegmentId(0), |(_, segment)| segment),
             error: crate::graph_restrict::locate_exhaustion(error, kind),
         }
     };
-    let node_ids = crate::restrict_plan::allocate_synthesized(
-        parts.iter().flat_map(|run| run.synth_nodes.keys().cloned()),
+    crate::restrict_plan::allocate_synthesized(
+        node_keys,
         crate::restrict_plan::floor_above(node_max.map(|(id, _)| id)),
         IdKind::Node,
     )
     .map_err(|error| exhausted(IdKind::Node, node_max, error))?;
     crate::restrict_plan::allocate_synthesized(
-        parts
-            .iter()
-            .flat_map(|run| run.arcs(&node_ids))
-            .map(|(key, ..)| key),
+        arc_keys,
         crate::restrict_plan::floor_above(edge_max.map(|(id, _)| id)),
         IdKind::Edge,
     )
@@ -743,81 +816,126 @@ fn run_stages(
     plan: &RestrictPlan,
     segments: &[GraphSegment],
 ) -> Result<Vec<RunParts>, SegmentedRestrictError> {
-    let locals: Vec<Local> = segments
-        .iter()
-        .map(Local::of)
-        .collect::<Result<_, _>>()
-        .map_err(SegmentedRestrictError::Segment)?;
+    let ids: Vec<SegmentId> = segments.iter().map(|segment| segment.segment).collect();
+    let mut parts = Vec::with_capacity(segments.len());
+    let outcome = run_stages_with::<std::convert::Infallible>(
+        plan,
+        &ids,
+        &mut |id| Ok(Cow::Borrowed(&segments[slot(id)])),
+        &mut |_, run| {
+            parts.push(run);
+            Ok(())
+        },
+    );
+    match outcome {
+        Ok(()) => Ok(parts),
+        Err(StreamStop::Refused(error)) => Err(error),
+        Err(StreamStop::Source(never)) => match never {},
+    }
+}
 
-    // The fan domain, before any stage.
-    let first_fan = segments
-        .iter()
-        .zip(&locals)
-        .filter_map(|(segment, local)| {
-            local
-                .fan_violation()
-                .map(|(node, reason)| (node, segment.segment, reason))
-        })
-        .min_by_key(|(node, _, _)| *node);
+/// The fan domain and stages 0 to 3 of segmented graph restriction, each
+/// segment read from `fetch` as a pass reaches it, the parts of each
+/// segment's run given to `visit` in the last pass.
+///
+/// The fan domain is checked in every segment before stage 0 counts, and
+/// the least violation is the refusal; then the least stage 0 refusal; then
+/// the least refusal of stages 1 to 3. Every segment's local graph is built
+/// in the first pass, so a segment whose local graph cannot be built is
+/// refused before any of these.
+fn run_stages_with<'s, E>(
+    plan: &RestrictPlan,
+    ids: &[SegmentId],
+    fetch: &mut FetchSegment<'_, 's, E>,
+    visit: &mut dyn FnMut(&GraphSegment, RunParts) -> Result<(), E>,
+) -> Result<(), StreamStop<E>> {
+    let read = |fetch: &mut FetchSegment<'_, 's, E>, id: SegmentId| {
+        let segment = fetch(id).map_err(StreamStop::Source)?;
+        let local = Local::of(&segment)
+            .map_err(|error| StreamStop::Refused(SegmentedRestrictError::Segment(error)))?;
+        Ok::<_, StreamStop<E>>((segment, local))
+    };
+
+    // The fan domain and stage 0 in every segment, and the exchange: the
+    // fate of every in-stub target goes to the owner of the in-stub's
+    // source.
+    let mut first_fan = None;
+    let mut first: Option<(SegmentId, RestrictError)> = None;
+    let mut imports: Vec<BTreeMap<u32, RemoteFate>> = vec![BTreeMap::new(); ids.len()];
+    let mut locals_built = Ok(());
+    for &id in ids {
+        let (segment, local) = match read(fetch, id) {
+            Ok(read) => read,
+            Err(StreamStop::Refused(error)) => {
+                if locals_built.is_ok() {
+                    locals_built = Err(error);
+                }
+                continue;
+            }
+            Err(stop) => return Err(stop),
+        };
+        if let Some((node, reason)) = local.fan_violation() {
+            if first_fan.as_ref().is_none_or(|(least, _, _)| node < *least) {
+                first_fan = Some((node, id, reason));
+            }
+            continue;
+        }
+        match decide_nodes(&local.graph, plan, local.foreign.clone()) {
+            Ok(own) => {
+                for stub in segment.boundary.in_stubs.values() {
+                    if let (Some(fate), Some(target)) =
+                        (own.get(&stub.tgt), imports.get_mut(slot(stub.src_owner)))
+                    {
+                        target.insert(stub.tgt, fate.clone());
+                    }
+                }
+            }
+            Err(error) => keep_least(&mut first, id, error),
+        }
+    }
+    locals_built.map_err(StreamStop::Refused)?;
     if let Some((node, segment, reason)) = first_fan {
-        return Err(SegmentedRestrictError::Restrict {
+        return Err(StreamStop::Refused(SegmentedRestrictError::Restrict {
             segment,
             error: RestrictError::MalformedFan { node, reason },
-        });
-    }
-
-    // Stage 0 in every segment.
-    let mut first: Option<(SegmentId, RestrictError)> = None;
-    let mut fates: Vec<BTreeMap<u32, RemoteFate>> = Vec::with_capacity(segments.len());
-    for (segment, local) in segments.iter().zip(&locals) {
-        match decide_nodes(&local.graph, plan, local.foreign.clone()) {
-            Ok(own) => fates.push(own),
-            Err(error) => {
-                keep_least(&mut first, segment.segment, error);
-                fates.push(BTreeMap::new());
-            }
-        }
+        }));
     }
     if let Some((segment, error)) = first {
-        return Err(SegmentedRestrictError::Restrict { segment, error });
-    }
-
-    // Exchange: the fate of every in-stub target goes to the owner of the
-    // in-stub's source.
-    let mut imports: Vec<BTreeMap<u32, RemoteFate>> = vec![BTreeMap::new(); segments.len()];
-    for (segment, own) in segments.iter().zip(&fates) {
-        for stub in segment.boundary.in_stubs.values() {
-            if let (Some(fate), Some(target)) =
-                (own.get(&stub.tgt), imports.get_mut(slot(stub.src_owner)))
-            {
-                target.insert(stub.tgt, fate.clone());
-            }
-        }
+        return Err(StreamStop::Refused(SegmentedRestrictError::Restrict {
+            segment,
+            error,
+        }));
     }
 
     // Summaries, and their closure by the coordinator.
-    let summaries: Vec<ReachSummary> = segments
-        .iter()
-        .zip(&locals)
-        .zip(fates.iter().zip(&imports))
-        .map(|((segment, local), (own, imported))| summarize(segment, local, own, imported))
-        .collect();
+    let mut summaries: Vec<ReachSummary> = Vec::with_capacity(ids.len());
+    for (position, &id) in ids.iter().enumerate() {
+        let (segment, local) = read(fetch, id)?;
+        let own = decide_nodes(&local.graph, plan, local.foreign.clone()).map_err(|error| {
+            StreamStop::Refused(SegmentedRestrictError::Restrict { segment: id, error })
+        })?;
+        summaries.push(summarize(&segment, &local, &own, &imports[position]));
+    }
     let closed = close_reach(&summaries);
 
     // Stages 1 to 3 in every segment.
-    let mut parts: Vec<RunParts> = Vec::with_capacity(segments.len());
     let mut first: Option<(SegmentId, RestrictError)> = None;
-    for (position, (segment, local)) in segments.iter().zip(&locals).enumerate() {
-        let outside = outside_of(local, &imports[position], &closed);
+    for (position, &id) in ids.iter().enumerate() {
+        let (segment, local) = read(fetch, id)?;
+        let outside = outside_of(&local, &imports[position], &closed);
         match run_scoped(&local.graph, plan, outside) {
-            Ok(run) => parts.push(run),
-            Err(error) => keep_least(&mut first, segment.segment, error),
+            Ok(run) if first.is_none() => visit(&segment, run).map_err(StreamStop::Source)?,
+            Ok(_) => {}
+            Err(error) => keep_least(&mut first, id, error),
         }
     }
-    if let Some((segment, error)) = first {
-        return Err(SegmentedRestrictError::Restrict { segment, error });
+    match first {
+        Some((segment, error)) => Err(StreamStop::Refused(SegmentedRestrictError::Restrict {
+            segment,
+            error,
+        })),
+        None => Ok(()),
     }
-    Ok(parts)
 }
 
 /// Check the family and the seal floor rule for its edge ids, and index

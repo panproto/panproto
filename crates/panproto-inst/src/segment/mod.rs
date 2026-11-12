@@ -35,6 +35,7 @@ mod ids;
 mod manifest;
 mod partition;
 mod reader;
+pub use reader::Reader;
 mod restrict;
 mod runner;
 mod split;
@@ -50,7 +51,7 @@ pub use body::{
     AnySegment, Boundary, Ghost, GraphSegment, InStub, SegmentStats, TableSegment, TreeSegment,
 };
 pub use builder::{BuilderEdge, BuilderNode, SegmentBuilder};
-pub use bytes::{write_segment, write_view_ref};
+pub use bytes::{read_boundary, write_boundary, write_segment, write_view_ref};
 pub use check::{check_segment, verify_partition};
 pub use error::{ErrorAt, ErrorKey, PartitionDefect, Residual, Resource, SegmentError};
 pub use ids::{EdgeFloor, IdAllocator, IdKind, IdRange, RangeExhausted, SegmentId};
@@ -61,13 +62,16 @@ pub use manifest::{
 };
 pub use partition::{OwnerIndex, Partition, SegmentSpec, shape_from_tag, shape_tag};
 pub use restrict::{
-    GraphComplementSegment, SegmentedRestrict, SegmentedRestrictError, graph_restrict_locality,
-    graph_restrict_segmented, graph_restrict_segmented_nodes,
+    FetchSegment, GraphComplementSegment, SegmentedRestrict, SegmentedRestrictError, StreamStop,
+    graph_restrict_locality, graph_restrict_segmented, graph_restrict_segmented_nodes,
+    graph_restrict_segmented_nodes_with,
 };
 pub use runner::{
-    Budget, ComplementSize, EmittedSegment, GRAPH_RESTRICT_OP, GraphRestrictRun, MemoryModel,
-    MemoryStore, MissingSegment, PhaseReport, Progress, RunIncompleteReason, RunSpec, RunStatus,
-    SegmentRunReport, SegmentSource, graph_restrict_run, read_emitted,
+    Budget, ComplementSize, Emission, EmittedSegment, GRAPH_RESTRICT_OP, GraphRestrict,
+    GraphRestrictRun, MemoryModel, MemoryStore, MissingSegment, PhaseContext, PhaseOperation,
+    PhaseReport, PhaseStop, Progress, RunIncompleteReason, RunSpec, RunStatus, SegmentRunReport,
+    SegmentSource, SegmentedRun, graph_restrict_run, phase_artifact, read_emitted, run_segmented,
+    store_failure,
 };
 pub use split::{
     assemble_graph, assemble_table, assemble_tree, partition_graph, partition_table, partition_tree,

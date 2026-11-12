@@ -109,7 +109,7 @@ pub fn get_segmented<Src: SegmentSource, St: SegmentStore>(
     let spec = RunSpec {
         lens: identity.lens,
         input,
-        view_schema: identity.target_schema,
+        output_schema: identity.target_schema,
         cancel_after_tasks,
     };
     Ok(graph_restrict_run(

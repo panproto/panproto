@@ -89,10 +89,12 @@ impl<'a> Reader<'a> {
         Ok(out)
     }
 
+    /// One byte.
     pub fn u8(&mut self) -> Result<u8, SegmentError> {
         Ok(self.array::<1>()?[0])
     }
 
+    /// A boolean byte, refused unless it is 0 or 1.
     pub fn bool(&mut self) -> Result<bool, SegmentError> {
         match self.u8()? {
             0 => Ok(false),
@@ -101,18 +103,22 @@ impl<'a> Reader<'a> {
         }
     }
 
+    /// A little-endian `u16`.
     pub fn u16(&mut self) -> Result<u16, SegmentError> {
         Ok(u16::from_le_bytes(self.array()?))
     }
 
+    /// A little-endian `u32`.
     pub fn u32(&mut self) -> Result<u32, SegmentError> {
         Ok(u32::from_le_bytes(self.array()?))
     }
 
+    /// A little-endian `u64`.
     pub fn u64(&mut self) -> Result<u64, SegmentError> {
         Ok(u64::from_le_bytes(self.array()?))
     }
 
+    /// A little-endian `i64`.
     pub fn i64(&mut self) -> Result<i64, SegmentError> {
         Ok(i64::from_le_bytes(self.array()?))
     }
@@ -128,11 +134,13 @@ impl<'a> Reader<'a> {
             .ok_or_else(|| self.error(format!("count {raw} exceeds the input")))
     }
 
+    /// A length-prefixed byte string.
     pub fn byte_string(&mut self) -> Result<&'a [u8], SegmentError> {
         let n = self.count(1)?;
         self.take(n)
     }
 
+    /// A length-prefixed UTF-8 string.
     pub fn string(&mut self) -> Result<String, SegmentError> {
         let raw = self.byte_string()?;
         std::str::from_utf8(raw)
@@ -140,10 +148,12 @@ impl<'a> Reader<'a> {
             .map_err(|_| self.error("a string is not UTF-8"))
     }
 
+    /// A name, written as a string.
     pub fn name(&mut self) -> Result<Name, SegmentError> {
         self.string().map(Name::from)
     }
 
+    /// A presence byte and, when present, a name.
     pub fn opt_name(&mut self) -> Result<Option<Name>, SegmentError> {
         if self.bool()? {
             self.name().map(Some)
@@ -152,6 +162,7 @@ impl<'a> Reader<'a> {
         }
     }
 
+    /// A presence byte and, when present, a `u32`.
     pub fn opt_u32(&mut self) -> Result<Option<u32>, SegmentError> {
         if self.bool()? {
             self.u32().map(Some)
@@ -160,10 +171,12 @@ impl<'a> Reader<'a> {
         }
     }
 
+    /// A 32-byte digest.
     pub fn digest(&mut self) -> Result<Digest, SegmentError> {
         self.array().map(Digest)
     }
 
+    /// A schema edge label.
     pub fn edge(&mut self) -> Result<Edge, SegmentError> {
         Ok(Edge {
             src: self.name()?,
@@ -182,11 +195,13 @@ impl<'a> Reader<'a> {
         .check(segment)
     }
 
+    /// Counted id ranges of `segment`.
     pub fn ranges(&mut self, segment: SegmentId) -> Result<Vec<IdRange>, SegmentError> {
         let n = self.count(8)?;
         (0..n).map(|_| self.range(segment)).collect()
     }
 
+    /// A presence byte and, when present, an id range of `segment`.
     pub fn opt_range(&mut self, segment: SegmentId) -> Result<Option<IdRange>, SegmentError> {
         if self.bool()? {
             self.range(segment).map(Some)
@@ -195,6 +210,7 @@ impl<'a> Reader<'a> {
         }
     }
 
+    /// An element reference, as [`write_view_ref`](super::write_view_ref) writes it.
     pub fn view_ref(&mut self) -> Result<ViewRef, SegmentError> {
         match self.u8()? {
             0 => Ok(ViewRef::Node(self.u32()?)),
@@ -213,6 +229,7 @@ impl<'a> Reader<'a> {
         }
     }
 
+    /// A value map whose values nest at most `depth` deep.
     pub fn value_map(&mut self, depth: usize) -> Result<HashMap<String, Value>, SegmentError> {
         Ok(self.value_entries(depth)?.into_iter().collect())
     }

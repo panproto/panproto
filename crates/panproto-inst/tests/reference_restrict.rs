@@ -3793,7 +3793,7 @@ mod segmented_runner {
             RunSpec {
                 lens: Digest(LENS),
                 input: input.manifest.digest(),
-                view_schema: Digest(VIEW_SCHEMA),
+                output_schema: Digest(VIEW_SCHEMA),
                 cancel_after_tasks: cancel,
             },
             budget,
@@ -4755,7 +4755,7 @@ mod segmented_witnesses {
             RunSpec {
                 lens: Digest([4; 32]),
                 input: manifest.digest(),
-                view_schema: Digest([5; 32]),
+                output_schema: Digest([5; 32]),
                 cancel_after_tasks: None,
             },
             Budget::unlimited(),
@@ -4810,7 +4810,7 @@ mod segmented_witnesses {
         let spec = RunSpec {
             lens: Digest([3; 32]),
             input: input.manifest.digest(),
-            view_schema: Digest([2; 32]),
+            output_schema: Digest([2; 32]),
             cancel_after_tasks: None,
         };
         let mut baseline_store = MemoryStore::default();
