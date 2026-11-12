@@ -271,29 +271,34 @@ fn path(p: &DocumentPath) -> rd::Path {
     )
 }
 
-fn shape_problem(problem: &ShapeProblem) -> rd::ShapeProblem {
+/// The reference's form of a production grammar refusal; `None` for a
+/// problem the theory grammar has no place for, which no reference refusal
+/// matches.
+fn shape_problem(problem: &ShapeProblem) -> Option<rd::ShapeProblem> {
     let expected = |e: &Expected| match e {
-        Expected::Object => rd::Expected::Object,
-        Expected::Array => rd::Expected::Array,
-        Expected::String => rd::Expected::String,
-        Expected::Boolean => rd::Expected::Boolean,
-        Expected::TheoryReference => rd::Expected::TheoryReference,
+        Expected::Object => Some(rd::Expected::Object),
+        Expected::Array => Some(rd::Expected::Array),
+        Expected::String => Some(rd::Expected::String),
+        Expected::Boolean => Some(rd::Expected::Boolean),
+        Expected::StringOrObject => Some(rd::Expected::TheoryReference),
+        Expected::Number | Expected::Natural => None,
     };
-    match problem {
-        ShapeProblem::WrongType { expected: e } => rd::ShapeProblem::WrongType(expected(e)),
+    Some(match problem {
+        ShapeProblem::WrongType { expected: e } => rd::ShapeProblem::WrongType(expected(e)?),
         ShapeProblem::UnknownField => rd::ShapeProblem::UnknownField,
         ShapeProblem::MissingField { field } => rd::ShapeProblem::MissingField(field.clone()),
         ShapeProblem::UnknownVariant { found } => rd::ShapeProblem::UnknownVariant(found.clone()),
         ShapeProblem::NoBody => rd::ShapeProblem::NoBody,
         ShapeProblem::SeveralBodies { keys } => rd::ShapeProblem::SeveralBodies(keys.clone()),
-    }
+        ShapeProblem::NoVariant | ShapeProblem::SeveralVariants { .. } => return None,
+    })
 }
 
 /// Whether a production refusal is the reference's refusal.
 fn same_refusal(production: &TheoryDslError, reference: &rd::Refusal) -> bool {
     match (production, reference) {
         (TheoryDslError::Shape { problem, .. }, rd::Refusal::Shape(expected)) => {
-            shape_problem(problem) == *expected
+            shape_problem(problem).as_ref() == Some(expected)
         }
         (TheoryDslError::TermParse { .. }, rd::Refusal::TermParse)
         | (TheoryDslError::AmbiguousOpInputs { .. }, rd::Refusal::AmbiguousOpInputs) => true,
