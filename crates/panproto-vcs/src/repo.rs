@@ -1195,7 +1195,7 @@ impl Repository {
     /// track, one per key whose data set differs, in key order.
     ///
     /// A key both commits track with different data sets is a
-    /// [`InstanceChange::Changed`] carrying the shape's delta
+    /// [`InstanceChange::Changed`](crate::instance_vc::InstanceChange::Changed) carrying the shape's delta
     /// ([`instance_vc::diff`](crate::instance_vc::diff)), which
     /// [`instance_vc::apply`](crate::instance_vc::apply) applies to the
     /// first instance to give the second.

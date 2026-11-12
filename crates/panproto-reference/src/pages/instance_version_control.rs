@@ -287,3 +287,229 @@ pub const fn recorded_encoding(field: Option<(Shape, u32)>) -> (Shape, u32) {
 pub const fn writes_encoding_field(encoding: (Shape, u32)) -> bool {
     !(matches!(encoding.0, Shape::Tree) && encoding.1 == 1)
 }
+
+/// An instance as a data set holds it: a sequence of trees, a table or a
+/// graph.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Instance {
+    /// Trees, one per record.
+    Trees(Vec<crate::model::Tree>),
+    /// A table instance.
+    Table(crate::model::Table),
+    /// A graph instance.
+    Graph(crate::model::Graph),
+}
+
+/// The delta between two instances of one shape.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Delta {
+    /// Between two sequences of trees: the graph delta between the graph
+    /// forms of each record both hold, and the records only one holds.
+    Trees {
+        /// One graph delta per record both sequences hold.
+        records: Vec<crate::edit::GraphDelta>,
+        /// The first sequence's records past the second's length.
+        removed: Vec<crate::model::Tree>,
+        /// The second sequence's records past the first's length.
+        appended: Vec<crate::model::Tree>,
+    },
+    /// Between two tables.
+    Table(crate::edit::TableDelta),
+    /// Between two graphs.
+    Graph(crate::edit::GraphDelta),
+}
+
+/// Why a diff or an application is refused.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Refusal {
+    /// The two sides have different shapes.
+    ShapeMismatch,
+    /// The two data sets of the key conform to different schemas.
+    SchemaMismatch(String),
+    /// A tree has no graph form, or the delta does not apply.
+    DoesNotApply,
+}
+
+/// The graph form of a tree without fans: arc `i` is edge `i`.
+fn graph_form(tree: &crate::model::Tree) -> Result<crate::model::Graph, Refusal> {
+    crate::pages::representation::encode::tree_to_graph(tree, None)
+        .map(|(graph, _)| graph)
+        .map_err(|_| Refusal::DoesNotApply)
+}
+
+/// The tree a graph form is: rooted at its one node no edge enters.
+fn tree_form(graph: &crate::model::Graph) -> Result<crate::model::Tree, Refusal> {
+    let entered: BTreeSet<u32> = graph.edges.values().map(|edge| edge.tgt).collect();
+    let roots: Vec<u32> = graph
+        .nodes
+        .keys()
+        .copied()
+        .filter(|id| !entered.contains(id))
+        .collect();
+    let [root] = roots.as_slice() else {
+        return Err(Refusal::DoesNotApply);
+    };
+    crate::pages::representation::encode::graph_to_tree(graph, *root, &|_| {
+        crate::pages::representation::encode::ParentNameRule::Any
+    })
+    .map_err(|_| Refusal::DoesNotApply)
+}
+
+/// A tree with its arcs listed by child, so two trees with the same
+/// nodes, root, arcs and fans compare equal whatever order their arcs are
+/// listed in.
+#[must_use]
+pub fn normalized(tree: &crate::model::Tree) -> crate::model::Tree {
+    let mut out = tree.clone();
+    out.arcs.sort_by_key(|arc| (arc.1, arc.0));
+    out
+}
+
+/// The delta from `before` to `after`: the table or graph differ of the
+/// edit algebra, or for trees the graph differ of each common record's graph
+/// form with the records only one side holds.
+///
+/// # Errors
+///
+/// [`Refusal::ShapeMismatch`] for two shapes, and [`Refusal::DoesNotApply`]
+/// for a tree without a graph form.
+pub fn diff_instances(before: &Instance, after: &Instance) -> Result<Delta, Refusal> {
+    match (before, after) {
+        (Instance::Table(a), Instance::Table(b)) => Ok(Delta::Table(crate::edit::diff_table(a, b))),
+        (Instance::Graph(a), Instance::Graph(b)) => Ok(Delta::Graph(crate::edit::diff(a, b))),
+        (Instance::Trees(a), Instance::Trees(b)) => {
+            let common = a.len().min(b.len());
+            let mut records = Vec::new();
+            for index in 0..common {
+                records.push(crate::edit::diff(
+                    &graph_form(&a[index])?,
+                    &graph_form(&b[index])?,
+                ));
+            }
+            Ok(Delta::Trees {
+                records,
+                removed: a[common..].to_vec(),
+                appended: b[common..].to_vec(),
+            })
+        }
+        _ => Err(Refusal::ShapeMismatch),
+    }
+}
+
+/// Apply `delta` to `before`.
+///
+/// A tree delta applies when the sequence holds exactly the records it
+/// covers and its removed records are, after normalizing, the sequence's
+/// suffix.
+///
+/// # Errors
+///
+/// [`Refusal::ShapeMismatch`] for two shapes, and [`Refusal::DoesNotApply`]
+/// when the edit algebra refuses or a record is no longer a tree.
+pub fn apply_delta(delta: &Delta, before: &Instance) -> Result<Instance, Refusal> {
+    match (delta, before) {
+        (Delta::Table(d), Instance::Table(t)) => crate::edit::apply_table(d, t)
+            .map(Instance::Table)
+            .map_err(|_| Refusal::DoesNotApply),
+        (Delta::Graph(d), Instance::Graph(g)) => crate::edit::apply(d, g)
+            .map(Instance::Graph)
+            .map_err(|_| Refusal::DoesNotApply),
+        (
+            Delta::Trees {
+                records,
+                removed,
+                appended,
+            },
+            Instance::Trees(trees),
+        ) => {
+            let common = records.len();
+            if trees.len() != common + removed.len()
+                || trees[common..]
+                    .iter()
+                    .zip(removed)
+                    .any(|(held, gone)| normalized(held) != normalized(gone))
+            {
+                return Err(Refusal::DoesNotApply);
+            }
+            let mut out = Vec::new();
+            for (tree, record) in trees.iter().zip(records) {
+                let graph = crate::edit::apply(record, &graph_form(tree)?)
+                    .map_err(|_| Refusal::DoesNotApply)?;
+                out.push(tree_form(&graph)?);
+            }
+            out.extend(appended.iter().cloned());
+            Ok(Instance::Trees(out))
+        }
+        _ => Err(Refusal::ShapeMismatch),
+    }
+}
+
+/// A data set as a commit records it: its name, the name of its schema and
+/// its instance.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Entry {
+    /// The data set's name.
+    pub data: String,
+    /// Its schema's name.
+    pub schema: String,
+    /// Its instance.
+    pub instance: Instance,
+}
+
+/// The entries a commit tracks by key, given the entries each commit of
+/// its first-parent chain records, the commit itself first: for each key,
+/// the entry of the first commit that records one.
+#[must_use]
+pub fn tracked(chain: &[BTreeMap<String, Entry>]) -> BTreeMap<String, Entry> {
+    let mut out = BTreeMap::new();
+    for recorded in chain {
+        for (key, entry) in recorded {
+            out.entry(key.clone()).or_insert_with(|| entry.clone());
+        }
+    }
+    out
+}
+
+/// One key's change between two tracked maps.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Change {
+    /// Tracked by the second only.
+    Added(String),
+    /// Tracked by the first only.
+    Removed(String),
+    /// Tracked by both under different data sets, with the delta.
+    Changed(String, Delta),
+}
+
+/// The changes between two tracked maps, in key order: a key whose data
+/// sets differ is changed by the delta of its instances.
+///
+/// # Errors
+///
+/// For the first key in order whose data sets differ:
+/// [`Refusal::SchemaMismatch`] when their schemas differ, and otherwise the
+/// refusal of [`diff_instances`].
+pub fn diff_tracked(
+    before: &BTreeMap<String, Entry>,
+    after: &BTreeMap<String, Entry>,
+) -> Result<Vec<Change>, Refusal> {
+    let keys: BTreeSet<&String> = before.keys().chain(after.keys()).collect();
+    let mut out = Vec::new();
+    for key in keys {
+        match (before.get(key), after.get(key)) {
+            (Some(_), None) => out.push(Change::Removed(key.clone())),
+            (None, Some(_)) => out.push(Change::Added(key.clone())),
+            (Some(a), Some(b)) if a.data != b.data => {
+                if a.schema != b.schema {
+                    return Err(Refusal::SchemaMismatch(key.clone()));
+                }
+                out.push(Change::Changed(
+                    key.clone(),
+                    diff_instances(&a.instance, &b.instance)?,
+                ));
+            }
+            _ => {}
+        }
+    }
+    Ok(out)
+}

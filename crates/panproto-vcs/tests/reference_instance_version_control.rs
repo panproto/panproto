@@ -1682,3 +1682,666 @@ proptest! {
         check_gc(&model, &mut store);
     }
 }
+
+// ---------------------------------------------------------------------------
+// Deltas between committed instances.
+// ---------------------------------------------------------------------------
+
+use panproto_inst::graph_edit::{AttrKey, AttrVal};
+use panproto_reference::edit as reference_edit;
+use panproto_reference::enumerate::instance_version_control::small_instances;
+use panproto_reference::pages::instance_version_control::{
+    Delta as ModelDelta, Entry as ModelEntry, Instance as ModelInstance, Refusal as ModelRefusal,
+    apply_delta as model_apply, diff_instances as model_diff, diff_tracked as model_diff_tracked,
+    normalized, tracked as model_tracked,
+};
+use panproto_vcs::instance_vc::{self, InstanceDelta};
+
+fn meta_to_reference(meta: &panproto_inst::graph_edit::NodeMeta) -> reference_edit::NodeMeta {
+    reference_edit::NodeMeta {
+        discriminator: meta.discriminator.as_deref().map(str::to_owned),
+        position: meta.position,
+        shape: shape_to_reference(&meta.shape),
+        annotations: meta
+            .annotations
+            .iter()
+            .map(|(name, value)| (name.clone(), value_to_reference(value)))
+            .collect(),
+    }
+}
+
+fn attr_key_to_reference(key: &AttrKey) -> reference_edit::AttrKey {
+    match key {
+        AttrKey::Value { node } => reference_edit::AttrKey::Value(*node),
+        AttrKey::Field { node, field } => reference_edit::AttrKey::Field(*node, field.clone()),
+        AttrKey::Meta { node } => reference_edit::AttrKey::Meta(*node),
+        AttrKey::Anchor { node } => reference_edit::AttrKey::Anchor(*node),
+        AttrKey::EdgeLabel { edge } => reference_edit::AttrKey::EdgeLabel(edge.0),
+        AttrKey::EdgePosition { edge } => reference_edit::AttrKey::EdgePosition(edge.0),
+        AttrKey::Cell { .. } | AttrKey::Table { .. } => {
+            panic!("table key returned by graph delta: {key:?}")
+        }
+    }
+}
+
+fn attr_val_to_reference(value: &AttrVal) -> reference_edit::AttrVal {
+    match value {
+        AttrVal::Presence(value) => {
+            reference_edit::AttrVal::Presence(value.as_ref().map(presence_to_reference))
+        }
+        AttrVal::Field(value) => {
+            reference_edit::AttrVal::Field(value.as_ref().map(value_to_reference))
+        }
+        AttrVal::Meta(value) => reference_edit::AttrVal::Meta(meta_to_reference(value)),
+        AttrVal::Anchor(value) => reference_edit::AttrVal::Anchor(value.to_string()),
+        AttrVal::Label(value) => reference_edit::AttrVal::Label(edge_to_reference(value)),
+        AttrVal::Position(value) => reference_edit::AttrVal::Position(*value),
+    }
+}
+
+fn graph_delta_to_reference(delta: &GraphDelta) -> reference_edit::GraphDelta {
+    let mut out = reference_edit::GraphDelta::identity();
+    for (id, node) in delta.del_nodes() {
+        out.del.insert(
+            reference_edit::GElem::Node(*id),
+            reference_edit::GPayload::Node(node_to_reference(node)),
+        );
+    }
+    for (id, edge) in delta.del_edges() {
+        out.del.insert(
+            reference_edit::GElem::Edge(id.0),
+            reference_edit::GPayload::Edge(graph_edge_to_reference(edge)),
+        );
+    }
+    for (id, node) in delta.add_nodes() {
+        out.add.insert(
+            reference_edit::GElem::Node(*id),
+            reference_edit::GPayload::Node(node_to_reference(node)),
+        );
+    }
+    for (id, edge) in delta.add_edges() {
+        out.add.insert(
+            reference_edit::GElem::Edge(id.0),
+            reference_edit::GPayload::Edge(graph_edge_to_reference(edge)),
+        );
+    }
+    out.attrs = delta
+        .attrs()
+        .iter()
+        .map(|(key, change)| {
+            (
+                attr_key_to_reference(key),
+                (
+                    attr_val_to_reference(&change.old),
+                    attr_val_to_reference(&change.new),
+                ),
+            )
+        })
+        .collect();
+    out
+}
+
+fn row_payload(
+    table: &panproto_gat::Name,
+    cells: &HashMap<String, Value>,
+) -> reference_edit::TPayload {
+    reference_edit::TPayload::Row(
+        table.to_string(),
+        cells
+            .iter()
+            .map(|(column, value)| (column.clone(), value_to_reference(value)))
+            .collect(),
+    )
+}
+
+fn table_delta_to_reference(delta: &TableDelta) -> reference_edit::TableDelta {
+    let mut out = reference_edit::TableDelta::identity();
+    for (id, (table, cells)) in delta.del_rows() {
+        out.del
+            .insert(reference_edit::TElem::Row(id.0), row_payload(table, cells));
+    }
+    for (edge, src, tgt) in delta.del_pairs() {
+        out.del.insert(
+            reference_edit::TElem::Pair(edge_to_reference(edge), src.0, tgt.0),
+            reference_edit::TPayload::Pair,
+        );
+    }
+    for (id, (table, cells)) in delta.add_rows() {
+        out.add
+            .insert(reference_edit::TElem::Row(id.0), row_payload(table, cells));
+    }
+    for (edge, src, tgt) in delta.add_pairs() {
+        out.add.insert(
+            reference_edit::TElem::Pair(edge_to_reference(edge), src.0, tgt.0),
+            reference_edit::TPayload::Pair,
+        );
+    }
+    for ((row, column), change) in delta.cells() {
+        out.attrs.insert(
+            reference_edit::TKey::Cell(row.0, column.clone()),
+            (
+                reference_edit::TVal::Cell(change.old.as_ref().map(value_to_reference)),
+                reference_edit::TVal::Cell(change.new.as_ref().map(value_to_reference)),
+            ),
+        );
+    }
+    for (row, change) in delta.tables() {
+        out.attrs.insert(
+            reference_edit::TKey::Table(row.0),
+            (
+                reference_edit::TVal::Table(change.old.to_string()),
+                reference_edit::TVal::Table(change.new.to_string()),
+            ),
+        );
+    }
+    out
+}
+
+fn delta_to_reference(delta: &InstanceDelta) -> ModelDelta {
+    match delta {
+        InstanceDelta::Graph(delta) => ModelDelta::Graph(graph_delta_to_reference(delta)),
+        InstanceDelta::Table(delta) => ModelDelta::Table(table_delta_to_reference(delta)),
+        InstanceDelta::Tree(delta) => ModelDelta::Trees {
+            records: delta.records.iter().map(graph_delta_to_reference).collect(),
+            removed: delta.removed.iter().map(tree_to_reference).collect(),
+            appended: delta.appended.iter().map(tree_to_reference).collect(),
+        },
+    }
+}
+
+fn instance_to_production(instance: &ModelInstance) -> Instance {
+    match instance {
+        ModelInstance::Graph(graph) => Instance::Graph(graph_to_production(graph, false)),
+        ModelInstance::Table(table) => Instance::Table(table_to_production(table, false)),
+        ModelInstance::Trees(trees) => {
+            Instance::Tree(trees.iter().map(tree_to_production).collect())
+        }
+    }
+}
+
+/// The reference instance of a production one, trees normalized.
+fn instance_to_reference(instance: &Instance) -> ModelInstance {
+    match instance {
+        Instance::Graph(graph) => ModelInstance::Graph(graph_to_reference(graph)),
+        Instance::Table(table) => ModelInstance::Table(table_to_reference(table)),
+        Instance::Tree(trees) => ModelInstance::Trees(
+            trees
+                .iter()
+                .map(|tree| normalized(&tree_to_reference(tree)))
+                .collect(),
+        ),
+    }
+}
+
+fn normalized_instance(instance: &ModelInstance) -> ModelInstance {
+    match instance {
+        ModelInstance::Trees(trees) => ModelInstance::Trees(trees.iter().map(normalized).collect()),
+        other => other.clone(),
+    }
+}
+
+/// The production schema of a coverage schema: its vertices as objects and
+/// its edges of the one kind.
+fn production_schema(schema: &carrier::CoverageSchema) -> panproto_schema::Schema {
+    let protocol = panproto_schema::Protocol {
+        name: "test".into(),
+        schema_theory: "ThGraph".into(),
+        instance_theory: "ThWType".into(),
+        obj_kinds: vec!["object".into()],
+        ..Default::default()
+    };
+    if schema.vertices.is_empty() {
+        return panproto_schema::Schema {
+            protocol: "test".into(),
+            ..Default::default()
+        };
+    }
+    let mut builder = panproto_schema::SchemaBuilder::new(&protocol);
+    for vertex in &schema.vertices {
+        builder = builder.vertex(vertex, "object", None).unwrap();
+    }
+    for edge in &schema.edges {
+        builder = builder
+            .edge(&edge.src, &edge.tgt, &edge.kind, edge.name.as_deref())
+            .unwrap();
+    }
+    builder.build().unwrap()
+}
+
+/// What a pair's diff and application give, as the reference names it.
+fn production_diff_and_apply(
+    schema: &panproto_schema::Schema,
+    before: &Instance,
+    after: &Instance,
+) -> Result<(ModelDelta, ModelInstance), ModelRefusal> {
+    let refusal = |error: VcsError| match error {
+        VcsError::ShapeMismatch { .. } => ModelRefusal::ShapeMismatch,
+        VcsError::DeltaDoesNotApply { .. } => ModelRefusal::DoesNotApply,
+        other => panic!("an untyped refusal: {other}"),
+    };
+    let delta = instance_vc::diff(schema, before, after).map_err(refusal)?;
+    let applied = instance_vc::apply(schema, &delta, before).map_err(refusal)?;
+    Ok((delta_to_reference(&delta), instance_to_reference(&applied)))
+}
+
+fn reference_diff_and_apply(
+    before: &ModelInstance,
+    after: &ModelInstance,
+) -> Result<(ModelDelta, ModelInstance), ModelRefusal> {
+    let delta = model_diff(before, after)?;
+    let applied = model_apply(&delta, before)?;
+    Ok((delta, normalized_instance(&applied)))
+}
+
+#[test]
+fn every_pair_of_small_coverage_instances_diffs_and_applies_as_the_reference_does() {
+    let mut store = MemStore::new();
+    let mut pairs = 0usize;
+    let mut expected_pairs = 0usize;
+    let mut states = 0usize;
+    let mut states_by_shape: BTreeMap<InstanceShape, usize> = BTreeMap::new();
+    for (index, schema) in carrier::coverage_schemas().iter().enumerate() {
+        let production = production_schema(schema);
+        let instances = small_instances(schema, 2);
+        states += instances.len();
+        // Every instance passes through a stored data set first.
+        let stored: Vec<Instance> = instances
+            .iter()
+            .map(|instance| {
+                let dataset = DataSetObject::from_instance(
+                    schema_id(index),
+                    &instance_to_production(instance),
+                    None,
+                )
+                .unwrap();
+                stored_instance(&mut store, dataset).1
+            })
+            .collect();
+        let mut by_shape: BTreeMap<InstanceShape, usize> = BTreeMap::new();
+        for instance in &stored {
+            *by_shape.entry(instance.shape()).or_default() += 1;
+            *states_by_shape.entry(instance.shape()).or_default() += 1;
+        }
+        expected_pairs += by_shape.values().map(|n| n * n).sum::<usize>();
+        for (a, (before, before_model)) in stored.iter().zip(&instances).enumerate() {
+            for (b, (after, after_model)) in stored.iter().zip(&instances).enumerate() {
+                if before.shape() != after.shape() {
+                    // One cross-shape pair per ordered pair of shapes is
+                    // enough to see the refusal.
+                    if a + 1 == b || b + 1 == a {
+                        assert_eq!(
+                            production_diff_and_apply(&production, before, after),
+                            Err(ModelRefusal::ShapeMismatch)
+                        );
+                    }
+                    continue;
+                }
+                let expected = reference_diff_and_apply(before_model, after_model);
+                assert_eq!(
+                    production_diff_and_apply(&production, before, after),
+                    expected,
+                    "{before_model:?} to {after_model:?}"
+                );
+                let (_, applied) = expected.unwrap();
+                assert_eq!(applied, normalized_instance(after_model));
+                pairs += 1;
+            }
+        }
+    }
+    // The edits page counts 3,178 graphs with at most two nodes and 1,852
+    // tables with at most two rows over the sixteen schemas; 240 trees have
+    // at most two nodes. The pairs are the sum over schemas and shapes of
+    // the squared number of states.
+    assert_eq!(states_by_shape[&InstanceShape::Graph], 3_178);
+    assert_eq!(states_by_shape[&InstanceShape::Table], 1_852);
+    assert_eq!(states_by_shape[&InstanceShape::Tree], 240);
+    assert_eq!(states, 5_270);
+    assert_eq!(pairs, expected_pairs);
+    assert_eq!(pairs, 1_303_058);
+}
+
+// ---------------------------------------------------------------------------
+// Tracking, staging and staleness.
+// ---------------------------------------------------------------------------
+
+/// Commit `choices` on a fresh store, each commit recording a graph data
+/// set per chosen key; return the store, the commits oldest first and the
+/// reference's recorded entries of each commit.
+fn commit_chain(
+    choices: &[Vec<String>],
+) -> (
+    MemStore,
+    Vec<CommitObject>,
+    Vec<BTreeMap<String, ModelEntry>>,
+) {
+    let mut store = MemStore::new();
+    let mut commits = Vec::new();
+    let mut recorded = Vec::new();
+    let mut parent: Option<ObjectId> = None;
+    for (index, keys) in choices.iter().enumerate() {
+        let mut data_ids = Vec::new();
+        let mut entries = BTreeMap::new();
+        for key in keys {
+            let graph = GInstance::new().with_node(Node::new(u32::try_from(index).unwrap(), "a"));
+            let dataset = DataSetObject::from_instance(
+                ObjectId::ZERO,
+                &Instance::Graph(graph.clone()),
+                Some(key.clone()),
+            )
+            .unwrap();
+            let id = store.put(&Object::DataSet(dataset)).unwrap();
+            data_ids.push(id);
+            entries.insert(
+                key.clone(),
+                ModelEntry {
+                    data: id.to_string(),
+                    schema: ObjectId::ZERO.to_string(),
+                    instance: ModelInstance::Graph(graph_to_reference(&graph)),
+                },
+            );
+        }
+        let commit = CommitObject::builder(ObjectId::ZERO, "test", "test", format!("c{index}"))
+            .timestamp(0)
+            .parents(parent.into_iter().collect())
+            .data_ids(data_ids)
+            .build();
+        parent = Some(store.put(&Object::Commit(commit.clone())).unwrap());
+        commits.push(commit);
+        recorded.push(entries);
+    }
+    (store, commits, recorded)
+}
+
+fn check_tracking(choices: &[Vec<String>]) -> usize {
+    let (store, commits, recorded) = commit_chain(choices);
+    let mut checked = 0;
+    for (index, commit) in commits.iter().enumerate() {
+        let chain: Vec<BTreeMap<String, ModelEntry>> =
+            recorded[..=index].iter().rev().cloned().collect();
+        let expected: BTreeMap<String, String> = model_tracked(&chain)
+            .into_iter()
+            .map(|(key, entry)| (key, entry.data))
+            .collect();
+        let actual: BTreeMap<String, String> = instance_vc::tracked(&store, commit)
+            .unwrap()
+            .into_iter()
+            .map(|(key, (id, _))| (key, id.to_string()))
+            .collect();
+        assert_eq!(actual, expected, "{choices:?} at commit {index}");
+        checked += 1;
+    }
+    checked
+}
+
+#[test]
+fn every_commit_chain_of_the_tracking_scope_tracks_what_the_reference_tracks() {
+    let mut chains = 0usize;
+    let mut commits = 0usize;
+    for length in 1..=3 {
+        for choices in panproto_reference::enumerate::instance_version_control::tracking_chains(
+            length,
+            &["k1", "k2"],
+        ) {
+            commits += check_tracking(&choices);
+            chains += 1;
+        }
+    }
+    // Each commit records one of the 4 subsets of two keys: 4 + 16 + 64
+    // chains, holding 4 + 32 + 192 commits.
+    assert_eq!((chains, commits), (84, 228));
+}
+
+#[test]
+fn a_commit_recording_two_data_sets_under_one_key_is_refused_when_tracked() {
+    let mut store = MemStore::new();
+    let ids: Vec<ObjectId> = [0u32, 1]
+        .iter()
+        .map(|n| {
+            let dataset = DataSetObject::from_instance(
+                ObjectId::ZERO,
+                &Instance::Graph(GInstance::new().with_node(Node::new(*n, "a"))),
+                Some("k".to_owned()),
+            )
+            .unwrap();
+            store.put(&Object::DataSet(dataset)).unwrap()
+        })
+        .collect();
+    let commit = CommitObject::builder(ObjectId::ZERO, "test", "test", "two")
+        .timestamp(0)
+        .data_ids(ids)
+        .build();
+    assert!(matches!(
+        instance_vc::tracked(&store, &commit),
+        Err(VcsError::DuplicateDataKey { key }) if key == "k"
+    ));
+}
+
+/// A repository over the coverage schema with vertices `a` and `b` and the
+/// edge from `a` to `b`, committed once.
+fn instance_repository() -> (tempfile::TempDir, Repository, carrier::CoverageSchema) {
+    let schema = carrier::coverage_schemas()
+        .into_iter()
+        .find(|s| s.vertices.len() == 2 && s.edges.len() == 1 && s.edges[0].src != s.edges[0].tgt)
+        .unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let mut repo = Repository::init(dir.path()).unwrap();
+    repo.set_protocol(panproto_schema::Protocol {
+        name: "test".into(),
+        schema_theory: "ThGraph".into(),
+        instance_theory: "ThWType".into(),
+        obj_kinds: vec!["object".into()],
+        ..Default::default()
+    });
+    repo.add(&production_schema(&schema)).unwrap();
+    repo.commit("schema", "test").unwrap();
+    (dir, repo, schema)
+}
+
+#[test]
+fn committed_instances_of_every_shape_diff_by_their_delta_through_a_repository() {
+    let (_dir, mut repo, schema) = instance_repository();
+    let production = production_schema(&schema);
+    let instances = small_instances(&schema, 2);
+    // The coverage states carry a field `f` the schema does not declare;
+    // validation is checked on its own, so these are staged unverified.
+    let options = panproto_vcs::AddDataOptions {
+        skip_verify: true,
+        ..Default::default()
+    };
+    let unverified = panproto_vcs::CommitOptions { skip_verify: true };
+    let mut checked = 0usize;
+    // Consecutive instances of each shape, every 17th pair.
+    for shape in [
+        InstanceShape::Graph,
+        InstanceShape::Table,
+        InstanceShape::Tree,
+    ] {
+        let of_shape: Vec<&ModelInstance> = instances
+            .iter()
+            .filter(|i| instance_to_production(i).shape() == shape)
+            .collect();
+        for pair in of_shape.windows(2).step_by(17) {
+            let (before, after) = (pair[0], pair[1]);
+            repo.add_instance("x", &instance_to_production(before), &options)
+                .unwrap();
+            let first = repo
+                .commit_with_options("before", "test", &unverified)
+                .unwrap()
+                .to_string();
+            repo.add_instance("x", &instance_to_production(after), &options)
+                .unwrap();
+            let second = repo
+                .commit_with_options("after", "test", &unverified)
+                .unwrap()
+                .to_string();
+            let read = repo.committed_instance(&second, "x").unwrap();
+            assert!(!read.stale);
+            assert_eq!(
+                instance_to_reference(&read.instance),
+                normalized_instance(after)
+            );
+            let changes = repo.diff_data(&first, &second).unwrap();
+            let expected = model_diff(before, after).unwrap();
+            match changes.as_slice() {
+                [] => assert_eq!(before, after),
+                [panproto_vcs::InstanceChange::Changed { key, delta, .. }] => {
+                    assert_eq!(key, "x");
+                    assert_eq!(delta_to_reference(delta), expected);
+                    let applied = instance_vc::apply(
+                        &production,
+                        delta,
+                        &repo.committed_instance(&first, "x").unwrap().instance,
+                    )
+                    .unwrap();
+                    assert_eq!(instance_to_reference(&applied), normalized_instance(after));
+                }
+                other => panic!("unexpected changes {other:?}"),
+            }
+            checked += 1;
+        }
+    }
+    assert!(checked >= 3);
+}
+
+#[test]
+fn diffing_across_keys_reports_added_and_removed_and_refuses_mixed_schemas_and_shapes() {
+    let (_dir, mut repo, schema) = instance_repository();
+    let options = panproto_vcs::AddDataOptions::default();
+    let instances = small_instances(&schema, 1);
+    let graph = instances
+        .iter()
+        .find(|i| matches!(i, ModelInstance::Graph(g) if !g.nodes.is_empty()))
+        .unwrap();
+    let table = instances
+        .iter()
+        .find(|i| matches!(i, ModelInstance::Table(t) if !t.rows.is_empty()))
+        .unwrap();
+
+    repo.add_instance("g", &instance_to_production(graph), &options)
+        .unwrap();
+    let first = repo.commit("g", "test").unwrap().to_string();
+    repo.add_instance("t", &instance_to_production(table), &options)
+        .unwrap();
+    let second = repo.commit("t", "test").unwrap().to_string();
+
+    let forward = repo.diff_data(&first, &second).unwrap();
+    assert!(
+        matches!(forward.as_slice(), [panproto_vcs::InstanceChange::Added { key, .. }] if key == "t")
+    );
+    let backward = repo.diff_data(&second, &first).unwrap();
+    assert!(
+        matches!(backward.as_slice(), [panproto_vcs::InstanceChange::Removed { key, .. }] if key == "t")
+    );
+
+    // A key whose shape changes.
+    repo.add_instance("g", &instance_to_production(table), &options)
+        .unwrap();
+    let third = repo.commit("g as a table", "test").unwrap().to_string();
+    assert!(matches!(
+        repo.diff_data(&second, &third),
+        Err(VcsError::ShapeMismatch { .. })
+    ));
+
+    // A schema change leaves the tracked instances stale, and a key whose
+    // data sets conform to two schemas is not diffed.
+    let mut wider = schema;
+    wider.vertices.push("c".to_owned());
+    repo.add(&production_schema(&wider)).unwrap();
+    let fourth = repo.commit("wider", "test").unwrap().to_string();
+    assert!(repo.committed_instance(&fourth, "t").unwrap().stale);
+    repo.add_instance("t", &instance_to_production(table), &options)
+        .unwrap();
+    let fifth = repo.commit("t again", "test").unwrap().to_string();
+    assert!(!repo.committed_instance(&fifth, "t").unwrap().stale);
+    assert!(matches!(
+        repo.diff_data(&fourth, &fifth),
+        Err(VcsError::SchemaMismatch { key, .. }) if key == "t"
+    ));
+    let model_before = BTreeMap::from([(
+        "t".to_owned(),
+        ModelEntry {
+            data: "1".into(),
+            schema: "s".into(),
+            instance: table.clone(),
+        },
+    )]);
+    let model_after = BTreeMap::from([(
+        "t".to_owned(),
+        ModelEntry {
+            data: "2".into(),
+            schema: "s2".into(),
+            instance: table.clone(),
+        },
+    )]);
+    assert_eq!(
+        model_diff_tracked(&model_before, &model_after),
+        Err(ModelRefusal::SchemaMismatch("t".to_owned()))
+    );
+}
+
+#[test]
+fn an_instance_failing_its_shapes_validation_is_refused_with_its_report() {
+    let (_dir, mut repo, _schema) = instance_repository();
+    let options = panproto_vcs::AddDataOptions::default();
+    for instance in [
+        Instance::Graph(GInstance::new().with_node(Node::new(0, "nowhere"))),
+        Instance::Table(
+            FInstance::new()
+                .with_table("nowhere", [HashMap::new()])
+                .unwrap(),
+        ),
+        Instance::Tree(vec![WInstance::new(
+            HashMap::from([(0, Node::new(0, "nowhere"))]),
+            Vec::new(),
+            Vec::new(),
+            0,
+            "nowhere".into(),
+        )]),
+    ] {
+        match repo.add_instance("bad", &instance, &options) {
+            Err(VcsError::InstanceValidationFailed { key, failing }) => {
+                assert_eq!(key, "bad");
+                assert_eq!(failing.len(), 1);
+                assert_eq!(failing[0].0, 0);
+                assert_eq!(failing[0].1.status, panproto_gat::CheckStatus::Failed);
+            }
+            other => panic!("expected a validation refusal, got {other:?}"),
+        }
+        assert_eq!(repo.read_index().unwrap().staged_data.len(), 0);
+
+        // Skipping verification stages it pending, which a default commit
+        // refuses.
+        repo.add_instance(
+            "bad",
+            &instance,
+            &panproto_vcs::AddDataOptions {
+                skip_verify: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(matches!(
+            repo.commit("bad", "test"),
+            Err(VcsError::ValidationPending { .. })
+        ));
+        repo.clear_index().unwrap();
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(256))]
+
+    #[test]
+    fn randomized_commit_chains_track_what_the_reference_tracks(
+        choices in proptest::collection::vec(
+            proptest::collection::btree_set(prop_oneof![Just("a"), Just("b"), Just("c"), Just("d")], 0..4),
+            1..7,
+        )
+    ) {
+        let choices: Vec<Vec<String>> = choices
+            .into_iter()
+            .map(|keys| keys.into_iter().map(str::to_owned).collect())
+            .collect();
+        check_tracking(&choices);
+    }
+}

@@ -1,8 +1,8 @@
 # Instance version control
 
-Schema version control stores instances of all three shapes (trees, tables and graphs) next to the schemas they conform to, together with the complements a data migration leaves and the edit logs made against them. This page states how those objects are stored and kept: a stored payload decodes to the value it was made from and, for tables and graphs, names that value uniquely; version 1 of the repository format holds every shape without changing anything a repository written before them holds; and garbage collection keeps exactly what a root reaches. The behaviour is explained in [Schema version control semantics](../explanation/vcs-semantics.md).
+Schema version control stores instances of all three shapes (trees, tables and graphs) next to the schemas they conform to, together with the complements a data migration leaves and the edit logs made against them. This page states how those objects are stored, kept and compared: a stored payload decodes to the value it was made from and, for tables and graphs, names that value uniquely; version 1 of the repository format holds every shape without changing anything a repository written before them holds; garbage collection keeps exactly what a root reaches; a commit tracks the nearest instance under each key, validated against the schema it is bound to; and the diff of two committed instances is their shape's delta. The behaviour is explained in [Schema version control semantics](../explanation/vcs-semantics.md).
 
-The executable reference is [`panproto_reference::pages::instance_version_control`](https://docs.rs/panproto-reference/latest/panproto_reference/pages/instance_version_control/). It models a repository as named objects whose reference fields name other objects, and computes reachability by a breadth-first search from the roots; it models a payload by the facts that decide what decoding it gives. It shares nothing with production, which follows references by object kind and decodes MessagePack.
+The executable reference is [`panproto_reference::pages::instance_version_control`](https://docs.rs/panproto-reference/latest/panproto_reference/pages/instance_version_control/). It models a repository as named objects whose reference fields name other objects, and computes reachability by a breadth-first search from the roots; it models a payload by the facts that decide what decoding it gives, and the instances a commit tracks as entries whose deltas are those of the reference edit algebra. It shares nothing with production, which follows references by object kind and decodes MessagePack.
 
 ## Definitions shared by the laws
 
@@ -130,4 +130,73 @@ Roots, references and reachability are defined above; `Object::links` is the ref
 - Reference test: `the_gc_scope_has_its_closed_form_size_and_kept_total; command: cargo nextest run -p panproto-reference --test instance_version_control --no-tests=fail -E 'test(=the_gc_scope_has_its_closed_form_size_and_kept_total)'`
 - File: `crates/panproto-vcs/src/gc.rs`
 - File: `crates/panproto-vcs/src/index.rs`
+- File: `crates/panproto-vcs/src/repo.rs`
+
+## A commit tracks the nearest instance under each key, validated against its schema {#L-instance-version-control-4}
+
+### Statement
+
+A commit records the data sets staged for it. The instance a commit tracks under a key, `instance_vc::tracked`, is the data set with that key recorded by the nearest commit of its first-parent chain, the commit itself first: the reference's `tracked` of the chain's recorded entries. `Repository::committed_instance(c, k)` returns that data set's instance, its schema and whether it is **stale**, that is, whether its schema is not the commit's.
+
+`Repository::add_instance(k, x, options)` binds $x$ to the schema it is staged against (`AddDataOptions::schema_id`, else the staged schema, else HEAD's) by recording that schema's identifier. It validates each tree of a tree instance, or the table or graph, against that schema under its resolved protocol, and refuses $x$ when the report of some record has a required check that failed or did not complete. Otherwise it stages the data set under $k$, replacing any data set staged under $k$, and the next commit records it. With `skip_verify` it stages $x$ without validation as pending, and a default commit refuses it.
+
+### Outside the domain
+
+A commit of the chain recording two data sets under one key is refused with `DuplicateDataKey` naming the key. An instance failing validation is refused with `InstanceValidationFailed`, carrying the key and the index and `ValidationReport` of every failing record, and nothing is staged. A schema whose protocol does not resolve is refused with `UnknownProtocol`; with no schema staged and no HEAD, `NothingStaged`. A key the commit does not track is refused with `RefNotFound`. A pending stage is refused at commit with `ValidationPending`. A key once tracked stays tracked along the first-parent chain; this version has no operation that stops tracking a key.
+
+### Definitions used
+
+Tracking, staleness and the failing records of a report are defined in the statement; the report is that of `validate_wtype`, `validate_table` or `validate_graph` ([Validation](validation.md)).
+
+### Proof
+
+1. `tracked` walks the first-parent chain from the commit, reads the data sets each commit records, refuses a key recorded twice by one commit, and inserts a key only when no nearer commit has inserted it. This is the reference's first occurrence along the chain.
+2. `committed_instance` reads that map, decodes the payload ([L-instance-version-control-1](#L-instance-version-control-1)) and compares the data set's schema identifier with the commit's.
+3. `add_instance` selects the schema in the stated order, validates each record with the shape's validator and collects the records with a failing required check, writes the data set only when there are none, and removes any staged entry under the key before adding its own. A commit copies the staged data set identifiers into the commit and refuses a pending stage.
+4. The certificates: every chain of one to three commits each recording one of the four subsets of two keys (84 chains, 228 commits) and random chains of up to six commits over four keys track what the reference tracks; a tree, a table and a graph anchored outside the schema are each refused with one failing report of status `Failed`, stage nothing, and when staged pending are refused at commit; and a schema change makes a tracked instance stale until it is staged again.
+
+### Executable counterpart
+
+- Law ID: `instance-version-control.tracking`
+- Reference: `panproto_reference::pages::instance_version_control::tracked`
+- Enumerator: `panproto_reference::enumerate::instance_version_control::tracking_chains; bound: commits=3`
+- Exhaustive differential test: `every_commit_chain_of_the_tracking_scope_tracks_what_the_reference_tracks; command: cargo nextest run -p panproto-vcs --test reference_instance_version_control --no-tests=fail -E 'test(=every_commit_chain_of_the_tracking_scope_tracks_what_the_reference_tracks)'`
+- Property differential test: `randomized_commit_chains_track_what_the_reference_tracks; command: cargo nextest run -p panproto-vcs --test reference_instance_version_control --no-tests=fail -E 'test(=randomized_commit_chains_track_what_the_reference_tracks)'`
+- Production certificate: `a_commit_recording_two_data_sets_under_one_key_is_refused_when_tracked; command: cargo nextest run -p panproto-vcs --test reference_instance_version_control --no-tests=fail -E 'test(=a_commit_recording_two_data_sets_under_one_key_is_refused_when_tracked)'`
+- Production certificate: `an_instance_failing_its_shapes_validation_is_refused_with_its_report; command: cargo nextest run -p panproto-vcs --test reference_instance_version_control --no-tests=fail -E 'test(=an_instance_failing_its_shapes_validation_is_refused_with_its_report)'`
+- File: `crates/panproto-vcs/src/instance_vc.rs`
+- File: `crates/panproto-vcs/src/repo.rs`
+
+## The diff of two committed instances is their shape's delta {#L-instance-version-control-5}
+
+### Statement
+
+For two commits, `Repository::diff_data(a, b)` lists, in key order, every key tracked by one and not the other (`Added`, `Removed`) and every key tracked by both under different data sets (`Changed`), with the delta of their instances, `instance_vc::diff`: the table differ `TableDelta::diff` for tables, the graph differ `GraphDelta::diff` for graphs, and for sequences of trees the graph differ of the graph forms of each record both hold together with the records only one holds. These are the reference's `diff_tracked` and `diff_instances`. `instance_vc::apply` applies such a delta, and applying the delta of $x$ and $y$ to $x$ gives $y$ (trees compared with their arcs listed by child), as the reference's `apply_delta` does.
+
+### Outside the domain
+
+For the first key in order whose two data sets differ: two schemas are refused with `SchemaMismatch` naming the key and both schemas (the instance is migrated first), and two shapes with `ShapeMismatch`. A tree without a graph form, and a delta whose checked reads do not hold of the instance, are refused with `DeltaDoesNotApply`; a tree delta applies only to a sequence holding exactly the records it covers, whose suffix is the records it removes. A key recorded twice by one commit is refused as in [L-instance-version-control-4](#L-instance-version-control-4).
+
+### Definitions used
+
+The graph form of a tree is that of [L-representation-1](representation.md#L-representation-1): arc $i$ is edge $i$. The graph and table differs and application are those of [Edits](edits.md).
+
+### Proof
+
+1. `diff_data` reads both tracked maps ([L-instance-version-control-4](#L-instance-version-control-4)), reports a key of the first map alone as removed and of the second alone as added, skips a key with one data set, and otherwise refuses two schemas before decoding and diffing the two instances; the list is sorted by key.
+2. For tables and graphs `diff` is the edit algebra's differ, whose result applies to the first state and gives the second ([Edits](edits.md)). For trees, each common record's graph form takes the graph differ, which gives the second record's graph form; reading it back as a tree gives the second record ([L-representation-1](representation.md#L-representation-1)) with its arcs in the read order, so the trees agree once arcs are listed by child. The removed records are checked against the sequence's suffix and the appended records are added after the common ones, which gives the second sequence.
+3. The certificates: over each of the sixteen coverage schemas, every graph and table with at most two nodes or rows and every tree with at most two nodes is stored and read back, and for every ordered pair of one shape (1,303,058 pairs over 5,270 states: 3,178 graphs and 1,852 tables, the counts the rebase scope of [L-edits-11](edits.md#L-edits-11) states, and 240 trees) the delta and its application are compared with the reference's and the application with the second state; a pair of each two shapes is refused with `ShapeMismatch`. Through a repository, every seventeenth pair of consecutive instances of each shape is staged (without validation, since the coverage states carry a field the schema does not declare) and committed under one key and `diff_data` returns the reference's delta; added and removed keys, a key changing shape and a key whose data sets conform to two schemas are refused or reported as stated.
+
+### Executable counterpart
+
+- Law ID: `instance-version-control.diff`
+- Reference: `panproto_reference::pages::instance_version_control::diff_instances`
+- Reference: `panproto_reference::pages::instance_version_control::apply_delta`
+- Reference: `panproto_reference::pages::instance_version_control::diff_tracked`
+- Reference: `panproto_reference::pages::instance_version_control::normalized`
+- Enumerator: `panproto_reference::enumerate::instance_version_control::small_instances; bound: elements=2`
+- Exhaustive differential test: `every_pair_of_small_coverage_instances_diffs_and_applies_as_the_reference_does; command: cargo nextest run --cargo-profile ci-test -p panproto-vcs --test reference_instance_version_control --no-tests=fail -E 'test(=every_pair_of_small_coverage_instances_diffs_and_applies_as_the_reference_does)'`
+- Production certificate: `committed_instances_of_every_shape_diff_by_their_delta_through_a_repository; command: cargo nextest run -p panproto-vcs --test reference_instance_version_control --no-tests=fail -E 'test(=committed_instances_of_every_shape_diff_by_their_delta_through_a_repository)'`
+- Production certificate: `diffing_across_keys_reports_added_and_removed_and_refuses_mixed_schemas_and_shapes; command: cargo nextest run -p panproto-vcs --test reference_instance_version_control --no-tests=fail -E 'test(=diffing_across_keys_reports_added_and_removed_and_refuses_mixed_schemas_and_shapes)'`
+- File: `crates/panproto-vcs/src/instance_vc.rs`
 - File: `crates/panproto-vcs/src/repo.rs`

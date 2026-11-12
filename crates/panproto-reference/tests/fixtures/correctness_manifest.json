@@ -8437,6 +8437,81 @@
               "test": "the_gc_scope_has_its_closed_form_size_and_kept_total"
             }
           ]
+        },
+        {
+          "id": "instance-version-control.tracking",
+          "anchor": "L-instance-version-control-4",
+          "references": [
+            "panproto_reference::pages::instance_version_control::tracked"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "every_commit_chain_of_the_tracking_scope_tracks_what_the_reference_tracks"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "randomized_commit_chains_track_what_the_reference_tracks"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "a_commit_recording_two_data_sets_under_one_key_is_refused_when_tracked"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "an_instance_failing_its_shapes_validation_is_refused_with_its_report"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::instance_version_control",
+              "test": "tracking_and_diffs_on_hand_computed_cases"
+            }
+          ]
+        },
+        {
+          "id": "instance-version-control.diff",
+          "anchor": "L-instance-version-control-5",
+          "references": [
+            "panproto_reference::pages::instance_version_control::diff_instances",
+            "panproto_reference::pages::instance_version_control::apply_delta",
+            "panproto_reference::pages::instance_version_control::diff_tracked",
+            "panproto_reference::pages::instance_version_control::normalized"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "every_pair_of_small_coverage_instances_diffs_and_applies_as_the_reference_does"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "committed_instances_of_every_shape_diff_by_their_delta_through_a_repository"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "diffing_across_keys_reports_added_and_removed_and_refuses_mixed_schemas_and_shapes"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::instance_version_control",
+              "test": "tracking_and_diffs_on_hand_computed_cases"
+            }
+          ]
         }
       ]
     }

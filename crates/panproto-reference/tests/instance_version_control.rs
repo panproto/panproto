@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use panproto_reference::enumerate::instance_version_control::{
     GC_CASES_COUNT, GC_KEPT_TOTAL, OBJECTS_PER_REPOSITORY, Roots, gc_cases, repository,
 };
-use panproto_reference::pages::instance_version_control::{Head, Object, Repository};
+use panproto_reference::pages::instance_version_control::{Head, Object, Refusal, Repository};
 
 fn names(list: &[&str]) -> BTreeSet<String> {
     list.iter().map(|name| (*name).to_owned()).collect()
@@ -95,4 +95,65 @@ fn the_gc_scope_has_its_closed_form_size_and_kept_total() {
         .sum();
     assert_eq!(kept, GC_KEPT_TOTAL);
     assert_eq!(GC_KEPT_TOTAL, 359_936);
+}
+
+#[test]
+fn tracking_and_diffs_on_hand_computed_cases() -> Result<(), Refusal> {
+    use panproto_reference::model::{Graph, Node, Table};
+    use panproto_reference::pages::instance_version_control::{
+        Change, Entry, Instance, apply_delta, diff_instances, diff_tracked, tracked,
+    };
+
+    let graph = |ids: &[u32]| {
+        Instance::Graph(Graph {
+            nodes: ids.iter().map(|id| (*id, Node::new(*id, "a"))).collect(),
+            edges: BTreeMap::new(),
+        })
+    };
+    let entry = |data: &str, schema: &str, instance: Instance| Entry {
+        data: data.to_owned(),
+        schema: schema.to_owned(),
+        instance,
+    };
+
+    // The nearer commit's entry wins; a key recorded only further back is
+    // still tracked.
+    let newest = BTreeMap::from([("k".to_owned(), entry("d2", "s", graph(&[0, 1])))]);
+    let oldest = BTreeMap::from([
+        ("k".to_owned(), entry("d1", "s", graph(&[0]))),
+        ("j".to_owned(), entry("d0", "s", graph(&[]))),
+    ]);
+    let at_newest = tracked(&[newest, oldest.clone()]);
+    assert_eq!(at_newest["k"].data, "d2");
+    assert_eq!(at_newest["j"].data, "d0");
+
+    // Diffing the oldest against the newest changes `k` by adding node 1,
+    // and applying the delta gives the newer graph.
+    let at_oldest = tracked(&[oldest]);
+    let changes = diff_tracked(&at_oldest, &at_newest)?;
+    let [Change::Changed(key, delta)] = changes.as_slice() else {
+        panic!("one change expected, got {changes:?}");
+    };
+    assert_eq!(key, "k");
+    assert_eq!(apply_delta(delta, &graph(&[0]))?, graph(&[0, 1]));
+
+    // Shapes and schemas.
+    assert_eq!(
+        diff_instances(&graph(&[]), &Instance::Table(Table::default())),
+        Err(Refusal::ShapeMismatch)
+    );
+    let other_schema = BTreeMap::from([("k".to_owned(), entry("d3", "t", graph(&[0])))]);
+    assert_eq!(
+        diff_tracked(&at_newest, &other_schema),
+        Err(Refusal::SchemaMismatch("k".to_owned()))
+    );
+    let removed = diff_tracked(&at_newest, &BTreeMap::new())?;
+    assert_eq!(
+        removed,
+        vec![
+            Change::Removed("j".to_owned()),
+            Change::Removed("k".to_owned())
+        ]
+    );
+    Ok(())
 }

@@ -304,3 +304,61 @@ pub fn payload_facts(versions: u32) -> Vec<crate::pages::instance_version_contro
     }
     out
 }
+
+/// The small states of the edit algebra's coverage scope over `schema`.
+///
+/// They are the states with at most `elements` nodes (graphs and trees) or
+/// rows (tables), as instances: graphs, then tables, then single-tree
+/// sequences.
+#[must_use]
+pub fn small_instances(
+    schema: &super::edits::CoverageSchema,
+    elements: usize,
+) -> Vec<crate::pages::instance_version_control::Instance> {
+    use crate::pages::instance_version_control::Instance;
+    let mut out: Vec<Instance> = super::edits::coverage_graphs(schema)
+        .into_iter()
+        .filter(|graph| graph.nodes.len() <= elements)
+        .map(Instance::Graph)
+        .collect();
+    out.extend(
+        super::edits::coverage_tables(schema)
+            .into_iter()
+            .filter(|table| table.rows.len() <= elements)
+            .map(Instance::Table),
+    );
+    out.extend(
+        super::edits::coverage_trees(schema)
+            .into_iter()
+            .filter(|tree| tree.nodes.len() <= elements)
+            .map(|tree| Instance::Trees(vec![tree])),
+    );
+    out
+}
+
+/// Every commit chain of `commits` commits over `keys`.
+///
+/// A chain lists, for each commit, oldest first, the keys it records a
+/// fresh data set under, each a subset of `keys` listed in `keys` order.
+/// There are `(2^keys)^commits` of them.
+#[must_use]
+pub fn tracking_chains(commits: usize, keys: &[&str]) -> Vec<Vec<Vec<String>>> {
+    let subsets: Vec<Vec<String>> = super::subsets(keys, keys.len())
+        .into_iter()
+        .map(|subset| subset.into_iter().map(str::to_owned).collect())
+        .collect();
+    let mut out = vec![Vec::new()];
+    for _ in 0..commits {
+        out = out
+            .into_iter()
+            .flat_map(|prefix: Vec<Vec<String>>| {
+                subsets.iter().map(move |subset| {
+                    let mut grown = prefix.clone();
+                    grown.push(subset.clone());
+                    grown
+                })
+            })
+            .collect();
+    }
+    out
+}
