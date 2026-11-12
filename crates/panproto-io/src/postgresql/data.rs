@@ -5,9 +5,10 @@
 //! is read by the DDL reader into the schema; each `INSERT INTO table
 //! [(columns)] VALUES (...), ...` adds rows to a table the statements
 //! before it declared, each value a constant read under its column's type
-//! (see [`values`](super::values)). A column the statement leaves out is
-//! `NULL` when it has no `DEFAULT`; a column whose `DEFAULT` would be
-//! evaluated is refused. `SET standard_conforming_strings` changes how the
+//! (see [`values`](super::values)). A column the statement leaves out or
+//! gives `DEFAULT` (every column, under `DEFAULT VALUES`) is `NULL` when
+//! it declares no `DEFAULT`; a `DEFAULT` that would be evaluated is
+//! refused. `SET standard_conforming_strings` changes how the
 //! string constants after it are read. A statement that would change the
 //! rows already inserted (dropping their table, or adding a column to it)
 //! is refused, as is any other data statement (`UPDATE`, `DELETE`, `COPY`).
@@ -31,7 +32,7 @@ use panproto_schema::Schema;
 use tree_sitter::{Node, Tree};
 
 use super::values::{ColumnType, Element, ValueRefusal, decode, decode_numeral, encode};
-use super::{Walk, child, children, escape, first_error, flatten, leaves, named, parse};
+use super::{Walk, child, children, escape, first_error, flatten, has, leaves, named, parse};
 
 /// What a script of DDL and `INSERT` statements reads as.
 #[derive(Debug)]
@@ -328,6 +329,8 @@ fn statement_offset(statement: &Statement) -> usize {
 /// A constant of a `VALUES` row, before its column's type reads it.
 enum Constant<'t> {
     Null,
+    /// `DEFAULT`: the column's default.
+    Default,
     Bool(bool),
     /// An integer or float literal, negated when `negative`.
     Numeral {
@@ -442,8 +445,13 @@ impl Walk<'_> {
         if let Some(kw) = child(rest, "kw_overriding") {
             return Err(unsupported(kw, "OVERRIDING ... VALUE"));
         }
-        if let Some(kw) = child(rest, "kw_default") {
-            return Err(unsupported(kw, "DEFAULT VALUES"));
+        if has(rest, "kw_default") {
+            // `DEFAULT VALUES`: one row, every column to its default.
+            return Ok(InsertRows {
+                table,
+                columns: Some(Vec::new()),
+                rows: vec![Vec::new()],
+            });
         }
         let columns = match child(rest, "insert_column_list") {
             Some(list) => Some(
@@ -498,8 +506,8 @@ impl Walk<'_> {
             let cs = children(current);
             match current.kind() {
                 "a_expr" | "a_expr_prec" | "c_expr" => match cs.as_slice() {
-                    [only] if only.kind() == "kw_default" => {
-                        return Err(not_constant(*only, "DEFAULT in VALUES"));
+                    [only] if only.kind() == "kw_default" && sign.is_none() => {
+                        return Ok(Constant::Default);
                     }
                     [only] if only.is_named() => current = *only,
                     [open, inner, close]
@@ -766,7 +774,7 @@ fn rows(
                 }
                 .into());
             }
-            if statement.columns.is_some() && given < targets.len() {
+            if statement.columns.as_ref().is_some_and(|c| !c.is_empty()) && given < targets.len() {
                 return Err(SqlDdlError::Syntax {
                     offset: first.start_byte(),
                     expected: "one value per target column",
@@ -777,6 +785,10 @@ fn rows(
             let mut row: Row = HashMap::new();
             for ((node, constant), &index) in row_constants.into_iter().zip(&targets) {
                 let column = &table_columns[index];
+                if matches!(constant, Constant::Default) {
+                    // Read below, as a column left out is.
+                    continue;
+                }
                 let value = read_constant(&w, &constant, &column.ty).map_err(|reason| {
                     SqlDataError::Value {
                         offset: node.start_byte(),
@@ -812,7 +824,7 @@ fn read_constant(
     ty: &ColumnType,
 ) -> Result<Value, ValueRefusal> {
     match constant {
-        Constant::Null => Ok(Value::Null),
+        Constant::Null | Constant::Default => Ok(Value::Null),
         Constant::Bool(b) if ty.dims == 0 && ty.element == Element::Bool => Ok(Value::Bool(*b)),
         Constant::Bool(_) => Err(ValueRefusal::Unsupported(
             "a boolean constant for a column of another type",

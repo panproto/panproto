@@ -325,10 +325,6 @@ fn statements_the_reader_does_not_read_are_refused_with_their_offset() {
         SqlDdlError::Unsupported { feature, .. } => feature,
         other => panic!("{insert}: {other}"),
     };
-    assert_eq!(
-        feature("INSERT INTO t VALUES (1, DEFAULT);"),
-        "DEFAULT in VALUES"
-    );
     assert_eq!(feature("INSERT INTO t SELECT 1;"), "INSERT ... SELECT");
     assert_eq!(
         feature("INSERT INTO t (id) VALUES (1) ON CONFLICT DO NOTHING;"),
@@ -338,7 +334,6 @@ fn statements_the_reader_does_not_read_are_refused_with_their_offset() {
         feature("INSERT INTO t (id) VALUES (1) RETURNING id;"),
         "RETURNING"
     );
-    assert_eq!(feature("INSERT INTO t DEFAULT VALUES;"), "DEFAULT VALUES");
     assert_eq!(
         feature("INSERT INTO t (id) VALUES (1 + 1);"),
         "an expression other than a constant"
@@ -391,18 +386,32 @@ fn statements_the_reader_does_not_read_are_refused_with_their_offset() {
 }
 
 #[test]
-fn a_left_out_column_is_null_unless_it_has_a_default() {
+fn a_left_out_or_default_column_is_null_unless_it_declares_a_default() {
     let src = "CREATE TABLE a (x integer, y text);\nINSERT INTO a (x) VALUES (1);\nINSERT INTO a VALUES (2);";
     let reading = read_dump(src, OtherStatements::Refuse).unwrap();
     let rows = reading.instance.rows("a");
     assert_eq!(rows.len(), 2);
     assert!(rows.iter().all(|(_, row)| row["y"] == Value::Null));
-    let defaulted = "CREATE TABLE a (x serial, y text);\nINSERT INTO a (y) VALUES ('v');";
-    assert!(matches!(
-        read_dump(defaulted, OtherStatements::Refuse),
-        Err(SqlDataError::Script(SqlDdlError::Unsupported { feature, .. }))
-            if feature == "column x left to its DEFAULT"
-    ));
+    let explicit = "CREATE TABLE a (x integer, y text);\nINSERT INTO a VALUES (1, DEFAULT);\nINSERT INTO a DEFAULT VALUES;";
+    let reading = read_dump(explicit, OtherStatements::Refuse).unwrap();
+    let rows = reading.instance.rows("a");
+    assert_eq!(rows[0].1["y"], Value::Null);
+    assert_eq!(rows[1].1["x"], Value::Null);
+    for defaulted in [
+        "INSERT INTO a (y) VALUES ('v');",
+        "INSERT INTO a VALUES (DEFAULT, 'v');",
+        "INSERT INTO a DEFAULT VALUES;",
+    ] {
+        let src = format!("CREATE TABLE a (x serial, y text);\n{defaulted}");
+        assert!(
+            matches!(
+                read_dump(&src, OtherStatements::Refuse),
+                Err(SqlDataError::Script(SqlDdlError::Unsupported { feature, .. }))
+                    if feature == "column x left to its DEFAULT"
+            ),
+            "{defaulted}"
+        );
+    }
 }
 
 const DUMP: &str = "SET client_encoding = 'UTF8';
