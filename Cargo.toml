@@ -176,6 +176,11 @@ precise-builds = true
 # Publish jobs should only run on tag push
 pr-run-mode = "skip"
 
+# The runner image each target builds on, where the tool's default image is
+# no longer offered.
+[workspace.metadata.dist.github-custom-runners]
+aarch64-apple-darwin = "macos-15"
+
 [profile.release]
 lto = true
 codegen-units = 1
