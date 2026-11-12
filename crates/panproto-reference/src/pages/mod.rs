@@ -13,6 +13,7 @@ pub mod lens_dsl;
 pub mod lenses;
 mod lexical_formats;
 pub mod migration_search;
+pub mod openapi;
 pub mod postgresql_data;
 pub mod postgresql_ddl;
 pub mod rdf_formats;
