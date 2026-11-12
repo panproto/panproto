@@ -1038,3 +1038,124 @@ Write $T = \operatorname{glue}_P(S)$.
 - File: `crates/panproto-inst/src/table_delta.rs`
 - File: `crates/panproto-inst/tests/reference_edits.rs`
 - File: `crates/panproto-reference/src/enumerate/segments.rs`
+
+## A segmented tree edit assembles to whole-state application and reads only the segments it can change {#L-segments-26}
+
+### Statement
+
+Let $P$ be a tree partition and $S$ a family of tree segments that `verify_partition` accepts under $P$ and that glues to a tree $W$ with its embedding $E$ (`assemble_tree`). Let $e$ be a tree edit and write $\operatorname{follow}(e, W, E)$ for whole-state application, `TreeEmbedding::follow_edit`: the tree edit applied step by step with the embedding following it as `GraphDelta::from_tree_edit` follows it ([L-edits-3](edits.md#L-edits-3)), fresh node and edge identifiers drawn from the embedding's counters. Write $R(e)$ for the *read set* defined below, computed from $e$ and the manifest records of $S$ alone. Then `apply_segmented` of $e$ over $S$ and $P$ reads the segments of $R(e)$ and no other, and:
+
+1. when $\operatorname{follow}(e, W, E)$ succeeds and its split under $P$ (`partition_tree`) seals, the output is that split, so that $\operatorname{glue}_P$ of the output is the followed tree and embedding, and every segment outside $R(e)$ is returned unchanged;
+2. when $\operatorname{follow}(e, W, E)$ refuses, the output is that refusal;
+3. otherwise the output is the refusal of laying the edited tree out, in the order `partition_tree` and the seal check: `NotEmbedded` for the first fan, in fan order, with an endpoint that is no tree node, or for the least node or edge identifier at or above its counter; `Unowned` for the least added tree node no range covers, then for the first fan whose fan node no range covers; and the seal floor rule's refusal for the least edge identifier it refuses for the segment holding it.
+
+Relabelling the root, or joining features into it, keeps the tree's schema root equal to the root's anchor, so such an edit is laid out like any other.
+
+### Outside the domain
+
+A family that `verify_partition` refuses is refused with its error before any edit check. The reference's tree application ([L-edits-3](edits.md#L-edits-3)) and production's disagree on two kinds of step, which the reference differentials leave out. When an inserted node takes the identifier of a fan node, production relocates that fan node alone to the node counter and keeps its edge identifiers, while the reference also gives fresh identifiers to the fan's edges and to every later fan. When a fan is inserted with an endpoint that is no tree node, production's tree application accepts it and the split refuses it as `NotEmbedded`, while the reference's refuses it as `NodeNotFound`. Segmented application agrees with production whole-state application on both, which two witnesses check; which of the two whole-state semantics is intended is a defect of [L-edits-3](edits.md#L-edits-3), recorded here and not resolved.
+
+### Definitions used
+
+The *peers* of a segment are the segments its record lists in either cross map, and its *target peers* those its outgoing cross map lists. The *counters' segment* is the one segment whose record states the embedding's counters (`SegmentRecord::next_node` and `next_edge`), the owner of the root. The read set $R(e)$ is every segment when a step of $e$ is a `MoveSubtree` or a `JoinFeatures`: both check that a node is no ancestor of another, a walk to the root that may cross any segment. Otherwise it is the union over the steps of: for `SetField` and `RemoveField`, the node's owner; for `RelabelNode`, the owner and its peers; for `DeleteNode` and `ContractNode`, the owner, its peers, and the target peers of the owner and of every segment with a crossing edge into it; for `InsertNode`, the parent's owner, the child's owner and its target peers; for `InsertFan`, the owners of the fan's endpoints; for `DeleteFan`, every segment whose record counts a fan, with its target peers; for `ContractNode`, `InsertNode` and `InsertFan`, the counters' segment; and the owners of every node identifier the edit may draw. Those identifiers are found by tracking the node counter as an interval from the counters' segment's value: an insertion of child $c$ raises both ends to at least $c + 1$ and, when $c$ lies below the upper end, may draw an identifier of the interval (a relocated fan node) and widens it by one; a fan insertion draws an identifier of the interval and shifts it by one.
+
+The *named* nodes of $e$ are the nodes its steps name (an insertion's parent and child, a fan's endpoints, the node a step deletes, contracts, relabels or changes a field of), or every node when a step moves a subtree or joins features. The *facts* of a read segment are its named tree nodes, its arcs with a named endpoint under their edge identifiers, its fans whose fan node or an endpoint is named or whose hyper-edge a step deletes, the anchor it holds of every other endpoint of those arcs and fans, and its root and counters when it holds them. The *partial tree* glues the facts of every read segment, each unreported endpoint standing in by its anchor, with the partial embedding of the reported arcs and fans; its root is the reported root, or an identifier no step names when the root's segment is not read.
+
+### Proof
+
+1. Segments outside the read set do not change. A tree segment holds its own nodes, the arcs whose parent it owns, the fans whose fan node it owns with their edges, and a boundary of ghosts and in-stubs copying each crossing arc or fan edge with the anchor of its remote endpoint. A step changes a node's payload (its owner), the arcs into and out of the nodes it deletes, contracts or inserts (held by the owners of their parents, which are the named node's owner or its peers, and copied by the owners of their children, its target peers), the fans meeting a deleted or contracted node (held by the owner or a segment with a crossing edge into it, and copied by that holder's target peers), the anchors a relabelled node's neighbours copy (its peers), and the counters (the counters' segment). A step's new elements are held by owners of nodes it names or draws. Over a sequence, a step can make two nodes adjacent only when each is named by it, drawn by it, or a neighbour of a node it names, so every neighbour a later step meets belongs to a segment the earlier steps already put in $R(e)$. The record of a segment is a function of its content ([L-segments-4](#L-segments-4)), so every record outside $R(e)$ is unchanged.
+2. The facts decide every check. A step reads whether its named nodes exist (each owner is read and reports them), whether one is the root (the root's owner is read whenever the root is named, and the stand-in root matches no named node), the children of a node it deletes (its own arcs), the parent of a node it contracts (the arc into it, held by its parent's owner, a peer), the fans meeting a node it deletes or contracts and the fans of a hyper-edge it deletes (every holder is read), and, for a move or a join, the ancestors of a node (every segment is read and reports every node). The partial tree agrees with $W$ on all of these, so following $e$ on it refuses exactly where $\operatorname{follow}(e, W, E)$ refuses, with the same refusal.
+3. Following the partial tree gives the restriction of following $W$. Each step removes arcs and fans and appends new ones; `TreeEmbedding::observe_edit` keeps the identifier of every arc whose parent is unchanged and gives fresh edge identifiers to the appended arcs in order, then keeps every fan that survives and gives fresh identifiers to new fans, relocating a fan node a new tree node takes. The partial arcs and fans are a subsequence of $W$'s in the same order and contain every arc and fan a step removes or appends, and the counters move only for the new nodes and the drawn identifiers, which the partial tree holds, so each fresh identifier is the one $\operatorname{follow}(e, W, E)$ draws.
+4. Layout. With every step applied, the split's checks can fail only at an element the edit adds: a new fan whose endpoint is no tree node, a new identifier at or above its counter, a new node or fan node no range owns, or an edge identifier whose holder changes, which the seal floor rule may refuse. The partial tree holds every such element in fan order and identifier order, and the checks run in the split's order.
+5. Rewriting. Each read segment removes what it reported, puts back what the followed partial tree holds in its place (its nodes, arcs, fans and fan nodes, the fan edges labelled from their targets' anchors after the edit), keeps its counters in step with the followed embedding when it holds the root, and rebuilds its boundary from its arcs and fan edges after the edit and the in-stubs of the elements it did not report. This is the segment `partition_tree` writes for the followed tree, and with step 1 the output is the split.
+6. The reference `apply_tree_segmented` glues the family, applies the edit with the independent `edit::apply_tree`, splits the result with `partition_tree` and seals it, refusing at the first step that refuses; the reference `tree_read_set` computes the read set from the manifest records. The finite certificate walks `segmented_tree_apply_cases`: the 8 trees of `segmented_tree_apply_trees` (the root alone, `0 -> 1`, `0 -> 1, 0 -> 2` and `0 -> 1 -> 2`, each without and with a fan from its last node to the root), the 55 partitions of the identifiers $0$ to $4$ into at most three segments, the last possibly in none, and the 210 edits of `segmented_tree_edits` at the trees (every primitive at every node, with refusals for an existing child, an absent parent, absent nodes and absent fans), $11{,}550$ cases. For each it compares the read set computed from the segments and from the sealed manifest with the reference, every output segment's canonical bytes with the reference, the glued output with production whole-state application, every unread segment with its input, and every refusal with the reference and with whole-state application. Of the cases, $6{,}762$ apply, $4{,}620$ are refused by the edit and $168$ by the layout. A property test compares the law on trees of up to six nodes, with or without a fan, under sequences of up to three carrier edits, leaving out the two kinds of step above.
+
+### Executable counterpart
+
+- Law ID: `segments.segmented-tree-apply`
+- Reference: `panproto_reference::segment::apply_tree_segmented`
+- Reference: `panproto_reference::segment::tree_read_set`
+- Enumerator: `panproto_reference::enumerate::segments::segmented_tree_apply_cases; bound: trees=8, partitions=55, edits=210, cases=11550`
+- Exhaustive differential test: `segmented_tree_apply::segmented_tree_apply_agrees_with_the_reference_on_every_case_of_the_carrier; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=segmented_tree_apply::segmented_tree_apply_agrees_with_the_reference_on_every_case_of_the_carrier)'`
+- Property differential test: `segmented_tree_apply::segmented_tree_apply_agrees_with_the_reference_on_generated_families; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=segmented_tree_apply::segmented_tree_apply_agrees_with_the_reference_on_generated_families)'`
+- Property scope: `trees of 1 to 6 nodes with or without a fan, owners in 1 to 3 segments for 7 identifiers and two more possibly unowned, sequences of 1 to 3 carrier edits; 256 cases`
+- Production certificate: `segmented_tree_apply::a_node_taking_a_fan_nodes_id_relocates_the_fan_into_the_counters_owner; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=segmented_tree_apply::a_node_taking_a_fan_nodes_id_relocates_the_fan_into_the_counters_owner)'`
+- Production certificate: `segmented_tree_apply::a_fan_with_an_absent_endpoint_is_refused_as_the_split_refuses_it; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=segmented_tree_apply::a_fan_with_an_absent_endpoint_is_refused_as_the_split_refuses_it)'`
+- File: `crates/panproto-inst/src/segment/apply.rs`
+- File: `crates/panproto-inst/src/segment/tree_apply.rs`
+- File: `crates/panproto-inst/src/tree_edit.rs`
+- File: `crates/panproto-inst/tests/reference_edits.rs`
+- File: `crates/panproto-reference/src/pages/segments.rs`
+- File: `crates/panproto-reference/src/enumerate/segments.rs`
+
+## A checkpointed segmented tree edit reads only its read set and resumes to the uninterrupted run {#L-segments-27}
+
+### Statement
+
+Let $P$, $S$ and $e$ satisfy the hypotheses of [L-segments-26](#L-segments-26), let $M$ be a manifest sealing $S$ under $P$ with trusted digest $d$, and let $B$ be a budget. Write $k$ for the size of $R(e)$, $\operatorname{run}_c$ for `apply_run` of $e$ over $M$, $d$ and the canonical bytes of $S$, under $B$, stopped once $c$ tasks are done, and $\operatorname{ref}_c$ for the reference runner `segmented_tree_apply_with_progress` on the same inputs. The production run is `run_segmented` of the phase operation `SegmentApply` over a tree edit, whose shape is the tree shape and whose affected set is $R(e)$: $4k + 2$ tasks. For every $c$ from $0$ to $4k + 2$ the three claims of [L-segments-21](#L-segments-21) hold with these runs in place of the graph runs, the run identity being $\operatorname{RunJournal::run\_digest}(\lambda, d, P, \texttt{tree apply})$ with $\lambda$ the edit's digest, `TreeEdit::digest`.
+
+An uninterrupted run reads each segment of $R(e)$ from its source once and no other segment. When it completes, the emitted segment of each read segment is the corresponding segment of the split of $\operatorname{follow}(e, W, E)$, its Emit artifact holds no complement section, and the output manifest, which verifies against its digest, is the seal of that split as a source with the input's schema and binding and no instance digest; the record of every segment outside $R(e)$ is its input record. When the edit is refused, the run fails at Assemble with the refusal of L-segments-26, after the $3k$ tasks of the first three phases, and its journal holds no Emit or Seal task: a refused edit seals nothing and leaves every segment as it was.
+
+### Outside the domain
+
+As for [L-segments-21](#L-segments-21). The reference runner is compared on the cases of L-segments-26's reference differentials, which leave out the two kinds of step that section names.
+
+### Definitions used
+
+The artifacts are those of [L-segments-21](#L-segments-21), with Summarize writing a tree segment's facts (`tree_apply_facts_bytes`): its node records; its arcs as edge identifier, parent, child and label; its fans as fan node, hyper-edge, parent edge identifier, parent and each child as label, edge identifier and target in label order; each reported endpoint's identifier and anchor; each part counted and ascending; then the root and the two counters, each behind a presence byte. A manifest record states the counters of the segment holding them, so the read set, including the owners of the identifiers the edit may draw, is computed from the records alone.
+
+### Proof
+
+1. The runner is shared with [L-segments-21](#L-segments-21): task order, accounting, identity, reuse and the reseal do not depend on the operation, and the runner refuses an input manifest whose shape is not the operation's. Steps 1, 3 and 5 of that proof hold as written with the tree read set as the affected set; a tree segment's identifier run holds its arc and fan edge identifiers, and an identifier of a rewritten run is held by no segment outside $R(e)$, since a kept identifier stays with its holder or moves with a relocated fan to the segment owning the drawn identifier, and a fresh one is drawn above every identifier the family holds.
+2. Outputs. Summarize writes the facts of one read segment. Assemble glues every read segment's facts into the partial tree, follows the edit on it and runs the layout checks of steps 2 to 4 of the proof of L-segments-26, returning the refusal before it commits. Emit rewrites one read segment from every Summarize artifact, as in step 5 of that proof.
+3. Agreement with the reference. The reference defines the read set from the sealed records, each Summarize artifact from its own facts definition and canonical writers, the outcome from the glued tree through L-segments-26's reference, each Emit artifact from its record, identifier and frame writers, and the manifest by sealing the whole edited family as a source and clearing the instance digest. The reference runner for graph, table and tree edits is one runner over these definitions, as the production runner is.
+4. The finite certificate takes every 37th case of the carrier of L-segments-26, $313$ cases ($188$ complete and $125$ refused), and compares the production and reference reports uninterrupted, at each of the $3{,}391$ cancellation points and after resuming; for a complete run it compares the reads of a counting source with the read set, the emitted segments with the reference byte for byte, and the manifest's canonical bytes with the reference's; for a refused run it checks the journal for an Emit or Seal task. Witnesses cover a family of four segments (the root with the fresh identifiers, two subtrees, and a fan node) in which a field change reads its owner alone, a relabelling its owner and the holders of the arc and fan edge into it, a fan deletion the fan's holder and its endpoints' owners, an insertion the parent's owner and the counters' segment with its target peers, a leaf deletion the holders of the edges into it and their target peers, and a move every segment, each with $4k + 2$ tasks and every unread record kept; the deletion of a node with a child, refused at Assemble with nothing sealed; each budget, compared with the reference at every cancellation point; and a store whose commit fails at each task, after which the resumed run ends as the uninterrupted run.
+
+### Executable counterpart
+
+- Law ID: `segments.checkpointed-tree-apply`
+- Reference: `panproto_reference::segment::segmented_tree_apply_with_progress`
+- Reference: `panproto_reference::segment::tree_apply_facts_bytes`
+- Enumerator: `panproto_reference::enumerate::segments::segmented_tree_apply_cases; bound: every 37th case, cases=313, cancellation points=3391`
+- Exhaustive differential test: `segmented_tree_apply::segmented_tree_apply_run_matches_the_reference_runner_at_every_cancellation_point; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=segmented_tree_apply::segmented_tree_apply_run_matches_the_reference_runner_at_every_cancellation_point)'`
+- Property differential test: `segmented_tree_apply::segmented_tree_apply_run_matches_the_reference_runner_on_generated_families; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=segmented_tree_apply::segmented_tree_apply_run_matches_the_reference_runner_on_generated_families)'`
+- Property scope: `trees of 1 to 5 nodes with or without a fan, owners in 1 to 3 segments for 6 identifiers and one more possibly unowned, sequences of 1 or 2 carrier edits; every cancellation point; 32 cases`
+- Production certificate: `segmented_tree_apply::a_segmented_tree_apply_reads_only_the_owners_and_peers_of_what_it_names; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=segmented_tree_apply::a_segmented_tree_apply_reads_only_the_owners_and_peers_of_what_it_names)'`
+- Production certificate: `segmented_tree_apply::a_refused_tree_edit_fails_at_assemble_with_the_whole_state_refusal_and_seals_nothing; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=segmented_tree_apply::a_refused_tree_edit_fails_at_assemble_with_the_whole_state_refusal_and_seals_nothing)'`
+- Production certificate: `segmented_tree_apply::a_segmented_tree_apply_run_declines_each_exceeded_budget_like_the_reference; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=segmented_tree_apply::a_segmented_tree_apply_run_declines_each_exceeded_budget_like_the_reference)'`
+- Production certificate: `segmented_tree_apply::a_segmented_tree_apply_run_stopped_by_a_failed_commit_at_any_task_resumes_to_the_uninterrupted_run; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=segmented_tree_apply::a_segmented_tree_apply_run_stopped_by_a_failed_commit_at_any_task_resumes_to_the_uninterrupted_run)'`
+- File: `crates/panproto-inst/src/segment/runner.rs`
+- File: `crates/panproto-inst/src/segment/manifest.rs`
+- File: `crates/panproto-inst/src/segment/tree_apply.rs`
+- File: `crates/panproto-inst/tests/reference_edits.rs`
+- File: `crates/panproto-reference/src/pages/segments.rs`
+
+## Segmented tree edits compose as whole-state tree edits do {#L-segments-28}
+
+### Statement
+
+Let $P$ and $S$ satisfy the hypotheses of [L-segments-26](#L-segments-26) and write $\operatorname{seg}(e, S)$ for `apply_segmented` of a tree edit $e$ over $S$ and $P$. For tree edits $a$ and $b$, if $\operatorname{seg}(a, S)$ returns a family $S'$ and $\operatorname{seg}(b, S')$ returns a family $S''$, then $\operatorname{seg}(\operatorname{compose}(a, b), S) = S''$, segment by segment and byte for byte, with `TreeEdit::compose` the monoid product of the tree edit algebra.
+
+### Outside the domain
+
+The converse does not hold in general: $a$ may insert a node no range owns that $b$ deletes, in which case $\operatorname{seg}(a, S)$ is refused at layout while the composite, which never holds the node, applies. Tree edits have no inverse in their algebra (a deleted arc comes back only under a fresh identifier, [L-edits-3](edits.md#L-edits-3)), so there is no inversion claim; the graph delta a tree edit lowers to inverts as [L-segments-22](#L-segments-22) states.
+
+### Definitions used
+
+Write $(W, E) = \operatorname{glue}_P(S)$.
+
+### Proof
+
+1. `compose(a, b)` is the sequence of the steps of $a$ followed by those of $b$, and `follow_edit` follows a sequence step by step, so $\operatorname{follow}(\operatorname{compose}(a, b), W, E) = \operatorname{follow}(b, \operatorname{follow}(a, W, E))$. By [L-segments-26](#L-segments-26), $S'$ is the split of $\operatorname{follow}(a, W, E)$, which glues back to it, and $S''$ is the split of the composite's whole-state result, laid out without refusal; so the composite's layout refusals do not arise and $\operatorname{seg}(\operatorname{compose}(a, b), S) = S''$.
+2. The finite certificate takes every ordered pair of the edits of `segmented_tree_edits` at each of the 8 carrier trees under three partitions (all identifiers in one segment, `0 | 1 2 | 3 4` and `0 3 | 1 4 | 2`), $3 \times 6{,}206 = 18{,}618$ pairs, and compares the composite's segments with those of the factors in turn and with the reference composite. Of the pairs, $6{,}081$ apply in turn and agree with the reference, $84$ apply in turn with the second step inserting a node under the identifier of the fan the first inserted, which only production whole-state application is compared with, $6{,}957$ are refused at the first edit and $5{,}496$ at the second, and the composite is refused exactly when the factors are refused in turn.
+
+### Executable counterpart
+
+- Law ID: `segments.segmented-tree-edit-algebra`
+- Reference: `panproto_reference::segment::apply_tree_segmented`
+- Enumerator: `panproto_reference::enumerate::segments::segmented_tree_edits; bound: trees=8, partitions=3, ordered pairs=18618`
+- Exhaustive differential test: `segmented_tree_apply::a_composite_tree_edit_applies_to_a_segmented_family_as_its_factors_do_in_turn; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=segmented_tree_apply::a_composite_tree_edit_applies_to_a_segmented_family_as_its_factors_do_in_turn)'`
+- File: `crates/panproto-inst/src/segment/tree_apply.rs`
+- File: `crates/panproto-inst/src/tree_edit.rs`
+- File: `crates/panproto-inst/tests/reference_edits.rs`
+- File: `crates/panproto-reference/src/enumerate/segments.rs`

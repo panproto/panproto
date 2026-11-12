@@ -83,6 +83,8 @@
 //! | The checkpointed run of segmented graph edits | [`segment::segmented_apply_with_progress`], [`segment::apply_facts_bytes`] | `segments.md` |
 //! | Segmented table edits, by whole-state application of the delta to the glued table, and the segments they read | [`segment::apply_table_segmented`], [`segment::table_read_set`] | `segments.md` |
 //! | The checkpointed run of segmented table edits | [`segment::segmented_table_apply_with_progress`], [`segment::table_apply_facts_bytes`] | `segments.md` |
+//! | Segmented tree edits, by whole-state application of the edit to the glued tree, and the segments they read | [`segment::apply_tree_segmented`], [`segment::tree_read_set`] | `segments.md` |
+//! | The checkpointed run of segmented tree edits | [`segment::segmented_tree_apply_with_progress`], [`segment::tree_apply_facts_bytes`] | `segments.md` |
 //! | Graph complement segment bytes and their decoding | [`segment::canonical_complement_segment_bytes`], [`segment::decode_complement_segment_bytes`] | `segments.md` |
 //! | Signature type checking | [`theory::typecheck_signature`] | `theories.md` |
 //! | Theory colimits | [`theory::compose`] | `theories.md` |
