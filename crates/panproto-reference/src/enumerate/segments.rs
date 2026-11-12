@@ -1751,9 +1751,11 @@ pub fn segmented_tree_restrict_schema() -> crate::schema::Schema {
 /// the resolution of the pair `(a, a)`; dropping `b` into a target holding
 /// a second edge from `a` to `a`, named `g`, so that the pair `(a, a)` has
 /// two candidate edges; dropping the edge `a -> b` between surviving vertices; expanding the
-/// edge `a -> b` through a node at `b`; and dropping `a` with the target
+/// edge `a -> b` through a node at a new vertex `m`, the target holding
+/// `a -> m` and `m -> b` in its place; and dropping `a` with the target
 /// edge `b -> b` as the resolution of `(b, b)`. Every target declares the
-/// hyper-edge `h`.
+/// hyper-edge `h`, a signature vertex the target drops replaced by the
+/// vertex it keeps.
 #[must_use]
 pub fn segmented_tree_restrict_lenses() -> Vec<(
     &'static str,
@@ -1763,7 +1765,16 @@ pub fn segmented_tree_restrict_lenses() -> Vec<(
     use crate::enumerate::lenses::{bounded_lens_edge, bounded_lens_schema};
     let source = segmented_tree_restrict_schema();
     let with_fan = |mut schema: crate::schema::Schema| {
-        schema.hyper_edges.clone_from(&source.hyper_edges);
+        let mut hyper = source.hyper_edges.clone();
+        let present = schema.vertices.keys().next().cloned().unwrap_or_default();
+        for edge in hyper.values_mut() {
+            for vertex in edge.signature.values_mut() {
+                if !schema.vertices.contains_key(vertex) {
+                    vertex.clone_from(&present);
+                }
+            }
+        }
+        schema.hyper_edges = hyper;
         schema
     };
     let keep = |schema: &crate::schema::Schema| crate::migration::Migration {
@@ -1792,11 +1803,15 @@ pub fn segmented_tree_restrict_lenses() -> Vec<(
     ));
     let no_ab_migration = keep(&no_ab);
     out.push(("drop the edge ab", no_ab, no_ab_migration));
-    let mut expand = keep(&source);
+    let through = with_fan(bounded_lens_schema(
+        &["a", "b", "m"],
+        &[("a", "a"), ("b", "a"), ("b", "b"), ("a", "m"), ("m", "b")],
+    ));
+    let mut expand = keep(&through);
     expand
         .expansion_path
-        .insert(("a".to_owned(), "b".to_owned()), vec!["b".to_owned()]);
-    out.push(("expand ab through b", source.clone(), expand));
+        .insert(("a".to_owned(), "b".to_owned()), vec!["m".to_owned()]);
+    out.push(("expand ab through m", through, expand));
     let b = with_fan(bounded_lens_schema(&["b"], &[("b", "b")]));
     let mut contract_b = keep(&b);
     contract_b.resolver.insert(

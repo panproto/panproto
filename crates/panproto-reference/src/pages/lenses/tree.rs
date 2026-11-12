@@ -1053,8 +1053,21 @@ fn native_tree_get_on(
         view_fans: Vec::new(),
         view_fan_embedding: Vec::new(),
     };
+    // The root is decided first: by its anchor before any predicate is
+    // evaluated, then by its predicate before any arc is examined.
+    let root_pruned = Some(Err(RestrictError::RootPruned { root: source.root }));
+    if !source
+        .nodes
+        .get(&source.root)
+        .is_some_and(|root| lens.m.survives(&root.anchor))
+    {
+        return root_pruned;
+    }
     if let Err(error) = native_get_nodes(lens, &mut state) {
         return Some(Err(error));
+    }
+    if !state.view_graph.nodes.contains_key(&source.root) {
+        return root_pruned;
     }
     if let Err(error) = native_get_arcs(lens, &mut state) {
         return Some(Err(error));

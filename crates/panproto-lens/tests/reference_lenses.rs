@@ -25452,8 +25452,14 @@ mod segmented_tree_get {
                 }
             }
             for edge in graph.dropped_edges.values() {
+                // A tree complement lists a dropped arc only when an
+                // endpoint is dropped; the graph form also drops the
+                // source arc an expansion replaces.
+                let expanded =
+                    renamed.nodes.contains_key(&edge.src) && renamed.nodes.contains_key(&edge.tgt);
                 if edge.edge.kind != panproto_inst::HYPER_PARENT_KIND
                     && edge.edge.kind != panproto_inst::HYPER_LABEL_KIND
+                    && !expanded
                 {
                     dropped_arcs.push((edge.src, edge.tgt, ref_edge(&edge.edge)));
                 }

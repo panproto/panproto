@@ -529,6 +529,8 @@ struct WalkStage<'s> {
     /// The label of the source arc entering each contracted survivor, by
     /// its pair.
     entering: BTreeMap<(u32, u32), Edge>,
+    /// The source anchor of each contracted survivor.
+    survivors: BTreeMap<u32, Name>,
 }
 
 /// The parts of a run that refuses nothing, from which its output is
@@ -543,6 +545,8 @@ struct Parts<'a, 's> {
 /// An output under construction.
 struct Built {
     nodes: BTreeMap<u32, Node>,
+    /// The source anchor of each contracted survivor another segment owns.
+    survivors: BTreeMap<u32, Name>,
     arcs: BTreeMap<EdgeId, (u32, u32, Edge)>,
     fans: Vec<FanEmbedding>,
     complement: GraphComplementSegment,
@@ -991,6 +995,7 @@ impl TreeRestrict<'_> {
                         stage
                             .entering
                             .insert((*parent, survivor.node), survivor.entering);
+                        stage.survivors.insert(survivor.node, survivor.anchor);
                         stage.chains.push((chain, None));
                     }
                     Err(error) => {
@@ -1193,6 +1198,7 @@ impl TreeRestrict<'_> {
         };
         let mut built = Built {
             nodes: BTreeMap::new(),
+            survivors: parts.stage.survivors.clone(),
             arcs: BTreeMap::new(),
             fans: Vec::new(),
             complement: GraphComplementSegment {
@@ -1291,17 +1297,21 @@ impl TreeRestrict<'_> {
     }
 
     /// The view anchor of `node`: its view node's, or the image of its
-    /// source anchor.
+    /// source anchor, as the segment names it or as the search that
+    /// contracted it found it.
     fn view_anchor(
         &self,
         local: &Local<'_>,
-        nodes: &BTreeMap<u32, Node>,
+        built: &Built,
         node: u32,
     ) -> Result<Name, SegmentError> {
-        match nodes.get(&node) {
-            Some(view) => Ok(view.anchor.clone()),
-            None => Ok(self.image(local, node)?.clone()),
+        if let Some(view) = built.nodes.get(&node) {
+            return Ok(view.anchor.clone());
         }
+        if let Some(source) = built.survivors.get(&node) {
+            return Ok(self.plan.target_anchor(source).clone());
+        }
+        Ok(self.image(local, node)?.clone())
     }
 
     /// The view's surviving fans, their nodes and edges.
@@ -1313,7 +1323,7 @@ impl TreeRestrict<'_> {
     ) -> Result<(), SegmentError> {
         for (ids, projected, moves) in &parts.view_fans {
             let hyper: Name = projected.hyper_edge_id.as_str().into();
-            let parent_anchor = self.view_anchor(local, &built.nodes, projected.parent)?;
+            let parent_anchor = self.view_anchor(local, built, projected.parent)?;
             built.arcs.insert(
                 ids.parent_edge,
                 (
@@ -1326,7 +1336,7 @@ impl TreeRestrict<'_> {
             for (old, new) in moves {
                 let edge = ids.child_edges[old];
                 let child = projected.children[new];
-                let child_anchor = self.view_anchor(local, &built.nodes, child)?;
+                let child_anchor = self.view_anchor(local, built, child)?;
                 built.arcs.insert(
                     edge,
                     (
@@ -1410,7 +1420,7 @@ impl TreeRestrict<'_> {
             boundary.ghosts.entry(*tgt).or_insert(Ghost {
                 node: *tgt,
                 owner,
-                anchor: self.view_anchor(local, &built.nodes, *tgt)?,
+                anchor: self.view_anchor(local, &built, *tgt)?,
             });
             stubs.entry(owner).or_default().push((
                 elem,
