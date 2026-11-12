@@ -1411,7 +1411,11 @@ fn check_gc(model: &ModelRepository, store: &mut dyn Store) -> usize {
     let staged = set_roots(model, &ids, store);
     let names: BTreeMap<ObjectId, String> =
         ids.iter().map(|(name, id)| (*id, name.clone())).collect();
+    let before = store.list_objects().unwrap().len();
+    let dry = gc_with_roots(store, &staged, &GcOptions { dry_run: true }).unwrap();
+    assert_eq!(store.list_objects().unwrap().len(), before);
     let report = gc_with_roots(store, &staged, &GcOptions::default()).unwrap();
+    assert_eq!(dry.deleted, report.deleted);
     let deleted: BTreeSet<String> = report.deleted.iter().map(|id| names[id].clone()).collect();
     assert_eq!(deleted, model.garbage(), "{model:?}");
     let kept: BTreeSet<String> = store

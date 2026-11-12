@@ -15,10 +15,15 @@ Every object identifier is a BLAKE3 digest of the object's type-specific canonic
 | `FileSchema`, `SchemaTree`, `FlatSchema` | Per-file schema content, a tree root used by commits, and a flattened migration endpoint. |
 | `Migration` | A map between identified source and target schemas. |
 | `Complement`, `CstComplement` | Saved data for inverse migration and concrete-syntax reconstruction. |
-| `DataSet` | Instances associated with a particular schema. |
-| `Protocol`, `Theory`, `TheoryMorphism`, `Expr`, `EditLog` | Protocol and transformation metadata referenced by other objects. |
+| `DataSet` | An instance associated with a particular schema: a sequence of trees, one table instance or one graph instance. |
+| `EditLog` | A sequence of tree edits, table deltas or graph deltas made against a data set. |
+| `Protocol`, `Theory`, `TheoryMorphism`, `Expr` | Protocol and transformation metadata referenced by other objects. |
 | `Commit` | A `SchemaTree` root, parent commits, protocol and author metadata, and identifiers for associated migrations, data, complements, edit logs, theories, and renames. |
 | `Tag` | An annotated reference to another stored object. |
+
+A data set, complement or edit log records the payload encoding of its bytes: the shape of instance they belong to (tree, table or graph) and the version of that shape's encoding. Version 1 of each is MessagePack of the shape's value, and the table and graph encodings are canonical, so a table or graph object's identifier is a function of the value it holds. An object records the field only when its encoding is not version 1 of the tree encoding, which is the encoding every tree object written before the field existed holds; such an object keeps its bytes, its identifier and its meaning, and version 1 of the repository format holds all three shapes. Decoding refuses an encoding version this build does not read with `UnsupportedPayloadEncoding`, bytes that do not decode whole, or a count they contradict, with `UndecodablePayload`, and a table or graph payload that is not canonical with `NonCanonicalPayload`. [Instance version control](../correctness/instance-version-control.md) states these behaviours as laws.
+
+Garbage collection deletes exactly the stored objects that no root reaches. The roots are the commit `HEAD` resolves to, the target of every ref under `refs/` (branches, tags, remote-tracking refs, the stash and any other namespace), every entry of the stash's reflog, and, when collection runs through the repository, every object the staging index names. Every reference field of every object kind is followed, so collection never removes an object reachable from a ref.
 
 A branch is a mutable reference rather than an immutable object. A commit may have more than one parent, so the commit relation forms a DAG rather than a simple sequence.
 

@@ -8175,6 +8175,159 @@
           ]
         }
       ]
+    },
+    "instance-version-control": {
+      "reference_files": [
+        "crates/panproto-reference/src/pages/instance_version_control.rs",
+        "crates/panproto-reference/src/enumerate/instance_version_control.rs"
+      ],
+      "laws": [
+        {
+          "id": "instance-version-control.payload-encodings",
+          "anchor": "L-instance-version-control-1",
+          "references": [
+            "panproto_reference::pages::instance_version_control::payload_outcome"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "every_instance_of_the_coverage_scope_round_trips_through_its_stored_object"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "every_edit_log_of_consecutive_coverage_states_round_trips_and_applies"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "every_complement_of_the_coverage_states_round_trips"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "every_damaged_payload_gives_the_outcome_the_reference_gives"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "a_table_or_graph_payload_out_of_canonical_order_is_refused"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "randomized_graph_payloads_round_trip_in_any_insertion_order"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "every_combination_of_payload_facts_is_decided_in_the_stated_order"
+            }
+          ]
+        },
+        {
+          "id": "instance-version-control.format-one",
+          "anchor": "L-instance-version-control-2",
+          "references": [
+            "panproto_reference::pages::instance_version_control::recorded_encoding",
+            "panproto_reference::pages::instance_version_control::writes_encoding_field"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "an_object_writes_its_encoding_exactly_when_the_reference_says_so"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "a_tree_object_records_no_encoding_and_keeps_its_identifier"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "a_repository_written_by_0_78_opens_and_reads_back_unchanged"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "a_repository_written_by_0_78_takes_table_and_graph_objects_in_format_1"
+            }
+          ]
+        },
+        {
+          "id": "instance-version-control.reachability",
+          "anchor": "L-instance-version-control-3",
+          "references": [
+            "panproto_reference::pages::instance_version_control::Repository::roots",
+            "panproto_reference::pages::instance_version_control::Object::links",
+            "panproto_reference::pages::instance_version_control::Repository::reachable",
+            "panproto_reference::pages::instance_version_control::Repository::garbage"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "garbage_collection_keeps_exactly_what_the_reference_reaches_on_every_repository_of_the_scope"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "randomized_repositories_keep_exactly_what_the_reference_reaches"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "garbage_collection_on_disk_keeps_what_the_reference_reaches_under_every_root"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "garbage_collection_of_a_0_78_repository_deletes_only_what_no_ref_reaches"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "a_repository_keeps_staged_data_through_garbage_collection"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::instance_version_control",
+              "test": "reachability_on_hand_computed_repositories"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::instance_version_control",
+              "test": "a_missing_name_is_not_followed_and_a_cycle_ends"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::instance_version_control",
+              "test": "the_gc_scope_has_its_closed_form_size_and_kept_total"
+            }
+          ]
+        }
+      ]
     }
   }
 }
