@@ -1,0 +1,3 @@
+type Query { q: Int }
+enum A { X }
+extend type A { a: Int }

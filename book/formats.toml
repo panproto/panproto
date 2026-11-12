@@ -172,6 +172,16 @@ limits = ["asyncapi-limits.txt"]
 grammars = ["json", "yaml"]
 
 [[format]]
+name = "GraphQL"
+protocols = ["graphql"]
+standard = "GraphQL type system documents, September 2025 edition"
+pinned = "September 2025 edition"
+pages = ["graphql"]
+corpora = ["graphql"]
+limits = ["graphql-limits.txt"]
+grammars = ["graphql"]
+
+[[format]]
 name = "JSON Schema"
 protocols = ["json-schema"]
 standard = "JSON Schema 2020-12 (Core and Validation)"
@@ -278,6 +288,12 @@ name = "AsyncAPI 2"
 reason = "Its channels and operations differ from version 3's"
 page = "asyncapi"
 refusals = ["asyncapi-2"]
+
+[[excluded]]
+name = "GraphQL executable documents"
+reason = "Operations and fragments are requests against a type system, not a type system"
+page = "graphql"
+refusals = ["graphql-executable"]
 
 [[excluded]]
 name = "JSON Schema drafts 04 to 2019-09"

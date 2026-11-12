@@ -26,7 +26,7 @@ use panproto_protocols::{ProtocolError, bundle_parser_protocols};
 use panproto_schema::Schema;
 
 #[cfg(feature = "tree-sitter")]
-use crate::api::{asyncapi, openapi};
+use crate::api::{asyncapi, graphql, openapi};
 #[cfg(feature = "tree-sitter")]
 use crate::config::{ansible, cloudformation, k8s_crd};
 #[cfg(feature = "tree-sitter")]
@@ -73,6 +73,10 @@ pub enum SchemaReadError {
     #[cfg(feature = "tree-sitter")]
     #[error(transparent)]
     AsyncApi(#[from] asyncapi::AsyncApiError),
+    /// The `graphql` reader refused the document.
+    #[cfg(feature = "tree-sitter")]
+    #[error(transparent)]
+    GraphQl(#[from] graphql::GraphQlError),
     /// The `json-schema` reader refused the document.
     #[cfg(feature = "tree-sitter")]
     #[error(transparent)]
@@ -175,6 +179,12 @@ const GRAMMAR_READERS: &[GrammarReader] = &[
             Ok(ansible::read_ansible(source.as_bytes(), class)?.schema)
         },
         bundle: None,
+    },
+    GrammarReader {
+        reader: "panproto_io::api::graphql::read_graphql",
+        json: false,
+        read: |source, _| Ok(graphql::read_graphql(source.as_bytes())?.schema),
+        bundle: Some(read_graphql_bundle),
     },
     GrammarReader {
         reader: "panproto_io::postgresql::read_ddl",
@@ -310,7 +320,7 @@ pub fn parse_schema_source(
 /// resolving references between them.
 ///
 /// A grammar protocol whose reader has a bundle form (`openapi`,
-/// `asyncapi`, `json-schema`) reads the documents with it, the first
+/// `asyncapi`, `json-schema`, `graphql`) reads the documents with it, the first
 /// document its entry; every other protocol parses each document as JSON
 /// and goes to [`panproto_protocols::parse_schema_bundle`], which takes no
 /// retrieval URIs.
@@ -389,6 +399,12 @@ fn read_asyncapi_bundle(docs: &[BundleSource<'_>]) -> Result<Schema, SchemaReadE
         })
         .collect();
     Ok(asyncapi::read_asyncapi_bundle(&documents)?.schema)
+}
+
+#[cfg(feature = "tree-sitter")]
+fn read_graphql_bundle(docs: &[BundleSource<'_>]) -> Result<Schema, SchemaReadError> {
+    let documents: Vec<&[u8]> = docs.iter().map(|doc| doc.source.as_bytes()).collect();
+    Ok(graphql::read_graphql_bundle(&documents)?.schema)
 }
 
 #[cfg(feature = "tree-sitter")]
@@ -533,6 +549,31 @@ mod tests {
         let err = parse_schema_document_text("postgresql", api, &options)
             .expect_err("DDL is not a JSON document");
         assert!(matches!(err, SchemaReadError::Protocol(_)), "{err}");
+
+        let sdl = "type Query { pet: String }";
+        let schema = parse_schema_source("graphql", sdl, &options).unwrap();
+        assert!(same(
+            &schema,
+            &graphql::read_graphql(sdl.as_bytes()).unwrap().schema
+        ));
+        let err = parse_schema_document_text("graphql", sdl, &options)
+            .expect_err("SDL is not a JSON document");
+        assert!(matches!(err, SchemaReadError::Protocol(_)), "{err}");
+        let split = [
+            BundleSource {
+                retrieval_uri: None,
+                source: "type Query { pet: Pet }",
+            },
+            BundleSource {
+                retrieval_uri: None,
+                source: "type Pet { name: String }",
+            },
+        ];
+        let bundled = parse_schema_bundle("graphql", &split).unwrap();
+        let whole = graphql::read_graphql(b"type Query { pet: Pet }\ntype Pet { name: String }")
+            .unwrap()
+            .schema;
+        assert!(same(&bundled, &whole));
 
         // A repeated key is the reader's to refuse, which it can only do
         // when it reads the text as written.

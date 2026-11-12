@@ -20,8 +20,13 @@
 //! the protocol's family. `default` and `deprecated` describe and do not
 //! constrain. The JSON:API `required` sort is written both as a
 //! presence flag of an attribute and as the target type of a relationship,
-//! and GraphQL's `non_null` and `list` record its type wrappers; each is
-//! descriptive here. A presence flag is about the element that holds the
+//! and is descriptive here.
+//!
+//! Every `graphql` sort describes the type system and constrains no
+//! instance: a description, a type reference with its wrappers, a default
+//! value, an applied directive, a deprecation reason, a scalar
+//! specification URL, the `@oneOf` and repeatable flags, a directive
+//! location, and the mark of a built-in scalar. A presence flag is about the element that holds the
 //! property, which must have it (the schema's required edge of that
 //! element), not about the property's own value: a present property of
 //! record or list type has no value of its own, so reading the flag as a
@@ -374,7 +379,16 @@ pub(super) const ROWS: &[ConstraintRow] = &[
     row("raml", "maximum", || ConstraintSemantics::Maximum),
     row("raml", "enum", || ConstraintSemantics::Enum),
     row("raml", "default", || ConstraintSemantics::Annotation),
-    row("graphql", "non_null", || ConstraintSemantics::Annotation),
-    row("graphql", "list", || ConstraintSemantics::Annotation),
+    row("graphql", "description", || ConstraintSemantics::Annotation),
+    row("graphql", "type", || ConstraintSemantics::Annotation),
+    row("graphql", "default", || ConstraintSemantics::Annotation),
+    row("graphql", "directive", || ConstraintSemantics::Annotation),
     row("graphql", "deprecated", || ConstraintSemantics::Annotation),
+    row("graphql", "specified-by", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("graphql", "one-of", || ConstraintSemantics::Annotation),
+    row("graphql", "repeatable", || ConstraintSemantics::Annotation),
+    row("graphql", "location", || ConstraintSemantics::Annotation),
+    row("graphql", "built-in", || ConstraintSemantics::Annotation),
 ];

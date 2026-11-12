@@ -2,7 +2,7 @@
 
 /// `AsyncAPI` 3 protocol definition.
 pub mod asyncapi;
-/// GraphQL SDL protocol definition and parser/emitter.
+/// GraphQL type system protocol definition.
 pub mod graphql;
 /// JSON:API protocol definition and parser/emitter.
 pub mod jsonapi;

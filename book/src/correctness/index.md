@@ -66,6 +66,7 @@ The table lists each correctness page and the number of laws it proves for the t
 | [JSON Schema](json-schema.md) | 2 |
 | [OpenAPI](openapi.md) | 2 |
 | [AsyncAPI](asyncapi.md) | 2 |
+| [GraphQL](graphql.md) | 2 |
 | [BSON](bson.md) | 3 |
 | [Migration search](migration-search.md) | 4 |
 | [Schema merge](schema-merge.md) | 4 |

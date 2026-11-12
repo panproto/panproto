@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 
 use assert_cmd::Command;
 use panproto_core::inst::identity::schema_digest;
-use panproto_core::io::api::{asyncapi, openapi};
+use panproto_core::io::api::{asyncapi, graphql, openapi};
 use panproto_core::io::config::{ansible, cloudformation, k8s_crd};
 use panproto_core::io::data_schema::json_schema;
 use panproto_core::io::postgresql;
@@ -156,6 +156,13 @@ fn a_postgresql_script_is_read_by_its_reader() {
                 .schema
         },
     );
+}
+
+#[test]
+fn a_graphql_document_is_read_by_its_reader() {
+    agrees("graphql", "graphql/upstream/viralSDL.graphql", &[], |b| {
+        graphql::read_graphql(b).unwrap().schema
+    });
 }
 
 #[test]

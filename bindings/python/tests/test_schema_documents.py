@@ -42,6 +42,7 @@ def _text(relative: str) -> str:
             "tasks",
         ),
         ("postgresql", "postgresql-docs/cases/create-table-examples-02.sql", None),
+        ("graphql", "graphql/upstream/viralSDL.graphql", None),
     ],
 )
 def test_a_corpus_document_is_read_by_its_reader(
@@ -94,6 +95,11 @@ def test_an_ansible_file_needs_its_class() -> None:
 def test_a_reader_refusal_names_what_is_wrong() -> None:
     with pytest.raises(ValueError, match=r"Swagger 2\.0 documents are not read"):
         panproto.parse_schema_document("openapi", {"swagger": "2.0"})
+
+
+def test_a_graphql_refusal_names_the_rule() -> None:
+    with pytest.raises(ValueError, match="the query root operation type must be provided"):
+        panproto.parse_schema_source("graphql", "type A { a: Int }")
 
 
 def test_a_postgresql_script_is_not_a_json_document() -> None:

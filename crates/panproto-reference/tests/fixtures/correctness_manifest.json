@@ -8342,6 +8342,87 @@
           ]
         }
       ]
+    },
+    "graphql": {
+      "reference_files": [
+        "crates/panproto-reference/src/pages/graphql.rs",
+        "crates/panproto-reference/src/enumerate/graphql.rs"
+      ],
+      "laws": [
+        {
+          "id": "graphql.reading",
+          "anchor": "L-graphql-1",
+          "references": [
+            "panproto_reference::pages::graphql::read",
+            "panproto_reference::pages::graphql::render"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_graphql",
+              "test": "graphql_reading_and_canonical_writing_match_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_graphql",
+              "test": "randomized_graphql_documents_read_and_write_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::graphql",
+              "test": "a_document_reads_as_its_vertices_edges_and_constraints"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::graphql",
+              "test": "every_breaking_choice_is_refused_by_its_rule"
+            }
+          ]
+        },
+        {
+          "id": "graphql.canonical-writing",
+          "anchor": "L-graphql-2",
+          "references": [
+            "panproto_reference::pages::graphql::canonical_text"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_graphql",
+              "test": "graphql_reading_and_canonical_writing_match_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_graphql",
+              "test": "randomized_graphql_documents_read_and_write_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::graphql",
+              "test": "the_canonical_text_of_every_read_document_reads_as_it"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::graphql",
+              "test": "strings_take_the_first_form_whose_value_they_are"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::graphql",
+              "test": "the_graphql_document_scope_has_its_closed_form_count"
+            }
+          ]
+        }
+      ]
     }
   }
 }

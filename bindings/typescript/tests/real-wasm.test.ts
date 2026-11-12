@@ -939,6 +939,7 @@ describe('parseSchemaBundle', () => {
       ],
       ['ansible', '- hosts: all', /panproto_io::config::ansible::read_ansible/],
       ['postgresql', 'CREATE TABLE t (id integer);', /panproto_io::postgresql::read_ddl/],
+      ['graphql', 'type Query { a: Int }', /panproto_io::api::graphql::read_graphql/],
     ];
     for (const [protocol, source, reader] of readers) {
       expect(() => pp.parseSchemaSource(protocol, source)).toThrow(reader);

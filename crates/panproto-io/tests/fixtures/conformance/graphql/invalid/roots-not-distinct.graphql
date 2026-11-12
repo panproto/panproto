@@ -1,0 +1,2 @@
+type Query { q: Int }
+schema { query: Query mutation: Query }

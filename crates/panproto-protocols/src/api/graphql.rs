@@ -1,20 +1,227 @@
-//! GraphQL protocol definition.
+//! GraphQL type system protocol definition.
 //!
-//! GraphQL uses a constrained multigraph with interfaces:
-//! `colimit(ThGraph, ThConstraint, ThMulti, ThInterface)`.
+//! Schema theory: `colimit(ThGraph, ThConstraint, ThMulti, ThInterface)`.
 //! Instance theory: `ThWType`.
 //!
-//! Vertex kinds: type, field, interface, union, enum, scalar, input, enum-value, subscription.
-//! Edge kinds: field-of, implements, member-of, type-of.
+//! A GraphQL type system document (the September 2025 edition of the
+//! specification, [`EDITION`]) is text in GraphQL's own syntax, and this
+//! crate links no grammar for it: `panproto_io::api::graphql::read_graphql`
+//! reads it through the bundled tree-sitter GraphQL grammar
+//! (feature `tree-sitter` of `panproto-io`) into a schema of this protocol,
+//! and both schema dispatches of this crate refuse the protocol with an
+//! error naming that reader.
+//!
+//! Every vertex is a schema element whose id is its schema coordinate (the
+//! specification's section 2.14): a named type is a vertex whose kind names
+//! its kind ([`TYPE_KINDS`]) and whose id is the type's name, a field of an
+//! object or interface type a [`FIELD`] vertex `Type.field`, an argument an
+//! [`ARGUMENT`] vertex `Type.field(arg:)` or `@directive(arg:)`, an input
+//! field an [`INPUT_FIELD`] vertex `Input.field`, an enum value an
+//! [`ENUM_VALUE`] vertex `Enum.VALUE`, and a directive definition a
+//! [`DIRECTIVE`] vertex `@directive`. The schema itself is the [`SCHEMA`]
+//! vertex [`SCHEMA_VERTEX`], which no coordinate names. The edges ([`EDGES`]) join the schema to its root
+//! operation types, a type to its fields, values, members and the
+//! interfaces it implements, and a field, argument or input field to the
+//! named type under its wrappers. Everything else a definition states is a
+//! constraint ([`SORTS`]): its description, its type reference as written
+//! with its list and non-null wrappers, a default value, each directive
+//! applied to it, and the meaning of the built-in directives
+//! `@deprecated`, `@specifiedBy` and `@oneOf`.
 
 use std::collections::HashMap;
 use std::hash::BuildHasher;
 
 use panproto_gat::Theory;
-use panproto_schema::{EdgeRule, Protocol, Schema, SchemaBuilder};
+use panproto_schema::{EdgeRule, Protocol};
 
-use crate::error::ProtocolError;
 use crate::theories;
+
+/// The edition of the GraphQL specification read.
+pub const EDITION: &str = "September2025";
+
+/// The kind of the schema vertex.
+pub const SCHEMA: &str = "schema";
+
+/// The id of the schema vertex: braces never occur in a GraphQL name.
+pub const SCHEMA_VERTEX: &str = "{schema}";
+
+/// The kind of a scalar type.
+pub const SCALAR: &str = "scalar";
+/// The kind of an object type.
+pub const OBJECT: &str = "object";
+/// The kind of an interface type.
+pub const INTERFACE: &str = "interface";
+/// The kind of a union type.
+pub const UNION: &str = "union";
+/// The kind of an enum type.
+pub const ENUM: &str = "enum";
+/// The kind of an input object type.
+pub const INPUT_OBJECT: &str = "input-object";
+/// The kind of a field of an object or interface type.
+pub const FIELD: &str = "field";
+/// The kind of an argument of a field or a directive.
+pub const ARGUMENT: &str = "argument";
+/// The kind of an input field of an input object type.
+pub const INPUT_FIELD: &str = "input-field";
+/// The kind of a value of an enum type.
+pub const ENUM_VALUE: &str = "enum-value";
+/// The kind of a directive definition.
+pub const DIRECTIVE: &str = "directive";
+
+/// The kinds of the named types, in the order of the specification's
+/// `TypeDefinition` production.
+pub const TYPE_KINDS: [&str; 6] = [SCALAR, OBJECT, INTERFACE, UNION, ENUM, INPUT_OBJECT];
+
+/// Every vertex kind.
+pub const KINDS: [&str; 12] = [
+    SCHEMA,
+    SCALAR,
+    OBJECT,
+    INTERFACE,
+    UNION,
+    ENUM,
+    INPUT_OBJECT,
+    FIELD,
+    ARGUMENT,
+    INPUT_FIELD,
+    ENUM_VALUE,
+    DIRECTIVE,
+];
+
+/// The edge from the schema to a root operation type, named `query`,
+/// `mutation` or `subscription`.
+pub const ROOT: &str = "root";
+/// The edge from an object or interface type to a field, named by the
+/// field.
+pub const FIELD_EDGE: &str = "field";
+/// The edge from a field or directive to an argument, named by the
+/// argument.
+pub const ARGUMENT_EDGE: &str = "argument";
+/// The edge from an input object type to an input field, named by the
+/// input field.
+pub const INPUT_FIELD_EDGE: &str = "input-field";
+/// The edge from an enum type to a value, named by the value.
+pub const VALUE_EDGE: &str = "value";
+/// The edge from a field, argument or input field to the named type of its
+/// type reference, unnamed.
+pub const TYPE_EDGE: &str = "type";
+/// The edge from an object or interface type to an interface it declares
+/// it implements, named by the interface.
+pub const IMPLEMENTS: &str = "implements";
+/// The edge from a union type to a member type, named by the member.
+pub const MEMBER: &str = "member";
+
+/// The kinds of types an output position (a field's type) may name.
+const OUTPUT_TYPES: &[&str] = &[SCALAR, OBJECT, INTERFACE, UNION, ENUM];
+/// The kinds of types an input position (an argument's or input field's
+/// type) may name.
+const INPUT_TYPES: &[&str] = &[SCALAR, ENUM, INPUT_OBJECT];
+
+/// Every edge kind, with the vertex kinds it leaves and the vertex kinds it
+/// reaches.
+pub const EDGES: &[(&str, &[&str], &[&str])] = &[
+    (ROOT, &[SCHEMA], &[OBJECT]),
+    (FIELD_EDGE, &[OBJECT, INTERFACE], &[FIELD]),
+    (ARGUMENT_EDGE, &[FIELD, DIRECTIVE], &[ARGUMENT]),
+    (INPUT_FIELD_EDGE, &[INPUT_OBJECT], &[INPUT_FIELD]),
+    (VALUE_EDGE, &[ENUM], &[ENUM_VALUE]),
+    (TYPE_EDGE, &[FIELD], OUTPUT_TYPES),
+    (TYPE_EDGE, &[ARGUMENT, INPUT_FIELD], INPUT_TYPES),
+    (IMPLEMENTS, &[OBJECT, INTERFACE], &[INTERFACE]),
+    (MEMBER, &[UNION], &[OBJECT]),
+];
+
+/// The constraint sort of a description: the string's value.
+pub const DESCRIPTION: &str = "description";
+/// The constraint sort of a type reference: the reference as GraphQL text,
+/// the named type with its list (`[ ]`) and non-null (`!`) wrappers.
+pub const TYPE: &str = "type";
+/// The constraint sort of a default value: the value as canonical GraphQL
+/// text.
+pub const DEFAULT: &str = "default";
+/// The constraint sort of a directive applied to a definition.
+///
+/// Its value is the application as canonical GraphQL text. A definition
+/// has one per application, in the order applied; the built-in directives
+/// are read into their own sorts instead.
+pub const APPLIED: &str = "directive";
+/// The constraint sort of `@deprecated`: the deprecation reason.
+pub const DEPRECATED: &str = "deprecated";
+/// The constraint sort of `@specifiedBy`: the scalar specification URL.
+pub const SPECIFIED_BY: &str = "specified-by";
+/// The constraint sort of `@oneOf` on an input object type: `true`.
+pub const ONE_OF: &str = "one-of";
+/// The constraint sort of a repeatable directive definition: `true`.
+pub const REPEATABLE: &str = "repeatable";
+/// The constraint sort of a location of a directive definition, one per
+/// location in the order listed.
+pub const LOCATION: &str = "location";
+/// The constraint sort of a built-in scalar (`Int`, `Float`, `String`,
+/// `Boolean`, `ID`) the document references and does not define: `true`.
+pub const BUILT_IN: &str = "built-in";
+
+/// Every constraint sort.
+pub const SORTS: [&str; 10] = [
+    DESCRIPTION,
+    TYPE,
+    DEFAULT,
+    APPLIED,
+    DEPRECATED,
+    SPECIFIED_BY,
+    ONE_OF,
+    REPEATABLE,
+    LOCATION,
+    BUILT_IN,
+];
+
+/// The built-in scalars, in the order the specification defines them.
+pub const BUILT_IN_SCALARS: [&str; 5] = ["Int", "Float", "String", "Boolean", "ID"];
+
+/// The built-in directives, in the order the specification defines them.
+pub const BUILT_IN_DIRECTIVES: [&str; 5] =
+    ["skip", "include", "deprecated", "specifiedBy", "oneOf"];
+
+/// The deprecation reason `@deprecated` gives when it states none.
+pub const DEFAULT_DEPRECATION_REASON: &str = "No longer supported";
+
+/// The operation types, in the order of the specification.
+pub const OPERATION_TYPES: [&str; 3] = ["query", "mutation", "subscription"];
+
+/// The default root type name of each operation type.
+pub const DEFAULT_ROOT_NAMES: [(&str, &str); 3] = [
+    ("query", "Query"),
+    ("mutation", "Mutation"),
+    ("subscription", "Subscription"),
+];
+
+/// The type system directive locations, in the order of the
+/// specification's `TypeSystemDirectiveLocation` production.
+pub const TYPE_SYSTEM_LOCATIONS: [&str; 11] = [
+    "SCHEMA",
+    "SCALAR",
+    "OBJECT",
+    "FIELD_DEFINITION",
+    "ARGUMENT_DEFINITION",
+    "INTERFACE",
+    "UNION",
+    "ENUM",
+    "ENUM_VALUE",
+    "INPUT_OBJECT",
+    "INPUT_FIELD_DEFINITION",
+];
+
+/// The executable directive locations, in the order of the
+/// specification's `ExecutableDirectiveLocation` production.
+pub const EXECUTABLE_LOCATIONS: [&str; 8] = [
+    "QUERY",
+    "MUTATION",
+    "SUBSCRIPTION",
+    "FIELD",
+    "FRAGMENT_DEFINITION",
+    "FRAGMENT_SPREAD",
+    "INLINE_FRAGMENT",
+    "VARIABLE_DEFINITION",
+];
 
 /// Returns the GraphQL protocol definition.
 ///
@@ -27,18 +234,8 @@ pub fn protocol() -> Protocol {
         schema_theory: "ThGraphQLSchema".into(),
         instance_theory: "ThGraphQLInstance".into(),
         edge_rules: edge_rules(),
-        obj_kinds: vec![
-            "type".into(),
-            "interface".into(),
-            "input".into(),
-            "field".into(),
-            "union".into(),
-            "enum".into(),
-            "scalar".into(),
-            "enum-value".into(),
-            "subscription".into(),
-        ],
-        constraint_sorts: vec!["non_null".into(), "list".into(), "deprecated".into()],
+        obj_kinds: KINDS.iter().map(|k| (*k).to_owned()).collect(),
+        constraint_sorts: SORTS.iter().map(|s| (*s).to_owned()).collect(),
         has_order: true,
         has_coproducts: true,
         has_recursion: true,
@@ -54,918 +251,102 @@ pub fn register_theories<S: BuildHasher>(registry: &mut HashMap<String, Theory, 
     theories::register_typed_graph_wtype(registry, "ThGraphQLSchema", "ThGraphQLInstance");
 }
 
-/// Parse a GraphQL SDL string into a [`Schema`].
-///
-/// Uses a two-pass approach to resolve forward references:
-/// - **Pass 1**: Parse all type, interface, input, enum, union, scalar, and
-///   subscription declarations, creating vertices and field-of edges.
-/// - **Pass 2**: Resolve cross-type references -- implements edges, type-of
-///   edges for fields, and member-of edges for union members.
-///
-/// Also handles `extend type`, `schema { ... }`, and `directive` declarations.
-///
-/// # Errors
-///
-/// Returns [`ProtocolError`] if parsing or schema construction fails.
-#[allow(clippy::too_many_lines)]
-pub fn parse_sdl(sdl: &str) -> Result<Schema, ProtocolError> {
-    let proto = protocol();
-
-    // -----------------------------------------------------------------------
-    // Pass 1: Collect all declarations (vertices + field-of edges).
-    // We also record deferred cross-references to resolve in pass 2.
-    // -----------------------------------------------------------------------
-    let lines: Vec<&str> = sdl.lines().collect();
-    let mut i = 0;
-
-    let mut deferred: Vec<Deferred> = Vec::new();
-    // Track all vertex IDs so we can look them up in pass 2.
-    let mut vertex_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
-
-    let mut builder = SchemaBuilder::new(&proto);
-
-    while i < lines.len() {
-        let trimmed = lines[i].trim();
-
-        if trimmed.starts_with("extend type ") {
-            let (new_builder, new_i, new_deferred) =
-                parse_extend_type(builder, &lines, i, &mut vertex_ids)?;
-            builder = new_builder;
-            deferred.extend(new_deferred);
-            i = new_i;
-        } else if trimmed.starts_with("type ") {
-            // Determine kind: "type" or "subscription" for type Subscription.
-            let name = trimmed
-                .strip_prefix("type ")
-                .and_then(|s| s.split(|c: char| c == '{' || c.is_whitespace()).next())
-                .unwrap_or("")
-                .trim();
-            let kind = if name == "Subscription" {
-                "subscription"
-            } else {
-                "type"
-            };
-            let (new_builder, new_i, new_deferred) =
-                parse_type_def(builder, &lines, i, kind, &mut vertex_ids)?;
-            builder = new_builder;
-            deferred.extend(new_deferred);
-            i = new_i;
-        } else if trimmed.starts_with("interface ") {
-            let (new_builder, new_i, new_deferred) =
-                parse_type_def(builder, &lines, i, "interface", &mut vertex_ids)?;
-            builder = new_builder;
-            deferred.extend(new_deferred);
-            i = new_i;
-        } else if trimmed.starts_with("input ") {
-            let (new_builder, new_i, new_deferred) =
-                parse_type_def(builder, &lines, i, "input", &mut vertex_ids)?;
-            builder = new_builder;
-            deferred.extend(new_deferred);
-            i = new_i;
-        } else if trimmed.starts_with("enum ") {
-            let (new_builder, new_i) = parse_enum_def(builder, &lines, i, &mut vertex_ids)?;
-            builder = new_builder;
-            i = new_i;
-        } else if trimmed.starts_with("union ") {
-            let (new_builder, new_deferred) = parse_union_def(builder, trimmed, &mut vertex_ids)?;
-            builder = new_builder;
-            deferred.extend(new_deferred);
-            i += 1;
-        } else if trimmed.starts_with("scalar ") {
-            let name = trimmed.strip_prefix("scalar ").unwrap_or("").trim();
-            if !name.is_empty() {
-                builder = builder.vertex(name, "scalar", None)?;
-                vertex_ids.insert(name.to_owned());
-            }
-            i += 1;
-        } else if trimmed.starts_with("schema ") || trimmed == "schema" || trimmed == "schema {" {
-            // Parse schema definition: `schema { query: Query, mutation: Mutation }`.
-            // Skip it gracefully (the root types are already parsed as type declarations).
-            i += 1;
-            while i < lines.len() {
-                let line = lines[i].trim();
-                if line == "}" || line.starts_with('}') {
-                    i += 1;
-                    break;
-                }
-                i += 1;
-            }
-        } else if trimmed.starts_with("directive ") {
-            // Directive definitions: skip gracefully, consuming any multi-line block.
-            i += 1;
-            if trimmed.contains('{') && !trimmed.contains('}') {
-                while i < lines.len() {
-                    let line = lines[i].trim();
-                    if line == "}" || line.starts_with('}') {
-                        i += 1;
-                        break;
-                    }
-                    i += 1;
-                }
-            }
-        } else {
-            i += 1;
-        }
-    }
-
-    // -----------------------------------------------------------------------
-    // Pass 2: Resolve deferred cross-references.
-    // -----------------------------------------------------------------------
-    for d in deferred {
-        match d.kind {
-            DeferredKind::Implements { type_name, iface } => {
-                if vertex_ids.contains(&iface) {
-                    builder = builder.edge(&type_name, &iface, "implements", None)?;
-                }
-            }
-            DeferredKind::TypeOf {
-                field_id,
-                type_name,
-            } => {
-                if vertex_ids.contains(&type_name) {
-                    builder = builder.edge(&field_id, &type_name, "type-of", None)?;
-                }
-            }
-            DeferredKind::MemberOf { union_name, member } => {
-                if vertex_ids.contains(&member) {
-                    builder = builder.edge(&union_name, &member, "member-of", Some(&member))?;
-                }
-            }
-        }
-    }
-
-    let schema = builder.build()?;
-    Ok(schema)
-}
-
-/// Deferred cross-type reference to resolve in pass 2.
-struct Deferred {
-    kind: DeferredKind,
-}
-
-/// The kind of deferred reference.
-enum DeferredKind {
-    /// `type Foo implements Bar` -- add "implements" edge from Foo to Bar.
-    Implements {
-        /// The type implementing the interface.
-        type_name: String,
-        /// The interface being implemented.
-        iface: String,
-    },
-    /// Field `Parent.field` has type `TypeName` -- add "type-of" edge.
-    TypeOf {
-        /// The field vertex ID (e.g. `"Query.user"`).
-        field_id: String,
-        /// The referenced type name.
-        type_name: String,
-    },
-    /// `union Foo = A | B | C` -- add "member-of" edge from union to member.
-    MemberOf {
-        /// The union vertex name.
-        union_name: String,
-        /// The member type name.
-        member: String,
-    },
-}
-
-/// Extract the base type name from a GraphQL type expression.
-///
-/// Strips `!` (non-null) and `[`/`]` (list) wrappers to return the
-/// underlying named type. For example, `[String!]!` returns `String`.
-fn extract_base_type(type_expr: &str) -> &str {
-    let s = type_expr.trim();
-    let s = s.trim_end_matches('!');
-    let s = s.trim_start_matches('[');
-    let s = s.trim_end_matches(']');
-    let s = s.trim_end_matches('!');
-    s.trim()
-}
-
-/// Parse a type/interface/input/subscription definition.
-///
-/// Returns the updated builder, the next line index, and any deferred
-/// cross-type references (implements and type-of edges).
-fn parse_type_def(
-    mut builder: SchemaBuilder,
-    lines: &[&str],
-    start: usize,
-    kind: &str,
-    vertex_ids: &mut std::collections::HashSet<String>,
-) -> Result<(SchemaBuilder, usize, Vec<Deferred>), ProtocolError> {
-    let trimmed = lines[start].trim();
-
-    // Determine the keyword to strip from the line.
-    let keyword = match kind {
-        "type" | "subscription" => "type ",
-        "interface" => "interface ",
-        "input" => "input ",
-        _ => return Err(ProtocolError::Parse(format!("unknown kind: {kind}"))),
-    };
-
-    let after_keyword = trimmed
-        .strip_prefix(keyword)
-        .ok_or_else(|| ProtocolError::Parse(format!("expected {keyword}")))?;
-
-    // Handle "type Name implements Iface {"
-    let name = after_keyword
-        .split(|c: char| c == '{' || c.is_whitespace())
-        .next()
-        .unwrap_or("")
-        .trim();
-
-    if name.is_empty() {
-        return Err(ProtocolError::Parse("empty type name".into()));
-    }
-
-    builder = builder.vertex(name, kind, None)?;
-    vertex_ids.insert(name.to_owned());
-
-    let mut deferred = Vec::new();
-
-    // Extract implements interfaces (e.g. "type Foo implements Bar & Baz {")
-    if let Some(impl_idx) = after_keyword.find("implements") {
-        let after_impl = &after_keyword[impl_idx + "implements".len()..];
-        let before_brace = after_impl.split('{').next().unwrap_or("");
-        for iface_name in before_brace.split('&') {
-            let iface = iface_name.trim();
-            if !iface.is_empty() {
-                deferred.push(Deferred {
-                    kind: DeferredKind::Implements {
-                        type_name: name.to_owned(),
-                        iface: iface.to_owned(),
-                    },
-                });
-            }
-        }
-    }
-
-    let mut i = start + 1;
-    while i < lines.len() {
-        let line = lines[i].trim();
-        if line == "}" || line.starts_with('}') {
-            return Ok((builder, i + 1, deferred));
-        }
-
-        // Parse field: name: Type or name(args): Type
-        if !line.is_empty()
-            && !line.starts_with('#')
-            && let Some(colon_idx) = line.find(':')
-        {
-            let field_name = line[..colon_idx].split('(').next().unwrap_or("").trim();
-
-            if !field_name.is_empty() {
-                let field_id = format!("{name}.{field_name}");
-                builder = builder.vertex(&field_id, "field", None)?;
-                vertex_ids.insert(field_id.clone());
-                builder = builder.edge(name, &field_id, "field-of", Some(field_name))?;
-
-                // Extract field type for deferred type-of edge
-                let type_expr = line[colon_idx + 1..].trim();
-                let base_type = extract_base_type(type_expr);
-                if !base_type.is_empty() {
-                    deferred.push(Deferred {
-                        kind: DeferredKind::TypeOf {
-                            field_id,
-                            type_name: base_type.to_owned(),
-                        },
-                    });
-                }
-            }
-        }
-
-        i += 1;
-    }
-
-    Ok((builder, i, deferred))
-}
-
-/// Parse `extend type Foo { ... }` by adding fields to the existing type.
-fn parse_extend_type(
-    mut builder: SchemaBuilder,
-    lines: &[&str],
-    start: usize,
-    vertex_ids: &mut std::collections::HashSet<String>,
-) -> Result<(SchemaBuilder, usize, Vec<Deferred>), ProtocolError> {
-    let trimmed = lines[start].trim();
-    let after = trimmed
-        .strip_prefix("extend type ")
-        .ok_or_else(|| ProtocolError::Parse("expected extend type".into()))?;
-
-    let name = after
-        .split(|c: char| c == '{' || c.is_whitespace())
-        .next()
-        .unwrap_or("")
-        .trim();
-
-    if name.is_empty() {
-        return Err(ProtocolError::Parse("empty extend type name".into()));
-    }
-
-    // If the type doesn't exist yet, create it.
-    if !vertex_ids.contains(name) {
-        builder = builder.vertex(name, "type", None)?;
-        vertex_ids.insert(name.to_owned());
-    }
-
-    let mut deferred = Vec::new();
-    let mut i = start + 1;
-    while i < lines.len() {
-        let line = lines[i].trim();
-        if line == "}" || line.starts_with('}') {
-            return Ok((builder, i + 1, deferred));
-        }
-
-        if !line.is_empty()
-            && !line.starts_with('#')
-            && let Some(colon_idx) = line.find(':')
-        {
-            let field_name = line[..colon_idx].split('(').next().unwrap_or("").trim();
-
-            if !field_name.is_empty() {
-                let field_id = format!("{name}.{field_name}");
-                builder = builder.vertex(&field_id, "field", None)?;
-                vertex_ids.insert(field_id.clone());
-                builder = builder.edge(name, &field_id, "field-of", Some(field_name))?;
-
-                let type_expr = line[colon_idx + 1..].trim();
-                let base_type = extract_base_type(type_expr);
-                if !base_type.is_empty() {
-                    deferred.push(Deferred {
-                        kind: DeferredKind::TypeOf {
-                            field_id,
-                            type_name: base_type.to_owned(),
-                        },
-                    });
-                }
-            }
-        }
-
-        i += 1;
-    }
-
-    Ok((builder, i, deferred))
-}
-
-/// Parse an enum definition.
-fn parse_enum_def(
-    mut builder: SchemaBuilder,
-    lines: &[&str],
-    start: usize,
-    vertex_ids: &mut std::collections::HashSet<String>,
-) -> Result<(SchemaBuilder, usize), ProtocolError> {
-    let trimmed = lines[start].trim();
-    let name = trimmed
-        .strip_prefix("enum ")
-        .and_then(|s| s.split('{').next())
-        .map(str::trim)
-        .ok_or_else(|| ProtocolError::Parse("invalid enum declaration".into()))?;
-
-    builder = builder.vertex(name, "enum", None)?;
-    vertex_ids.insert(name.to_owned());
-
-    let mut i = start + 1;
-    while i < lines.len() {
-        let line = lines[i].trim();
-        if line == "}" || line.starts_with('}') {
-            return Ok((builder, i + 1));
-        }
-        // Enum values are simple identifiers.
-        if !line.is_empty() && !line.starts_with('#') {
-            let val_name = line.trim();
-            let val_id = format!("{name}.{val_name}");
-            builder = builder.vertex(&val_id, "enum-value", None)?;
-            vertex_ids.insert(val_id.clone());
-            builder = builder.edge(name, &val_id, "member-of", Some(val_name))?;
-        }
-        i += 1;
-    }
-
-    Ok((builder, i))
-}
-
-/// Parse a union definition (single line: `union Foo = A | B | C`).
-///
-/// Returns the updated builder and deferred member-of edges.
-fn parse_union_def(
-    mut builder: SchemaBuilder,
-    line: &str,
-    vertex_ids: &mut std::collections::HashSet<String>,
-) -> Result<(SchemaBuilder, Vec<Deferred>), ProtocolError> {
-    let after = line
-        .strip_prefix("union ")
-        .ok_or_else(|| ProtocolError::Parse("expected union".into()))?;
-
-    let parts: Vec<&str> = after.splitn(2, '=').collect();
-    if parts.len() < 2 {
-        return Err(ProtocolError::Parse("invalid union syntax".into()));
-    }
-
-    let name = parts[0].trim();
-    builder = builder.vertex(name, "union", None)?;
-    vertex_ids.insert(name.to_owned());
-
-    let mut deferred = Vec::new();
-    for member in parts[1].split('|') {
-        let member_name = member.trim();
-        if !member_name.is_empty() {
-            deferred.push(Deferred {
-                kind: DeferredKind::MemberOf {
-                    union_name: name.to_owned(),
-                    member: member_name.to_owned(),
-                },
-            });
-        }
-    }
-
-    Ok((builder, deferred))
-}
-
-/// Emit a [`Schema`] as a GraphQL SDL string.
-///
-/// Reconstructs type, interface, input, enum, union, scalar, and
-/// subscription declarations from the schema graph.
-///
-/// # Errors
-///
-/// Returns [`ProtocolError::Emit`] if the schema cannot be serialized.
-pub fn emit_sdl(schema: &Schema) -> Result<String, ProtocolError> {
-    use crate::emit::{IndentWriter, find_roots};
-
-    let structural = &["field-of", "member-of", "implements", "type-of"];
-    let roots = find_roots(schema, structural);
-
-    let mut w = IndentWriter::new("  ");
-
-    for root in &roots {
-        match root.kind.as_str() {
-            "scalar" => {
-                w.line(&format!("scalar {}", root.id));
-                w.blank();
-            }
-            "type" | "subscription" | "interface" | "input" => {
-                emit_graphql_type_def(schema, root, &mut w);
-            }
-            "enum" => {
-                emit_graphql_enum(schema, root, &mut w);
-            }
-            "union" => {
-                emit_graphql_union(schema, root, &mut w);
-            }
-            _ => {}
-        }
-    }
-
-    Ok(w.finish())
-}
-
-/// Emit a type/interface/input/subscription definition.
-fn emit_graphql_type_def(
-    schema: &Schema,
-    vertex: &panproto_schema::Vertex,
-    w: &mut crate::emit::IndentWriter,
-) {
-    use crate::emit::children_by_edge;
-
-    let keyword = match vertex.kind.as_str() {
-        "interface" => "interface",
-        "input" => "input",
-        _ => "type",
-    };
-
-    // Check for implements edges.
-    let implements_edges: Vec<_> = schema
-        .outgoing_edges(&vertex.id)
-        .iter()
-        .filter(|e| e.kind == "implements")
-        .collect();
-
-    let implements_str = if implements_edges.is_empty() {
-        String::new()
-    } else {
-        let ifaces: Vec<&str> = implements_edges.iter().map(|e| e.tgt.as_str()).collect();
-        format!(" implements {}", ifaces.join(" & "))
-    };
-
-    w.line(&format!("{keyword} {}{implements_str} {{", vertex.id));
-    w.indent();
-
-    let fields = children_by_edge(schema, &vertex.id, "field-of");
-    for (edge, field_vertex) in &fields {
-        let field_name = edge.name.as_deref().unwrap_or(&field_vertex.id);
-
-        // Determine the type expression.
-        let type_expr = resolve_graphql_type_expr(schema, field_vertex);
-        w.line(&format!("{field_name}: {type_expr}"));
-    }
-
-    w.dedent();
-    w.line("}");
-    w.blank();
-}
-
-/// Resolve the GraphQL type expression for a field, including `non_null` and list wrappers.
-fn resolve_graphql_type_expr(schema: &Schema, field_vertex: &panproto_schema::Vertex) -> String {
-    use crate::emit::{children_by_edge, constraint_value};
-
-    // The field's declared type is the target of its single `type-of` edge,
-    // if any; a field with none falls back to a scalar named by its kind.
-    let base = children_by_edge(schema, &field_vertex.id, "type-of")
-        .first()
-        .map(|(_, v)| *v)
-        .map_or_else(
-            || {
-                match field_vertex.kind.as_str() {
-                    "integer" => "Int",
-                    "boolean" => "Boolean",
-                    "float" => "Float",
-                    _ => "String",
-                }
-                .to_string()
-            },
-            |type_vertex| type_vertex.id.to_string(),
-        );
-
-    let is_list = constraint_value(schema, &field_vertex.id, "list").is_some_and(|v| v == "true");
-    let is_non_null =
-        constraint_value(schema, &field_vertex.id, "non_null").is_some_and(|v| v == "true");
-
-    let mut result = base;
-    if is_list {
-        result = format!("[{result}]");
-    }
-    if is_non_null {
-        result = format!("{result}!");
-    }
-    result
-}
-
-/// Emit an enum definition.
-fn emit_graphql_enum(
-    schema: &Schema,
-    vertex: &panproto_schema::Vertex,
-    w: &mut crate::emit::IndentWriter,
-) {
-    use crate::emit::children_by_edge;
-
-    w.line(&format!("enum {} {{", vertex.id));
-    w.indent();
-
-    let members = children_by_edge(schema, &vertex.id, "member-of");
-    for (edge, _member_vertex) in &members {
-        let val_name = edge.name.as_deref().unwrap_or("UNKNOWN");
-        w.line(val_name);
-    }
-
-    w.dedent();
-    w.line("}");
-    w.blank();
-}
-
-/// Emit a union definition.
-fn emit_graphql_union(
-    schema: &Schema,
-    vertex: &panproto_schema::Vertex,
-    w: &mut crate::emit::IndentWriter,
-) {
-    use crate::emit::children_by_edge;
-
-    let members = children_by_edge(schema, &vertex.id, "member-of");
-    let member_names: Vec<&str> = members
-        .iter()
-        .filter_map(|(edge, _)| edge.name.as_deref())
-        .collect();
-
-    w.line(&format!(
-        "union {} = {}",
-        vertex.id,
-        member_names.join(" | ")
-    ));
-    w.blank();
-}
-
-/// Well-formedness rules for GraphQL edges.
+/// The edge rules, one per edge kind: [`EDGES`] with the rows of one kind
+/// joined.
 fn edge_rules() -> Vec<EdgeRule> {
-    vec![
-        EdgeRule {
-            edge_kind: "field-of".into(),
-            src_kinds: vec![
-                "type".into(),
-                "interface".into(),
-                "input".into(),
-                "subscription".into(),
-            ],
-            tgt_kinds: vec!["field".into()],
-        },
-        EdgeRule {
-            edge_kind: "implements".into(),
-            src_kinds: vec!["type".into(), "subscription".into()],
-            tgt_kinds: vec!["interface".into()],
-        },
-        EdgeRule {
-            edge_kind: "member-of".into(),
-            src_kinds: vec!["union".into(), "enum".into()],
-            tgt_kinds: vec![],
-        },
-        EdgeRule {
-            edge_kind: "type-of".into(),
-            src_kinds: vec!["field".into()],
-            tgt_kinds: vec![],
-        },
-    ]
+    let mut rules: Vec<EdgeRule> = Vec::new();
+    for (kind, sources, targets) in EDGES {
+        let index = if let Some(i) = rules.iter().position(|r| r.edge_kind == *kind) {
+            i
+        } else {
+            rules.push(EdgeRule {
+                edge_kind: (*kind).into(),
+                src_kinds: Vec::new(),
+                tgt_kinds: Vec::new(),
+            });
+            rules.len() - 1
+        };
+        let rule = &mut rules[index];
+        for source in *sources {
+            if !rule.src_kinds.iter().any(|k| k == source) {
+                rule.src_kinds.push((*source).into());
+            }
+        }
+        for target in *targets {
+            if !rule.tgt_kinds.iter().any(|k| k == target) {
+                rule.tgt_kinds.push((*target).into());
+            }
+        }
+    }
+    rules
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
 
     #[test]
-    fn protocol_creates_valid_definition() {
+    fn the_kinds_are_the_type_kinds_with_the_parts_of_a_definition() {
         let p = protocol();
         assert_eq!(p.name, "graphql");
-        assert_eq!(p.schema_theory, "ThGraphQLSchema");
-    }
-
-    #[test]
-    fn register_theories_works() {
-        let mut registry = HashMap::new();
-        register_theories(&mut registry);
-        assert!(registry.contains_key("ThGraphQLSchema"));
-        assert!(registry.contains_key("ThGraphQLInstance"));
-    }
-
-    #[test]
-    #[allow(clippy::too_many_lines)]
-    fn parse_sdl_with_forward_references() {
-        let sdl = r"
-scalar DateTime
-
-interface Node {
-  id: ID
-}
-
-type User implements Node {
-  id: ID
-  name: String
-  posts: [Post!]!
-}
-
-type Post implements Node {
-  id: ID
-  title: String
-  author: User
-  createdAt: DateTime
-}
-
-input CreatePostInput {
-  title: String
-  authorId: ID
-}
-
-enum Status {
-  DRAFT
-  PUBLISHED
-  ARCHIVED
-}
-
-union SearchResult = User | Post
-";
-
-        let schema = parse_sdl(sdl).unwrap_or_else(|e| panic!("parse_sdl should succeed: {e}"));
-
-        // Verify vertices
-        assert!(
-            schema.vertices.contains_key("Node"),
-            "should have Node interface"
-        );
-        assert!(
-            schema.vertices.contains_key("User"),
-            "should have User type"
-        );
-        assert!(
-            schema.vertices.contains_key("Post"),
-            "should have Post type"
-        );
-        assert!(
-            schema.vertices.contains_key("DateTime"),
-            "should have DateTime scalar"
-        );
-        assert!(
-            schema.vertices.contains_key("CreatePostInput"),
-            "should have CreatePostInput input"
-        );
-        assert!(
-            schema.vertices.contains_key("Status"),
-            "should have Status enum"
-        );
-        assert!(
-            schema.vertices.contains_key("SearchResult"),
-            "should have SearchResult union"
-        );
-
-        // Verify field vertices
-        assert!(
-            schema.vertices.contains_key("User.name"),
-            "should have User.name field"
-        );
-        assert!(
-            schema.vertices.contains_key("Post.title"),
-            "should have Post.title field"
-        );
-
-        // Verify implements edges (forward reference: User -> Node)
-        let user_implements: Vec<_> = schema
-            .outgoing_edges("User")
-            .iter()
-            .filter(|e| e.kind == "implements")
-            .collect();
-        assert_eq!(
-            user_implements.len(),
-            1,
-            "User should implement one interface"
-        );
-        assert_eq!(user_implements[0].tgt, "Node", "User should implement Node");
-
-        assert_eq!(
-            schema
-                .outgoing_edges("Post")
-                .iter()
-                .filter(|e| e.kind == "implements")
-                .count(),
-            1,
-            "Post should implement one interface"
-        );
-
-        // Verify type-of edges (forward reference: Post.author -> User)
-        let author_type_of: Vec<_> = schema
-            .outgoing_edges("Post.author")
-            .iter()
-            .filter(|e| e.kind == "type-of")
-            .collect();
-        assert_eq!(
-            author_type_of.len(),
-            1,
-            "Post.author should have a type-of edge"
-        );
-        assert_eq!(
-            author_type_of[0].tgt, "User",
-            "Post.author should reference User"
-        );
-
-        // Verify type-of edge for Post.createdAt -> DateTime (scalar ref)
-        let created_type_of: Vec<_> = schema
-            .outgoing_edges("Post.createdAt")
-            .iter()
-            .filter(|e| e.kind == "type-of")
-            .collect();
-        assert_eq!(
-            created_type_of.len(),
-            1,
-            "Post.createdAt should have a type-of edge"
-        );
-        assert_eq!(
-            created_type_of[0].tgt, "DateTime",
-            "Post.createdAt should reference DateTime"
-        );
-
-        // Verify union member-of edges
-        let union_members: Vec<_> = schema
-            .outgoing_edges("SearchResult")
-            .iter()
-            .filter(|e| e.kind == "member-of")
-            .collect();
-        assert_eq!(
-            union_members.len(),
-            2,
-            "SearchResult should have 2 member-of edges"
-        );
-        let member_targets: std::collections::HashSet<&str> =
-            union_members.iter().map(|e| e.tgt.as_str()).collect();
-        assert!(
-            member_targets.contains("User"),
-            "SearchResult should include User"
-        );
-        assert!(
-            member_targets.contains("Post"),
-            "SearchResult should include Post"
-        );
-
-        // Verify enum values use "enum-value" kind
-        let status_members: Vec<_> = schema
-            .outgoing_edges("Status")
-            .iter()
-            .filter(|e| e.kind == "member-of")
-            .collect();
-        assert_eq!(status_members.len(), 3, "Status should have 3 enum values");
-        for member in &status_members {
-            let vertex = schema.vertices.get(&member.tgt).expect("vertex exists");
-            assert_eq!(
-                vertex.kind, "enum-value",
-                "enum values should use enum-value kind"
-            );
+        assert_eq!(p.obj_kinds, KINDS);
+        for kind in TYPE_KINDS {
+            assert!(KINDS.contains(&kind));
         }
     }
 
     #[test]
-    fn emit_sdl_roundtrip() {
-        let sdl = r"
-type User {
-  id: ID
-  name: String
-}
-
-enum Status {
-  ACTIVE
-  INACTIVE
-}
-";
-        let schema1 = parse_sdl(sdl).expect("first parse should succeed");
-        let emitted = emit_sdl(&schema1).expect("emit should succeed");
-        let schema2 = parse_sdl(&emitted).expect("re-parse should succeed");
-
+    fn edge_kinds_are_declared_once_each() {
+        let p = protocol();
+        let kinds: Vec<&str> = p.edge_rules.iter().map(|r| r.edge_kind.as_str()).collect();
         assert_eq!(
-            schema1.vertex_count(),
-            schema2.vertex_count(),
-            "vertex counts should match after round-trip"
+            kinds,
+            [
+                ROOT,
+                FIELD_EDGE,
+                ARGUMENT_EDGE,
+                INPUT_FIELD_EDGE,
+                VALUE_EDGE,
+                TYPE_EDGE,
+                IMPLEMENTS,
+                MEMBER
+            ]
         );
+        let type_rule = p
+            .edge_rules
+            .iter()
+            .find(|r| r.edge_kind == TYPE_EDGE)
+            .map(|r| r.tgt_kinds.clone())
+            .unwrap_or_default();
         assert_eq!(
-            schema1.edge_count(),
-            schema2.edge_count(),
-            "edge counts should match after round-trip"
+            type_rule,
+            [SCALAR, OBJECT, INTERFACE, UNION, ENUM, INPUT_OBJECT]
         );
     }
 
     #[test]
-    fn parse_extend_type() {
-        let sdl = r"
-type Query {
-  users: [User]
-}
-
-extend type Query {
-  posts: [Post]
-}
-
-type User {
-  id: ID
-}
-
-type Post {
-  id: ID
-}
-";
-        let schema = parse_sdl(sdl).expect("should parse");
-        assert!(schema.has_vertex("Query.users"));
-        assert!(schema.has_vertex("Query.posts"));
+    fn constraint_sorts_are_declared_once_each() {
+        let mut sorts = SORTS.to_vec();
+        sorts.sort_unstable();
+        sorts.dedup();
+        assert_eq!(sorts.len(), SORTS.len());
+        assert_eq!(protocol().constraint_sorts, SORTS);
     }
 
     #[test]
-    fn parse_schema_definition() {
-        let sdl = r"
-schema {
-  query: Query
-  mutation: Mutation
-}
-
-type Query {
-  hello: String
-}
-
-type Mutation {
-  update: String
-}
-";
-        let schema = parse_sdl(sdl).expect("should parse");
-        assert!(schema.has_vertex("Query"));
-        assert!(schema.has_vertex("Mutation"));
-    }
-
-    #[test]
-    fn parse_directive_definition() {
-        let sdl = r"
-directive @deprecated(reason: String) on FIELD_DEFINITION | ENUM_VALUE
-
-type Foo {
-  bar: String
-}
-";
-        let schema = parse_sdl(sdl).expect("should parse");
-        assert!(schema.has_vertex("Foo"));
-    }
-
-    #[test]
-    fn parse_subscription_type() {
-        let sdl = r"
-type Subscription {
-  messageAdded: String
-}
-";
-        let schema = parse_sdl(sdl).expect("should parse");
-        assert!(schema.has_vertex("Subscription"));
-        assert_eq!(
-            schema.vertices.get("Subscription").unwrap().kind,
-            "subscription"
+    fn the_schema_vertex_id_is_no_graphql_name() {
+        assert!(
+            !SCHEMA_VERTEX
+                .chars()
+                .all(|c| c == '_' || c.is_ascii_alphanumeric())
         );
-        assert!(schema.has_vertex("Subscription.messageAdded"));
+    }
+
+    #[test]
+    fn register_theories_registers_the_schema_and_instance_theories() {
+        let mut registry = HashMap::new();
+        register_theories(&mut registry);
+        assert!(registry.contains_key("ThGraphQLSchema"));
+        assert!(registry.contains_key("ThGraphQLInstance"));
     }
 }

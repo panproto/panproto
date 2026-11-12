@@ -1834,7 +1834,6 @@ dependencies = [
  "insta",
  "memchr",
  "panproto-gat",
- "panproto-mig",
  "panproto-protocols",
  "panproto-reference",
  "panproto-schema",

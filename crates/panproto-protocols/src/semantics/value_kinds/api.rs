@@ -11,7 +11,8 @@
 //!
 //! Every GraphQL scalar type, built-in or custom, is a `scalar` vertex, so
 //! the vertex kind alone does not say which scalar it is; `scalar` holds
-//! any value, and an enum type holds one of its value names.
+//! any value, an enum type holds one of its value names, and every other
+//! vertex of a GraphQL schema holds no scalar.
 
 use panproto_schema::ScalarKind;
 
@@ -361,7 +362,11 @@ pub(super) const NON_SCALAR: &[NonScalarRow] = &[
     },
     NonScalarRow {
         protocol: "graphql",
-        vertex_kind: "type",
+        vertex_kind: "schema",
+    },
+    NonScalarRow {
+        protocol: "graphql",
+        vertex_kind: "object",
     },
     NonScalarRow {
         protocol: "graphql",
@@ -369,7 +374,11 @@ pub(super) const NON_SCALAR: &[NonScalarRow] = &[
     },
     NonScalarRow {
         protocol: "graphql",
-        vertex_kind: "input",
+        vertex_kind: "union",
+    },
+    NonScalarRow {
+        protocol: "graphql",
+        vertex_kind: "input-object",
     },
     NonScalarRow {
         protocol: "graphql",
@@ -377,7 +386,11 @@ pub(super) const NON_SCALAR: &[NonScalarRow] = &[
     },
     NonScalarRow {
         protocol: "graphql",
-        vertex_kind: "union",
+        vertex_kind: "argument",
+    },
+    NonScalarRow {
+        protocol: "graphql",
+        vertex_kind: "input-field",
     },
     NonScalarRow {
         protocol: "graphql",
@@ -385,6 +398,6 @@ pub(super) const NON_SCALAR: &[NonScalarRow] = &[
     },
     NonScalarRow {
         protocol: "graphql",
-        vertex_kind: "subscription",
+        vertex_kind: "directive",
     },
 ];

@@ -6,10 +6,15 @@
 //! split over several documents, through the shared JSON and YAML routes
 //! into an `openapi` schema, and `asyncapi::read_asyncapi` an `AsyncAPI` 3
 //! document, with `asyncapi::read_asyncapi_bundle` for a description split
-//! over several documents, into an `asyncapi` schema.
+//! over several documents, into an `asyncapi` schema. `graphql::read_graphql`
+//! reads a GraphQL type system document, and `graphql::read_graphql_bundle`
+//! a type system split over several documents, through the bundled
+//! tree-sitter GraphQL grammar into a `graphql` schema.
 
 #[cfg(feature = "tree-sitter")]
 pub mod asyncapi;
+#[cfg(feature = "tree-sitter")]
+pub mod graphql;
 #[cfg(feature = "tree-sitter")]
 pub mod openapi;
 

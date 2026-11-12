@@ -123,6 +123,7 @@
   - [JSON Schema](./correctness/json-schema.md)
   - [OpenAPI](./correctness/openapi.md)
   - [AsyncAPI](./correctness/asyncapi.md)
+  - [GraphQL](./correctness/graphql.md)
   - [BSON](./correctness/bson.md)
   - [Migration search](./correctness/migration-search.md)
   - [Schema merge](./correctness/schema-merge.md)

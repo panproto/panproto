@@ -1,0 +1,3 @@
+type Query { q: Int }
+type B { a: Int }
+type A implements B { a: Int }

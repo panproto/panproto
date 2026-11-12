@@ -244,9 +244,9 @@ pub fn bundle_project_protocols() -> Vec<&'static str> {
 /// This is the generic entry point that exposes every JSON-document
 /// schema parser through one call, so a binding forwards a protocol
 /// string here rather than reaching each protocol's parser directly.
-/// Protocols whose source is text rather than JSON (SQL DDL, GraphQL
-/// SDL, `.proto`, CDDL, CQL, Cypher, `ASN.1`, Bond, `FlatBuffers`, `CoNLL-U`)
-/// are served by [`parse_schema_source`] instead.
+/// Protocols whose source is text rather than JSON (`.proto`, CDDL, CQL,
+/// Cypher, `ASN.1`, Bond, `FlatBuffers`, `CoNLL-U`) are served by
+/// [`parse_schema_source`] instead.
 ///
 /// The `protocol` argument is matched against each descriptor's canonical
 /// registry name (hyphenated). An underscore is normalized to a hyphen first,
@@ -301,7 +301,7 @@ pub fn parse_schema_document_within(
 /// [`Schema`], dispatching on protocol name.
 ///
 /// The text counterpart to [`parse_schema_document`], for the protocols
-/// whose source is a language rather than a JSON document: GraphQL SDL, Protocol Buffers `.proto`, CDDL, Cassandra CQL, Cypher,
+/// whose source is a language rather than a JSON document: Protocol Buffers `.proto`, CDDL, Cassandra CQL, Cypher,
 /// `ASN.1`, Microsoft Bond, `FlatBuffers` `.fbs`, and `CoNLL-U`. Name matching
 /// is the same normalization as [`parse_schema_document`].
 ///
@@ -413,10 +413,14 @@ mod dispatch_tests {
     }
 
     #[test]
-    fn source_dispatch_routes_graphql_protobuf() {
-        let g = parse_schema_source("graphql", "type Query { hello: String }")
-            .expect("graphql sdl should parse");
-        assert!(g.has_vertex("Query"));
+    fn source_dispatch_routes_protobuf_and_refuses_graphql() {
+        let err = parse_schema_source("graphql", "type Query { hello: String }")
+            .expect_err("graphql is read through its grammar");
+        assert!(
+            err.to_string()
+                .contains("panproto_io::api::graphql::read_graphql"),
+            "{err}"
+        );
 
         let p = parse_schema_source("protobuf", "message User { string name = 1; }")
             .expect("proto should parse");
@@ -444,7 +448,7 @@ mod dispatch_tests {
         // A text-source protocol passed to the document dispatch is told
         // to use the source dispatch, and vice versa.
         let doc = serde_json::json!({});
-        let err = parse_schema_document("graphql", &doc).expect_err("graphql is text-source");
+        let err = parse_schema_document("protobuf", &doc).expect_err("protobuf is text-source");
         assert!(err.to_string().contains("parse_schema_source"));
 
         let err = parse_schema_source("atproto", "{}").expect_err("atproto is a document");
@@ -454,12 +458,12 @@ mod dispatch_tests {
     #[test]
     fn parser_protocol_lists_have_expected_sizes() {
         assert_eq!(document_parser_protocols().len(), 36);
-        assert_eq!(source_parser_protocols().len(), 10);
+        assert_eq!(source_parser_protocols().len(), 9);
         assert!(document_parser_protocols().contains(&"atproto"));
         assert!(!document_parser_protocols().contains(&"json-schema"));
         assert!(!document_parser_protocols().contains(&"openapi"));
         assert!(!document_parser_protocols().contains(&"asyncapi"));
-        assert!(source_parser_protocols().contains(&"graphql"));
+        assert!(!source_parser_protocols().contains(&"graphql"));
         assert!(!source_parser_protocols().contains(&"postgresql"));
         assert!(source_parser_protocols().contains(&"protobuf"));
     }

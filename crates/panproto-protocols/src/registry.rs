@@ -504,13 +504,15 @@ static DESCRIPTORS: &[ProtocolDescriptor] = &[
     ProtocolDescriptor {
         name: "graphql",
         aliases: &[],
-        parser: Parser::Source(api::graphql::parse_sdl),
+        parser: Parser::Grammar {
+            reader: "panproto_io::api::graphql::read_graphql",
+        },
         protocol: api::graphql::protocol,
         register_theories: |r| {
             api::graphql::register_theories(r);
             Ok(())
         },
-        bundle: false,
+        bundle: true,
         bundle_project: false,
     },
     ProtocolDescriptor {

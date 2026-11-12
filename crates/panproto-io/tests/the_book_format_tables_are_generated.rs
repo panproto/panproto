@@ -468,6 +468,18 @@ const PROBES: &[Probe] = &[
         },
     },
     Probe {
+        id: "graphql-executable",
+        reader: "panproto_io::api::graphql::read_graphql",
+        input: "an operation",
+        refusal: "Executable",
+        run: || {
+            refused(
+                api::graphql::read_graphql(b"type Query { a: Int }\nquery { a }\n"),
+                |e| variant(&e.kind),
+            )
+        },
+    },
+    Probe {
         id: "json-schema-draft-07",
         reader: "panproto_io::data_schema::json_schema::read_schema",
         input: "a draft-07 `$schema`",

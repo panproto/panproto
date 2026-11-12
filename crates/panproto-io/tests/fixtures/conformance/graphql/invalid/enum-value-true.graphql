@@ -1,0 +1,2 @@
+type Query { q: Int }
+enum E { true }
