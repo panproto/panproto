@@ -5039,4 +5039,286 @@ mod segmented_apply {
             check_run(&graph, &partition, &delta, Budget::unlimited(), true);
         }
     }
+
+    /// The output of in-memory segmented apply, as canonical bytes per
+    /// segment.
+    fn applied_bytes(
+        delta: &GraphDelta,
+        held: &[GraphSegment],
+        partition: &Partition,
+    ) -> Option<Vec<Vec<u8>>> {
+        graph_apply_segmented(delta, held, partition)
+            .ok()
+            .map(|output| output.iter().map(|s| bytes(s, partition)).collect())
+    }
+
+    /// What one ordered pair of the composition carrier showed.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    enum PairOutcome {
+        /// Both deltas applied in turn, their composite is defined and
+        /// applied to the same family.
+        Composed,
+        /// Both applied in turn and their composite is undefined.
+        Uncomposable,
+        /// The first delta is refused.
+        FirstRefused,
+        /// The first applies and the second is refused on its result.
+        SecondRefused,
+    }
+
+    /// Composition over segments: for every ordered pair of deltas of the
+    /// composition carrier on every family of it, when the first applies
+    /// segment by segment, the second applies to its result, and their
+    /// composite is defined, the composite applies to the family and gives
+    /// the same segments byte for byte, as the reference composite does; and
+    /// on this carrier the composite of two deltas that apply in turn is
+    /// always defined.
+    #[test]
+    fn a_composite_delta_applies_to_a_segmented_family_as_its_factors_do_in_turn() {
+        let (families, deltas, pairs) = carrier::segmented_compose_counts();
+        let family_cases = carrier::segmented_compose_families();
+        let delta_cases = carrier::segmented_compose_deltas();
+        assert_eq!(family_cases.len() as u64, families);
+        assert_eq!(delta_cases.len() as u64, deltas);
+        let mut outcomes: BTreeMap<PairOutcome, u64> = BTreeMap::new();
+        for (graph, partition) in &family_cases {
+            let production_partition = prod_partition(partition);
+            let held =
+                partition_graph(&graph_to_production(graph), &production_partition).expect("split");
+            let reference_held = segments::partition_graph(graph, partition).expect("split");
+            for first in &delta_cases {
+                let a = delta_to_production(first);
+                let after_first = graph_apply_segmented(&a, &held, &production_partition);
+                for second in &delta_cases {
+                    let b = delta_to_production(second);
+                    let composite = a.compose(&b);
+                    assert_eq!(
+                        composite.is_ok(),
+                        first.compose(second).is_ok(),
+                        "composability of {first:?} and {second:?}"
+                    );
+                    let outcome = after_first.as_ref().map_or(
+                        PairOutcome::FirstRefused,
+                        |middle| match (
+                            graph_apply_segmented(&b, middle, &production_partition),
+                            &composite,
+                        ) {
+                            (Err(_), _) => PairOutcome::SecondRefused,
+                            (Ok(_), Err(_)) => PairOutcome::Uncomposable,
+                            (Ok(last), Ok(composite)) => {
+                                let expected: Vec<Vec<u8>> = last
+                                    .iter()
+                                    .map(|s| bytes(s, &production_partition))
+                                    .collect();
+                                assert_eq!(
+                                    applied_bytes(composite, &held, &production_partition),
+                                    Some(expected.clone()),
+                                    "{first:?} then {second:?} on {graph:?} under {partition:?}"
+                                );
+                                let reference_composite =
+                                    first.compose(second).expect("the reference composes");
+                                let reference = segments::apply_graph_segmented(
+                                    &reference_composite,
+                                    &reference_held,
+                                    partition,
+                                )
+                                .expect("the reference composite applies");
+                                assert_eq!(
+                                    reference
+                                        .iter()
+                                        .map(|s| reference_bytes(s, partition))
+                                        .collect::<Vec<_>>(),
+                                    expected
+                                );
+                                PairOutcome::Composed
+                            }
+                        },
+                    );
+                    *outcomes.entry(outcome).or_insert(0) += 1;
+                }
+            }
+        }
+        println!("{outcomes:?}");
+        assert_eq!(outcomes.values().sum::<u64>(), pairs);
+        assert_eq!(pairs, 43_808);
+        // Two deltas that apply in turn always compose on this carrier.
+        assert_eq!(
+            outcomes.keys().copied().collect::<Vec<_>>(),
+            vec![
+                PairOutcome::Composed,
+                PairOutcome::FirstRefused,
+                PairOutcome::SecondRefused
+            ],
+            "{outcomes:?}"
+        );
+    }
+
+    /// Inversion over segments, in memory: on every 97th case of the
+    /// segmented graph edit carrier that applies, the inverse delta applied
+    /// segment by segment to the output restores every input segment byte
+    /// for byte, as it does in the reference.
+    #[test]
+    fn the_inverse_of_an_applied_segmented_edit_restores_every_segment_byte_for_byte() {
+        let mut restored = 0_u64;
+        for case in carrier::segmented_apply_cases().step_by(97) {
+            let production_partition = prod_partition(&case.partition);
+            let held = partition_graph(&graph_to_production(&case.graph), &production_partition)
+                .expect("split");
+            let delta = delta_to_production(&case.delta);
+            let Ok(output) = graph_apply_segmented(&delta, &held, &production_partition) else {
+                continue;
+            };
+            let inverse = delta.invert();
+            assert_eq!(
+                applied_bytes(&inverse, &output, &production_partition),
+                Some(
+                    held.iter()
+                        .map(|s| bytes(s, &production_partition))
+                        .collect()
+                ),
+                "the inverse of {:?} on {:?}",
+                case.delta,
+                case.graph
+            );
+            let reference_output = segments::apply_graph_segmented(
+                &case.delta,
+                &segments::partition_graph(&case.graph, &case.partition).expect("split"),
+                &case.partition,
+            )
+            .expect("the reference applies");
+            let back = segments::apply_graph_segmented(
+                &case.delta.invert(),
+                &reference_output,
+                &case.partition,
+            )
+            .expect("the reference inverse applies");
+            assert_eq!(
+                back,
+                segments::partition_graph(&case.graph, &case.partition).expect("split")
+            );
+            restored += 1;
+        }
+        println!("{restored} restored");
+        assert_eq!(restored, 1_363);
+    }
+
+    /// Inversion over segments, as checkpointed runs: on every 331st case of
+    /// the carrier whose run completes, running the inverse delta over the
+    /// output manifest, with the emitted segments in place of the read ones,
+    /// seals the input manifest with its instance digest cleared, and so the
+    /// two manifests differ in that field alone.
+    #[test]
+    fn the_inverse_run_of_a_completed_segmented_edit_restores_the_manifest_but_its_instance_digest()
+    {
+        let mut restored = 0_u64;
+        for case in carrier::segmented_apply_cases().step_by(331) {
+            let input = input(&case.graph, &case.partition);
+            let delta = delta_to_production(&case.delta);
+            let mut store = MemoryStore::default();
+            let forward = production_run(
+                &delta,
+                &input,
+                &input.bytes,
+                Budget::unlimited(),
+                &mut store,
+                None,
+            );
+            let (Some(edited), Some(run)) = (forward.manifest, forward.run) else {
+                continue;
+            };
+            let mut bytes_after = input.bytes.clone();
+            for spec in input.partition.specs() {
+                if let Ok(emitted) = read_emitted(&store, run, &input.partition, spec.id) {
+                    bytes_after.insert(
+                        spec.id,
+                        AnySegment::Graph(emitted.view)
+                            .canonical_bytes(&Digest(SCHEMA), &input.partition)
+                            .expect("bytes"),
+                    );
+                }
+            }
+            let after = Input {
+                manifest: edited,
+                bytes: bytes_after,
+                partition: input.partition.clone(),
+                held: Vec::new(),
+                reference: Vec::new(),
+            };
+            let back = production_run(
+                &delta.invert(),
+                &after,
+                &after.bytes,
+                Budget::unlimited(),
+                &mut store,
+                None,
+            )
+            .manifest
+            .expect("the inverse run completes");
+            let mut expected = input.manifest.clone();
+            assert!(expected.instance_digest.is_some());
+            expected.clear_instance_digest();
+            assert_eq!(back.canonical_bytes(), expected.canonical_bytes());
+            restored += 1;
+        }
+        println!("{restored} restored");
+        assert_eq!(restored, 402);
+    }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(256))]
+
+        /// Composition and inversion over segments on generated families:
+        /// the deltas are the reference differences from the input to a
+        /// second graph and from it to a third, so both apply in turn to
+        /// the glued graph; when both apply segment by segment, their
+        /// composite applies to the family with the same segments, and the
+        /// inverse of the first restores the family byte for byte.
+        #[test]
+        fn composition_and_inversion_hold_over_segments_on_generated_families(
+            anchors in proptest::collection::vec(0_u8..2, 1..=5),
+            edges in proptest::collection::vec((0_u32..5, 0_u32..5, 0_u8..2, 0_u32..8), 0..=6),
+            middle in proptest::collection::vec(0_u8..4, 7),
+            middle_edges in proptest::collection::vec(
+                (0_u32..7, 0_u32..7, 0_u8..2, proptest::sample::select(vec![0_u32, 1, 2, 3, 9, 10, 11, 20])),
+                0..=6,
+            ),
+            last in proptest::collection::vec(0_u8..4, 7),
+            last_edges in proptest::collection::vec(
+                (0_u32..7, 0_u32..7, 0_u8..2, proptest::sample::select(vec![0_u32, 1, 2, 3, 9, 10, 11, 20])),
+                0..=6,
+            ),
+            owners in proptest::collection::vec(0_u8..3, 7),
+            allocation in 0_u8..3,
+        ) {
+            let graph = generated(&anchors, &edges, false);
+            let partition = generated_partition(&owners, allocation);
+            let middle = generated(&middle, &middle_edges, false);
+            let last = generated(&last, &last_edges, false);
+            let first = delta_to_production(&reference::diff(&graph, &middle));
+            let second = delta_to_production(&reference::diff(&middle, &last));
+            let production_partition = prod_partition(&partition);
+            let held = partition_graph(&graph_to_production(&graph), &production_partition)
+                .expect("split");
+            if let Ok(after_first) = graph_apply_segmented(&first, &held, &production_partition) {
+                proptest::prop_assert_eq!(
+                    applied_bytes(&first.invert(), &after_first, &production_partition),
+                    Some(held.iter().map(|s| bytes(s, &production_partition)).collect())
+                );
+                if let (Ok(after_second), Ok(composite)) = (
+                    graph_apply_segmented(&second, &after_first, &production_partition),
+                    first.compose(&second),
+                ) {
+                    proptest::prop_assert_eq!(
+                        applied_bytes(&composite, &held, &production_partition),
+                        Some(
+                            after_second
+                                .iter()
+                                .map(|s| bytes(s, &production_partition))
+                                .collect()
+                        )
+                    );
+                }
+            }
+        }
+    }
 }

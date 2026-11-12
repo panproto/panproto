@@ -1,6 +1,6 @@
 # Segments
 
-A large instance may need to be stored in pieces without changing the instance it denotes. Segment correctness fixes the conditions under which this is possible: identifiers remain global, each node has one owner, boundary records describe every crossing edge, and assembling the pieces recovers the original value. These conditions form the *segment agreement*. The first ten laws below cover the segment foundation; the eleventh runs graph restriction segment by segment, the twelfth runs it as a checkpointed sequence of tasks that resumes after any interruption, the thirteenth fixes the record frames through which that run seals its output without holding a view segment, the fourteenth reads a complement segment back from the bytes that run writes, the fifteenth runs the get of a graph lens as that run, the sixteenth runs its put segment by segment, the seventeenth runs that put as a checkpointed run, the eighteenth and nineteenth run graph extension segment by segment and as a checkpointed run, and the twentieth and twenty-first apply a graph delta to a segmented graph, reading only the segments it can change, in memory and as a checkpointed run. Storage backends and segmented table and tree edits belong to later components.
+A large instance may need to be stored in pieces without changing the instance it denotes. Segment correctness fixes the conditions under which this is possible: identifiers remain global, each node has one owner, boundary records describe every crossing edge, and assembling the pieces recovers the original value. These conditions form the *segment agreement*. The first ten laws below cover the segment foundation; the eleventh runs graph restriction segment by segment, the twelfth runs it as a checkpointed sequence of tasks that resumes after any interruption, the thirteenth fixes the record frames through which that run seals its output without holding a view segment, the fourteenth reads a complement segment back from the bytes that run writes, the fifteenth runs the get of a graph lens as that run, the sixteenth runs its put segment by segment, the seventeenth runs that put as a checkpointed run, the eighteenth and nineteenth run graph extension segment by segment and as a checkpointed run, the twentieth and twenty-first apply a graph delta to a segmented graph, reading only the segments it can change, in memory and as a checkpointed run, and the twenty-second shows that such edits compose and invert as whole-state edits do. Storage backends and segmented table and tree edits belong to later components.
 
 Let $I$ be a finite tree, table, or graph instance, and let $P$ be a partition for the same shape. We write $P(n)$ for the segment that owns node or row identifier $n$, $\operatorname{split}_P(I)$ for partitioning, and $\operatorname{glue}_P$ for checked assembly. An edge is owned by the owner of its source endpoint. The finite differential carrier contains 25 labelled graphs and all 290 assignments of their nodes to two or three labelled segments, together with two fan-bearing trees and all 40 assignments of their tree and fan nodes to two segments; one crossing-boundary witness for each instance shape, and one for each fan-bearing tree, checks the shape-specific representation.
 
@@ -871,3 +871,45 @@ For an edit the artifacts are: Validate, the read segment's canonical bytes; Exp
 - File: `crates/panproto-inst/src/segment/apply.rs`
 - File: `crates/panproto-inst/tests/reference_edits.rs`
 - File: `crates/panproto-reference/src/pages/segments.rs`
+
+## Segmented graph edits compose and invert as whole-state edits do {#L-segments-22}
+
+### Statement
+
+Let $P$ and $S$ satisfy the hypotheses of [L-segments-20](#L-segments-20) and write $\operatorname{seg}(\delta, S)$ for `graph_apply_segmented` of $\delta$ over $S$ and $P$.
+
+1. Composition. For graph deltas $a$ and $b$, if $\operatorname{seg}(a, S)$ returns a family $S'$, $\operatorname{seg}(b, S')$ returns a family $S''$, and `compose(a, b)` is defined, then $\operatorname{seg}(\operatorname{compose}(a, b), S) = S''$, segment by segment and byte for byte.
+2. Inversion. If $\operatorname{seg}(\delta, S)$ returns $S'$, then $\operatorname{seg}(\operatorname{invert}(\delta), S') = S$, segment by segment and byte for byte.
+3. Inversion as checkpointed runs. If `graph_apply_run` of $\delta$ over a manifest $M$ sealing $S$ completes with manifest $M'$, then `graph_apply_run` of $\operatorname{invert}(\delta)$ over $M'$, reading the emitted segments in place of the read ones and the input segments elsewhere, completes with $M$ with its instance digest cleared. The two manifests are equal byte for byte when $M$ carries no instance digest; when $M$ was sealed with one (`seal_full`), they differ in that field alone, and so in their digests, since an edited manifest carries none.
+
+### Outside the domain
+
+The converse of the composition claim does not hold. A composite may apply where its factors do not apply in turn: $a$ may add a node no range owns that $b$ deletes, in which case $\operatorname{seg}(a, S)$ is refused at layout while the composite, which never holds the node, applies. When `compose(a, b)` is undefined there is no composite to compare.
+
+### Definitions used
+
+`compose` and `invert` are the graph delta algebra of [L-edits-3](edits.md#L-edits-3) and [L-edits-2](edits.md#L-edits-2). Write $G = \operatorname{glue}_P(S)$.
+
+### Proof
+
+1. Composition. By [L-segments-20](#L-segments-20), $S' = \operatorname{split}_P(\operatorname{apply}(a, G))$ and $S'' = \operatorname{split}_P(\operatorname{apply}(b, G'))$ with $G' = \operatorname{apply}(a, G)$, both laid out without refusal. The net delta `compose(a, b)` applied to $G$ gives $\operatorname{apply}(b, G')$ ([L-edits-3](edits.md#L-edits-3)): it deletes, adds and changes exactly what $a$ followed by $b$ does, with the old values $a$ reads and the new values $b$ writes. Its added nodes and edges lie in the result $\operatorname{apply}(b, G')$, which $S''$ lays out without refusal, so the layout refusals of L-segments-20 do not arise, and $\operatorname{seg}(\operatorname{compose}(a, b), S) = \operatorname{split}_P(\operatorname{apply}(b, G')) = S''$.
+2. Inversion. The inverse of a delta that applied applies to its result and restores the input ([L-edits-2](edits.md#L-edits-2)), so $\operatorname{apply}(\operatorname{invert}(\delta), \operatorname{apply}(\delta, G)) = G$. The family $S'$ satisfies the hypotheses of L-segments-20, and $G$ is laid out as $S$, so the segmented inverse returns $\operatorname{split}_P(G) = S$.
+3. Runs. By [L-segments-21](#L-segments-21) the first run's manifest seals $S'$ with no instance digest and the second run's seals $\operatorname{split}_P(G) = S$ the same way, with the input's schema, binding and source role, which are those of $M$. Every other field of a manifest is a function of its records, which are the records of $S$, so the second manifest is $M$ with its instance digest cleared.
+4. The finite certificate takes every ordered pair of the 37 atomic deltas of `segmented_compose_deltas` (over the node identifiers $0$ and $3$ and the edge identifiers $1$ and $10$) on each of the 32 families of `segmented_compose_families` (the 8 graphs over at most two nodes and one edge under four partitions with edge allocation ranges), $43{,}808$ pairs, and compares the composite's segments with those of the factors in turn and with the reference composite; $1{,}580$ pairs apply in turn, $36{,}408$ are refused at the first delta and $5{,}820$ at the second, and every pair that applies in turn composes. Inversion is checked on the $1{,}363$ cases of the every-97th slice of the carrier of L-segments-20 that apply, in memory against the reference, and as checkpointed runs on the $402$ cases of the every-331st slice whose run completes. A property test checks both claims with the reference differences from a generated graph to a second and from it to a third.
+
+### Executable counterpart
+
+- Law ID: `segments.segmented-graph-edit-algebra`
+- Reference: `panproto_reference::segment::apply_graph_segmented`
+- Reference: `panproto_reference::edit::Delta::compose`
+- Reference: `panproto_reference::edit::Delta::invert`
+- Enumerator: `panproto_reference::enumerate::segments::segmented_compose_families; bound: families=32, deltas=37, ordered pairs=43808`
+- Exhaustive differential test: `segmented_apply::a_composite_delta_applies_to_a_segmented_family_as_its_factors_do_in_turn; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=segmented_apply::a_composite_delta_applies_to_a_segmented_family_as_its_factors_do_in_turn)'`
+- Exhaustive differential test: `segmented_apply::the_inverse_of_an_applied_segmented_edit_restores_every_segment_byte_for_byte; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=segmented_apply::the_inverse_of_an_applied_segmented_edit_restores_every_segment_byte_for_byte)'`
+- Production certificate: `segmented_apply::the_inverse_run_of_a_completed_segmented_edit_restores_the_manifest_but_its_instance_digest; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=segmented_apply::the_inverse_run_of_a_completed_segmented_edit_restores_the_manifest_but_its_instance_digest)'`
+- Property differential test: `segmented_apply::composition_and_inversion_hold_over_segments_on_generated_families; command: cargo nextest run -p panproto-inst --test reference_edits --no-tests=fail -E 'test(=segmented_apply::composition_and_inversion_hold_over_segments_on_generated_families)'`
+- Property scope: `graphs of 1 to 5 nodes and up to 6 edges, two further graphs of up to 7 nodes and 6 edges with identifiers up to 20, owners in 1 to 3 segments, three edge allocations; 256 cases`
+- File: `crates/panproto-inst/src/segment/apply.rs`
+- File: `crates/panproto-inst/src/graph_edit/compose.rs`
+- File: `crates/panproto-inst/tests/reference_edits.rs`
+- File: `crates/panproto-reference/src/enumerate/segments.rs`

@@ -1008,3 +1008,94 @@ pub const fn segmented_apply_case_counts() -> (u64, u64, u64, u64) {
     let deltas = 1 + 12 + 108 + 12 + 12;
     (graphs, partitions, deltas, graphs * partitions * deltas)
 }
+
+/// The families of the segmented edit composition carrier.
+///
+/// Every graph over at most two nodes and one edge (anchor `a`, no value,
+/// label `e`) under each of four partitions of the node identifiers `0` to `3`, each segment
+/// owning its identifiers as singleton ranges and allocating edge
+/// identifiers from `[10 + 10 i, 19 + 10 i]`: all in one segment; `0` apart
+/// from `1`, `2` and `3`; `0` and `3` apart from `1` and `2`; and `0`, `1`,
+/// and `2` with `3` in three segments.
+#[must_use]
+pub fn segmented_compose_families() -> Vec<(Graph, Partition)> {
+    let labels = [SEdge::new("a", "a", "e", None)];
+    let graphs = super::graphs(&super::GraphScope {
+        anchors: &["a"],
+        values: &[],
+        shapes: &[NodeShape::Plain],
+        labels: &labels,
+        positions: &[None],
+        max_nodes: 2,
+        max_edges: 1,
+    });
+    let assignments: [[u32; 4]; 4] = [[0, 0, 0, 0], [0, 1, 1, 1], [0, 1, 1, 0], [0, 1, 2, 2]];
+    let partitions: Vec<Partition> = assignments
+        .iter()
+        .map(|owners| {
+            let segments = owners.iter().max().map_or(0, |max| max + 1);
+            Partition {
+                shape: InstanceShapeKind::Graph,
+                specs: (0..segments)
+                    .map(|id| SegmentSpec {
+                        id: SegmentId(id),
+                        nodes: (0_u32..)
+                            .zip(owners)
+                            .filter(|(_, owner)| **owner == id)
+                            .map(|(node, _)| IdRange { lo: node, hi: node })
+                            .collect(),
+                        alloc_nodes: None,
+                        alloc_edges: Some(IdRange {
+                            lo: 10 + 10 * id,
+                            hi: 19 + 10 * id,
+                        }),
+                    })
+                    .collect(),
+            }
+        })
+        .collect();
+    graphs
+        .into_iter()
+        .flat_map(|graph| {
+            partitions
+                .iter()
+                .map(move |partition| (graph.clone(), partition.clone()))
+        })
+        .collect()
+}
+
+/// The deltas of the segmented edit composition carrier.
+///
+/// Every atomic delta and the identity ([`super::graph_deltas`]) over the
+/// node identifiers `0` and `3`, the anchors `a` and `b`, no value or
+/// field, the edge identifiers `1` and `10`, the label `e`, and the
+/// positions none and `0`.
+#[must_use]
+pub fn segmented_compose_deltas() -> Vec<crate::edit::GraphDelta> {
+    let labels = [SEdge::new("a", "a", "e", None)];
+    super::graph_deltas(&super::DeltaScope {
+        nodes: &[0, 3],
+        anchors: &["a", "b"],
+        values: &[],
+        fields: &[],
+        edges: &[1, 10],
+        labels: &labels,
+        positions: &[None, Some(0)],
+    })
+}
+
+/// Independent counts of the segmented edit composition carrier.
+///
+/// Graphs: `sum_(n=0)^2 (1 + n^2) = 1 + 2 + 5 = 8`, under four partitions,
+/// `32` families. Deltas: the identity; four node payloads per identifier to
+/// add or delete over two identifiers, `8`; to add or delete each of two
+/// edge identifiers with four endpoint pairs, `16`; an anchor and a shape
+/// change in two directions per node, `8`; and a position change in two
+/// directions per edge, `4`; `37` in all. So `32 * 37 * 37 = 43_808`
+/// ordered pairs.
+#[must_use]
+pub const fn segmented_compose_counts() -> (u64, u64, u64) {
+    let families = (1 + 2 + 5) * 4;
+    let deltas = 1 + 8 + 16 + 8 + 4;
+    (families, deltas, families * deltas * deltas)
+}

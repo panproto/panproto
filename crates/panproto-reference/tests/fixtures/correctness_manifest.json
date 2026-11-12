@@ -5299,6 +5299,35 @@
               "test": "segmented_apply::segmented_apply_run_matches_the_reference_runner_on_generated_families"
             }
           ]
+        },
+        {
+          "id": "segments.segmented-graph-edit-algebra",
+          "anchor": "L-segments-22",
+          "references": [
+            "panproto_reference::segment::apply_graph_segmented",
+            "panproto_reference::edit::Delta::compose",
+            "panproto_reference::edit::Delta::invert"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "segmented_apply::a_composite_delta_applies_to_a_segmented_family_as_its_factors_do_in_turn"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "segmented_apply::the_inverse_of_an_applied_segmented_edit_restores_every_segment_byte_for_byte"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "segmented_apply::composition_and_inversion_hold_over_segments_on_generated_families"
+            }
+          ]
         }
       ]
     },
