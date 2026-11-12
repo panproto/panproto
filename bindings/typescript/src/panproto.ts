@@ -566,7 +566,7 @@ export class Panproto implements Disposable {
   /**
    * List all built-in protocol names.
    *
-   * Returns the canonical names of all 60 built-in protocols supported by the
+   * Returns the canonical names of all 62 built-in protocols supported by the
    * WASM layer.
    *
    * @returns Array of protocol name strings

@@ -79,8 +79,8 @@ fn imports_missing_theory_rejected() -> Result<(), Box<dyn std::error::Error>> {
     let doc: TheoryDocument = serde_json::from_str(source)?;
     let resolver = resolver_with(vec![]);
     let err = compile(&doc, &resolver).expect_err("should reject bad import");
-    match err {
-        TheoryDslError::TheoryNotFound { ref name, .. } => {
+    match err.unlocated() {
+        TheoryDslError::TheoryNotFound { name, .. } => {
             assert_eq!(name, "ThNope");
         }
         other => panic!("expected TheoryNotFound, got {other:?}"),

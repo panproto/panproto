@@ -70,7 +70,7 @@ pub fn compile_instance(
     panproto_gat::check_morphism(&morphism, &class, &target).map_err(|e| {
         TheoryDslError::MorphismCheck {
             morphism: spec.instance.clone(),
-            message: e.to_string(),
+            error: e,
         }
     })?;
 

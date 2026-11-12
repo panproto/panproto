@@ -28,6 +28,12 @@
   # Contracts
   # ═══════════════════════════════════════════════════════════════════
 
+  ImportSpec = {
+    from | String,
+    alias | String | optional,
+    expose | Array String | optional,
+  },
+
   ParamSpec = {
     name | String,
     sort | String,
@@ -121,6 +127,7 @@
     description | String,
     theory | String,
     extends | Array String | optional,
+    imports | Array ImportSpec | optional,
     sorts | Array SortSpec | optional,
     ops | Array OpSpec | optional,
     equations | Array EquationSpec | optional,

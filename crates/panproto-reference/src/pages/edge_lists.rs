@@ -44,10 +44,16 @@ pub enum ReadRefusal {
 /// The records of a CSV text by RFC 4180: fields separated by `,`, records
 /// ended by a line feed or a carriage return and line feed, the last record
 /// ended by the end of the text when it has no line ending; a field is
-/// either unquoted (no `,`, `"`, carriage return or line feed) or quoted
-/// (between `"`, holding anything, a `"` written `""`). `None` for a text
-/// that is not such a sequence of records.
-fn csv_records(text: &str) -> Option<Vec<Vec<String>>> {
+/// either quoted (opening with `"`, holding anything, a `"` written `""`,
+/// and ending at its closing `"`) or unquoted (no `,`, carriage return or
+/// line feed). Two choices of the route are kept. An unquoted field may
+/// hold a pair of `"`, kept in its text, with no `,` or line break between
+/// them (an unpaired `"`, or a `,` or line break between a pair, is a
+/// fault); and a record of several fields whose last field is empty and
+/// unquoted cannot end the text without a line ending. Reading stops at
+/// the first record that is not such a record; the flag says whether one
+/// was met, and the records before it are returned.
+fn csv_records(text: &str) -> (Vec<Vec<String>>, bool) {
     let chars: Vec<char> = text.chars().collect();
     let mut records = Vec::new();
     let mut at = 0;
@@ -55,11 +61,12 @@ fn csv_records(text: &str) -> Option<Vec<Vec<String>>> {
         let mut record = Vec::new();
         loop {
             let mut field = String::new();
-            if chars.get(at) == Some(&'"') {
+            let quoted = chars.get(at) == Some(&'"');
+            if quoted {
                 at += 1;
                 loop {
                     match chars.get(at) {
-                        None => return None,
+                        None => return (records, true),
                         Some('"') if chars.get(at + 1) == Some(&'"') => {
                             field.push('"');
                             at += 2;
@@ -79,13 +86,25 @@ fn csv_records(text: &str) -> Option<Vec<Vec<String>>> {
                     if matches!(c, ',' | '\n' | '\r') {
                         break;
                     }
-                    if c == '"' {
-                        return None;
-                    }
                     field.push(c);
                     at += 1;
+                    if c == '"' {
+                        loop {
+                            match chars.get(at) {
+                                None | Some(',' | '\r' | '\n') => return (records, true),
+                                Some(&q) => {
+                                    field.push(q);
+                                    at += 1;
+                                    if q == '"' {
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
+            let empty_unquoted = !quoted && field.is_empty();
             record.push(field);
             match chars.get(at) {
                 Some(',') => at += 1,
@@ -97,19 +116,23 @@ fn csv_records(text: &str) -> Option<Vec<Vec<String>>> {
                     at += 2;
                     break;
                 }
+                None if empty_unquoted && record.len() > 1 => return (records, true),
                 None => break,
-                Some(_) => return None,
+                Some(_) => return (records, true),
             }
         }
         records.push(record);
     }
-    Some(records)
+    (records, false)
 }
 
 /// The lines of a TSV text, each split at its tabs: a line ends at a line
 /// feed, a carriage return, or a carriage return and line feed, and the
-/// last line may end at the end of the text.
-fn tsv_records(text: &str) -> Vec<Vec<String>> {
+/// last line may end at the end of the text. One choice of the route is
+/// kept: a line of several fields whose last field is empty cannot end the
+/// text without a line ending; the flag says whether the text has such a
+/// last line, which is then not returned.
+fn tsv_records(text: &str) -> (Vec<Vec<String>>, bool) {
     let mut lines = Vec::new();
     let mut line = String::new();
     let mut chars = text.chars().peekable();
@@ -129,23 +152,25 @@ fn tsv_records(text: &str) -> Vec<Vec<String>> {
             }
         }
     }
-    if open {
+    let fault = open && line.ends_with('\t');
+    if open && !fault {
         lines.push(line);
     }
-    lines
+    let records = lines
         .into_iter()
         .map(|line| line.split('\t').map(str::to_owned).collect())
-        .collect()
+        .collect();
+    (records, fault)
 }
 
 /// The page's reading of an edge-list document in `dialect`.
 ///
-/// A leading U+FEFF is skipped. A text whose first character is then a
-/// line break is refused (`Table`); an empty text has no header. The text
-/// is split into records ([`ReadRefusal::Table`] when it is not a CSV
-/// text); the first record is the header, checked field by field (an
-/// ASCII-case-insensitive `source`, `target` or `label`, each at most
-/// once), then for a `source` and a `target` column. A blank line after the
+/// A leading U+FEFF is skipped, and an empty text has no header. The text
+/// is split into records; the first record is the header
+/// ([`ReadRefusal::Table`] when it is not a record of the dialect), checked field by
+/// field (an ASCII-case-insensitive `source`, `target` or `label`, each at
+/// most once), then for a `source` and a `target` column. The later records
+/// must all be records of the dialect (`Table` otherwise); a blank line after the
 /// header (a CSV record of one empty unquoted field, an empty TSV line) is
 /// not a record; every other record must have the header's field count.
 /// Then each record in order must have a non-empty `source`, then `target`
@@ -159,25 +184,20 @@ pub fn read_document(text: &str, dialect: Dialect) -> Result<Vec<Edge>, ReadRefu
     if text.is_empty() {
         return Err(ReadRefusal::NoHeader);
     }
-    if text.starts_with(['\n', '\r']) {
-        return Err(ReadRefusal::Table);
-    }
-    let blank_lines: Vec<bool>;
-    let records = match dialect {
-        Dialect::Csv => {
-            blank_lines = csv_blank_records(text);
-            csv_records(text).ok_or(ReadRefusal::Table)?
-        }
-        Dialect::Tsv => {
-            let records = tsv_records(text);
-            blank_lines = records
-                .iter()
-                .map(|r| r.len() == 1 && r[0].is_empty())
-                .collect();
-            records
-        }
+    let (records, fault) = match dialect {
+        Dialect::Csv => csv_records(text),
+        Dialect::Tsv => tsv_records(text),
     };
-    let header = &records[0];
+    let blank_lines: Vec<bool> = match dialect {
+        Dialect::Csv => csv_blank_records(text),
+        Dialect::Tsv => records
+            .iter()
+            .map(|r| r.len() == 1 && r[0].is_empty())
+            .collect(),
+    };
+    let Some(header) = records.first() else {
+        return Err(ReadRefusal::Table);
+    };
     let names = ["source", "target", "label"];
     let mut slots: [Option<usize>; 3] = [None; 3];
     for (column, field) in header.iter().enumerate() {
@@ -198,7 +218,7 @@ pub fn read_document(text: &str, dialect: Dialect) -> Result<Vec<Edge>, ReadRefu
         .filter(|(_, blank)| !**blank)
         .map(|(record, _)| record)
         .collect();
-    if data.iter().any(|record| record.len() != header.len()) {
+    if fault || data.iter().any(|record| record.len() != header.len()) {
         return Err(ReadRefusal::Table);
     }
     let mut edges = Vec::new();
@@ -256,7 +276,9 @@ pub struct Graph {
     pub edges: Vec<(u32, u32, String)>,
 }
 
-/// The page's encoding of a list of edges: for each edge in order an
+/// The page's encoding of a list of edges.
+///
+/// For each edge in order, an
 /// `edge` node holding its label, then the `node` node of its source and of
 /// its target when the name has none yet, each new node taking the next id
 /// from 0; the edge node's `source` edge, then its `target` edge.
@@ -330,7 +352,9 @@ fn unwritable(text: &str, dialect: Dialect) -> Option<char> {
     }
 }
 
-/// The page's canonical edge list of `edges`: the header `source`,
+/// The page's canonical edge list of `edges`.
+///
+/// The header is `source`,
 /// `target` and, when the first edge has a label, `label`; each edge one
 /// record in order; fields joined by the delimiter, every record ended by
 /// a line feed, a CSV field quoted when empty or holding `,`, `"`, a
@@ -362,10 +386,16 @@ pub fn canonical_text(edges: &[Edge], dialect: Dialect) -> Option<String> {
         let texts: Vec<String> = fields.iter().map(|f| field_text(f, dialect)).collect();
         lines.push(texts.join(delimiter));
     }
-    Some(lines.iter().map(|line| format!("{line}\n")).collect())
+    Some(lines.iter().fold(String::new(), |mut out, line| {
+        out.push_str(line);
+        out.push('\n');
+        out
+    }))
 }
 
-/// The page's writer: checks each node in id order (its anchor; a `node`
+/// The page's writer.
+///
+/// It checks each node in id order (its anchor; a `node`
 /// node's value present and not empty; a character the dialect cannot
 /// write; each out-edge in edge order, which must be a `source` or
 /// `target` edge from an `edge` node to a `node` node; an `edge` node's

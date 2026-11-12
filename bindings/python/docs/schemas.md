@@ -19,7 +19,7 @@ print(postgresql.obj_kinds)      # ["table", "integer", "string", ...]
 print(postgresql.edge_rules)     # [{edge_kind: "prop", src_kinds: ["table"], ...}, ...]
 ```
 
-The 60 semantic protocols and the grammars compiled into the extension are built in. List their canonical names with:
+The 62 semantic protocols and the grammars compiled into the extension are built in. List their canonical names with:
 
 ```python
 panproto.list_builtin_protocols()

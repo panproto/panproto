@@ -32,6 +32,8 @@ pub const CSV_RECORDS: &[&str] = &[
     "a,b,c,d",
     " a , b ",
     "\"x\ny\",\"\"",
+    "x\"a,b\"y,c",
+    "1\"2\"3,b",
 ];
 
 /// The TSV header spellings of the document scope.
@@ -162,7 +164,9 @@ fn next_id(graph: &Graph) -> u32 {
     graph.nodes.keys().next_back().map_or(0, |id| id + 1)
 }
 
-/// `graph` and its single-fault variants: each node duplicated under a new
+/// `graph` and its single-fault variants.
+///
+/// The variants are each node duplicated under a new
 /// id (an `edge` node with copies of its out-edges), an isolated node and a
 /// node of an unknown anchor added, each edge dropped, each `node` node's
 /// value removed and emptied, each `edge` node's label removed or added, and
