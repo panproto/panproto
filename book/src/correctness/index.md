@@ -69,4 +69,4 @@ The table lists each correctness page and the number of laws it proves for the t
 | [Schema merge](schema-merge.md) | 4 |
 | [Theory DSL](theory-dsl.md) | 6 |
 | [Lens DSL](lens-dsl.md) | 6 |
-| [Instance version control](instance-version-control.md) | 7 |
+| [Instance version control](instance-version-control.md) | 8 |

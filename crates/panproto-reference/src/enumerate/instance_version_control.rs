@@ -305,6 +305,61 @@ pub fn payload_facts(versions: u32) -> Vec<crate::pages::instance_version_contro
     out
 }
 
+/// Every combination of migration facts of one direction.
+///
+/// They are each stored state of the data set, (backward) the complement,
+/// the migration and the three schemas, with each truth value of the
+/// remaining facts the direction reads: `3^5 * 2^3` combinations forward
+/// and `3^6 * 2^6` backward.
+#[must_use]
+pub fn migration_facts(
+    backward: bool,
+) -> Vec<crate::pages::instance_version_control::MigrationFacts> {
+    use crate::pages::instance_version_control::{BackwardFacts, MigrationFacts, Stored};
+    const STATES: [Stored; 3] = [Stored::Missing, Stored::WrongKind, Stored::Present];
+    let mut sides: Vec<Option<BackwardFacts>> = vec![None];
+    if backward {
+        sides = Vec::new();
+        for complement in STATES {
+            for bits in 0u8..8 {
+                sides.push(Some(BackwardFacts {
+                    complement,
+                    names_migration: bits & 1 != 0,
+                    shape_agrees: bits & 2 != 0,
+                    count_agrees: bits & 4 != 0,
+                }));
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for data in STATES {
+        for &side in &sides {
+            for migration in STATES {
+                for source in STATES {
+                    for target in STATES {
+                        for data_schema in STATES {
+                            for bits in 0u8..8 {
+                                out.push(MigrationFacts {
+                                    backward: side,
+                                    data,
+                                    migration,
+                                    source,
+                                    target,
+                                    data_schema,
+                                    conforms: bits & 1 != 0,
+                                    compiles: bits & 2 != 0,
+                                    lens_accepts: bits & 4 != 0,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
 /// The small states of the edit algebra's coverage scope over `schema`.
 ///
 /// They are the states with at most `elements` nodes (graphs and trees) or

@@ -3473,3 +3473,907 @@ proptest! {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Data migration along a stored migration.
+// ---------------------------------------------------------------------------
+
+mod data_migration {
+    use super::*;
+    use panproto_reference::enumerate::instance_version_control::migration_facts;
+    use panproto_reference::enumerate::{
+        GraphScope, MigrationScope, MigrationSizes, graphs_count, migrations_count, schemas_count,
+    };
+    use panproto_reference::lens::GraphLens as RefGraphLens;
+    use panproto_reference::migration::Migration as RefMigration;
+    use panproto_reference::pages::instance_version_control::{
+        BackwardFacts, MigrationFacts, MigrationOutcome, MigrationRead, Stored, forward_objects,
+        migration_outcome,
+    };
+    use panproto_reference::restrict::NoValueLayer;
+    use panproto_reference::schema::Schema as RefSchema;
+    use panproto_vcs::data_mig::{migrate_backward, migrate_forward, store_migration};
+    use panproto_vcs::tree::store_schema_as_tree;
+    use panproto_vcs::{MigrationConflict, schema_identity};
+
+    /// The production schema of a reference schema of vertices and edges.
+    fn production_schema(schema: &RefSchema) -> panproto_schema::Schema {
+        let protocol = panproto_schema::Protocol::default();
+        let mut builder = panproto_schema::SchemaBuilder::new(&protocol);
+        for (vertex, kind) in &schema.vertices {
+            builder = builder.vertex(vertex, kind, None).unwrap();
+        }
+        for edge in &schema.edges {
+            builder = builder
+                .edge(&edge.src, &edge.tgt, &edge.kind, edge.name.as_deref())
+                .unwrap();
+        }
+        builder.build().unwrap()
+    }
+
+    /// The stored mapping of a vertex migration: each surviving source
+    /// vertex to its image.
+    fn production_mapping(src: &RefSchema, migration: &RefMigration) -> panproto_mig::Migration {
+        let mut mapping = panproto_mig::Migration::empty();
+        for vertex in src.vertices.keys() {
+            if migration.survives(vertex) {
+                mapping.vertex_map.insert(
+                    vertex.as_str().into(),
+                    migration.vertex_image(vertex).into(),
+                );
+            }
+        }
+        mapping
+    }
+
+    /// The graphs over `schema` with at most `nodes` nodes and `edges`
+    /// edges, every node plain and every edge labelled by a schema edge.
+    fn graphs_over(schema: &RefSchema, nodes: usize, edges: usize) -> Vec<reference_model::Graph> {
+        let anchors: Vec<&str> = schema.vertices.keys().map(String::as_str).collect();
+        let labels: Vec<reference_model::SEdge> = schema.edges.iter().cloned().collect();
+        panproto_reference::enumerate::graphs(&GraphScope {
+            anchors: &anchors,
+            values: &[],
+            shapes: &[reference_model::NodeShape::Plain],
+            labels: &labels,
+            positions: &[None],
+            max_nodes: nodes,
+            max_edges: edges,
+        })
+    }
+
+    /// What migrating a graph forward and putting views back gives: a
+    /// refusal of get, or the view and, for the view and each edited view,
+    /// the restored source with whether get of it gives the view back, or a
+    /// refusal of put.
+    #[derive(Debug, PartialEq, Eq)]
+    enum GraphMigration {
+        Refused,
+        Migrated {
+            view: reference_model::Graph,
+            puts: Vec<Option<(reference_model::Graph, bool)>>,
+        },
+    }
+
+    fn reference_graph_migration(
+        (src, tgt, migration): (&RefSchema, &RefSchema, &RefMigration),
+        source: &reference_model::Graph,
+        views: &[reference_model::Graph],
+    ) -> GraphMigration {
+        let Ok(plan) = panproto_reference::restrict::compile(src, tgt, migration) else {
+            return GraphMigration::Refused;
+        };
+        let lens =
+            RefGraphLens::new(src, tgt, migration, &plan, &BTreeMap::new(), &NoValueLayer).unwrap();
+        let Ok((view, complement)) = lens.get(source) else {
+            return GraphMigration::Refused;
+        };
+        let puts = std::iter::once(&view)
+            .chain(views)
+            .map(|edited| {
+                lens.put(edited, &complement).ok().map(|restored| {
+                    let round = lens.get(&restored).is_ok_and(|(again, _)| again == *edited);
+                    (restored, round)
+                })
+            })
+            .collect();
+        GraphMigration::Migrated { view, puts }
+    }
+
+    /// The decoded graph of a stored data set.
+    fn stored_graph(store: &MemStore, id: ObjectId) -> reference_model::Graph {
+        let Object::DataSet(dataset) = store.get(&id).unwrap() else {
+            panic!("a migration stores data sets");
+        };
+        let Instance::Graph(graph) = dataset.decode().unwrap() else {
+            panic!("a graph migrates to a graph");
+        };
+        graph_to_reference(&graph)
+    }
+
+    /// Production's run of the same case through a store, with the
+    /// identifiers of the objects forward migration stored.
+    fn production_graph_migration(
+        (src, tgt, mapping): (
+            &panproto_schema::Schema,
+            &panproto_schema::Schema,
+            &panproto_mig::Migration,
+        ),
+        source: &reference_model::Graph,
+        views: &[reference_model::Graph],
+    ) -> (GraphMigration, Vec<ObjectId>) {
+        let protocol = panproto_schema::Protocol::default();
+        let mut store = MemStore::new();
+        let src_tree = store_schema_as_tree(&mut store, src.clone()).unwrap();
+        let tgt_tree = store_schema_as_tree(&mut store, tgt.clone()).unwrap();
+        let data = store
+            .put(&Object::DataSet(
+                DataSetObject::from_instance(
+                    src_tree,
+                    &Instance::Graph(graph_to_production(source, false)),
+                    Some("k".to_owned()),
+                )
+                .unwrap(),
+            ))
+            .unwrap();
+        let migration = store_migration(&mut store, src, tgt, mapping.clone()).unwrap();
+        let (view_id, complement_id) = match migrate_forward(&mut store, data, migration, &protocol)
+        {
+            Ok(ids) => ids,
+            Err(VcsError::Migration(conflict))
+                if matches!(
+                    *conflict,
+                    MigrationConflict::MigrationDoesNotCompile { .. }
+                        | MigrationConflict::OutsideGetDomain { .. }
+                ) =>
+            {
+                return (GraphMigration::Refused, Vec::new());
+            }
+            Err(other) => panic!("forward migration failed otherwise: {other:?}"),
+        };
+        // The stored objects are those the repository model adds.
+        let Object::Complement(complement) = store.get(&complement_id).unwrap() else {
+            panic!("forward migration stores a complement");
+        };
+        let Object::DataSet(migrated) = store.get(&view_id).unwrap() else {
+            panic!("forward migration stores a data set");
+        };
+        let model = |object: &Object| match object {
+            Object::DataSet(dataset) => ModelObject::DataSet {
+                shape: Shape::Graph,
+                schema: dataset.schema_id.to_string(),
+            },
+            Object::Complement(complement) => ModelObject::Complement {
+                shape: Shape::Graph,
+                migration: complement.migration_id.to_string(),
+                data: complement.data_id.to_string(),
+            },
+            other => panic!("unexpected {}", other.type_name()),
+        };
+        assert_eq!(
+            (
+                model(&Object::DataSet(migrated)),
+                model(&Object::Complement(complement))
+            ),
+            forward_objects(
+                Shape::Graph,
+                &data.to_string(),
+                &migration.to_string(),
+                &tgt_tree.to_string()
+            )
+        );
+        let view = stored_graph(&store, view_id);
+        let puts = std::iter::once(&view)
+            .chain(views)
+            .map(|edited| {
+                let edited_id = store
+                    .put(&Object::DataSet(
+                        DataSetObject::from_instance(
+                            tgt_tree,
+                            &Instance::Graph(graph_to_production(edited, false)),
+                            Some("k".to_owned()),
+                        )
+                        .unwrap(),
+                    ))
+                    .unwrap();
+                match migrate_backward(&mut store, edited_id, complement_id, &protocol) {
+                    Ok(restored_id) => {
+                        let restored = stored_graph(&store, restored_id);
+                        let round = migrate_forward(&mut store, restored_id, migration, &protocol)
+                            .is_ok_and(|(again, _)| stored_graph(&store, again) == *edited);
+                        Some((restored, round))
+                    }
+                    Err(VcsError::Migration(conflict))
+                        if matches!(
+                            *conflict,
+                            MigrationConflict::OutsidePutDomain { .. }
+                                | MigrationConflict::ComplementIdentity { .. }
+                        ) =>
+                    {
+                        None
+                    }
+                    Err(other) => panic!("backward migration failed otherwise: {other:?}"),
+                }
+            })
+            .collect();
+        (
+            GraphMigration::Migrated { view, puts },
+            vec![view_id, complement_id],
+        )
+    }
+
+    /// The vertex migrations from `src` to `tgt` that send no two source
+    /// vertices to one target vertex.
+    fn injective_migrations(src: &RefSchema, tgt: &RefSchema) -> Vec<RefMigration> {
+        panproto_reference::enumerate::migrations(src, tgt, MigrationScope::VERTICES)
+            .into_iter()
+            .filter(|migration| {
+                let images: BTreeSet<&str> = src
+                    .vertices
+                    .keys()
+                    .filter(|vertex| migration.survives(vertex))
+                    .map(|vertex| migration.vertex_image(vertex))
+                    .collect();
+                images.len()
+                    == src
+                        .vertices
+                        .keys()
+                        .filter(|vertex| migration.survives(vertex))
+                        .count()
+            })
+            .collect()
+    }
+
+    /// The counts of the graph migration scope: cases, refused gets,
+    /// puts, refused puts, puts restoring the source (`GetPut`) and puts
+    /// whose get gives the view back (`PutGet`).
+    #[derive(Debug, Default, PartialEq, Eq)]
+    struct GraphMigrationCounts {
+        cases: usize,
+        refused: usize,
+        puts: usize,
+        refused_puts: usize,
+        get_put: usize,
+        put_get: usize,
+    }
+
+    /// Every case of the graph migration scope compared with the reference,
+    /// its counts, and a rendering of the identifiers production stored.
+    fn graph_migration_scope(keep: impl Fn(usize) -> bool) -> (GraphMigrationCounts, String) {
+        let schemas = panproto_reference::enumerate::lenses::schemas();
+        let mut counts = GraphMigrationCounts::default();
+        let mut rendering = String::new();
+        for src in &schemas {
+            for tgt in &schemas {
+                let views = graphs_over(tgt, 2, 1);
+                let (src_p, tgt_p) = (production_schema(src), production_schema(tgt));
+                for migration in injective_migrations(src, tgt) {
+                    let mapping = production_mapping(src, &migration);
+                    for source in graphs_over(src, 2, 1) {
+                        let case = counts.cases;
+                        counts.cases += 1;
+                        if !keep(case) {
+                            continue;
+                        }
+                        let expected =
+                            reference_graph_migration((src, tgt, &migration), &source, &views);
+                        let (found, ids) =
+                            production_graph_migration((&src_p, &tgt_p, &mapping), &source, &views);
+                        assert_eq!(
+                            found, expected,
+                            "case {case}: {src:?} -> {tgt:?} {migration:?} {source:?}"
+                        );
+                        for id in ids {
+                            rendering.push_str(&id.to_string());
+                        }
+                        match found {
+                            GraphMigration::Refused => counts.refused += 1,
+                            GraphMigration::Migrated { puts, .. } => {
+                                counts.get_put += usize::from(
+                                    puts[0]
+                                        .as_ref()
+                                        .is_some_and(|(restored, _)| *restored == source),
+                                );
+                                counts.puts += puts.len();
+                                for put in &puts {
+                                    match put {
+                                        None => counts.refused_puts += 1,
+                                        Some((_, round)) => counts.put_get += usize::from(*round),
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        (counts, rendering)
+    }
+
+    /// The number of cases of the graph migration scope, from the
+    /// enumerators' counting formulas: every ordered pair of the five
+    /// bounded schemas; the nine vertex migrations between two two-vertex
+    /// schemas less the four that send both vertices to one (a vertex left
+    /// out of the remap keeps its own name, so sending `v1` to `v0`, `v0` to
+    /// `v1`, or both to one vertex contracts); and the graphs over the source
+    /// with at most two nodes and one edge.
+    fn graph_migration_cases() -> usize {
+        let schemas = panproto_reference::enumerate::lenses::schemas();
+        assert_eq!(schemas.len() as u64, schemas_count(2, 1, 1, 1));
+        let migrations = migrations_count(
+            &MigrationSizes {
+                src_vertices: 2,
+                tgt_vertices: 2,
+                src_edges: 0,
+                tgt_edges: 0,
+                src_hyper_labels: Vec::new(),
+                tgt_hyper_labels: Vec::new(),
+            },
+            MigrationScope::VERTICES,
+        );
+        let sources: u64 = schemas
+            .iter()
+            .map(|src| graphs_count(2, 0, 1, src.edges.len() as u64, 1, 2, 1))
+            .sum();
+        usize::try_from(schemas.len() as u64 * (migrations - 4) * sources).unwrap()
+    }
+
+    #[test]
+    fn every_graph_of_the_migration_scope_migrates_forward_and_back_as_the_reference_lens_does() {
+        let (counts, _) = graph_migration_scope(|_| true);
+        // Each case puts back its own view and every graph over the target:
+        // seven over a target without an edge and twenty-five over each of
+        // the four with one, from the graph counting formula.
+        let views: u64 = panproto_reference::enumerate::lenses::schemas()
+            .iter()
+            .map(|tgt| 1 + graphs_count(2, 0, 1, tgt.edges.len() as u64, 1, 2, 1))
+            .sum();
+        let sources: u64 = panproto_reference::enumerate::lenses::schemas()
+            .iter()
+            .map(|src| graphs_count(2, 0, 1, src.edges.len() as u64, 1, 2, 1))
+            .sum();
+        let puts = usize::try_from(5 * sources * views).unwrap();
+        // Get is total on the scope and restores every source (GetPut), and
+        // every put the domain admits gives its view back (PutGet).
+        assert_eq!(
+            counts,
+            GraphMigrationCounts {
+                cases: graph_migration_cases(),
+                refused: 0,
+                puts,
+                refused_puts: 45_852,
+                get_put: graph_migration_cases(),
+                put_get: puts - 45_852,
+            }
+        );
+    }
+
+    /// Digest of the identifiers production stores over every 16th case of
+    /// the graph migration scope.
+    fn graph_migration_digest() -> u64 {
+        panproto_reference::pages::migration_search::digest(
+            graph_migration_scope(|case| case % 16 == 0).1.as_bytes(),
+        )
+    }
+
+    const GRAPH_MIGRATION_DIGEST: u64 = 0xada8_d9c6_bada_fb07;
+
+    #[test]
+    fn one_process_graph_migration_digest() {
+        if std::env::var_os("PP_GRAPH_MIGRATION_DIGEST").is_none() {
+            return;
+        }
+        print!("<<<{:016x}>>>", graph_migration_digest());
+    }
+
+    #[test]
+    fn migrated_objects_have_the_same_identifiers_in_every_process() {
+        if std::env::var_os("PP_GRAPH_MIGRATION_DIGEST").is_some() {
+            return;
+        }
+        let here = format!("{:016x}", graph_migration_digest());
+        let Ok(exe) = std::env::current_exe() else {
+            panic!("the test binary does not know its own path");
+        };
+        for _ in 0..3 {
+            let output = std::process::Command::new(&exe)
+                .args([
+                    "data_migration::one_process_graph_migration_digest",
+                    "--exact",
+                    "--nocapture",
+                ])
+                .env("PP_GRAPH_MIGRATION_DIGEST", "1")
+                .output()
+                .unwrap();
+            let text = String::from_utf8_lossy(&output.stdout).into_owned();
+            let (Some(start), Some(end)) = (text.find("<<<"), text.find(">>>")) else {
+                panic!("the child printed no digest: {text}");
+            };
+            assert_eq!(
+                &text[start + 3..end],
+                here,
+                "a child process migrated differently"
+            );
+        }
+        assert_eq!(here, format!("{GRAPH_MIGRATION_DIGEST:016x}"));
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(64))]
+
+        #[test]
+        fn randomized_graph_migrations_agree_with_the_reference_lens(
+            src in 0..5_usize,
+            tgt in 0..5_usize,
+            migration in 0..9_usize,
+            source in any::<prop::sample::Index>(),
+        ) {
+            let schemas = panproto_reference::enumerate::lenses::schemas();
+            let (src, tgt) = (&schemas[src], &schemas[tgt]);
+            let migrations = injective_migrations(src, tgt);
+            let migration = &migrations[migration % migrations.len()];
+            let sources = graphs_over(src, 3, 2);
+            let source = &sources[source.index(sources.len())];
+            let views = graphs_over(tgt, 1, 1);
+            prop_assert_eq!(
+                production_graph_migration(
+                    (&production_schema(src), &production_schema(tgt), &production_mapping(src, migration)),
+                    source,
+                    &views,
+                )
+                .0,
+                reference_graph_migration((src, tgt, migration), source, &views)
+            );
+        }
+    }
+
+    #[test]
+    fn a_merge_migrates_graph_data_to_the_merged_schema() {
+        let extended = |repo: &mut Repository| {
+            let (_, _, schema) = instance_repository();
+            let mut extended = super::production_schema(&schema);
+            extended.vertices.insert(
+                "c".into(),
+                panproto_schema::Vertex {
+                    id: "c".into(),
+                    kind: "object".into(),
+                    nsid: None,
+                },
+            );
+            repo.add(&extended).unwrap();
+        };
+        let (_dir, mut repo) = diverged_repository(
+            |repo| stage(repo, "g", &graph_of(&[(0, "a")])),
+            |repo| stage(repo, "g", &graph_of(&[(0, "a"), (1, "a")])),
+            extended,
+        );
+        let result = repo.merge("feature", "test").unwrap();
+        assert_eq!(result.instance_conflicts, vec![]);
+        let merge = head_commit(&repo);
+        let committed = repo.committed_instance("HEAD", "g").unwrap();
+        assert!(!committed.stale);
+        assert_eq!(
+            schema_identity(repo.store(), &committed.schema_id).unwrap(),
+            schema_identity(repo.store(), &merge.schema_id).unwrap()
+        );
+        assert_eq!(
+            instance_to_reference(&committed.instance),
+            instance_to_reference(&graph_of(&[(0, "a"), (1, "a")]))
+        );
+        // The complement recorded names the merge commit's migration.
+        let migrations: Vec<Option<ObjectId>> = merge
+            .complement_ids
+            .iter()
+            .map(|id| match repo.store().get(id).unwrap() {
+                Object::Complement(complement) => complement.migration(),
+                other => panic!("a merge records complements, not {}", other.type_name()),
+            })
+            .collect();
+        assert_eq!(migrations, vec![merge.migration_id]);
+    }
+
+    // -- The refusal order, realized in a store for every combination of
+    // -- facts.
+
+    fn tree_schema(vertices: &[(&str, &str)]) -> panproto_schema::Schema {
+        let protocol = panproto_schema::Protocol::default();
+        let mut builder = panproto_schema::SchemaBuilder::new(&protocol);
+        for (vertex, kind) in vertices {
+            builder = builder.vertex(vertex, kind, None).unwrap();
+        }
+        builder.build().unwrap()
+    }
+
+    fn identity_on(vertices: &[&str]) -> panproto_mig::Migration {
+        let names: Vec<panproto_gat::Name> = vertices.iter().map(|v| (*v).into()).collect();
+        panproto_mig::Migration::identity(&names, &[])
+    }
+
+    /// A store realizing `facts` for a tree data set, the identifiers to
+    /// migrate, and the identifiers of the three schemas the migration and
+    /// the data set name.
+    struct Realized {
+        store: MemStore,
+        data: ObjectId,
+        complement: ObjectId,
+        migration: ObjectId,
+        schemas: [ObjectId; 3],
+    }
+
+    /// `present`, or the identifier standing for a missing object or one of
+    /// another kind.
+    const fn stand_in(
+        state: Stored,
+        present: ObjectId,
+        [missing, wrong]: [ObjectId; 2],
+    ) -> ObjectId {
+        match state {
+            Stored::Missing => missing,
+            Stored::WrongKind => wrong,
+            Stored::Present => present,
+        }
+    }
+
+    /// The migration's source and target schemas, and a schema of neither.
+    fn realized_schemas() -> [panproto_schema::Schema; 3] {
+        [
+            tree_schema(&[("a", "object"), ("b", "string")]),
+            tree_schema(&[("a", "object"), ("b", "string"), ("c", "string")]),
+            tree_schema(&[("z", "object")]),
+        ]
+    }
+
+    fn realize(facts: &MigrationFacts) -> Realized {
+        let mut store = MemStore::new();
+        let wrong = store.put(&Object::Protocol(Box::default())).unwrap();
+        let missing = ObjectId::from_bytes([0xee; 32]);
+        let stored = |state: Stored, present: ObjectId| stand_in(state, present, [missing, wrong]);
+        let [src, tgt, other] = realized_schemas();
+        let src_tree = store_schema_as_tree(&mut store, src.clone()).unwrap();
+        let tgt_tree = store_schema_as_tree(&mut store, tgt.clone()).unwrap();
+        let other_tree = store_schema_as_tree(&mut store, other).unwrap();
+        let source_tree = WInstance::new(
+            HashMap::from([(0, Node::new(0, "a"))]),
+            vec![],
+            vec![],
+            0,
+            "a".into(),
+        );
+        let mapping = if !facts.compiles {
+            let mut bad = panproto_mig::Migration::empty();
+            bad.vertex_map.insert("a".into(), "absent".into());
+            bad
+        } else if facts.backward.is_none() && !facts.lens_accepts {
+            identity_on(&["b"])
+        } else {
+            identity_on(&["a", "b"])
+        };
+        let source_id = stored(
+            facts.source,
+            store
+                .put(&Object::FlatSchema(Box::new(src.clone())))
+                .unwrap(),
+        );
+        let target_id = stored(
+            facts.target,
+            store
+                .put(&Object::FlatSchema(Box::new(tgt.clone())))
+                .unwrap(),
+        );
+        let migration = stored(
+            facts.migration,
+            store
+                .put(&Object::Migration {
+                    src: source_id,
+                    tgt: target_id,
+                    mapping,
+                })
+                .unwrap(),
+        );
+        let source_data = store
+            .put(&Object::DataSet(
+                DataSetObject::from_instance(src_tree, &Instance::Tree(vec![source_tree]), None)
+                    .unwrap(),
+            ))
+            .unwrap();
+        let conforming = if facts.backward.is_some() {
+            tgt_tree
+        } else {
+            src_tree
+        };
+        let data_schema = stored(
+            facts.data_schema,
+            if facts.conforms {
+                conforming
+            } else {
+                other_tree
+            },
+        );
+        let Some(side) = facts.backward else {
+            let Object::DataSet(dataset) = store.get(&source_data).unwrap() else {
+                unreachable!()
+            };
+            let data = stored(
+                facts.data,
+                store
+                    .put(&Object::DataSet(DataSetObject {
+                        schema_id: data_schema,
+                        ..dataset
+                    }))
+                    .unwrap(),
+            );
+            return Realized {
+                store,
+                data,
+                complement: missing,
+                migration,
+                schemas: [source_id, target_id, data_schema],
+            };
+        };
+        realize_backward(
+            Realizing {
+                store,
+                stored: [missing, wrong],
+                src,
+                tgt,
+                source_data,
+                migration,
+                schemas: [source_id, target_id, data_schema],
+            },
+            side,
+            facts,
+        )
+    }
+
+    /// What `realize` has stored before the complement of a backward
+    /// migration: the identifiers standing for a missing object and one of
+    /// another kind, the two schemas, the source data set, the migration and
+    /// the three schema identifiers it names.
+    struct Realizing {
+        store: MemStore,
+        stored: [ObjectId; 2],
+        src: panproto_schema::Schema,
+        tgt: panproto_schema::Schema,
+        source_data: ObjectId,
+        migration: ObjectId,
+        schemas: [ObjectId; 3],
+    }
+
+    fn realize_backward(at: Realizing, side: BackwardFacts, facts: &MigrationFacts) -> Realized {
+        let Realizing {
+            mut store,
+            stored: [missing, wrong],
+            src,
+            tgt,
+            source_data,
+            migration,
+            schemas,
+        } = at;
+        let protocol = panproto_schema::Protocol::default();
+        let stored = |state: Stored, present: ObjectId| stand_in(state, present, [missing, wrong]);
+        let data_schema = schemas[2];
+        // A genuine forward migration, and one along another lens.
+        let good = store_migration(&mut store, &src, &tgt, identity_on(&["a", "b"])).unwrap();
+        let (view, complement) = migrate_forward(&mut store, source_data, good, &protocol).unwrap();
+        let other_lens = store_migration(&mut store, &src, &tgt, identity_on(&["a"])).unwrap();
+        let (_, foreign) = migrate_forward(&mut store, source_data, other_lens, &protocol).unwrap();
+        let payload = |id: ObjectId| match store.get(&id).unwrap() {
+            Object::Complement(complement) => complement.decode().unwrap(),
+            _ => unreachable!(),
+        };
+        let payload = if !side.shape_agrees {
+            ComplementPayload::Graph(Box::default())
+        } else if !side.count_agrees {
+            let ComplementPayload::Tree(one) = payload(complement) else {
+                unreachable!()
+            };
+            ComplementPayload::Tree(vec![one[0].clone(), one[0].clone()])
+        } else if facts.lens_accepts {
+            payload(complement)
+        } else {
+            payload(foreign)
+        };
+        let named = if side.names_migration {
+            migration
+        } else {
+            source_data
+        };
+        let complement = stored(
+            side.complement,
+            store
+                .put(&Object::Complement(
+                    ComplementObject::from_payload(named, source_data, &payload).unwrap(),
+                ))
+                .unwrap(),
+        );
+        let Object::DataSet(view) = store.get(&view).unwrap() else {
+            unreachable!()
+        };
+        let data = stored(
+            facts.data,
+            store
+                .put(&Object::DataSet(DataSetObject {
+                    schema_id: data_schema,
+                    ..view
+                }))
+                .unwrap(),
+        );
+        Realized {
+            store,
+            data,
+            complement,
+            migration,
+            schemas,
+        }
+    }
+
+    /// The object a refusal names, read off its identifier and kind.
+    fn read_of(id: ObjectId, expected: &str, schemas: [ObjectId; 3]) -> MigrationRead {
+        match expected {
+            "data set" => MigrationRead::DataSet,
+            "complement" => MigrationRead::Complement,
+            "migration" => MigrationRead::Migration,
+            "schema" if id == schemas[0] => MigrationRead::Source,
+            "schema" if id == schemas[1] => MigrationRead::Target,
+            "schema" => MigrationRead::DataSchema,
+            other => panic!("a refusal named {other}"),
+        }
+    }
+
+    fn observed(result: Result<(), VcsError>, schemas: [ObjectId; 3]) -> MigrationOutcome {
+        let conflict = match result {
+            Ok(()) => return MigrationOutcome::Migrates,
+            Err(VcsError::Migration(conflict)) => *conflict,
+            Err(other) => panic!("a migration failed otherwise: {other:?}"),
+        };
+        match conflict {
+            MigrationConflict::Missing { id, expected } => {
+                MigrationOutcome::Missing(read_of(id, expected, schemas))
+            }
+            MigrationConflict::WrongKind { id, expected, .. } => {
+                MigrationOutcome::WrongKind(read_of(id, expected, schemas))
+            }
+            MigrationConflict::UnknownMigration { .. } => MigrationOutcome::UnknownMigration,
+            MigrationConflict::SchemaMismatch { .. } => MigrationOutcome::SchemaMismatch,
+            MigrationConflict::MigrationDoesNotCompile { .. } => MigrationOutcome::DoesNotCompile,
+            MigrationConflict::ShapeMismatch { .. } => MigrationOutcome::ShapeMismatch,
+            MigrationConflict::RecordCountMismatch { .. } => MigrationOutcome::RecordCountMismatch,
+            MigrationConflict::OutsideGetDomain { .. }
+            | MigrationConflict::ComplementIdentity { .. }
+            | MigrationConflict::OutsidePutDomain { .. } => MigrationOutcome::LensRefuses,
+            other => panic!("an unclassified conflict: {other:?}"),
+        }
+    }
+
+    fn check_refusal_order(backward: bool) -> BTreeMap<MigrationOutcome, usize> {
+        let protocol = panproto_schema::Protocol::default();
+        let mut outcomes = BTreeMap::new();
+        for facts in migration_facts(backward) {
+            let mut realized = realize(&facts);
+            let result = if backward {
+                migrate_backward(
+                    &mut realized.store,
+                    realized.data,
+                    realized.complement,
+                    &protocol,
+                )
+                .map(drop)
+            } else {
+                migrate_forward(
+                    &mut realized.store,
+                    realized.data,
+                    realized.migration,
+                    &protocol,
+                )
+                .map(drop)
+            };
+            let found = observed(result, realized.schemas);
+            assert_eq!(found, migration_outcome(&facts), "{facts:?}");
+            *outcomes.entry(found).or_default() += 1;
+        }
+        outcomes
+    }
+
+    /// The outcome counts of one direction, derived from the order: each
+    /// object read splits the combinations left into thirds (missing, of
+    /// another kind, present) and each truth value in halves.
+    fn derived_counts(backward: bool) -> BTreeMap<MigrationOutcome, usize> {
+        let mut left = if backward {
+            3_usize.pow(6) * 2_usize.pow(6)
+        } else {
+            3_usize.pow(5) * 2_usize.pow(3)
+        };
+        let mut out = BTreeMap::new();
+        let mut reads = vec![MigrationRead::DataSet];
+        if backward {
+            reads.push(MigrationRead::Complement);
+        }
+        let mut split = |out: &mut BTreeMap<_, _>, outcomes: &[MigrationOutcome]| {
+            left /= outcomes.len() + 1;
+            for outcome in outcomes {
+                out.insert(*outcome, left);
+            }
+        };
+        for read in reads {
+            split(
+                &mut out,
+                &[
+                    MigrationOutcome::Missing(read),
+                    MigrationOutcome::WrongKind(read),
+                ],
+            );
+        }
+        if backward {
+            split(&mut out, &[MigrationOutcome::UnknownMigration]);
+        }
+        for read in [
+            MigrationRead::Migration,
+            MigrationRead::Source,
+            MigrationRead::Target,
+            MigrationRead::DataSchema,
+        ] {
+            split(
+                &mut out,
+                &[
+                    MigrationOutcome::Missing(read),
+                    MigrationOutcome::WrongKind(read),
+                ],
+            );
+        }
+        split(&mut out, &[MigrationOutcome::SchemaMismatch]);
+        split(&mut out, &[MigrationOutcome::DoesNotCompile]);
+        if backward {
+            split(&mut out, &[MigrationOutcome::ShapeMismatch]);
+            split(&mut out, &[MigrationOutcome::RecordCountMismatch]);
+        }
+        split(&mut out, &[MigrationOutcome::LensRefuses]);
+        out.insert(MigrationOutcome::Migrates, left);
+        out
+    }
+
+    #[test]
+    fn every_combination_of_migration_facts_is_refused_in_the_stated_order() {
+        let forward = check_refusal_order(false);
+        assert_eq!(forward.values().sum::<usize>(), 1944);
+        assert_eq!(forward, derived_counts(false));
+        let backward = check_refusal_order(true);
+        assert_eq!(backward.values().sum::<usize>(), 46_656);
+        assert_eq!(backward, derived_counts(true));
+    }
+
+    #[test]
+    fn a_migrated_data_set_names_a_schema_whose_identity_is_the_target_s() {
+        let protocol = panproto_schema::Protocol::default();
+        let mut store = MemStore::new();
+        let src = tree_schema(&[("a", "object"), ("b", "string")]);
+        let tgt = tree_schema(&[("a", "object")]);
+        let src_tree = store_schema_as_tree(&mut store, src.clone()).unwrap();
+        let tree = WInstance::new(
+            HashMap::from([(0, Node::new(0, "a"))]),
+            vec![],
+            vec![],
+            0,
+            "a".into(),
+        );
+        let data = store
+            .put(&Object::DataSet(
+                DataSetObject::from_instance(src_tree, &Instance::Tree(vec![tree]), None).unwrap(),
+            ))
+            .unwrap();
+        let migration = store_migration(&mut store, &src, &tgt, identity_on(&["a"])).unwrap();
+        let (view, complement) = migrate_forward(&mut store, data, migration, &protocol).unwrap();
+        let Object::DataSet(migrated) = store.get(&view).unwrap() else {
+            panic!("a data set");
+        };
+        let Object::Migration { tgt: flat, .. } = store.get(&migration).unwrap() else {
+            panic!("a migration");
+        };
+        assert_eq!(schema_identity(&store, &migrated.schema_id).unwrap(), flat);
+        assert_ne!(migrated.schema_id, flat);
+        // Forward then backward stores the source data set again.
+        assert_eq!(
+            migrate_backward(&mut store, view, complement, &protocol).unwrap(),
+            data
+        );
+    }
+}

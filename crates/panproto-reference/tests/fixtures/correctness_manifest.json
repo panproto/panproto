@@ -8987,6 +8987,12 @@
               "test": "a_merged_instance_failing_a_key_check_or_validation_is_a_conflict_carrying_its_report"
             },
             {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "data_migration::a_merge_migrates_graph_data_to_the_merged_schema"
+            },
+            {
               "role": "reference",
               "crate": "panproto-reference",
               "binary": "panproto-reference::instance_version_control",
@@ -9018,6 +9024,46 @@
               "crate": "panproto-vcs",
               "binary": "panproto-vcs::reference_instance_version_control",
               "test": "a_rebased_chain_tracks_its_rebased_deltas_applied_in_order_and_a_cherry_pick_replays_one_commit"
+            }
+          ]
+        },
+        {
+          "id": "instance-version-control.data-migration",
+          "anchor": "L-instance-version-control-8",
+          "references": [
+            "panproto_reference::pages::instance_version_control::migration_outcome",
+            "panproto_reference::pages::instance_version_control::forward_objects"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "data_migration::every_combination_of_migration_facts_is_refused_in_the_stated_order"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "data_migration::every_graph_of_the_migration_scope_migrates_forward_and_back_as_the_reference_lens_does"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "data_migration::randomized_graph_migrations_agree_with_the_reference_lens"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "data_migration::migrated_objects_have_the_same_identifiers_in_every_process"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "a_0_78_complement_names_no_migration_and_is_refused_by_backward_migration"
             }
           ]
         }

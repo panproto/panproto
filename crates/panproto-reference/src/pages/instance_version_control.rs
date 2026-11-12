@@ -268,6 +268,190 @@ pub const fn payload_outcome(facts: &PayloadFacts) -> PayloadOutcome {
     }
 }
 
+/// Whether an object a data migration reads is stored, and of its kind.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Stored {
+    /// No object is stored under the identifier.
+    Missing,
+    /// The object stored is of another kind.
+    WrongKind,
+    /// The object is stored and of its kind.
+    Present,
+}
+
+/// An object a data migration reads, in the order it reads them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum MigrationRead {
+    /// The data set migrated.
+    DataSet,
+    /// The complement put back against (backward only).
+    Complement,
+    /// The migration.
+    Migration,
+    /// The migration's source schema.
+    Source,
+    /// The migration's target schema.
+    Target,
+    /// The data set's schema.
+    DataSchema,
+}
+
+/// What a forward or backward data migration gives.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum MigrationOutcome {
+    /// An object read is not stored.
+    Missing(MigrationRead),
+    /// An object read is of another kind.
+    WrongKind(MigrationRead),
+    /// The complement names no migration.
+    UnknownMigration,
+    /// The data set does not conform to the schema the migration starts
+    /// from (forward) or reaches (backward).
+    SchemaMismatch,
+    /// The migration does not compile between its schemas.
+    DoesNotCompile,
+    /// The complement holds another shape than the data set.
+    ShapeMismatch,
+    /// A tree complement holds another number of complements than the data
+    /// set holds records.
+    RecordCountMismatch,
+    /// The lens refuses: get refuses the instance, or put refuses the
+    /// complement's identity or the instance against it.
+    LensRefuses,
+    /// The data migrates.
+    Migrates,
+}
+
+/// The facts only a backward migration reads: those of the complement.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct BackwardFacts {
+    /// The complement.
+    pub complement: Stored,
+    /// Whether the complement names a migration.
+    pub names_migration: bool,
+    /// Whether the complement holds the data set's shape.
+    pub shape_agrees: bool,
+    /// Whether a tree complement holds one complement per record.
+    pub count_agrees: bool,
+}
+
+/// The facts that decide what a data migration gives.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct MigrationFacts {
+    /// The complement's facts for a backward migration (a put against a
+    /// complement), `None` for a forward one.
+    pub backward: Option<BackwardFacts>,
+    /// The data set.
+    pub data: Stored,
+    /// The migration.
+    pub migration: Stored,
+    /// The migration's source schema.
+    pub source: Stored,
+    /// The migration's target schema.
+    pub target: Stored,
+    /// The data set's schema.
+    pub data_schema: Stored,
+    /// Whether the data set's schema is the migration's source (forward)
+    /// or target (backward).
+    pub conforms: bool,
+    /// Whether the migration compiles between its schemas.
+    pub compiles: bool,
+    /// Whether the lens accepts the instance (and, backward, the complement).
+    pub lens_accepts: bool,
+}
+
+/// The outcome of a stored-object fact, or `None` when the object is
+/// present.
+const fn read(stored: Stored, object: MigrationRead) -> Option<MigrationOutcome> {
+    match stored {
+        Stored::Missing => Some(MigrationOutcome::Missing(object)),
+        Stored::WrongKind => Some(MigrationOutcome::WrongKind(object)),
+        Stored::Present => None,
+    }
+}
+
+/// What a data migration with these facts gives.
+///
+/// The data set is read first; backward, the complement next, and a
+/// complement naming no migration stops there. Then the migration, its
+/// source and target schemas and the data set's schema are read in that
+/// order; then the data set must conform; then the migration must compile;
+/// backward, the complement must hold the data set's shape and, for trees,
+/// one complement per record; and last the lens must accept.
+#[must_use]
+pub const fn migration_outcome(facts: &MigrationFacts) -> MigrationOutcome {
+    if let Some(outcome) = read(facts.data, MigrationRead::DataSet) {
+        return outcome;
+    }
+    if let Some(backward) = facts.backward {
+        if let Some(outcome) = read(backward.complement, MigrationRead::Complement) {
+            return outcome;
+        }
+        if !backward.names_migration {
+            return MigrationOutcome::UnknownMigration;
+        }
+    }
+    let reads = [
+        (facts.migration, MigrationRead::Migration),
+        (facts.source, MigrationRead::Source),
+        (facts.target, MigrationRead::Target),
+        (facts.data_schema, MigrationRead::DataSchema),
+    ];
+    let mut at = 0;
+    while at < reads.len() {
+        if let Some(outcome) = read(reads[at].0, reads[at].1) {
+            return outcome;
+        }
+        at += 1;
+    }
+    if !facts.conforms {
+        return MigrationOutcome::SchemaMismatch;
+    }
+    if !facts.compiles {
+        return MigrationOutcome::DoesNotCompile;
+    }
+    if let Some(backward) = facts.backward {
+        if !backward.shape_agrees {
+            return MigrationOutcome::ShapeMismatch;
+        }
+        if !backward.count_agrees {
+            return MigrationOutcome::RecordCountMismatch;
+        }
+    }
+    if facts.lens_accepts {
+        MigrationOutcome::Migrates
+    } else {
+        MigrationOutcome::LensRefuses
+    }
+}
+
+/// The objects a forward migration of `data` along `migration` adds to a
+/// repository.
+///
+/// They are the migrated data set, of `shape` and naming the schema tree
+/// `target_tree`, and the complement, naming `migration` and `data`.
+/// Backward migration adds a data set of the shape naming the schema tree of
+/// the migration's source.
+#[must_use]
+pub fn forward_objects(
+    shape: Shape,
+    data: &str,
+    migration: &str,
+    target_tree: &str,
+) -> (Object, Object) {
+    (
+        Object::DataSet {
+            shape,
+            schema: target_tree.to_owned(),
+        },
+        Object::Complement {
+            shape,
+            migration: migration.to_owned(),
+            data: data.to_owned(),
+        },
+    )
+}
+
 /// The encoding an object holds given the encoding field it records.
 ///
 /// It is the recorded shape and version, or version 1 of the tree encoding

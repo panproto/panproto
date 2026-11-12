@@ -1594,13 +1594,13 @@ impl Repository {
     /// validating merged instances under their schema's protocol.
     ///
     /// With conflicts and no resolutions nothing is recorded. Otherwise
-    /// every key the merge tracks records one data set: a tree data set
-    /// conforming to our or their parent's schema, when that is not the
-    /// merged schema, is migrated forward along the merge's migration from
-    /// that schema ([`migrate_forward`](crate::data_mig::migrate_forward)),
-    /// and its complement recorded; table and graph data sets, and data sets
-    /// conforming to another schema, are recorded as they are. Both
-    /// parents' complements and CST complements are carried.
+    /// every key the merge tracks records one data set: a data set of any
+    /// shape conforming to our or their parent's schema, when that is not
+    /// the merged schema, is migrated forward along the merge's migration
+    /// from that schema ([`migrate_forward`](crate::data_mig::migrate_forward)),
+    /// and its complement recorded; a data set conforming to another schema
+    /// (stale in its parent) is recorded as it is. Both parents' complements
+    /// and CST complements are carried.
     fn merge_parent_instances(
         &mut self,
         parents: &MergeParents<'_>,
@@ -1700,7 +1700,7 @@ impl Repository {
                 .position(|(_, _, _, side)| *side == identity)
                 .filter(|_| identity != merged);
             let lifted = match side {
-                Some(side) if dataset.encoding.shape == crate::object::InstanceShape::Tree => {
+                Some(side) => {
                     let (commit, schema, mapping, _) = sides[side];
                     let migration = if let Some(id) = migrations[side] {
                         id
