@@ -5,8 +5,10 @@
 //! [`GraphComplement`]. The schema-taking [`graph_restrict_with_complement`]
 //! and [`graph_restrict`] validate both boundaries around it, and
 //! [`graph_restrict_validated`] does the same over plans compiled already.
-//! [`graph_extend`] and [`graph_extend_validated`] push a graph forward
-//! along a migration and validate the output.
+//! [`graph_extend_with_plan`] is the one graph extend engine; a segmented
+//! extension runs it over each segment with the nodes owned elsewhere out of
+//! scope. [`graph_extend`] and [`graph_extend_validated`] push a graph
+//! forward along a migration around it and validate the output.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 
@@ -1053,7 +1055,8 @@ pub fn graph_extend(
     protocols: BoundaryProtocols<'_>,
 ) -> Result<GInstance, RestrictError> {
     let total = crate::wtype::total_extension_migration(src_schema, tgt_schema, migration);
-    require_total_graph_elements(instance, tgt_schema, &total)?;
+    require_total_graph_elements(instance, tgt_schema, &total, &BTreeSet::new())
+        .map_err(|(_, error)| error)?;
     let src_validation = boundary_plan(src_schema, protocols.src);
     let plan = RestrictPlan::compile_with_protocols(src_schema, tgt_schema, &total, protocols)?;
     let tgt_validation = output_plan(&src_validation, tgt_schema, &plan.tgt_schema, protocols);
@@ -1073,9 +1076,54 @@ pub fn graph_extend_engine(
     protocols: BoundaryProtocols<'_>,
 ) -> Result<GInstance, RestrictError> {
     let total = crate::wtype::total_extension_migration(src_schema, tgt_schema, migration);
-    require_total_graph_elements(instance, tgt_schema, &total)?;
+    require_total_graph_elements(instance, tgt_schema, &total, &BTreeSet::new())
+        .map_err(|(_, error)| error)?;
     let plan = RestrictPlan::compile_with_protocols(src_schema, tgt_schema, &total, protocols)?;
-    graph_extend_inner(instance, &plan, false).map(|(extended, _)| extended)
+    graph_extend_with_plan(instance, &plan)
+}
+
+/// The plan total graph extension along `migration` executes: the
+/// migration completed with every unique direct image its two schemas
+/// determine, compiled between them.
+///
+/// [`graph_extend_with_plan`] over this plan is [`graph_extend_engine`].
+///
+/// # Errors
+///
+/// The compilation error of
+/// [`RestrictPlan::compile_with_protocols`].
+pub fn compile_extension_plan(
+    src_schema: &Schema,
+    tgt_schema: &Schema,
+    migration: &CompiledMigration,
+    protocols: BoundaryProtocols<'_>,
+) -> Result<RestrictPlan, RestrictError> {
+    let total = crate::wtype::total_extension_migration(src_schema, tgt_schema, migration);
+    RestrictPlan::compile_with_protocols(src_schema, tgt_schema, &total, protocols)
+}
+
+/// The total graph-extension engine over a compiled extension plan
+/// ([`compile_extension_plan`]), with no boundary validation.
+///
+/// The engine checks every node in ascending id order for an image of its
+/// anchor, then every edge in ascending id order for an image of its label,
+/// and then applies each node's value transforms in ascending id order; it
+/// refuses at the first failure. Every node keeps its id and value, every
+/// edge its id, endpoints and position.
+///
+/// # Errors
+///
+/// [`RestrictError::UnmappedAnchor`] at the least node with no image,
+/// otherwise [`RestrictError::UnmappedEdge`] at the least edge with no
+/// image, otherwise the error of the least node whose value transforms
+/// fail.
+pub fn graph_extend_with_plan(
+    instance: &GInstance,
+    plan: &RestrictPlan,
+) -> Result<GInstance, RestrictError> {
+    extend_scoped(instance, plan, &BTreeSet::new())
+        .map(ExtendParts::into_instance)
+        .map_err(|(_, error)| error)
 }
 
 /// [`graph_extend`] with both validation plans and the migration plan
@@ -1094,13 +1142,17 @@ pub fn graph_extend_validated(
 ) -> Result<GInstance, RestrictError> {
     require_schema(src_plan, &plan.src_schema, BoundarySide::Input)?;
     require_schema(tgt_plan, &plan.tgt_schema, BoundarySide::Output)?;
-    require_total_graph_elements(instance, plan.target(), plan.migration())?;
+    let foreign = BTreeSet::new();
+    require_total_graph_elements(instance, plan.target(), plan.migration(), &foreign)
+        .map_err(|(_, error)| error)?;
     let (budget, external) = unlimited();
     require_passed(
         src_plan.validate_graph(instance, &budget, &external),
         BoundarySide::Input,
     )?;
-    let extended = graph_extend_inner(instance, plan, false)?.0;
+    let extended = graph_extend_inner(instance, plan, false, &foreign)
+        .map_err(|(_, error)| error)?
+        .into_instance();
     require_passed(
         tgt_plan.validate_graph(&extended, &budget, &external),
         BoundarySide::Output,
@@ -1130,38 +1182,113 @@ pub fn graph_extend_partial(
         src_validation.validate_graph(instance, &budget, &external),
         BoundarySide::Input,
     )?;
-    let result = graph_extend_inner(instance, &plan, true)?;
+    let parts =
+        graph_extend_inner(instance, &plan, true, &BTreeSet::new()).map_err(|(_, error)| error)?;
+    let dropped = parts.dropped.clone();
+    let extended = parts.into_instance();
     require_passed(
-        tgt_validation.validate_graph(&result.0, &budget, &external),
+        tgt_validation.validate_graph(&extended, &budget, &external),
         BoundarySide::Output,
     )?;
-    Ok(result)
+    Ok((extended, dropped))
+}
+
+/// Where total graph extension refuses, in the order it checks: `(0, n)`
+/// for node `n` with no anchor image, `(1, e)` for edge `e` with no label
+/// image, `(2, n)` for node `n` whose value transforms fail.
+pub(crate) type ExtendAt = (u8, u32);
+
+/// A refusal of total graph extension with its position.
+pub(crate) type ExtendRefusal = (ExtendAt, RestrictError);
+
+/// The elements a graph extension run decides, before they are placed in
+/// an instance.
+pub(crate) struct ExtendParts {
+    /// The extended nodes, by id.
+    pub(crate) nodes: BTreeMap<u32, Node>,
+    /// The extended edges, by id.
+    pub(crate) edges: BTreeMap<EdgeId, GEdge>,
+    /// The elements a partial run omitted, ascending.
+    pub(crate) dropped: Vec<ViewRef>,
+}
+
+impl ExtendParts {
+    /// The instance holding the parts, nodes and then edges in ascending id
+    /// order.
+    fn into_instance(self) -> GInstance {
+        let mut extended = GInstance::new();
+        for node in self.nodes.into_values() {
+            extended = extended.with_node(node);
+        }
+        for (id, edge) in self.edges {
+            extended.place_edge(id, edge);
+        }
+        extended
+    }
+}
+
+/// Total graph extension of the nodes of `instance` outside `foreign` and
+/// the edges whose source lies outside `foreign`, or its first refusal
+/// among them with its position.
+///
+/// A whole-state run passes no foreign node. A segment's run holds a
+/// placeholder for every node owned elsewhere that one of its edges or
+/// in-stubs names, passes those placeholders as `foreign`, and decides only
+/// its own nodes and the edges leaving them; an edge to a foreign node is
+/// kept, since total extension keeps every node of a family it accepts.
+pub(crate) fn extend_scoped(
+    instance: &GInstance,
+    plan: &RestrictPlan,
+    foreign: &BTreeSet<u32>,
+) -> Result<ExtendParts, ExtendRefusal> {
+    require_total_graph_elements(instance, plan.target(), plan.migration(), foreign)?;
+    graph_extend_inner(instance, plan, false, foreign)
+}
+
+/// The ids of the nodes of `instance` outside `foreign`, ascending.
+fn decided_nodes(instance: &GInstance, foreign: &BTreeSet<u32>) -> Vec<u32> {
+    let mut ids: Vec<u32> = instance
+        .nodes()
+        .keys()
+        .copied()
+        .filter(|id| !foreign.contains(id))
+        .collect();
+    ids.sort_unstable();
+    ids
 }
 
 fn require_total_graph_elements(
     instance: &GInstance,
     target: &Schema,
     migration: &CompiledMigration,
-) -> Result<(), RestrictError> {
-    let mut ids: Vec<u32> = instance.nodes().keys().copied().collect();
-    ids.sort_unstable();
-    for id in ids {
+    foreign: &BTreeSet<u32>,
+) -> Result<(), ExtendRefusal> {
+    for id in decided_nodes(instance, foreign) {
         let Some(node) = instance.node(id) else {
             continue;
         };
         if crate::wtype::extension_vertex_image(target, migration, &node.anchor).is_none() {
-            return Err(RestrictError::UnmappedAnchor {
-                anchor: node.anchor.clone(),
-                node_id: id,
-            });
+            return Err((
+                (0, id),
+                RestrictError::UnmappedAnchor {
+                    anchor: node.anchor.clone(),
+                    node_id: id,
+                },
+            ));
         }
     }
     for (id, edge) in instance.edges_sorted() {
+        if foreign.contains(&edge.src) {
+            continue;
+        }
         if crate::wtype::extension_edge_image(target, migration, &edge.edge).is_none() {
-            return Err(RestrictError::UnmappedEdge {
-                edge: Box::new(edge.edge.clone()),
-                element: ViewRef::Edge(id),
-            });
+            return Err((
+                (1, id.0),
+                RestrictError::UnmappedEdge {
+                    edge: Box::new(edge.edge.clone()),
+                    element: ViewRef::Edge(id),
+                },
+            ));
         }
     }
     Ok(())
@@ -1171,14 +1298,13 @@ fn graph_extend_inner(
     instance: &GInstance,
     plan: &RestrictPlan,
     partial: bool,
-) -> Result<(GInstance, Vec<ViewRef>), RestrictError> {
+    foreign: &BTreeSet<u32>,
+) -> Result<ExtendParts, ExtendRefusal> {
     let migration = plan.migration();
     let target = plan.target();
     let mut dropped = Vec::new();
-    let mut extended = GInstance::new();
-    let mut ids: Vec<u32> = instance.nodes().keys().copied().collect();
-    ids.sort_unstable();
-    for id in ids {
+    let mut nodes = BTreeMap::new();
+    for id in decided_nodes(instance, foreign) {
         let Some(node) = instance.node(id) else {
             continue;
         };
@@ -1188,10 +1314,13 @@ fn graph_extend_inner(
                 dropped.push(ViewRef::Node(id));
                 continue;
             }
-            return Err(RestrictError::UnmappedAnchor {
-                anchor: node.anchor.clone(),
-                node_id: id,
-            });
+            return Err((
+                (0, id),
+                RestrictError::UnmappedAnchor {
+                    anchor: node.anchor.clone(),
+                    node_id: id,
+                },
+            ));
         };
         let mut kept = node.clone();
         kept.anchor = image;
@@ -1201,11 +1330,17 @@ fn graph_extend_inner(
         } else {
             TransformContext::for_graph(Some(plan.source()), instance, id, &transforms)
         };
-        plan.transform(&mut kept, &node.anchor, &ctx, true)?;
-        extended = extended.with_node(kept);
+        plan.transform(&mut kept, &node.anchor, &ctx, true)
+            .map_err(|error| ((2, id), error))?;
+        nodes.insert(id, kept);
     }
+    let present = |id: u32| nodes.contains_key(&id) || foreign.contains(&id);
+    let mut edges = BTreeMap::new();
     for (id, edge) in instance.edges_sorted() {
-        if extended.node(edge.src).is_none() || extended.node(edge.tgt).is_none() {
+        if foreign.contains(&edge.src) {
+            continue;
+        }
+        if !present(edge.src) || !present(edge.tgt) {
             if partial {
                 dropped.push(ViewRef::Edge(id));
             }
@@ -1217,12 +1352,15 @@ fn graph_extend_inner(
                 dropped.push(element);
                 continue;
             }
-            return Err(RestrictError::UnmappedEdge {
-                edge: Box::new(edge.edge.clone()),
-                element,
-            });
+            return Err((
+                (1, id.0),
+                RestrictError::UnmappedEdge {
+                    edge: Box::new(edge.edge.clone()),
+                    element,
+                },
+            ));
         };
-        extended.place_edge(
+        edges.insert(
             id,
             GEdge {
                 src: edge.src,
@@ -1234,7 +1372,11 @@ fn graph_extend_inner(
     }
     dropped.sort_unstable();
     dropped.dedup();
-    Ok((extended, dropped))
+    Ok(ExtendParts {
+        nodes,
+        edges,
+        dropped,
+    })
 }
 
 #[cfg(test)]

@@ -23,6 +23,9 @@
 //!   the graph restrict engine segment by segment and lays its view and
 //!   complement out under the source's partition, and its checkpointed run
 //!   ([`graph_restrict_run`]) as resumable tasks in a caller's store;
+//! - segmented graph extension ([`graph_extend_segmented`]), which runs the
+//!   graph extend engine segment by segment under the source's partition,
+//!   and its checkpointed run ([`graph_extend_run`]);
 //! - the typed failure [`SegmentError`] and the [`Residual`] of an operation
 //!   declined within a budget.
 
@@ -31,6 +34,7 @@ mod builder;
 mod bytes;
 mod check;
 mod error;
+mod extend;
 mod ids;
 mod manifest;
 mod partition;
@@ -54,6 +58,10 @@ pub use builder::{BuilderEdge, BuilderNode, SegmentBuilder};
 pub use bytes::{read_boundary, write_boundary, write_segment, write_view_ref};
 pub use check::{check_segment, verify_partition};
 pub use error::{ErrorAt, ErrorKey, PartitionDefect, Residual, Resource, SegmentError};
+pub use extend::{
+    GRAPH_EXTEND_OP, GraphExtend, GraphExtendRun, SegmentedExtendError, graph_extend_locality,
+    graph_extend_run, graph_extend_segmented,
+};
 pub use ids::{EdgeFloor, IdAllocator, IdKind, IdRange, RangeExhausted, SegmentId};
 pub use manifest::{
     EdgeIdRun, ManifestHeader, ManifestRole, SegmentManifest, SegmentRecord, audit_path,

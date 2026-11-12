@@ -154,9 +154,9 @@ pub use graph_kan::{
     g_transpose_left, g_transpose_right, g_unit,
 };
 pub use graph_restrict::{
-    graph_extend, graph_extend_engine, graph_extend_partial, graph_extend_validated,
-    graph_restrict, graph_restrict_validated, graph_restrict_with_complement,
-    graph_restrict_with_plan,
+    compile_extension_plan, graph_extend, graph_extend_engine, graph_extend_partial,
+    graph_extend_validated, graph_extend_with_plan, graph_restrict, graph_restrict_validated,
+    graph_restrict_with_complement, graph_restrict_with_plan,
 };
 pub use hom::{curry_migration, eval_hom, hom_schema};
 pub use identity::{

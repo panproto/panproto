@@ -8,7 +8,9 @@
 //! only the input segment it names and the committed artifacts of earlier
 //! phases. The operation says what each task computes; the runner owns the
 //! rest. Graph restriction is one operation ([`GraphRestrict`], run by
-//! [`graph_restrict_run`]) and graph put, in `panproto-lens`, is another.
+//! [`graph_restrict_run`]), graph extension another
+//! ([`GraphExtend`](super::GraphExtend)), and graph put, in `panproto-lens`,
+//! a third.
 //!
 //! [`graph_restrict_run`] runs [`graph_restrict_segmented`] as follows:
 //!
