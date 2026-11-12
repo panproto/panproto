@@ -9,8 +9,10 @@
 //! phases. The operation says what each task computes; the runner owns the
 //! rest. Graph restriction is one operation ([`GraphRestrict`], run by
 //! [`graph_restrict_run`]), graph extension another
-//! ([`GraphExtend`](super::GraphExtend)), and graph put, in `panproto-lens`,
-//! a third.
+//! ([`GraphExtend`](super::GraphExtend)), graph put, in `panproto-lens`,
+//! a third, and graph delta application ([`GraphApply`](super::GraphApply))
+//! a fourth, which runs its segment phases for its affected segments alone
+//! ([`PhaseOperation::affected`]).
 //!
 //! [`graph_restrict_run`] runs [`graph_restrict_segmented`] as follows:
 //!
@@ -2144,8 +2146,9 @@ fn preflight<O: PhaseOperation>(
 /// against `spec.input` ([`verify_manifest`]), an operation whose locality
 /// is global is declined, and the number of segments and the working-set
 /// estimate of every record ([`PhaseOperation::working_set`]) are checked
-/// against `budget`. The six phases then run, `4n + 2` tasks for `n`
-/// segments, each task committing one artifact ([`phase_artifact`]) with its
+/// against `budget`. The six phases then run, `4n + 2` tasks for the `n`
+/// segments the run reads (every segment, or the operation's affected set,
+/// [`PhaseOperation::affected`]), each task committing one artifact ([`phase_artifact`]) with its
 /// journal record and reading only the artifacts of the tasks its input
 /// digest names: Validate of a segment its input segment, Export the
 /// segment's Validate, Summarize the segment's Validate and every Export,
@@ -2156,7 +2159,9 @@ fn preflight<O: PhaseOperation>(
 /// summary budget; each Emit task writes the operation's output segment and
 /// complement in the Emit layout and is preceded by the running complement
 /// budget; Seal seals the output segments under `spec.output_schema` with
-/// the operation's role, reading each Emit artifact a section at a time.
+/// the operation's role, reading each Emit artifact a section at a time, or,
+/// for an operation with an affected set, reseals the input manifest with
+/// the rewritten records.
 /// `progress` is called after every committed or reused task, and the run
 /// stops once `spec.cancel_after_tasks` tasks are done.
 pub fn run_segmented<O: PhaseOperation, Src: SegmentSource, St: SegmentStore>(
