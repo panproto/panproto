@@ -220,14 +220,14 @@ fn the_checked_in_manifest_loads_and_every_owned_file_exists() {
     let root = repository_root();
     let text = std::fs::read_to_string(correctness_manifest_path()).unwrap();
     let loaded = manifest::load(&text).unwrap();
-    assert_eq!(loaded.pages.len(), 21);
+    assert_eq!(loaded.pages.len(), 22);
     assert_eq!(
         loaded
             .pages
             .values()
             .map(|page| page.laws.len())
             .sum::<usize>(),
-        242
+        244
     );
     for page in loaded.pages.values() {
         for relative in &page.reference_files {
