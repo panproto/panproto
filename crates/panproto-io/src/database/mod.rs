@@ -18,6 +18,7 @@ pub fn register_all(registry: &mut ProtocolRegistry) {
         registry.register_optional(UnifiedCodec::json("dynamodb"));
         registry.register_optional(UnifiedCodec::json("cassandra"));
         registry.register_optional(UnifiedCodec::json("neo4j"));
+        registry.register_table(crate::postgresql::PostgresqlCodec);
     }
     #[cfg(not(feature = "tree-sitter"))]
     {

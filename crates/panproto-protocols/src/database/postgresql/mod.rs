@@ -475,6 +475,20 @@ fn enum_labels(labels: &[String]) -> String {
 /// value parameter or declaration with no SQL form, or two definitions of
 /// one type name.
 pub fn emit_ddl(schema: &Schema) -> Result<String, ProtocolError> {
+    let (mut output, foreign_keys) = emit_ddl_parts(schema)?;
+    output.push_str(&foreign_keys);
+    Ok(output)
+}
+
+/// The canonical DDL of [`emit_ddl`] in its two parts: the types and
+/// tables, and then the `ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY`
+/// statements. A data script places its rows between them, so the rows
+/// load before any foreign key is checked.
+///
+/// # Errors
+///
+/// As [`emit_ddl`].
+pub fn emit_ddl_parts(schema: &Schema) -> Result<(String, String), ProtocolError> {
     let q = quote_identifier;
     let mut tables: Vec<&str> = schema
         .vertices
@@ -534,8 +548,7 @@ pub fn emit_ddl(schema: &Schema) -> Result<String, ProtocolError> {
         output.push('\n');
     }
     output.push_str(&bodies);
-    output.push_str(&foreign_keys);
-    Ok(output)
+    Ok((output, foreign_keys))
 }
 
 /// The quoted column names of a key's parts.

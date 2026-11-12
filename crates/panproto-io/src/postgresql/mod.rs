@@ -16,7 +16,8 @@
 //! byte offset of the token it is about; a script that is not `PostgreSQL`
 //! syntax is refused at the first place the parser could not read.
 
-mod explore;
+mod data;
+mod values;
 
 use std::cell::RefCell;
 
@@ -28,6 +29,12 @@ use panproto_protocols::database::postgresql::{
 };
 use panproto_schema::Schema;
 use tree_sitter::{Node, Parser, Tree};
+
+pub use data::{
+    DumpReading, PostgresqlCodec, SqlDataError, WriteRefusal, read_data, read_dump, write_data,
+    write_dump,
+};
+pub use values::ValueRefusal;
 
 /// The name the grammar is bundled under.
 const GRAMMAR: &str = "postgresql";
@@ -1114,6 +1121,18 @@ impl<'s> Walk<'s> {
             && keywords(*command).first().is_some_and(|w| w == "owner")
         {
             return Ok(not_read("ALTER TABLE OWNER TO", offset));
+        }
+        // Switching triggers off or on, as a data-only dump does around its
+        // rows, declares nothing a table schema holds.
+        let trigger_switches = commands.iter().all(|c| {
+            let words = keywords(*c);
+            matches!(
+                words.first().map(String::as_str),
+                Some("enable" | "disable")
+            ) && words.iter().any(|w| w == "trigger")
+        });
+        if trigger_switches {
+            return Ok(not_read("ALTER TABLE ENABLE or DISABLE TRIGGER", offset));
         }
         let mut actions = Vec::new();
         for command in commands {
