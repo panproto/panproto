@@ -125,6 +125,7 @@
   - [Schema merge](./correctness/schema-merge.md)
   - [Theory DSL](./correctness/theory-dsl.md)
   - [Lens DSL](./correctness/lens-dsl.md)
+  - [Instance version control](./correctness/instance-version-control.md)
 
 ---
 

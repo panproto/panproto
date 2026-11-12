@@ -311,6 +311,88 @@ pub enum VcsError {
     #[error("{0}")]
     Other(String),
 
+    /// A data set, complement or edit log records a payload encoding this
+    /// build does not read: a version other than 1 of its shape.
+    #[error("{kind} payload encoding {encoding} is not supported; this build reads version 1")]
+    UnsupportedPayloadEncoding {
+        /// The object kind: `dataset`, `complement` or `editlog`.
+        kind: &'static str,
+        /// The encoding the object records.
+        encoding: crate::object::PayloadEncoding,
+    },
+
+    /// A payload does not decode as the encoding its object records, or
+    /// decodes to something that contradicts the object's other fields.
+    #[error("{kind} payload ({encoding}) does not decode: {reason}")]
+    UndecodablePayload {
+        /// The object kind: `dataset`, `complement` or `editlog`.
+        kind: &'static str,
+        /// The encoding the object records.
+        encoding: crate::object::PayloadEncoding,
+        /// Why it does not decode.
+        reason: String,
+    },
+
+    /// A payload decodes, but its bytes are not the canonical encoding of
+    /// the value they decode to, so its object would not have the
+    /// identifier that value is stored under.
+    #[error("{kind} payload ({encoding}) is not the canonical encoding of its value")]
+    NonCanonicalPayload {
+        /// The object kind: `dataset`, `complement` or `editlog`.
+        kind: &'static str,
+        /// The encoding the object records.
+        encoding: crate::object::PayloadEncoding,
+    },
+
+    /// A delta or an instance has another shape than the instance it is
+    /// paired with.
+    #[error("expected a {expected:?} instance, found a {found:?} one")]
+    ShapeMismatch {
+        /// The shape required.
+        expected: crate::object::InstanceShape,
+        /// The shape found.
+        found: crate::object::InstanceShape,
+    },
+
+    /// A delta between instances does not apply: its checked reads do not
+    /// hold of the instance, or a tree record is no longer a tree.
+    #[error("the delta does not apply: {reason}")]
+    DeltaDoesNotApply {
+        /// The shape's refusal.
+        reason: String,
+    },
+
+    /// One commit records two data sets under a key, or records a data set
+    /// under a key it stops tracking.
+    #[error("one commit records the key {key:?} twice")]
+    DuplicateDataKey {
+        /// The key.
+        key: String,
+    },
+
+    /// Two data sets tracked under one key conform to different schemas,
+    /// so their instances are not comparable until one is migrated.
+    #[error("the data sets under {key:?} conform to different schemas ({from} and {to})")]
+    SchemaMismatch {
+        /// The key.
+        key: String,
+        /// The first data set's schema.
+        from: crate::ObjectId,
+        /// The second data set's schema.
+        to: crate::ObjectId,
+    },
+
+    /// An instance fails its shape's validation against the schema it
+    /// would be recorded under.
+    #[error("{key}: {} record(s) fail validation", failing.len())]
+    InstanceValidationFailed {
+        /// The key the instance was staged under.
+        key: String,
+        /// The record index and validation report of each failing record:
+        /// each tree of a tree instance, and the one table or graph.
+        failing: Vec<(usize, panproto_inst::ValidationReport)>,
+    },
+
     /// A schema names a protocol that resolves neither to the staged or
     /// committed protocol object, nor to a protocol registered with
     /// [`Repository::set_protocol`](crate::Repository::set_protocol), nor
@@ -319,6 +401,44 @@ pub enum VcsError {
     UnknownProtocol {
         /// The protocol name.
         name: String,
+    },
+
+    /// A key is neither tracked by `HEAD` nor staged, so there is nothing
+    /// to stop tracking.
+    #[error("no instance is tracked or staged under the key {key:?}")]
+    NotTracked {
+        /// The key.
+        key: String,
+    },
+
+    /// The instance conflicts of a merge are not all resolved.
+    #[error("{count} of {total} instance conflicts are unresolved")]
+    UnresolvedInstanceConflicts {
+        /// How many conflicts have no resolution.
+        count: usize,
+        /// How many conflicts the merge has.
+        total: usize,
+    },
+
+    /// Replaying a commit onto another (rebase or cherry-pick) conflicts
+    /// on the instances it changes.
+    #[error("replaying the commit's instances gives {} conflict(s)", conflicts.len())]
+    InstanceConflicts {
+        /// The conflicts, in listing order.
+        conflicts: Vec<crate::instance_merge::InstanceConflict>,
+    },
+
+    /// A forward or backward data migration is refused; the conflict names
+    /// what to repair.
+    #[error("data migration refused: {0}")]
+    Migration(Box<crate::data_mig::MigrationConflict>),
+
+    /// The conflicts of one key are resolved for different sides; a key's
+    /// instance is taken whole from one side.
+    #[error("the conflicts under the key {key:?} are resolved for different sides")]
+    InconsistentInstanceResolution {
+        /// The key.
+        key: String,
     },
 }
 

@@ -22,6 +22,15 @@ pub struct Index {
     /// Protocol definition staged for the next commit.
     #[serde(default)]
     pub staged_protocol: Option<ObjectId>,
+    /// Keys the next commit stops tracking
+    /// ([`Repository::remove_instance`](crate::Repository::remove_instance)).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub staged_removals: Vec<String>,
+    /// Complements the next commit records: those a migration of a tracked
+    /// instance stored
+    /// ([`Repository::migrate_tracked_instance`](crate::Repository::migrate_tracked_instance)).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub staged_complements: Vec<ObjectId>,
 }
 
 /// A data file that has been staged for commit.
@@ -81,7 +90,30 @@ impl Index {
     /// Returns `true` if something is staged.
     #[must_use]
     pub const fn has_staged(&self) -> bool {
-        self.staged.is_some() || !self.staged_data.is_empty() || self.staged_protocol.is_some()
+        self.staged.is_some()
+            || !self.staged_data.is_empty()
+            || self.staged_protocol.is_some()
+            || !self.staged_removals.is_empty()
+    }
+
+    /// Every object the staging area names: the staged schema and its
+    /// migration, each staged data set with its schema, the staged protocol
+    /// and the staged complements. Garbage collection keeps these, since the
+    /// next commit refers to them.
+    #[must_use]
+    pub fn object_ids(&self) -> Vec<ObjectId> {
+        let mut ids = Vec::new();
+        if let Some(staged) = &self.staged {
+            ids.push(staged.schema_id);
+            ids.extend(staged.migration_id);
+        }
+        for data in &self.staged_data {
+            ids.push(data.data_id);
+            ids.push(data.schema_id);
+        }
+        ids.extend(self.staged_protocol);
+        ids.extend(self.staged_complements.iter().copied());
+        ids
     }
 
     /// Clear the staging area.
@@ -89,5 +121,7 @@ impl Index {
         self.staged = None;
         self.staged_data.clear();
         self.staged_protocol = None;
+        self.staged_removals.clear();
+        self.staged_complements.clear();
     }
 }

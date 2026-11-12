@@ -237,6 +237,24 @@ pub trait SegmentStore {
     /// The store's error when it cannot be read.
     fn read(&self, key: &ArtifactKey) -> Result<Option<Vec<u8>>, Self::Error>;
 
+    /// The `len` bytes of a committed artifact starting at byte `offset`, or
+    /// `None` when there is no such artifact or it ends before
+    /// `offset + len`.
+    ///
+    /// A run reads the sections of an artifact it does not hold whole
+    /// through this method, so a store answers it without reading the rest
+    /// of the artifact.
+    ///
+    /// # Errors
+    ///
+    /// The store's error when it cannot be read.
+    fn read_at(
+        &self,
+        key: &ArtifactKey,
+        offset: u64,
+        len: u64,
+    ) -> Result<Option<Vec<u8>>, Self::Error>;
+
     /// Stage an artifact's bytes without making them readable.
     ///
     /// # Errors

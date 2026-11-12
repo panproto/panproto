@@ -132,8 +132,8 @@ fn replay_one<S: BuildHasher>(
     let (lifted_data_ids, lifted_complement_ids) = crate::data_mig::lift_commit_data(
         store,
         &commit,
-        &theirs_schema,
-        &result.merged_schema,
+        (&theirs_schema, &result.merged_schema),
+        &result.migration_from_theirs,
         registered,
     )?;
 
@@ -145,7 +145,24 @@ fn replay_one<S: BuildHasher>(
         &lifted_data_ids,
         &lifted_complement_ids,
         &theirs_schema,
-        &result.merged_schema,
+        registered,
+    )?;
+
+    // Replay the instances the commit changes onto the tip: each changed
+    // key's delta is rebased over the deltas committed since its parent.
+    let replayed = crate::instance_merge::replay_commit_data(
+        store,
+        [&parent_commit, &tip_commit, &commit],
+        &crate::instance_merge::ReplayTarget {
+            tip: current_tip,
+            commit: commit_id,
+            tip_schema: &ours_schema,
+            commit_schema: &theirs_schema,
+            merged: &result.merged_schema,
+            from_tip: &result.migration_from_ours,
+            from_commit: &result.migration_from_theirs,
+        },
+        &lifted_data_ids,
         registered,
     )?;
 
@@ -166,8 +183,11 @@ fn replay_one<S: BuildHasher>(
     )
     .parents(vec![current_tip])
     .migration_id(migration_id);
-    if !lifted_data_ids.is_empty() {
-        builder = builder.data_ids(lifted_data_ids);
+    if !replayed.data_ids.is_empty() {
+        builder = builder.data_ids(replayed.data_ids);
+    }
+    if !replayed.untracked.is_empty() {
+        builder = builder.untracked(replayed.untracked);
     }
     if !lifted_complement_ids.is_empty() {
         builder = builder.complement_ids(lifted_complement_ids);
@@ -341,10 +361,11 @@ mod tests {
         nodes.insert(0_u32, Node::new(0, "a"));
         let inst = WInstance::new(nodes, vec![], vec![], 0, Name::from("a"));
         let ds = crate::object::DataSetObject {
-            schema_id: crate::hash::hash_schema(schema)?,
+            schema_id: crate::tree::store_schema_as_tree(store, schema.clone())?,
             data: rmp_serde::to_vec(&vec![inst])?,
             record_count: 1,
             key: Some(key.to_owned()),
+            encoding: crate::object::PayloadEncoding::TREE,
         };
         store.put(&Object::DataSet(ds))
     }
@@ -428,13 +449,17 @@ mod tests {
         let tgt = make_schema(&[("a", "object"), ("b", "string")]);
         let base = single_record_dataset(&mut store, &src, "rec")?;
         let protocol = registered()["test"].clone();
+        let migration = crate::data_mig::store_migration(
+            &mut store,
+            &src,
+            &tgt,
+            panproto_mig::Migration::identity(&[Name::from("a")], &[]),
+        )?;
         let (replayed, complement) =
-            crate::data_mig::migrate_forward(&mut store, base, &src, &tgt, &protocol)?;
+            crate::data_mig::migrate_forward(&mut store, base, migration, &protocol)?;
 
         // The well-behaved migration reconstructs the base under round-trip.
-        crate::square::verify_square(
-            &mut store, base, replayed, complement, &src, &tgt, &protocol,
-        )?;
+        crate::square::verify_square(&mut store, base, replayed, complement, &protocol)?;
 
         // Comparing the reconstruction against a different data set (two nodes
         // rather than one) diverges, so the square does not commute.
@@ -442,15 +467,15 @@ mod tests {
         nodes.insert(0_u32, Node::new(0, "a"));
         nodes.insert(1_u32, Node::new(1, "a"));
         let inst = WInstance::new(nodes, vec![], vec![], 0, Name::from("a"));
+        let src_tree = crate::tree::store_schema_as_tree(&mut store, src)?;
         let other = store.put(&Object::DataSet(crate::object::DataSetObject {
-            schema_id: crate::hash::hash_schema(&src)?,
+            schema_id: src_tree,
             data: rmp_serde::to_vec(&vec![inst])?,
             record_count: 1,
             key: None,
+            encoding: crate::object::PayloadEncoding::TREE,
         }))?;
-        let err = crate::square::verify_square(
-            &mut store, other, replayed, complement, &src, &tgt, &protocol,
-        );
+        let err = crate::square::verify_square(&mut store, other, replayed, complement, &protocol);
         assert!(
             matches!(err, Err(VcsError::SquareNonCommuting { .. })),
             "expected SquareNonCommuting, got {err:?}"

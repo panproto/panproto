@@ -47,8 +47,10 @@ pub use canonical::{
     canonical_graph_delta_bytes, write_attr_change, write_attr_key, write_attr_val,
 };
 pub use compose::{ComposeError, ElemRef};
+pub(crate) use delta::Payload;
 pub use delta::{
     AttrChange, AttrKey, AttrVal, GraphDelta, GraphDeltaParts, MalformedDelta, NodeMeta,
 };
-pub use independence::EditConflict;
+pub(crate) use independence::rebase_by;
+pub use independence::{EditConflict, RebaseConflict};
 pub use surface::GraphEdit;

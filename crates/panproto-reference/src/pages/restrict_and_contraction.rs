@@ -2104,6 +2104,76 @@ pub mod restrict {
         run.record();
         Ok((run.view, run.c))
     }
+
+    /// The stage 0 fate of one source node.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum NodeFate {
+        /// A fan node, which stage 0 leaves to stage 3.
+        Fan,
+        /// A plain node that does not survive.
+        Dropped,
+        /// A plain node that survives.
+        Kept {
+            /// Its source anchor.
+            source: Name,
+            /// Its view anchor.
+            view: Name,
+            /// Its source anchor when the complement records it: when the
+            /// view anchor does not map back to the source anchor alone.
+            recorded: Option<Name>,
+        },
+    }
+
+    /// Definition: the fate stage 0 of [`get_with_plan`] gives every node of
+    /// `g`, after the fan-domain check.
+    ///
+    /// # Errors
+    ///
+    /// As [`get`] up to and including stage 0: a plan refusal,
+    /// [`RestrictError::MalformedFan`] at the least node outside the fan
+    /// domain, and the first stage 0 refusal in ascending node order.
+    pub fn node_fates(
+        src: &Schema,
+        tgt: &Schema,
+        m: &Migration,
+        vl: &dyn ValueLayer,
+        g: &Graph,
+    ) -> Result<BTreeMap<u32, NodeFate>, RestrictError> {
+        let plan = compile(src, tgt, m).map_err(RestrictError::Plan)?;
+        if let Some((node, reason)) = crate::fan::first_violation(g, None) {
+            return Err(RestrictError::MalformedFan { node, reason });
+        }
+        let mut run = Run {
+            src,
+            tgt,
+            m,
+            plan: &plan,
+            g,
+            view: Graph::default(),
+            c: Complement::default(),
+            pending: Vec::new(),
+        };
+        run.nodes(vl)?;
+        Ok(g.nodes
+            .iter()
+            .map(|(id, n)| {
+                let fate = if is_fan_node(g, *id) {
+                    NodeFate::Fan
+                } else if let Some(v) = run.view.nodes.get(id) {
+                    let recorded = (reverse_anchor(src, m, &v.anchor) != vec![n.anchor.clone()])
+                        .then(|| n.anchor.clone());
+                    NodeFate::Kept {
+                        source: n.anchor.clone(),
+                        view: v.anchor.clone(),
+                        recorded,
+                    }
+                } else {
+                    NodeFate::Dropped
+                };
+                (*id, fate)
+            })
+            .collect())
+    }
 }
 
 /// Independent finite carrier for the tree edit-lens laws.

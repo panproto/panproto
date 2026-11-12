@@ -10,6 +10,7 @@ pub mod bson;
 pub mod cloudformation;
 pub mod edge_lists;
 pub mod edits;
+pub mod instance_version_control;
 pub mod json_schema;
 pub mod kan_extensions;
 pub mod keys_and_registration;

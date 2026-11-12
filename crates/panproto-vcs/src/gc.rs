@@ -1,13 +1,19 @@
 //! Garbage collection: remove unreachable objects.
 //!
-//! Walks all refs (branches, tags, stash) and marks all reachable
-//! objects. Objects not reached from any ref are deleted.
+//! An object is reachable when a path of references leads to it from a
+//! root. The roots are the commit `HEAD` resolves to, the target of every
+//! ref under `refs/` (branches, tags, remote-tracking refs, the stash and
+//! any other namespace), every entry of the stash's reflog (the stash list),
+//! and, for [`Repository::gc`](crate::Repository::gc), every object the
+//! staging index names. [`references`] lists the references of each object
+//! kind. Collection deletes exactly the stored objects no path reaches, so
+//! it never removes an object reachable from a ref.
 
 use std::collections::HashSet;
 
 use crate::error::VcsError;
 use crate::hash::ObjectId;
-use crate::object::Object;
+use crate::object::{Object, SchemaTreeEntry, SchemaTreeObject};
 use crate::store::Store;
 
 /// Options controlling garbage collection behavior.
@@ -22,18 +28,72 @@ pub struct GcOptions {
 pub struct GcReport {
     /// Number of objects marked as reachable.
     pub reachable: usize,
-    /// Object IDs that were deleted.
+    /// Object IDs that were deleted, in ascending order.
     pub deleted: Vec<ObjectId>,
+}
+
+/// The objects `object` refers to by identifier, in field order.
+///
+/// A commit refers to its schema, migration, parents, protocol, data sets,
+/// complements, edit logs, theories and CST complements; a migration to
+/// its source and target schemas; a schema tree to its entries; a tag to
+/// its target; a data set to its schema; a complement to its migration and
+/// data set; an edit log to its schema, data set and final complement; a
+/// CST complement to its data set. Protocols, expressions, theories, theory
+/// morphisms, file schemas and flat schemas refer to nothing.
+#[must_use]
+pub fn references(object: &Object) -> Vec<ObjectId> {
+    match object {
+        Object::Commit(commit) => {
+            let mut out = vec![commit.schema_id];
+            out.extend(commit.migration_id);
+            out.extend(&commit.parents);
+            out.extend(commit.protocol_id);
+            out.extend(&commit.data_ids);
+            out.extend(&commit.complement_ids);
+            out.extend(&commit.edit_log_ids);
+            out.extend(commit.theory_ids.values());
+            out.extend(&commit.cst_complement_ids);
+            out
+        }
+        Object::Migration { src, tgt, .. } => vec![*src, *tgt],
+        Object::SchemaTree(tree) => match tree.as_ref() {
+            SchemaTreeObject::SingleLeaf { file_schema_id } => vec![*file_schema_id],
+            SchemaTreeObject::Directory { .. } => tree
+                .sorted_entries()
+                .into_iter()
+                .map(|(_, entry)| match entry {
+                    SchemaTreeEntry::File(id) | SchemaTreeEntry::Tree(id) => *id,
+                })
+                .collect(),
+        },
+        Object::Tag(tag) => vec![tag.target],
+        Object::DataSet(dataset) => vec![dataset.schema_id],
+        Object::Complement(complement) => vec![complement.migration_id, complement.data_id],
+        Object::EditLog(edit_log) => vec![
+            edit_log.schema_id,
+            edit_log.data_id,
+            edit_log.final_complement,
+        ],
+        Object::CstComplement(cst) => vec![cst.data_id],
+        Object::Protocol(_)
+        | Object::Expr(_)
+        | Object::Theory(_)
+        | Object::TheoryMorphism(_)
+        | Object::FileSchema(_)
+        | Object::FlatSchema(_) => Vec::new(),
+    }
 }
 
 /// Mark all objects reachable from the given roots.
 ///
-/// Follows commit → schema, commit → migration, and commit → parent
-/// links transitively.
+/// Follows [`references`] transitively. An identifier the store does not
+/// hold is marked but not followed.
 ///
 /// # Errors
 ///
-/// Returns an error if loading objects fails.
+/// Returns an error if a stored object cannot be read, so that a
+/// collection never proceeds from an incomplete mark.
 pub fn mark_reachable(
     store: &dyn Store,
     roots: &[ObjectId],
@@ -48,84 +108,14 @@ pub fn mark_reachable(
         if !store.has(&id) {
             continue;
         }
-
-        match store.get(&id)? {
-            Object::Commit(commit) => {
-                queue.push(commit.schema_id);
-                if let Some(mig_id) = commit.migration_id {
-                    queue.push(mig_id);
-                }
-                for parent in commit.parents {
-                    queue.push(parent);
-                }
-                if let Some(protocol_id) = commit.protocol_id {
-                    queue.push(protocol_id);
-                }
-                for data_id in commit.data_ids {
-                    queue.push(data_id);
-                }
-                for complement_id in commit.complement_ids {
-                    queue.push(complement_id);
-                }
-                for edit_log_id in commit.edit_log_ids {
-                    queue.push(edit_log_id);
-                }
-                for (_, theory_id) in commit.theory_ids {
-                    queue.push(theory_id);
-                }
-                for cst_complement_id in commit.cst_complement_ids {
-                    queue.push(cst_complement_id);
-                }
-            }
-            Object::Migration { src, tgt, .. } => {
-                queue.push(src);
-                queue.push(tgt);
-            }
-            Object::Protocol(_)
-            | Object::Expr(_)
-            | Object::Theory(_)
-            | Object::TheoryMorphism(_)
-            | Object::CstComplement(_)
-            | Object::FileSchema(_)
-            | Object::FlatSchema(_) => {}
-            Object::SchemaTree(tree) => match tree.as_ref() {
-                crate::object::SchemaTreeObject::SingleLeaf { file_schema_id } => {
-                    queue.push(*file_schema_id);
-                }
-                crate::object::SchemaTreeObject::Directory { .. } => {
-                    // Route every consumer through `sorted_entries`
-                    // so the invariant that GC observes canonical
-                    // iteration order holds regardless of wire order.
-                    for (_, entry) in tree.sorted_entries() {
-                        match entry {
-                            crate::object::SchemaTreeEntry::File(id)
-                            | crate::object::SchemaTreeEntry::Tree(id) => queue.push(*id),
-                        }
-                    }
-                }
-            },
-            Object::Tag(tag) => {
-                queue.push(tag.target);
-            }
-            Object::DataSet(dataset) => {
-                queue.push(dataset.schema_id);
-            }
-            Object::Complement(complement) => {
-                queue.push(complement.migration_id);
-                queue.push(complement.data_id);
-            }
-            Object::EditLog(edit_log) => {
-                queue.push(edit_log.schema_id);
-                queue.push(edit_log.data_id);
-                queue.push(edit_log.final_complement);
-            }
-        }
+        queue.extend(references(&store.get(&id)?));
     }
 
     Ok(reachable)
 }
 
-/// Collect all ref targets (branches, tags, stash, HEAD).
+/// Collect the roots: `HEAD`, every ref under `refs/`, and every entry of
+/// the stash's reflog.
 ///
 /// # Errors
 ///
@@ -137,18 +127,16 @@ pub fn collect_roots(store: &dyn Store) -> Result<Vec<ObjectId>, VcsError> {
         roots.push(id);
     }
 
-    for (_, id) in store.list_refs("refs/heads/")? {
+    for (_, id) in store.list_refs("refs/")? {
         roots.push(id);
     }
 
-    for (_, id) in store.list_refs("refs/tags/")? {
-        roots.push(id);
+    // Older stash entries are named only by the stash's reflog.
+    for entry in store.read_reflog("refs/stash", None)? {
+        roots.push(entry.new_id);
     }
 
-    if let Some(id) = store.get_ref("refs/stash")? {
-        roots.push(id);
-    }
-
+    roots.sort_unstable();
     roots.dedup();
     Ok(roots)
 }
@@ -159,22 +147,7 @@ pub fn collect_roots(store: &dyn Store) -> Result<Vec<ObjectId>, VcsError> {
 ///
 /// Returns an error on I/O failure.
 pub fn gc(store: &mut dyn Store) -> Result<GcReport, VcsError> {
-    let roots = collect_roots(store)?;
-    let reachable = mark_reachable(store, &roots)?;
-    let all_objects = store.list_objects()?;
-
-    let mut deleted = Vec::new();
-    for id in all_objects {
-        if !reachable.contains(&id) {
-            store.delete_object(&id)?;
-            deleted.push(id);
-        }
-    }
-
-    Ok(GcReport {
-        reachable: reachable.len(),
-        deleted,
-    })
+    gc_with_roots(store, &[], &GcOptions::default())
 }
 
 /// Run garbage collection with options.
@@ -183,21 +156,39 @@ pub fn gc(store: &mut dyn Store) -> Result<GcReport, VcsError> {
 ///
 /// Returns an error on I/O failure.
 pub fn gc_with_options(store: &mut dyn Store, options: &GcOptions) -> Result<GcReport, VcsError> {
-    if options.dry_run {
-        let roots = collect_roots(store)?;
-        let reachable = mark_reachable(store, &roots)?;
-        let all_objects = store.list_objects()?;
-        let deleted: Vec<ObjectId> = all_objects
-            .into_iter()
-            .filter(|id| !reachable.contains(id))
-            .collect();
-        Ok(GcReport {
-            reachable: reachable.len(),
-            deleted,
-        })
-    } else {
-        gc(store)
+    gc_with_roots(store, &[], options)
+}
+
+/// Run garbage collection keeping, besides the roots [`collect_roots`]
+/// finds, everything reachable from `extra_roots`.
+///
+/// # Errors
+///
+/// Returns an error on I/O failure or when a reachable object cannot be
+/// read; nothing is deleted then.
+pub fn gc_with_roots(
+    store: &mut dyn Store,
+    extra_roots: &[ObjectId],
+    options: &GcOptions,
+) -> Result<GcReport, VcsError> {
+    let mut roots = collect_roots(store)?;
+    roots.extend_from_slice(extra_roots);
+    let reachable = mark_reachable(store, &roots)?;
+    let mut deleted: Vec<ObjectId> = store
+        .list_objects()?
+        .into_iter()
+        .filter(|id| !reachable.contains(id))
+        .collect();
+    deleted.sort_unstable();
+    if !options.dry_run {
+        for id in &deleted {
+            store.delete_object(id)?;
+        }
     }
+    Ok(GcReport {
+        reachable: reachable.len(),
+        deleted,
+    })
 }
 
 /// Compute reachability without deleting anything.
@@ -359,8 +350,6 @@ mod tests {
         let commit_id = store.put(&Object::Commit(commit))?;
         store.set_ref("refs/heads/main", commit_id)?;
 
-        // Before the gc fix, theory_ids and cst_complement_ids were
-        // invisible to reachability and their targets were collected.
         let report = gc(&mut store)?;
         assert!(!report.deleted.contains(&theory_id));
         assert!(!report.deleted.contains(&cst_id));
@@ -390,6 +379,7 @@ mod tests {
             data: vec![1, 2, 3],
             record_count: 1,
             key: None,
+            encoding: crate::object::PayloadEncoding::TREE,
         };
         let data_id = store.put(&Object::DataSet(dataset))?;
 
@@ -398,6 +388,7 @@ mod tests {
             migration_id: ObjectId::from_bytes([99; 32]),
             data_id,
             complement: vec![4, 5, 6],
+            encoding: crate::object::PayloadEncoding::TREE,
         };
         let complement_id = store.put(&Object::Complement(complement))?;
 

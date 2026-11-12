@@ -21,17 +21,17 @@
 use std::collections::HashMap;
 use std::hash::BuildHasher;
 
-use panproto_inst::WInstance;
 use panproto_schema::{Protocol, Schema};
 
 use crate::data_mig::migrate_backward;
 use crate::error::VcsError;
 use crate::hash::ObjectId;
 use crate::object::{CommitObject, Object};
+use crate::payload::Instance;
 use crate::store::Store;
 
 /// Run the round-trip check on every data set a replay or cherry-pick lifts
-/// from `commit` through the schema change `src_schema -> tgt_schema`.
+/// from `commit` out of the schema `src_schema`.
 ///
 /// See the module documentation for what the check does and does not
 /// establish about the square it guards.
@@ -53,7 +53,6 @@ pub fn verify_lifted_squares<S: BuildHasher>(
     lifted_data_ids: &[ObjectId],
     lifted_complement_ids: &[ObjectId],
     src_schema: &Schema,
-    tgt_schema: &Schema,
     registered: &HashMap<String, Protocol, S>,
 ) -> Result<(), VcsError> {
     let existing = commit.complement_ids.len();
@@ -75,8 +74,6 @@ pub fn verify_lifted_squares<S: BuildHasher>(
             base_id,
             replayed_id,
             lifted_complement_ids[existing + i],
-            src_schema,
-            tgt_schema,
             &protocol,
         )?;
     }
@@ -87,9 +84,9 @@ pub fn verify_lifted_squares<S: BuildHasher>(
 /// `base`, the round-trip law the vertical arrow of a replayed square owes.
 ///
 /// `base` is the data set before the migration, `replayed` its forward image,
-/// and `complement` the complement the forward migration produced. `src_schema`
-/// and `tgt_schema` are the forward migration's endpoints (the same order as
-/// [`migrate_backward`]).
+/// and `complement` the complement the forward migration produced, which
+/// names the migration ([`migrate_backward`]); `protocol` describes a table
+/// lens's boundaries.
 ///
 /// A failure means the migration loses data the complement did not record, so
 /// no square around it commutes. Success establishes the round-trip law alone;
@@ -106,49 +103,53 @@ pub fn verify_square(
     base: ObjectId,
     replayed: ObjectId,
     complement: ObjectId,
-    src_schema: &Schema,
-    tgt_schema: &Schema,
     protocol: &Protocol,
 ) -> Result<(), VcsError> {
-    let roundtrip = migrate_backward(
-        store, replayed, complement, src_schema, tgt_schema, protocol,
-    )?;
-
-    let base_instances = load_instances(store, base)?;
-    let roundtrip_instances = load_instances(store, roundtrip)?;
-
-    if base_instances.len() != roundtrip_instances.len() {
-        return Err(VcsError::SquareNonCommuting {
-            detail: format!(
-                "data set count changed under round-trip: {} then {}",
-                base_instances.len(),
-                roundtrip_instances.len()
-            ),
-        });
-    }
-
-    for (i, (before, after)) in base_instances.iter().zip(&roundtrip_instances).enumerate() {
-        if !panproto_lens::instances_equivalent(before, after) {
-            return Err(VcsError::SquareNonCommuting {
-                detail: format!("data set {i} diverges from its forward-then-back image"),
-            });
+    let roundtrip = migrate_backward(store, replayed, complement, protocol)?;
+    let before = load_instance(store, base)?;
+    let after = load_instance(store, roundtrip)?;
+    match (&before, &after) {
+        (Instance::Tree(before), Instance::Tree(after)) => {
+            if before.len() != after.len() {
+                return Err(VcsError::SquareNonCommuting {
+                    detail: format!(
+                        "data set count changed under round-trip: {} then {}",
+                        before.len(),
+                        after.len()
+                    ),
+                });
+            }
+            for (i, (before, after)) in before.iter().zip(after).enumerate() {
+                if !panproto_lens::instances_equivalent(before, after) {
+                    return Err(VcsError::SquareNonCommuting {
+                        detail: format!("data set {i} diverges from its forward-then-back image"),
+                    });
+                }
+            }
+            Ok(())
         }
+        (Instance::Table(before), Instance::Table(after)) if before == after => Ok(()),
+        (Instance::Graph(before), Instance::Graph(after))
+            if panproto_inst::GInstance::identical(before, after) =>
+        {
+            Ok(())
+        }
+        _ => Err(VcsError::SquareNonCommuting {
+            detail: format!(
+                "the {} data set diverges from its forward-then-back image",
+                before.shape().name()
+            ),
+        }),
     }
-
-    Ok(())
 }
 
-/// Load a data set object's W-type instances.
-fn load_instances(store: &dyn Store, id: ObjectId) -> Result<Vec<WInstance>, VcsError> {
+/// Load and decode a data set object.
+fn load_instance(store: &dyn Store, id: ObjectId) -> Result<Instance, VcsError> {
     match store.get(&id)? {
-        Object::DataSet(ds) => {
-            rmp_serde::from_slice(&ds.data).map_err(|e| VcsError::DataMigrationFailed {
-                reason: format!("deserialize data set: {e}"),
-            })
-        }
-        other => Err(VcsError::TypeMismatch {
-            expected: "DataSet".into(),
-            got: other.type_name().into(),
+        Object::DataSet(dataset) => dataset.decode(),
+        other => Err(VcsError::WrongObjectType {
+            expected: "dataset",
+            found: other.type_name(),
         }),
     }
 }

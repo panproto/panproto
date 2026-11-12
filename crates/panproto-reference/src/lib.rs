@@ -57,6 +57,9 @@
 //! | Table edit steps: the delta of a surface edit, its stale-checked application and the row-delete delta | [`edit::table_edit_delta`], [`edit::apply_table_step`], [`edit::delete_row_delta`] | `edits.md` |
 //! | Canonical graph, table and tree edit bytes | [`edit::canonical_graph_delta_bytes`], [`edit::canonical_table_delta_bytes`], [`edit::canonical_tree_edit_bytes`] | `edits.md` |
 //! | Edit translation (apply then get against translate then apply) | [`edit::get_edit`], [`edit::put_edit`], [`edit::graph_delta_from_tree_edit`], [`edit::diff_keeping_replacements`] | `edits.md` |
+//! | The graph edit lens: the stable presentation of synthesized ids and the stateful translations of source and view edits | [`edit::stable_presentation`], [`edit::graph_edit_get`], [`edit::graph_edit_put`] | `edits.md` |
+//! | The table edit lens: the closed table differ and the stateful translations of source and view edits | [`edit::diff_keeping_replacements_table`], [`edit::table_edit_get`], [`edit::table_edit_put`] | `edits.md` |
+//! | Rebasing graph and table deltas over committed deltas, with table independence and merge | [`edit::rebase`], [`edit::rebase_table`], [`edit::table_independence`], [`edit::merge_table`] | `edits.md` |
 //! | Validation as predicates over instances | [`validation::validate`], [`validation::validate_table`], [`validation::validate_tree`] | `validation.md` |
 //! | Validation transition and boundary observations | [`validation::witness_with_trust`], [`validation::incremental_footprint`], [`validation::incremental_report`], [`validation::restriction_boundary`] | `validation.md` |
 //! | Admission policies | [`validation::admits`] | `validation.md` |
@@ -68,6 +71,24 @@
 //! | Segment refusal and contract preflights | [`segment::decode_segment_bytes`], [`segment::validate_segment_contract`], [`segment::validation_view_preflight`] | `segments.md` |
 //! | Segment execution as whole-state execution on the glued state | [`segment::segmented`] | `segments.md` |
 //! | Allocation within a range | [`segment::fresh`] | `segments.md` |
+//! | Segmented graph restriction, by whole-state restriction of the glued graph | [`segment::restrict_graph_segmented`] | `segments.md` |
+//! | Segmented graph restriction numbering stably against held complements | [`segment::restrict_graph_segmented_held`] | `segments.md` |
+//! | The segmented graph edit lens, by application to the glued source, stable segmented restriction and the differ of the glued views | [`segment::bind_segmented_edit`], [`segment::segmented_edit_get`], [`segment::segmented_edit_put`] | `segments.md` |
+//! | The checkpointed run of segmented graph restriction, resumed or carrying tasks over from an earlier run | [`segment::segmented_restrict_with_progress`] | `segments.md` |
+//! | Record streams of segments, by frames of the canonical instance records | [`segment::segment_record_stream`] | `segments.md` |
+//! | Manifest record bytes | [`segment::canonical_record_bytes`] | `segments.md` |
+//! | Manifest records of a family, without the seal floor | [`segment::manifest_records`] | `segments.md` |
+//! | Segmented graph put, by whole-state put of the glued view | [`segment::put_graph_segmented`] | `segments.md` |
+//! | The checkpointed run of segmented graph put | [`segment::segmented_put_with_progress`] | `segments.md` |
+//! | Segmented graph extension, by whole-state extension of the glued graph | [`segment::extend_graph_segmented`], [`segment::extend_graph`] | `segments.md` |
+//! | The checkpointed run of segmented graph extension | [`segment::segmented_extend_with_progress`] | `segments.md` |
+//! | Segmented graph edits, by whole-state application of the delta to the glued graph, and the segments they read | [`segment::apply_graph_segmented`], [`segment::read_set`] | `segments.md` |
+//! | The checkpointed run of segmented graph edits | [`segment::segmented_apply_with_progress`], [`segment::apply_facts_bytes`] | `segments.md` |
+//! | Segmented table edits, by whole-state application of the delta to the glued table, and the segments they read | [`segment::apply_table_segmented`], [`segment::table_read_set`] | `segments.md` |
+//! | The checkpointed run of segmented table edits | [`segment::segmented_table_apply_with_progress`], [`segment::table_apply_facts_bytes`] | `segments.md` |
+//! | Segmented tree edits, by whole-state application of the edit to the glued tree, and the segments they read | [`segment::apply_tree_segmented`], [`segment::tree_read_set`] | `segments.md` |
+//! | The checkpointed run of segmented tree edits | [`segment::segmented_tree_apply_with_progress`], [`segment::tree_apply_facts_bytes`] | `segments.md` |
+//! | Graph complement segment bytes and their decoding | [`segment::canonical_complement_segment_bytes`], [`segment::decode_complement_segment_bytes`] | `segments.md` |
 //! | Signature type checking | [`theory::typecheck_signature`] | `theories.md` |
 //! | Theory colimits | [`theory::compose`] | `theories.md` |
 //! | `L_b`: round to nearest, ties to even, at widths 16, 32 and 64 | [`float::round_to`] | `values.md` |
@@ -133,6 +154,7 @@
 //! | The per-element three-way schema merge, well-formedness, the merge rendering and conflict order, the selected migration's surviving identity and the repository format marker | [`pages::schema_merge::merge`], [`pages::schema_merge::Schema::well_formed`], [`pages::schema_merge::render`], [`pages::schema_merge::Conflict::order_key`], [`pages::schema_merge::Conflict::swapped`], [`pages::schema_merge::surviving_identity`], [`pages::schema_merge::may_rename`], [`pages::schema_merge::repository_format`] | `schema-merge.md` |
 //! | Theory DSL document grammar, elaboration, morphism, protocol and composition documents and refusal location | [`pages::theory_dsl::check_document`], [`pages::theory_dsl::elaborate`], [`pages::theory_dsl::compile_morphism`], [`pages::theory_dsl::compile_protocol`], [`pages::theory_dsl::compile_composition`], [`pages::theory_dsl::compile_document`], [`pages::theory_dsl::locate`] | `theory-dsl.md` |
 //! | Lens DSL document grammar, compilation of steps and rules, vertical and horizontal composition, and refusal location | [`pages::lens_dsl::check_document`], [`pages::lens_dsl::step_stages`], [`pages::lens_dsl::compile_document`], [`pages::lens_dsl::rules_stages`], [`pages::lens_dsl::vertical`], [`pages::lens_dsl::horizontal`], [`dsl_path::locate`] | `lens-dsl.md` |
+//! | Payload decoding outcomes, the recorded payload encoding, the roots, references, reachable objects and garbage of a repository, the instances a commit tracks, the deltas between instances, the three-way merge of tracked instances, their rebase, the refusal order and stored objects of a data migration, the merge of versions migrated to the merged schema, and the migration path first-parent history records | [`pages::instance_version_control::payload_outcome`], [`pages::instance_version_control::recorded_encoding`], [`pages::instance_version_control::writes_encoding_field`], [`pages::instance_version_control::Repository::roots`], [`pages::instance_version_control::Object::links`], [`pages::instance_version_control::Repository::reachable`], [`pages::instance_version_control::Repository::garbage`], [`pages::instance_version_control::tracked`], [`pages::instance_version_control::diff_instances`], [`pages::instance_version_control::apply_delta`], [`pages::instance_version_control::diff_tracked`], [`pages::instance_version_control::normalized`], [`pages::instance_version_control::merge_tracked`], [`pages::instance_version_control::merge_instances`], [`pages::instance_version_control::rebase_instances`], [`pages::instance_version_control::migration_outcome`], [`pages::instance_version_control::forward_objects`], [`pages::instance_version_control::merge_tracked_to`], [`pages::instance_version_control::migrate_and_combine`], [`pages::instance_version_control::merge_path`], [`pages::instance_version_control::migration_path`] | `instance-version-control.md` |
 //!
 //! [`enumerate`] holds the exhaustive small-scope enumerators (labelled,
 //! with no pruning of isomorphic copies, each with an independent count),

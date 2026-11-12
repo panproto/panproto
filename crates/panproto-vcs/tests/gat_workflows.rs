@@ -273,6 +273,8 @@ fn commit_blocked_by_equation_violation_then_skip_verify() -> Result<(), Box<dyn
         }),
         staged_data: vec![],
         staged_protocol: None,
+        staged_removals: Vec::new(),
+        staged_complements: Vec::new(),
     };
 
     // Write the index by serializing to JSON at the expected location.

@@ -36,7 +36,25 @@
 #     `coerce_value_agrees_with_the_reference_over_the_values_scope` (the whole
 #     values scope), and `lens_laws_agree_with_the_reference_exhaustively` and
 #     `lens_path_law_certificate` (the bounded lens carrier and every path
-#     over it). Each passed 600 s without finishing. They run in the
+#     over it). Each passed 600 s without finishing. Beside them runs
+#     `graph_edit_lens_law_certificate`, which translates every one-letter
+#     get and put edit of every base of the bounded lens graph carrier
+#     through the graph edit lens and the reference, and is sharded like the
+#     lens law sweep; its two-node slice stays in this profile. Beside it runs
+#     `segmented_graph_put_agrees_with_the_reference_and_assembles_to_whole_state_put`,
+#     which puts every edit of the segmented view of every 97th case of the
+#     segmented restriction carrier back segment by segment (114 s
+#     unoptimised), sharded four ways; its every-eighth-case slice stays in
+#     this profile. Beside it runs
+#     `segmented_graph_put_run_matches_the_reference_runner_at_every_cancellation_point`,
+#     which puts the same views back as checkpointed runs from every
+#     cancellation point against the reference runner (296 s per shard
+#     unoptimised), sharded four ways; its every-64th-case slice stays in
+#     this profile. Beside it runs
+#     `segmented_apply_agrees_with_the_reference_on_every_case_of_the_carrier`,
+#     which applies every delta of the segmented graph edit carrier to every
+#     family of it (958,740 cases, about 240 s unoptimised), sharded two
+#     ways; its every-97th-case slice stays in this profile. They run in the
 #     `exhaustive-reference` job of the `corpus-gate` workflow, nightly and on
 #     demand; dispatch it before tagging a release. That job splits
 #     `lens_laws_agree_with_the_reference_exhaustively` into twelve shards
@@ -67,7 +85,7 @@
 [profile.ci]
 # Report every failing test in one run rather than stopping at the first.
 fail-fast = false
-default-filter = 'not test(/corpus_verified_protocols_round_trip_full_corpus|strip_complement_canonical_section_is_structurally_faithful|long_tail_emit_is_verified|every_enumerable_lexicon_pair_agrees_with_exhaustive_enumeration|every_corpus_pair_yields_the_same_span_in_every_process|exhaustive_kan_executes_every_representative_profile_pair|exhaustive_kan_every_labelled_member_has_checked_operation_transports|exhaustive_kan_hom_profile_pairs_agree_with_the_reference|graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope|graph_independence_and_merge_match_reference_on_every_letter_pair_of_the_coverage_scope|table_edits_match_reference_on_every_word_of_the_coverage_scope|tree_edits_and_lowering_match_reference_on_every_word_of_the_coverage_scope|composition_agrees_with_the_reference_on_every_discrete_pair|nearest_reading_coercion_agrees_with_the_reference|coerce_value_agrees_with_the_reference_over_the_values_scope|lens_laws_agree_with_the_reference_exhaustively|lens_path_law_certificate|a_bounded_search_answers_or_names_its_bound_on_every_bounded_pair/)'
+default-filter = 'not test(/corpus_verified_protocols_round_trip_full_corpus|strip_complement_canonical_section_is_structurally_faithful|long_tail_emit_is_verified|every_enumerable_lexicon_pair_agrees_with_exhaustive_enumeration|every_corpus_pair_yields_the_same_span_in_every_process|exhaustive_kan_executes_every_representative_profile_pair|exhaustive_kan_every_labelled_member_has_checked_operation_transports|exhaustive_kan_hom_profile_pairs_agree_with_the_reference|graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope|graph_independence_and_merge_match_reference_on_every_letter_pair_of_the_coverage_scope|graph_rebase_keeps_independent_deltas_and_agrees_with_the_merge_on_the_rebase_scope|table_rebase_keeps_independent_deltas_and_agrees_with_the_merge_on_the_rebase_scope|table_edits_match_reference_on_every_word_of_the_coverage_scope|tree_edits_and_lowering_match_reference_on_every_word_of_the_coverage_scope|composition_agrees_with_the_reference_on_every_discrete_pair|nearest_reading_coercion_agrees_with_the_reference|coerce_value_agrees_with_the_reference_over_the_values_scope|lens_laws_agree_with_the_reference_exhaustively|lens_path_law_certificate|graph_edit_lens_law_certificate|segmented_graph_put_agrees_with_the_reference_and_assembles_to_whole_state_put|segmented_graph_put_run_matches_the_reference_runner_at_every_cancellation_point|segmented_apply_agrees_with_the_reference_on_every_case_of_the_carrier|a_bounded_search_answers_or_names_its_bound_on_every_bounded_pair/)'
 
 # Kill a test that runs away instead of letting it hold the suite open.
 #

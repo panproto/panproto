@@ -313,26 +313,63 @@ fn duplicate_edge_ids_in_two_segments_are_rejected_at_seal() -> TestResult {
     Ok(())
 }
 
-#[test]
-fn an_allocation_range_below_the_global_max_edge_is_rejected_at_seal() -> TestResult {
-    // Edge ids reach 5; segment 1 allocates edges from 5 up.
+/// Seal the ring under node ranges `[0, 2)`, `[2, 4)` and `[4, 6)` with the
+/// given edge allocation ranges, one per segment.
+fn seal_ring_with_edge_ranges(
+    ranges: [Option<(u32, u32)>; 3],
+) -> Result<Result<SegmentManifest, SegmentError>, SegmentError> {
     let whole = Partition::by_node_ranges(InstanceShapeKind::Graph, &[2, 4], 0, 6)?;
     let mut specs = whole.specs().to_vec();
-    specs[1].alloc_edges = Some(crate::segment::IdRange { lo: 5, hi: 9 });
+    for (spec, range) in specs.iter_mut().zip(ranges) {
+        spec.alloc_edges = range.map(|(lo, hi)| crate::segment::IdRange { lo, hi });
+    }
     let partition = Partition::new(InstanceShapeKind::Graph, specs);
     let parts = segments(&ring(), &partition)?;
+    Ok(seal(
+        records(&parts, &partition, &Digest([5; 32])),
+        header(None),
+        runs(&parts),
+    ))
+}
+
+#[test]
+fn an_edge_id_at_or_above_the_floor_outside_its_holders_range_is_rejected_at_seal() -> TestResult {
+    // The ring's edge ids are 0 to 5; edge `i` leaves node `i`, so edges 4
+    // and 5 are held by segment 2. Segment 1 allocates edges from 5 up, and
+    // edge 5 lies in its range.
     assert_eq!(
-        seal(
-            records(&parts, &partition, &Digest([5; 32])),
-            header(None),
-            runs(&parts)
-        )
-        .err(),
-        Some(SegmentError::AllocationBelowFloor {
-            segment: SegmentId(1),
+        seal_ring_with_edge_ranges([None, Some((5, 9)), Some((10, 19))])?.err(),
+        Some(SegmentError::EdgeIdOutsideAllocation {
+            edge: EdgeId(5),
+            segment: SegmentId(2)
+        })
+    );
+    // With the floor at 4, edge 4 is the least id refused.
+    assert_eq!(
+        seal_ring_with_edge_ranges([Some((4, 4)), Some((5, 9)), Some((10, 19))])?.err(),
+        Some(SegmentError::EdgeIdOutsideAllocation {
+            edge: EdgeId(4),
+            segment: SegmentId(2)
+        })
+    );
+    // A holder without an edge range holds no id at or above the floor.
+    assert_eq!(
+        seal_ring_with_edge_ranges([None, Some((4, 9)), None])?.err(),
+        Some(SegmentError::NoAllocationRange {
+            segment: SegmentId(2),
             kind: IdKind::Edge
         })
     );
+    Ok(())
+}
+
+#[test]
+fn an_edge_id_inside_its_holders_own_range_seals() -> TestResult {
+    // Edges 4 and 5 lie in segment 2's range, which it alone holds.
+    let sealed = seal_ring_with_edge_ranges([Some((10, 19)), Some((20, 29)), Some((4, 9))])??;
+    assert_eq!(sealed.max_edge(), Some(5));
+    // Every range above every edge id seals as well.
+    assert!(seal_ring_with_edge_ranges([Some((10, 19)), Some((20, 29)), None])?.is_ok());
     Ok(())
 }
 
@@ -353,6 +390,20 @@ impl SegmentStore for CountingStore {
     fn read(&self, key: &ArtifactKey) -> Result<Option<Vec<u8>>, Self::Error> {
         self.reads.set(self.reads.get() + 1);
         Ok(self.held.get(key).cloned())
+    }
+
+    fn read_at(
+        &self,
+        key: &ArtifactKey,
+        offset: u64,
+        len: u64,
+    ) -> Result<Option<Vec<u8>>, Self::Error> {
+        self.reads.set(self.reads.get() + 1);
+        Ok(self.held.get(key).and_then(|bytes| {
+            let start = usize::try_from(offset).ok()?;
+            let end = start.checked_add(usize::try_from(len).ok()?)?;
+            bytes.get(start..end).map(<[u8]>::to_vec)
+        }))
     }
 
     fn stage(&mut self, key: &ArtifactKey, bytes: Vec<u8>) -> Result<(), Self::Error> {

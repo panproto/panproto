@@ -122,6 +122,24 @@ pub enum GlobalReason {
     Query,
     /// A composite whose steps cannot be fused into one segment-wise pass.
     SequentialComposite,
+    /// An expression attached to `vertex` (a survival predicate, a term
+    /// assignment, or a field transform that evaluates an expression) is
+    /// evaluated with the whole instance in scope, so what it reads is not
+    /// bounded by a segment and its boundary.
+    ExpressionDemand {
+        /// The schema vertex the expression is attached to.
+        vertex: Name,
+    },
+    /// A uniqueness or primary key `key` of `vertex` reads more than an
+    /// element, its own fields and the values of its out-edges' targets: a
+    /// position among siblings, a scope found by searching ancestors, or a
+    /// path of more than one edge.
+    KeyDemand {
+        /// The schema vertex the key is declared on.
+        vertex: Name,
+        /// The key's id.
+        key: Name,
+    },
 }
 
 /// An operation a segmented run can be asked to perform.
@@ -148,6 +166,8 @@ pub enum SegmentOp {
     PutEdit,
     /// The instance digest.
     Digest,
+    /// Apply an edit to the instance.
+    Apply,
 }
 
 /// The locality class of each operation of a lens on one instance shape,
@@ -192,7 +212,8 @@ impl LocalityReport {
             SegmentOp::Restrict
             | SegmentOp::Extend
             | SegmentOp::CheckPutDomain
-            | SegmentOp::Digest => Locality::of_clauses(
+            | SegmentOp::Digest
+            | SegmentOp::Apply => Locality::of_clauses(
                 self.reasons
                     .iter()
                     .filter(|(reason_op, _, _)| *reason_op == op)
@@ -247,10 +268,17 @@ mod tests {
             GlobalReason::ClosureWitnessOrder,
             GlobalReason::Query,
             GlobalReason::SequentialComposite,
+            GlobalReason::ExpressionDemand {
+                vertex: "post".into(),
+            },
+            GlobalReason::KeyDemand {
+                vertex: "post".into(),
+                key: "slug".into(),
+            },
         ]
     }
 
-    const ALL_OPS: [SegmentOp; 9] = [
+    const ALL_OPS: [SegmentOp; 10] = [
         SegmentOp::Validate,
         SegmentOp::Restrict,
         SegmentOp::Extend,
@@ -260,6 +288,7 @@ mod tests {
         SegmentOp::GetEdit,
         SegmentOp::PutEdit,
         SegmentOp::Digest,
+        SegmentOp::Apply,
     ];
 
     #[test]
@@ -385,7 +414,7 @@ mod tests {
             Locality::Global(GlobalReason::Query)
         );
         assert_eq!(report.class(SegmentOp::Extend), Locality::Local);
-        assert_eq!(ALL_OPS.len(), 9);
+        assert_eq!(ALL_OPS.len(), 10);
         Ok(())
     }
 }

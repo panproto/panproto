@@ -1205,6 +1205,430 @@ pub const fn table_delta_sequences_count_certificate() -> u64 {
     1 + 11 + 11 * 11 + 11 * 11 * 11
 }
 
+/// The one-letter edits of the graph edit lens carrier at `graph`, a graph
+/// over `schema`, in this order:
+///
+/// 1. each plain node addition at the fresh id (one above the largest id),
+///    one per schema vertex;
+/// 2. for each node, ascending: its deletion with every incident edge, its
+///    bare deletion (refused with `DanglingEdges` when it has an incident
+///    edge), its replacement by an equal node with every incident edge
+///    replaced alike, and, for a plain node, each change of its anchor to
+///    another schema vertex and the toggle of its `field` between absent
+///    and `value`;
+/// 3. for each ordinary schema edge and each ordered pair of plain nodes it
+///    joins by anchor, its addition at the fresh edge id;
+/// 4. for each edge, ascending: its deletion and, for an ordinary edge,
+///    each reconnection (a replacement under its id) to another ordered
+///    pair of plain nodes its label joins;
+/// 5. one stale deletion of the least node, under a payload with a
+///    changed anchor, and, when the schema has an ordinary edge, one
+///    addition of it to a node id the graph does not hold.
+///
+/// Letters 5 always refuse; the others apply exactly when stated.
+///
+/// Book anchors: `L-edits-9`.
+#[must_use]
+pub fn graph_edit_lens_letters(
+    schema: &crate::schema::Schema,
+    graph: &Graph,
+    field: &str,
+    value: &Value,
+) -> Vec<GraphDelta> {
+    let fresh = graph.nodes.keys().next_back().map_or(0, |id| id + 1);
+    let fresh_edge = graph.edges.keys().next_back().map_or(0, |id| id + 1);
+    let mut out = Vec::new();
+    for vertex in schema.vertices.keys() {
+        let mut delta = GraphDelta::identity();
+        delta
+            .add
+            .insert(GElem::Node(fresh), GPayload::Node(Node::new(fresh, vertex)));
+        out.push(delta);
+    }
+    for node in graph.nodes.values() {
+        out.extend(graph_edit_lens_node_letters(
+            schema, graph, node, field, value,
+        ));
+    }
+    out.extend(graph_edit_lens_edge_letters(schema, graph, fresh_edge));
+    if let Some(node) = graph.nodes.values().next() {
+        let mut stale = node.clone();
+        stale.anchor = format!("{}~", node.anchor);
+        let mut delta = GraphDelta::identity();
+        delta
+            .del
+            .insert(GElem::Node(node.id), GPayload::Node(stale));
+        out.push(delta);
+    }
+    if let Some(label) = schema.edges.iter().next() {
+        let mut delta = GraphDelta::identity();
+        delta.add.insert(
+            GElem::Edge(fresh_edge),
+            GPayload::Edge(GEdge {
+                src: fresh,
+                tgt: fresh,
+                label: label.clone(),
+                position: None,
+            }),
+        );
+        out.push(delta);
+    }
+    out
+}
+
+/// The number of letters [`graph_edit_lens_letters`] gives at `graph`.
+///
+/// It is counted from the structure of `schema` and `graph` without
+/// building a letter: one addition per vertex; per node three structural letters, and
+/// per plain node one anchor change per other vertex and one field toggle;
+/// per schema edge one addition per joined ordered pair of plain nodes; per
+/// edge one deletion and, for a schema edge, one reconnection per joined
+/// pair other than its own; and the two refused letters when the graph has
+/// a node and the schema an edge.
+///
+/// Book anchors: `L-edits-9`.
+#[must_use]
+pub fn graph_edit_lens_letter_count(schema: &crate::schema::Schema, graph: &Graph) -> usize {
+    let plain: Vec<&Node> = graph
+        .nodes
+        .values()
+        .filter(|node| node.shape != NodeShape::HyperEdge)
+        .collect();
+    let anchored = |vertex: &str| plain.iter().filter(|node| node.anchor == vertex).count();
+    let joined = |label: &SEdge| anchored(&label.src) * anchored(&label.tgt);
+    let mut count = schema.vertices.len() + 3 * graph.nodes.len();
+    for node in &plain {
+        let others =
+            schema.vertices.len() - usize::from(schema.vertices.contains_key(&node.anchor));
+        count += others + 1;
+    }
+    count += schema.edges.iter().map(joined).sum::<usize>();
+    for edge in graph.edges.values() {
+        count += 1;
+        if schema.edges.contains(&edge.label) {
+            let own = [edge.src, edge.tgt]
+                .iter()
+                .all(|id| plain.iter().any(|node| node.id == *id))
+                && graph.nodes[&edge.src].anchor == edge.label.src
+                && graph.nodes[&edge.tgt].anchor == edge.label.tgt;
+            count += joined(&edge.label) - usize::from(own);
+        }
+    }
+    count + usize::from(!graph.nodes.is_empty()) + usize::from(!schema.edges.is_empty())
+}
+
+/// The letters of [`graph_edit_lens_letters`] that name the node `node`:
+/// its cascading deletion, its bare deletion, its replacement, and for a
+/// plain node its anchor changes and the toggle of `field`.
+fn graph_edit_lens_node_letters(
+    schema: &crate::schema::Schema,
+    graph: &Graph,
+    node: &Node,
+    field: &str,
+    value: &Value,
+) -> Vec<GraphDelta> {
+    let id = node.id;
+    let mut cascade = GraphDelta::identity();
+    cascade
+        .del
+        .insert(GElem::Node(id), GPayload::Node(node.clone()));
+    for (edge_id, edge) in graph
+        .edges
+        .iter()
+        .filter(|(_, edge)| edge.src == id || edge.tgt == id)
+    {
+        cascade
+            .del
+            .insert(GElem::Edge(*edge_id), GPayload::Edge(edge.clone()));
+    }
+    let mut replacement = cascade.clone();
+    replacement.add = replacement.del.clone();
+    let mut bare = GraphDelta::identity();
+    bare.del
+        .insert(GElem::Node(id), GPayload::Node(node.clone()));
+    let mut out = vec![cascade, bare, replacement];
+    if node.shape == NodeShape::HyperEdge {
+        return out;
+    }
+    for vertex in schema.vertices.keys().filter(|v| **v != node.anchor) {
+        let mut delta = GraphDelta::identity();
+        delta.attrs.insert(
+            AttrKey::Anchor(id),
+            (
+                AttrVal::Anchor(node.anchor.clone()),
+                AttrVal::Anchor(vertex.clone()),
+            ),
+        );
+        out.push(delta);
+    }
+    let old = node.fields.get(field).cloned();
+    let new = if old.is_some() {
+        None
+    } else {
+        Some(value.clone())
+    };
+    let mut delta = GraphDelta::identity();
+    delta.attrs.insert(
+        AttrKey::Field(id, field.to_owned()),
+        (AttrVal::Field(old), AttrVal::Field(new)),
+    );
+    out.push(delta);
+    out
+}
+
+/// The letters of [`graph_edit_lens_letters`] that add an ordinary edge at
+/// `fresh_edge`, delete an edge, or reconnect an ordinary edge.
+fn graph_edit_lens_edge_letters(
+    schema: &crate::schema::Schema,
+    graph: &Graph,
+    fresh_edge: u32,
+) -> Vec<GraphDelta> {
+    let plain = |node: &&Node| node.shape != NodeShape::HyperEdge;
+    let joins = |label: &SEdge| {
+        let mut pairs = Vec::new();
+        for src in graph
+            .nodes
+            .values()
+            .filter(plain)
+            .filter(|n| n.anchor == label.src)
+        {
+            for tgt in graph
+                .nodes
+                .values()
+                .filter(plain)
+                .filter(|n| n.anchor == label.tgt)
+            {
+                pairs.push((src.id, tgt.id));
+            }
+        }
+        pairs
+    };
+    let mut out = Vec::new();
+    for label in &schema.edges {
+        for (src, tgt) in joins(label) {
+            let mut delta = GraphDelta::identity();
+            delta.add.insert(
+                GElem::Edge(fresh_edge),
+                GPayload::Edge(GEdge {
+                    src,
+                    tgt,
+                    label: label.clone(),
+                    position: None,
+                }),
+            );
+            out.push(delta);
+        }
+    }
+    for (id, edge) in &graph.edges {
+        let mut delta = GraphDelta::identity();
+        delta
+            .del
+            .insert(GElem::Edge(*id), GPayload::Edge(edge.clone()));
+        out.push(delta);
+        if !schema.edges.contains(&edge.label) {
+            continue;
+        }
+        for (src, tgt) in joins(&edge.label) {
+            if (src, tgt) == (edge.src, edge.tgt) {
+                continue;
+            }
+            let mut delta = GraphDelta::identity();
+            delta
+                .del
+                .insert(GElem::Edge(*id), GPayload::Edge(edge.clone()));
+            delta.add.insert(
+                GElem::Edge(*id),
+                GPayload::Edge(GEdge {
+                    src,
+                    tgt,
+                    ..edge.clone()
+                }),
+            );
+            out.push(delta);
+        }
+    }
+    out
+}
+
+/// The tables, columns, relations and cell values a table edit lens letter
+/// may name.
+#[derive(Clone, Copy, Debug)]
+pub struct TableLetterSchema<'a> {
+    /// Each table with its columns.
+    pub tables: &'a [(&'a str, &'a [&'a str])],
+    /// The relations, each a foreign key from one table to another.
+    pub relations: &'a [SEdge],
+    /// The cell values, in the order a cell cycles through them.
+    pub values: &'a [Value],
+}
+
+impl TableLetterSchema<'_> {
+    fn columns(&self, table: &str) -> &[&str] {
+        self.tables
+            .iter()
+            .find(|(name, _)| *name == table)
+            .map_or(&[], |(_, columns)| columns)
+    }
+
+    /// The value after `value` in the cycle absent, `values[0]`, ...,
+    /// absent.
+    fn next(&self, value: Option<&Value>) -> Option<Value> {
+        match value {
+            None => self.values.first().cloned(),
+            Some(value) => {
+                let at = self.values.iter().position(|v| v == value)?;
+                self.values.get(at + 1).cloned()
+            }
+        }
+    }
+}
+
+/// The one-letter edits of the table edit lens carrier at `table`, in this
+/// order:
+///
+/// 1. each row addition, without cells, at the fresh id (one above the
+///    largest row id), one per table of `schema`;
+/// 2. for each row, ascending: its deletion with every incident pair, its
+///    bare deletion (refused when it has an incident pair), its
+///    replacement by an equal row with every incident pair replaced alike,
+///    and one cell change per column of its table, to the next value of the
+///    cycle absent, `values[0]`, ..., absent;
+/// 3. for each relation and each pair of rows of its two tables it does
+///    not join, the addition of that pair;
+/// 4. each pair's deletion;
+/// 5. one stale deletion of the least row, under another table name, and,
+///    when `schema` has a relation, one addition of it between two rows the
+///    table does not hold.
+///
+/// Letters 5 always refuse; the others apply exactly when stated.
+///
+/// Book anchors: `L-edits-10`.
+#[must_use]
+pub fn table_edit_lens_letters(
+    schema: TableLetterSchema<'_>,
+    table: &crate::model::Table,
+) -> Vec<TableDelta> {
+    let fresh = table.rows.keys().next_back().map_or(0, |id| id + 1);
+    let mut out = Vec::new();
+    for (name, _) in schema.tables {
+        let mut delta = TableDelta::identity();
+        delta.add.insert(
+            TElem::Row(fresh),
+            TPayload::Row((*name).to_owned(), BTreeMap::new()),
+        );
+        out.push(delta);
+    }
+    for (id, (name, cells)) in &table.rows {
+        let mut cascade = TableDelta::identity();
+        cascade
+            .del
+            .insert(TElem::Row(*id), TPayload::Row(name.clone(), cells.clone()));
+        for (edge, src, tgt) in &table.pairs {
+            if src == id || tgt == id {
+                cascade
+                    .del
+                    .insert(TElem::Pair(edge.clone(), *src, *tgt), TPayload::Pair);
+            }
+        }
+        let mut replacement = cascade.clone();
+        replacement.add = replacement.del.clone();
+        let mut bare = TableDelta::identity();
+        bare.del
+            .insert(TElem::Row(*id), TPayload::Row(name.clone(), cells.clone()));
+        out.extend([cascade, bare, replacement]);
+        for column in schema.columns(name) {
+            let old = cells.get(*column);
+            let mut delta = TableDelta::identity();
+            delta.attrs.insert(
+                TKey::Cell(*id, (*column).to_owned()),
+                (TVal::Cell(old.cloned()), TVal::Cell(schema.next(old))),
+            );
+            out.push(delta);
+        }
+    }
+    for relation in schema.relations {
+        for (src, (src_table, _)) in &table.rows {
+            for (tgt, (tgt_table, _)) in &table.rows {
+                if *src_table != relation.src
+                    || *tgt_table != relation.tgt
+                    || table.pairs.contains(&(relation.clone(), *src, *tgt))
+                {
+                    continue;
+                }
+                let mut delta = TableDelta::identity();
+                delta
+                    .add
+                    .insert(TElem::Pair(relation.clone(), *src, *tgt), TPayload::Pair);
+                out.push(delta);
+            }
+        }
+    }
+    for (edge, src, tgt) in &table.pairs {
+        let mut delta = TableDelta::identity();
+        delta
+            .del
+            .insert(TElem::Pair(edge.clone(), *src, *tgt), TPayload::Pair);
+        out.push(delta);
+    }
+    if let Some((id, (name, cells))) = table.rows.iter().next() {
+        let mut delta = TableDelta::identity();
+        delta.del.insert(
+            TElem::Row(*id),
+            TPayload::Row(format!("{name}~"), cells.clone()),
+        );
+        out.push(delta);
+    }
+    if let Some(relation) = schema.relations.first() {
+        let mut delta = TableDelta::identity();
+        delta.add.insert(
+            TElem::Pair(relation.clone(), fresh, fresh + 1),
+            TPayload::Pair,
+        );
+        out.push(delta);
+    }
+    out
+}
+
+/// The number of letters [`table_edit_lens_letters`] gives at `table`.
+///
+/// It is counted from the structure of `schema` and `table` without
+/// building a letter: one addition per table; per row three structural
+/// letters and one cell change per column of its table; per relation one
+/// addition per pair of rows of its two tables it does not join; one
+/// deletion per pair; and the refused letters when the table has a row and
+/// the schema a relation.
+///
+/// Book anchors: `L-edits-10`.
+#[must_use]
+pub fn table_edit_lens_letter_count(
+    schema: TableLetterSchema<'_>,
+    table: &crate::model::Table,
+) -> usize {
+    let rows_of = |name: &str| table.rows.values().filter(|(t, _)| t == name).count();
+    let mut count = schema.tables.len() + 3 * table.rows.len();
+    count += table
+        .rows
+        .values()
+        .map(|(name, _)| schema.columns(name).len())
+        .sum::<usize>();
+    for relation in schema.relations {
+        let joined = table
+            .pairs
+            .iter()
+            .filter(|(edge, src, tgt)| {
+                edge == relation
+                    && table.rows.get(src).is_some_and(|(t, _)| *t == relation.src)
+                    && table.rows.get(tgt).is_some_and(|(t, _)| *t == relation.tgt)
+            })
+            .count();
+        count += rows_of(&relation.src) * rows_of(&relation.tgt) - joined;
+    }
+    count
+        + table.pairs.len()
+        + usize::from(!table.rows.is_empty())
+        + usize::from(!schema.relations.is_empty())
+}
+
 /// The direction in which a named edit-translation carrier case runs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EditTranslationDirection {

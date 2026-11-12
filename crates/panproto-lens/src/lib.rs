@@ -46,6 +46,7 @@ pub mod edit_provenance;
 pub mod enrichment_registry;
 pub mod error;
 pub mod fibration;
+pub mod graph_edit_lens;
 pub mod graph_lens;
 pub mod graph_protolens;
 pub mod graph_symmetric;
@@ -59,8 +60,11 @@ pub mod lens_shape;
 pub mod optic;
 pub mod protolens;
 pub mod protolens_nat;
+pub mod segmented_edit_lens;
+pub mod shape_edit_lens;
 pub mod symbolic;
 pub mod symmetric;
+pub mod table_edit_lens;
 pub mod table_lens;
 pub mod table_protolens;
 pub mod table_shape;
@@ -97,6 +101,7 @@ pub use edit_lens::EditLens;
 pub use edit_pipeline::EditPipeline;
 pub use edit_provenance::EditProvenance;
 pub use error::{LawViolation, LensError, NotTableComplementReason, NotTreeComplementReason};
+pub use graph_edit_lens::{GraphEditLens, GraphEditStep, GraphHeld, GraphStaged};
 pub use graph_lens::{
     AlignError, Aligner, Alignment, GraphComposite, GraphCompositeComplement, IdAligner,
     SequentialGraphLens,
@@ -127,11 +132,19 @@ pub use protolens::{
 pub use protolens_nat::{
     ProtolensNaturalitySquare, check_protolens_naturality, protolens_naturality_square,
 };
+pub use segmented_edit_lens::{
+    FamilyReadError, SegmentedGraph, SegmentedGraphEditLens, SegmentedGraphHeld,
+    SegmentedGraphShape, SegmentedGraphStaged,
+};
+pub use shape_edit_lens::{
+    EditDirection, EditShape, ShapeEditError, ShapeEditLens, ShapeEditStep, WholeStateShape,
+};
 pub use symbolic::{
     SymbolicStep, cancels_to_identity, elementary_get_steps, proves_get_put, proves_put_get,
     simplify_steps,
 };
 pub use symmetric::{CoherenceViolation, SymmetricLens};
+pub use table_edit_lens::{TableEditLens, TableEditStep, TableHeld, TableStaged};
 pub use table_protolens::AppliedTableProtolens;
 pub use table_shape::{TableContext, TableShape};
 pub use table_symmetric::TableSymmetricContext;

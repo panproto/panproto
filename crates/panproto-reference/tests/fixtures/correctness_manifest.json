@@ -3996,6 +3996,154 @@
               "test": "randomized_whole_state_edit_translation_differential"
             }
           ]
+        },
+        {
+          "id": "edits.graph-edit-lens",
+          "anchor": "L-edits-9",
+          "references": [
+            "panproto_reference::edit::stable_presentation",
+            "panproto_reference::edit::graph_edit_get",
+            "panproto_reference::edit::graph_edit_put"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "graph_edit_lens_law_certificate"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "graph_edit_lens_agrees_with_the_reference_on_every_two_node_base"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "graph_edit_lens_letter_census_is_the_closed_form_over_the_carrier"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::a_graph_edit_lens_translates_like_whole_state_get",
+              "test": "an_unrelated_contracted_edge_keeps_its_id_when_whole_state_get_would_renumber_it"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::a_graph_edit_lens_translates_like_whole_state_get",
+              "test": "an_edit_outside_the_get_domain_is_refused_like_whole_state_get"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::a_graph_edit_lens_translates_like_whole_state_get",
+              "test": "a_batch_is_admitted_whole_or_not_at_all"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::a_graph_edit_lens_translates_like_whole_state_get",
+              "test": "a_lens_with_a_survival_predicate_translates_over_the_whole_source"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "randomized_graph_edit_lens_differential"
+            }
+          ]
+        },
+        {
+          "id": "edits.table-edit-lens",
+          "anchor": "L-edits-10",
+          "references": [
+            "panproto_reference::edit::diff_keeping_replacements_table",
+            "panproto_reference::edit::table_edit_get",
+            "panproto_reference::edit::table_edit_put"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_table_square_relational",
+              "test": "table_edit_lens_agrees_with_the_reference_on_the_relational_carrier"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_table_square_relational",
+              "test": "graph_and_table_edit_lenses_commute_on_the_relational_carrier"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_table_square_relational",
+              "test": "table_edit_lens_letter_census_is_the_closed_form_over_the_relational_carrier"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_table_square_relational",
+              "test": "randomized_table_edit_lens_differential"
+            }
+          ]
+        },
+        {
+          "id": "edits.rebase",
+          "anchor": "L-edits-11",
+          "references": [
+            "panproto_reference::edit::rebase",
+            "panproto_reference::edit::rebase_table",
+            "panproto_reference::edit::table_independence",
+            "panproto_reference::edit::merge_table"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "graph_rebase_keeps_independent_deltas_and_agrees_with_the_merge_on_the_rebase_scope"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "table_rebase_keeps_independent_deltas_and_agrees_with_the_merge_on_the_rebase_scope"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "graph_rebase_keeps_independent_deltas_and_agrees_with_the_merge_on_every_13th_state"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "table_rebase_keeps_independent_deltas_and_agrees_with_the_merge_on_every_13th_state"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "segmented_apply::a_retry_after_the_manifest_changes_is_a_fresh_run_that_reuses_no_task"
+            },
+            {
+              "role": "production",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "segmented_apply::a_stale_delta_is_refused_by_the_facts_check_with_the_whole_state_refusal"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "randomized_graph_rebase_differential"
+            }
+          ]
         }
       ]
     },
@@ -4930,6 +5078,530 @@
               "crate": "panproto-inst",
               "binary": "panproto-inst::reference_segments",
               "test": "randomized::append_floor_matches_the_reference_on_generated_small_carriers"
+            }
+          ]
+        },
+        {
+          "id": "segments.segmented-restrict",
+          "anchor": "L-segments-11",
+          "references": [
+            "panproto_reference::segment::restrict_graph_segmented"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "segmented::segmented_restrict_agrees_with_the_reference_and_assembles_to_whole_state_restrict"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "segmented_randomized::segmented_restrict_matches_the_reference_on_generated_partitions"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "segmented::a_segmented_restrict_of_a_segmented_view_agrees_with_the_reference_and_assembles_to_whole_state_restrict"
+            }
+          ]
+        },
+        {
+          "id": "segments.checkpointed-restrict",
+          "anchor": "L-segments-12",
+          "references": [
+            "panproto_reference::segment::segmented_restrict_with_progress"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "segmented_runner::a_checkpointed_restrict_run_matches_the_reference_runner_at_every_cancellation_point"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "segmented_randomized::a_checkpointed_restrict_run_matches_the_reference_runner_on_generated_partitions"
+            }
+          ]
+        },
+        {
+          "id": "segments.record-frames",
+          "anchor": "L-segments-13",
+          "references": [
+            "panproto_reference::segment::segment_record_stream",
+            "panproto_reference::segment::canonical_record_bytes",
+            "panproto_reference::segment::manifest_records"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_segments",
+              "test": "bounded_graph_and_fan_tree_partitions_glue_and_agree_exhaustively"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_segments",
+              "test": "graph_table_and_tree_artifacts_match_the_reference_exactly"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_segments",
+              "test": "randomized::boundary_cut_matches_the_reference_on_generated_shape_choices"
+            }
+          ]
+        },
+        {
+          "id": "segments.complement-decode",
+          "anchor": "L-segments-14",
+          "references": [
+            "panproto_reference::segment::canonical_complement_segment_bytes",
+            "panproto_reference::segment::decode_complement_segment_bytes"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "segmented::a_complement_segment_decodes_from_its_canonical_bytes_as_the_reference_decodes_them"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "segmented_randomized::complement_segments_decode_as_the_reference_decodes_them_on_generated_partitions"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "segmented::a_complement_segment_with_every_entry_kind_decodes_and_malformed_tags_are_refused"
+            }
+          ]
+        },
+        {
+          "id": "segments.segmented-graph-get",
+          "anchor": "L-segments-15",
+          "references": [
+            "panproto_reference::segment::restrict_graph_segmented"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "segmented_graph_get::segmented_graph_get_assembles_to_whole_state_get_and_resumes_from_every_cancellation_point"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "segmented_graph_get::segmented_graph_get_matches_the_reference_and_resumes_on_generated_partitions"
+            }
+          ]
+        },
+        {
+          "id": "segments.segmented-graph-put",
+          "anchor": "L-segments-16",
+          "references": [
+            "panproto_reference::segment::put_graph_segmented"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "segmented_graph_put::segmented_graph_put_agrees_with_the_reference_and_assembles_to_whole_state_put"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "segmented_graph_put::segmented_graph_put_slice_agrees_with_the_reference_on_every_eighth_case"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "segmented_graph_put::segmented_graph_put_matches_the_reference_on_generated_partitions"
+            }
+          ]
+        },
+        {
+          "id": "segments.checkpointed-put",
+          "anchor": "L-segments-17",
+          "references": [
+            "panproto_reference::segment::segmented_put_with_progress"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "segmented_graph_put_run::segmented_graph_put_run_matches_the_reference_runner_at_every_cancellation_point"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "segmented_graph_put_run::segmented_graph_put_run_slice_matches_the_reference_runner"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "segmented_graph_put_run::segmented_graph_put_run_matches_the_reference_runner_on_generated_partitions"
+            }
+          ]
+        },
+        {
+          "id": "segments.segmented-graph-extend",
+          "anchor": "L-segments-18",
+          "references": [
+            "panproto_reference::segment::extend_graph_segmented",
+            "panproto_reference::segment::extend_graph"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "segmented_extend::segmented_extend_agrees_with_the_reference_and_assembles_to_whole_state_extend"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "segmented_extend::segmented_extend_agrees_with_the_reference_on_generated_partitions"
+            }
+          ]
+        },
+        {
+          "id": "segments.checkpointed-extend",
+          "anchor": "L-segments-19",
+          "references": [
+            "panproto_reference::segment::segmented_extend_with_progress"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "segmented_extend_run::segmented_extend_run_matches_the_reference_runner_at_every_cancellation_point"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "segmented_extend_run::segmented_extend_run_matches_the_reference_runner_on_generated_partitions"
+            }
+          ]
+        },
+        {
+          "id": "segments.segmented-graph-apply",
+          "anchor": "L-segments-20",
+          "references": [
+            "panproto_reference::segment::apply_graph_segmented",
+            "panproto_reference::segment::read_set"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "segmented_apply::segmented_apply_agrees_with_the_reference_on_every_case_of_the_carrier"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "segmented_apply::segmented_apply_agrees_with_the_reference_on_every_97th_case_of_the_carrier"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "segmented_apply::segmented_apply_agrees_with_the_reference_on_generated_families"
+            }
+          ]
+        },
+        {
+          "id": "segments.checkpointed-graph-apply",
+          "anchor": "L-segments-21",
+          "references": [
+            "panproto_reference::segment::segmented_apply_with_progress",
+            "panproto_reference::segment::apply_facts_bytes"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "segmented_apply::segmented_apply_run_matches_the_reference_runner_at_every_cancellation_point"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "segmented_apply::segmented_apply_run_matches_the_reference_runner_on_generated_families"
+            }
+          ]
+        },
+        {
+          "id": "segments.segmented-graph-edit-algebra",
+          "anchor": "L-segments-22",
+          "references": [
+            "panproto_reference::segment::apply_graph_segmented",
+            "panproto_reference::edit::Delta::compose",
+            "panproto_reference::edit::Delta::invert"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "segmented_apply::a_composite_delta_applies_to_a_segmented_family_as_its_factors_do_in_turn"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "segmented_apply::the_inverse_of_an_applied_segmented_edit_restores_every_segment_byte_for_byte"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "segmented_apply::composition_and_inversion_hold_over_segments_on_generated_families"
+            }
+          ]
+        },
+        {
+          "id": "segments.segmented-table-apply",
+          "anchor": "L-segments-23",
+          "references": [
+            "panproto_reference::segment::apply_table_segmented",
+            "panproto_reference::segment::table_read_set"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "segmented_table_apply::segmented_table_apply_agrees_with_the_reference_on_every_case_of_the_carrier"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "segmented_table_apply::segmented_table_apply_agrees_with_the_reference_on_generated_families"
+            }
+          ]
+        },
+        {
+          "id": "segments.checkpointed-table-apply",
+          "anchor": "L-segments-24",
+          "references": [
+            "panproto_reference::segment::segmented_table_apply_with_progress",
+            "panproto_reference::segment::table_apply_facts_bytes"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "segmented_table_apply::segmented_table_apply_run_matches_the_reference_runner_at_every_cancellation_point"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "segmented_table_apply::segmented_table_apply_run_matches_the_reference_runner_on_generated_families"
+            }
+          ]
+        },
+        {
+          "id": "segments.segmented-table-edit-algebra",
+          "anchor": "L-segments-25",
+          "references": [
+            "panproto_reference::segment::apply_table_segmented",
+            "panproto_reference::edit::compose_table",
+            "panproto_reference::edit::invert_table"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "segmented_table_apply::a_composite_table_delta_applies_to_a_segmented_family_as_its_factors_do_in_turn"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "segmented_table_apply::the_inverse_of_an_applied_segmented_table_edit_restores_every_segment_byte_for_byte"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "segmented_table_apply::table_composition_and_inversion_hold_over_segments_on_generated_families"
+            }
+          ]
+        },
+        {
+          "id": "segments.segmented-tree-apply",
+          "anchor": "L-segments-26",
+          "references": [
+            "panproto_reference::segment::apply_tree_segmented",
+            "panproto_reference::segment::tree_read_set"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "segmented_tree_apply::segmented_tree_apply_agrees_with_the_reference_on_every_case_of_the_carrier"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "segmented_tree_apply::segmented_tree_apply_agrees_with_the_reference_on_generated_families"
+            }
+          ]
+        },
+        {
+          "id": "segments.checkpointed-tree-apply",
+          "anchor": "L-segments-27",
+          "references": [
+            "panproto_reference::segment::segmented_tree_apply_with_progress",
+            "panproto_reference::segment::tree_apply_facts_bytes"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "segmented_tree_apply::segmented_tree_apply_run_matches_the_reference_runner_at_every_cancellation_point"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "segmented_tree_apply::segmented_tree_apply_run_matches_the_reference_runner_on_generated_families"
+            }
+          ]
+        },
+        {
+          "id": "segments.segmented-tree-edit-algebra",
+          "anchor": "L-segments-28",
+          "references": [
+            "panproto_reference::segment::apply_tree_segmented"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_edits",
+              "test": "segmented_tree_apply::a_composite_tree_edit_applies_to_a_segmented_family_as_its_factors_do_in_turn"
+            }
+          ]
+        },
+        {
+          "id": "segments.carried-restrict-tasks",
+          "anchor": "L-segments-29",
+          "references": [
+            "panproto_reference::segment::segmented_restrict_with_progress"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "segmented_carry::carrying_tasks_over_changes_nothing_but_the_reuse_counts_on_every_97th_case"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "segmented_randomized::carrying_tasks_over_matches_the_reference_runner_on_generated_graph_pairs"
+            }
+          ]
+        },
+        {
+          "id": "segments.held-restrict-numbering",
+          "anchor": "L-segments-30",
+          "references": [
+            "panproto_reference::segment::restrict_graph_segmented_held",
+            "panproto_reference::segment::segmented_restrict_with_progress"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "segmented_held::stable_numbering_agrees_with_the_reference_reproduces_an_unchanged_family_and_keeps_persisting_ids"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "segmented_held::a_checkpointed_restriction_holding_complements_matches_the_reference_runner_on_every_97th_case"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "segmented_randomized::stable_numbering_matches_the_reference_on_generated_graph_pairs"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-inst",
+              "binary": "panproto-inst::reference_restrict",
+              "test": "segmented_randomized::a_checkpointed_restriction_holding_complements_matches_the_reference_runner_on_generated_graph_pairs"
+            }
+          ]
+        },
+        {
+          "id": "segments.segmented-graph-edit-lens",
+          "anchor": "L-segments-31",
+          "references": [
+            "panproto_reference::segment::bind_segmented_edit",
+            "panproto_reference::segment::segmented_edit_get",
+            "panproto_reference::segment::segmented_edit_put"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "segmented_graph_edit_lens::segmented_graph_edit_lens_agrees_with_the_reference_and_the_whole_state_lens_on_every_97th_case"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "segmented_graph_edit_lens::segmented_graph_edit_lens_puts_view_edits_as_the_reference_on_every_97th_case"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "segmented_graph_edit_lens::segmented_graph_edit_lens_agrees_with_the_reference_on_generated_words"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "segmented_graph_edit_lens::segmented_graph_edit_lens_puts_view_edits_as_the_reference_on_generated_cases"
             }
           ]
         }
@@ -8111,6 +8783,457 @@
               "crate": "panproto-reference",
               "binary": "panproto-reference::bson",
               "test": "decimal128_and_double_strings_follow_the_page"
+            }
+          ]
+        }
+      ]
+    },
+    "instance-version-control": {
+      "reference_files": [
+        "crates/panproto-reference/src/pages/instance_version_control.rs",
+        "crates/panproto-reference/src/enumerate/instance_version_control.rs"
+      ],
+      "laws": [
+        {
+          "id": "instance-version-control.payload-encodings",
+          "anchor": "L-instance-version-control-1",
+          "references": [
+            "panproto_reference::pages::instance_version_control::payload_outcome"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "every_instance_of_the_coverage_scope_round_trips_through_its_stored_object"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "every_edit_log_of_consecutive_coverage_states_round_trips_and_applies"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "every_complement_of_the_coverage_states_round_trips"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "every_damaged_payload_gives_the_outcome_the_reference_gives"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "a_table_or_graph_payload_out_of_canonical_order_is_refused"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "randomized_graph_payloads_round_trip_in_any_insertion_order"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "every_combination_of_payload_facts_is_decided_in_the_stated_order"
+            }
+          ]
+        },
+        {
+          "id": "instance-version-control.format-one",
+          "anchor": "L-instance-version-control-2",
+          "references": [
+            "panproto_reference::pages::instance_version_control::recorded_encoding",
+            "panproto_reference::pages::instance_version_control::writes_encoding_field"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "an_object_writes_its_encoding_exactly_when_the_reference_says_so"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "a_tree_object_records_no_encoding_and_keeps_its_identifier"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "a_repository_written_by_0_78_opens_and_reads_back_unchanged"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "a_repository_written_by_0_78_takes_table_and_graph_objects_in_format_1"
+            }
+          ]
+        },
+        {
+          "id": "instance-version-control.reachability",
+          "anchor": "L-instance-version-control-3",
+          "references": [
+            "panproto_reference::pages::instance_version_control::Repository::roots",
+            "panproto_reference::pages::instance_version_control::Object::links",
+            "panproto_reference::pages::instance_version_control::Repository::reachable",
+            "panproto_reference::pages::instance_version_control::Repository::garbage"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "garbage_collection_keeps_exactly_what_the_reference_reaches_on_every_repository_of_the_scope"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "randomized_repositories_keep_exactly_what_the_reference_reaches"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "garbage_collection_on_disk_keeps_what_the_reference_reaches_under_every_root"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "garbage_collection_of_a_0_78_repository_deletes_only_what_no_ref_reaches"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "a_repository_keeps_staged_data_through_garbage_collection"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::instance_version_control",
+              "test": "reachability_on_hand_computed_repositories"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::instance_version_control",
+              "test": "a_missing_name_is_not_followed_and_a_cycle_ends"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::instance_version_control",
+              "test": "the_gc_scope_has_its_closed_form_size_and_kept_total"
+            }
+          ]
+        },
+        {
+          "id": "instance-version-control.tracking",
+          "anchor": "L-instance-version-control-4",
+          "references": [
+            "panproto_reference::pages::instance_version_control::tracked"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "every_commit_chain_of_the_tracking_scope_tracks_what_the_reference_tracks"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "randomized_commit_chains_track_what_the_reference_tracks"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "a_commit_recording_two_data_sets_under_one_key_is_refused_when_tracked"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "an_instance_failing_its_shapes_validation_is_refused_with_its_report"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::instance_version_control",
+              "test": "tracking_and_diffs_on_hand_computed_cases"
+            }
+          ]
+        },
+        {
+          "id": "instance-version-control.diff",
+          "anchor": "L-instance-version-control-5",
+          "references": [
+            "panproto_reference::pages::instance_version_control::diff_instances",
+            "panproto_reference::pages::instance_version_control::apply_delta",
+            "panproto_reference::pages::instance_version_control::diff_tracked",
+            "panproto_reference::pages::instance_version_control::normalized"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "every_pair_of_small_coverage_instances_diffs_and_applies_as_the_reference_does"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "committed_instances_of_every_shape_diff_by_their_delta_through_a_repository"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "diffing_across_keys_reports_added_and_removed_and_refuses_mixed_schemas_and_shapes"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::instance_version_control",
+              "test": "tracking_and_diffs_on_hand_computed_cases"
+            }
+          ]
+        },
+        {
+          "id": "instance-version-control.merge",
+          "anchor": "L-instance-version-control-6",
+          "references": [
+            "panproto_reference::pages::instance_version_control::merge_tracked",
+            "panproto_reference::pages::instance_version_control::merge_instances"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "every_triple_of_the_merge_scope_merges_as_the_reference_merges"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "every_repository_of_the_key_scope_merges_its_tracked_instances_as_the_reference_does"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "instance_merges_are_the_same_in_every_process"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "randomized_graph_merges_agree_with_the_reference"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "a_repository_merge_records_one_data_set_per_key_and_tracks_the_merged_instances"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "a_repository_merge_with_instance_conflicts_records_nothing_until_they_are_resolved"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "a_merged_instance_failing_a_key_check_or_validation_is_a_conflict_carrying_its_report"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "data_migration::a_merge_migrates_graph_data_to_the_merged_schema"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::instance_version_control",
+              "test": "instance_merges_on_hand_computed_cases"
+            }
+          ]
+        },
+        {
+          "id": "instance-version-control.rebase",
+          "anchor": "L-instance-version-control-7",
+          "references": [
+            "panproto_reference::pages::instance_version_control::rebase_instances"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "every_triple_of_the_merge_scope_rebases_as_the_reference_and_as_the_merge_merges"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "randomized_graph_rebases_agree_with_the_reference_and_with_the_merge"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "a_rebased_chain_tracks_its_rebased_deltas_applied_in_order_and_a_cherry_pick_replays_one_commit"
+            }
+          ]
+        },
+        {
+          "id": "instance-version-control.data-migration",
+          "anchor": "L-instance-version-control-8",
+          "references": [
+            "panproto_reference::pages::instance_version_control::migration_outcome",
+            "panproto_reference::pages::instance_version_control::forward_objects"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "data_migration::every_combination_of_migration_facts_is_refused_in_the_stated_order"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "data_migration::every_graph_of_the_migration_scope_migrates_forward_and_back_as_the_reference_lens_does"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "data_migration::randomized_graph_migrations_agree_with_the_reference_lens"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "data_migration::migrated_objects_have_the_same_identifiers_in_every_process"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "a_0_78_complement_names_no_migration_and_is_refused_by_backward_migration"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "data_migration::every_tree_of_the_migration_scope_migrates_forward_and_back_as_the_reference_tree_lens_does"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "data_migration::every_table_of_the_migration_scope_migrates_forward_and_back_as_the_reference_table_lens_does"
+            }
+          ]
+        },
+        {
+          "id": "instance-version-control.merge-migration",
+          "anchor": "L-instance-version-control-9",
+          "references": [
+            "panproto_reference::pages::instance_version_control::merge_tracked_to",
+            "panproto_reference::pages::instance_version_control::migrate_and_combine",
+            "panproto_reference::pages::instance_version_control::merge_path"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "merge_migration::every_version_of_the_merge_path_scope_finds_the_reference_path"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "merge_migration::every_history_of_the_merge_migration_scope_merges_as_the_reference_merges"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "merge_migration::every_schema_changing_history_of_the_repository_scope_merges_rebases_and_cherry_picks_as_the_reference"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "merge_migration::randomized_merge_migrations_agree_with_the_reference"
+            }
+          ]
+        },
+        {
+          "id": "instance-version-control.stale-migration",
+          "anchor": "L-instance-version-control-10",
+          "references": [
+            "panproto_reference::pages::instance_version_control::migration_path"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "merge_migration::every_chain_of_the_path_scope_finds_the_reference_path"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "merge_migration::every_stale_graph_of_the_chain_scope_migrates_as_the_composite_of_the_reference_gets"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "merge_migration::randomized_stale_graphs_migrate_as_the_composite_of_the_reference_gets"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "merge_migration::a_stale_tracked_instance_migrates_along_first_parent_history_and_is_committed"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "merge_migration::a_missing_link_or_a_refused_get_refuses_a_stale_migration_with_its_conflict"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-cli",
+              "binary": "panproto-cli::cli_workflows",
+              "test": "cli_data_upgrade_migrates_a_stale_tracked_instance_and_stages_it"
             }
           ]
         }

@@ -197,6 +197,9 @@ impl TreeEdit {
                     .get_mut(id)
                     .ok_or(EditError::NodeNotFound(*id))?;
                 n.anchor = new_anchor.clone();
+                if *id == instance.root {
+                    instance.schema_root.clone_from(new_anchor);
+                }
                 Ok(())
             }
 
@@ -228,10 +231,7 @@ impl TreeEdit {
                 edge,
             } => apply_move_subtree(instance, *node_id, *new_parent, edge),
 
-            Self::InsertFan { fan } => {
-                instance.fans.push(fan.clone());
-                Ok(())
-            }
+            Self::InsertFan { fan } => apply_insert_fan(instance, fan),
 
             Self::DeleteFan { hyper_edge_id } => {
                 let id_str = hyper_edge_id.as_ref();
@@ -304,6 +304,23 @@ fn apply_insert_node(
         .entry(parent)
         .or_default()
         .push(child_id);
+    Ok(())
+}
+
+/// Append `fan` to the tree's fans. A fan names its parent and children by
+/// node id, so each must be a tree node: the parent is checked first, then
+/// the children in ascending label order, and the first that is absent is
+/// refused as [`EditError::NodeNotFound`].
+fn apply_insert_fan(instance: &mut WInstance, fan: &Fan) -> Result<(), EditError> {
+    let mut children: Vec<(&String, &u32)> = fan.children.iter().collect();
+    children.sort_unstable();
+    let absent = std::iter::once(&fan.parent)
+        .chain(children.into_iter().map(|(_, child)| child))
+        .find(|end| !instance.nodes.contains_key(end));
+    if let Some(end) = absent {
+        return Err(EditError::NodeNotFound(*end));
+    }
+    instance.fans.push(fan.clone());
     Ok(())
 }
 
@@ -545,8 +562,12 @@ fn apply_join_features(
         }
     }
 
-    // Replace the primary node with the merged produce.
+    // Replace the primary node with the merged produce; the schema root is
+    // the root's anchor.
     instance.nodes.insert(primary, produce.clone());
+    if primary == instance.root {
+        instance.schema_root.clone_from(&produce.anchor);
+    }
 
     for &jid in joined {
         // The joined node's child arcs, in arc order, become arcs of the
@@ -931,6 +952,30 @@ fn follow_step(
         embedding.arcs.insert(node, fresh);
     }
     Ok(())
+}
+
+impl TreeEmbedding {
+    /// Apply a tree edit to `tree`, which this embedding embeds, and follow
+    /// it as [`GraphDelta::from_tree_edit`] does: step by step as
+    /// [`Self::apply_edit`], except that each `MoveSubtree` gives its arc a
+    /// fresh edge id, also when the node stays under the parent it has.
+    ///
+    /// # Errors
+    ///
+    /// The error of the first step that does not apply, as
+    /// [`Self::apply_edit`] reports it, with [`EditError::ApplyFailed`] when
+    /// the embedding runs out of ids. On error `tree` and the embedding are
+    /// unchanged.
+    pub fn follow_edit(&mut self, tree: &mut WInstance, edit: &TreeEdit) -> Result<(), EditError> {
+        let saved = (tree.clone(), self.clone());
+        for step in edit.steps() {
+            if let Err(error) = follow_step(self, tree, step) {
+                (*tree, *self) = saved;
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
 }
 
 impl GraphDelta {
@@ -1425,7 +1470,11 @@ fn target_tree(
         fans.push(fan.clone());
         new_fans.push((parent_edge, fan));
     }
-    let target = WInstance::new(nodes, arcs, fans, tree.root, tree.schema_root.clone());
+    // The schema root is the root's anchor, which the edit may change.
+    let schema_root = nodes
+        .get(&tree.root)
+        .map_or_else(|| tree.schema_root.clone(), |root| root.anchor.clone());
+    let target = WInstance::new(nodes, arcs, fans, tree.root, schema_root);
     let after_embedding = TreeEmbedding {
         arcs: arc_ids,
         fans: fan_ids_after,

@@ -6,15 +6,22 @@
 //! - [`Object::Migration`]: a morphism between two schemas
 //! - [`Object::Commit`]: a point in the schema evolution DAG
 //! - [`Object::Tag`]: an annotated tag pointing to another object
-//! - [`Object::DataSet`]: a data snapshot conforming to a schema
+//! - [`Object::DataSet`]: an instance (tree, table or graph) conforming to a
+//!   schema
 //! - [`Object::Complement`]: a complement from data migration
 //! - [`Object::Protocol`]: a protocol (metaschema) definition
 //! - [`Object::Expr`]: a standalone expression (coercion, merge, default)
-//! - [`Object::EditLog`]: an edit log for incremental migration
+//! - [`Object::EditLog`]: an edit log (tree edits, table deltas or graph
+//!   deltas) for incremental migration
 //! - [`Object::Theory`]: a GAT theory definition
 //! - [`Object::TheoryMorphism`]: a structure-preserving map between theories
+//!
+//! The payloads of [`Object::DataSet`], [`Object::Complement`] and
+//! [`Object::EditLog`] are typed by a [`PayloadEncoding`]: the shape of
+//! instance they belong to and the version of that shape's encoding.
+//! [`crate::payload`] encodes and decodes them.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use panproto_gat::SiteRename;
 use panproto_mig::Migration;
@@ -304,6 +311,17 @@ pub struct CommitObject {
     /// commit recorded no bypass because it had no way to.
     #[serde(default)]
     pub unverified: Vec<String>,
+
+    /// The keys this commit stops tracking, ascending: from this commit
+    /// on along first-parent history, no instance is tracked under them
+    /// until a later commit records a data set under the key again
+    /// ([`instance_vc::tracked`](crate::instance_vc::tracked)).
+    ///
+    /// The field is last and written only when nonempty, so a commit that
+    /// stops tracking nothing has the bytes, and the identifier, it had
+    /// before the field existed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub untracked: Vec<String>,
 }
 
 impl CommitObject {
@@ -334,6 +352,7 @@ impl CommitObject {
             theory_ids: BTreeMap::new(),
             cst_complement_ids: Vec::new(),
             unverified: Vec::new(),
+            untracked: Vec::new(),
         }
     }
 }
@@ -355,6 +374,7 @@ pub struct CommitObjectBuilder {
     theory_ids: BTreeMap<String, ObjectId>,
     cst_complement_ids: Vec<ObjectId>,
     unverified: Vec<String>,
+    untracked: Vec<String>,
 }
 
 impl CommitObjectBuilder {
@@ -440,6 +460,7 @@ impl CommitObjectBuilder {
             theory_ids: self.theory_ids,
             cst_complement_ids: self.cst_complement_ids,
             unverified: self.unverified,
+            untracked: self.untracked,
         }
     }
 
@@ -456,16 +477,113 @@ impl CommitObjectBuilder {
         self.unverified = what;
         self
     }
+
+    /// Record the keys this commit stops tracking; they are stored sorted
+    /// and without repetition.
+    #[must_use]
+    pub fn untracked(mut self, keys: Vec<String>) -> Self {
+        let keys: BTreeSet<String> = keys.into_iter().collect();
+        self.untracked = keys.into_iter().collect();
+        self
+    }
 }
 
-/// A data snapshot stored in the VCS.
+/// The shape of an instance: the three instance forms panproto has.
+///
+/// Serialized by the lowercase names `"tree"`, `"table"` and `"graph"`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum InstanceShape {
+    /// Tree instances ([`panproto_inst::WInstance`]).
+    Tree,
+    /// Table instances ([`panproto_inst::FInstance`]).
+    Table,
+    /// Graph instances ([`panproto_inst::GInstance`]).
+    Graph,
+}
+
+impl InstanceShape {
+    /// Every shape, in declaration order.
+    pub const ALL: [Self; 3] = [Self::Tree, Self::Table, Self::Graph];
+
+    /// The lowercase name the shape is serialized by.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Tree => "tree",
+            Self::Table => "table",
+            Self::Graph => "graph",
+        }
+    }
+}
+
+/// How the payload of a data set, complement or edit log is encoded: the
+/// shape of instance it belongs to and the version of that shape's
+/// encoding.
+///
+/// Version 1 is the only version of each shape this build reads or
+/// writes; [`crate::payload`] states each encoding and refuses every other
+/// version with [`VcsError::UnsupportedPayloadEncoding`]. The tree encoding
+/// of version 1 is the default: an object that records no encoding holds a
+/// tree payload of version 1, and such an object is written without the
+/// field, so that its bytes and its identifier are those it has always had.
+///
+/// [`VcsError::UnsupportedPayloadEncoding`]: crate::VcsError::UnsupportedPayloadEncoding
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct PayloadEncoding {
+    /// The shape of instance the payload belongs to.
+    pub shape: InstanceShape,
+    /// The version of the shape's encoding.
+    pub version: u32,
+}
+
+impl PayloadEncoding {
+    /// Version 1 of the tree encoding.
+    pub const TREE: Self = Self::current(InstanceShape::Tree);
+    /// Version 1 of the table encoding.
+    pub const TABLE: Self = Self::current(InstanceShape::Table);
+    /// Version 1 of the graph encoding.
+    pub const GRAPH: Self = Self::current(InstanceShape::Graph);
+
+    /// The encoding of `shape` this build writes.
+    #[must_use]
+    pub const fn current(shape: InstanceShape) -> Self {
+        Self { shape, version: 1 }
+    }
+
+    /// Whether this is version 1 of the tree encoding, the encoding an
+    /// object without the field holds.
+    #[must_use]
+    pub const fn is_default(&self) -> bool {
+        matches!(self.shape, InstanceShape::Tree) && self.version == 1
+    }
+}
+
+impl Default for PayloadEncoding {
+    fn default() -> Self {
+        Self::TREE
+    }
+}
+
+impl std::fmt::Display for PayloadEncoding {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}/{}", self.shape.name(), self.version)
+    }
+}
+
+/// An instance stored in the VCS: a sequence of trees, one table instance
+/// or one graph instance, conforming to a schema.
+///
+/// [`crate::payload`] encodes and decodes the payload by its
+/// [`encoding`](Self::encoding).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DataSetObject {
     /// Which schema this data conforms to.
     pub schema_id: ObjectId,
-    /// MessagePack-encoded instance data.
+    /// The encoded instance.
     pub data: Vec<u8>,
-    /// Number of records.
+    /// Number of records: trees for a tree payload, rows for a table
+    /// payload, nodes for a graph payload.
     pub record_count: u64,
     /// Caller key identifying the record(s) this set holds, so a
     /// committed data set can be mapped back to a downstream key (a
@@ -473,17 +591,39 @@ pub struct DataSetObject {
     /// when no key was recorded. Carried forward across data migration.
     #[serde(default)]
     pub key: Option<String>,
+    /// How [`data`](Self::data) is encoded. Last, and omitted for the
+    /// default tree encoding: an object is a positional array, so only a
+    /// trailing field can be omitted without shifting the others.
+    #[serde(default, skip_serializing_if = "PayloadEncoding::is_default")]
+    pub encoding: PayloadEncoding,
 }
 
 /// A complement from data migration, enabling backward migration.
+///
+/// [`crate::data_mig`] states the conventions its two identifiers follow.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ComplementObject {
     /// The migration that produced this complement.
     pub migration_id: ObjectId,
     /// The data set this complement was computed from.
     pub data_id: ObjectId,
-    /// MessagePack-encoded Complement data.
+    /// The encoded complement.
     pub complement: Vec<u8>,
+    /// How [`complement`](Self::complement) is encoded; last, and omitted
+    /// for the default tree encoding, as for [`DataSetObject::encoding`].
+    #[serde(default, skip_serializing_if = "PayloadEncoding::is_default")]
+    pub encoding: PayloadEncoding,
+}
+
+impl ComplementObject {
+    /// The stored migration that produced this complement, or `None` when
+    /// it names none: a complement whose `migration_id` is its `data_id`, as
+    /// repositories written by version 0.78 hold, is the complement of that
+    /// data set under a migration that is not known.
+    #[must_use]
+    pub fn migration(&self) -> Option<ObjectId> {
+        (self.migration_id != self.data_id).then_some(self.migration_id)
+    }
 }
 
 /// A CST complement for format-preserving round-trips.
@@ -500,7 +640,8 @@ pub struct CstComplementObject {
     pub cst_complement: Vec<u8>,
 }
 
-/// An edit log: a sequence of edits applied to a data set.
+/// An edit log: a sequence of edits (tree edits, table deltas or graph
+/// deltas) applied to a data set.
 ///
 /// Edit logs are content-addressed by hashing the sequence of edits.
 /// Two edit logs with the same edits hash to the same object, enabling
@@ -511,12 +652,16 @@ pub struct EditLogObject {
     pub schema_id: ObjectId,
     /// The data set these edits were applied to.
     pub data_id: ObjectId,
-    /// MessagePack-encoded `Vec<TreeEdit>`.
+    /// The encoded edits.
     pub edits: Vec<u8>,
     /// Number of edits in the log.
     pub edit_count: u64,
     /// Object ID of the complement state after all edits.
     pub final_complement: ObjectId,
+    /// How [`edits`](Self::edits) is encoded; last, and omitted for the
+    /// default tree encoding, as for [`DataSetObject::encoding`].
+    #[serde(default, skip_serializing_if = "PayloadEncoding::is_default")]
+    pub encoding: PayloadEncoding,
 }
 
 /// An annotated tag object.
@@ -550,6 +695,7 @@ mod tests {
             data: vec![1, 2, 3, 4],
             record_count: 42,
             key: Some("at://did:plc:abc/app.bsky.feed.post/1".to_owned()),
+            encoding: PayloadEncoding::TREE,
         };
         let bytes = rmp_serde::to_vec(&ds)?;
         let ds2: DataSetObject = rmp_serde::from_slice(&bytes)?;
@@ -566,6 +712,7 @@ mod tests {
             migration_id: ObjectId::from_bytes([1; 32]),
             data_id: ObjectId::from_bytes([2; 32]),
             complement: vec![10, 20, 30],
+            encoding: PayloadEncoding::TREE,
         };
         let bytes = rmp_serde::to_vec(&comp)?;
         let comp2: ComplementObject = rmp_serde::from_slice(&bytes)?;
@@ -583,6 +730,7 @@ mod tests {
             edits: vec![42, 43, 44],
             edit_count: 3,
             final_complement: ObjectId::from_bytes([3; 32]),
+            encoding: PayloadEncoding::TREE,
         };
         let bytes = rmp_serde::to_vec(&el)?;
         let el2: EditLogObject = rmp_serde::from_slice(&bytes)?;

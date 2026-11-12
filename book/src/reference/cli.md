@@ -1261,6 +1261,21 @@ Options:
   -h, --help     Print help
 ```
 
+#### `schema data upgrade`
+
+```text
+Migrate stale tracked instances to HEAD's schema along the migrations first-parent history records, and stage them
+
+Usage: schema data upgrade [OPTIONS] [KEYS]...
+
+Arguments:
+  [KEYS]...  Keys of the tracked instances to migrate (default: every stale tracked instance)
+
+Options:
+  -v, --verbose  Enable verbose output
+  -h, --help     Print help
+```
+
 ### `schema theory`
 
 ```text

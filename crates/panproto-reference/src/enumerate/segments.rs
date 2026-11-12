@@ -635,3 +635,909 @@ pub fn allocation_cases() -> Vec<(IdRange, BTreeSet<u32>, BTreeSet<u32>)> {
 pub const fn allocation_case_count() -> u64 {
     15 * 2_u64.pow(6) * 2_u64.pow(6)
 }
+
+/// The first id of the allocation ranges of the segmented restrict carrier.
+///
+/// Segment `i` allocates node and edge ids from the ten ids starting at
+/// this base plus `10 i`, above every node and edge id of the release
+/// graphs.
+pub const SEGMENTED_RESTRICT_ALLOCATION_BASE: u32 = 100;
+
+/// One case of the segmented restrict carrier: a release schema, a
+/// migration of it without survival predicates, a release graph of it, and
+/// an ownership split of the graph's nodes with allocation ranges.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SegmentedRestrictCase {
+    /// The source and target schema.
+    pub schema: crate::schema::Schema,
+    /// The migration.
+    pub migration: crate::migration::Migration,
+    /// The graph.
+    pub graph: Graph,
+    /// The partition of the graph's nodes, with allocation ranges.
+    pub partition: Partition,
+}
+
+/// The partition of `split` with allocation ranges.
+///
+/// Segment `i` owns and allocates node ids from, and allocates edge ids
+/// from, the ten ids starting at [`SEGMENTED_RESTRICT_ALLOCATION_BASE`]
+/// plus `10 i`.
+fn with_allocation(mut split: Partition) -> Partition {
+    for (spec, index) in split.specs.iter_mut().zip(0_u32..) {
+        let lo = SEGMENTED_RESTRICT_ALLOCATION_BASE + 10 * index;
+        let range = IdRange { lo, hi: lo + 9 };
+        spec.nodes.push(range);
+        spec.alloc_nodes = Some(range);
+        spec.alloc_edges = Some(range);
+    }
+    split
+}
+
+/// Every case of the segmented restrict carrier.
+///
+/// The cases are each release schema
+/// ([`release_schemas`](crate::enumerate::restrict_and_contraction::release_schemas)),
+/// each of its survival classifications without a conditional vertex, each
+/// release graph of the schema, and each labelled two- and three-segment
+/// ownership split of the graph's three nodes, with the allocation ranges of
+/// [`SEGMENTED_RESTRICT_ALLOCATION_BASE`].
+pub fn segmented_restrict_cases() -> impl Iterator<Item = SegmentedRestrictCase> {
+    use crate::enumerate::restrict_and_contraction::{
+        release_graphs, release_schemas, survival_classifications,
+    };
+    release_schemas().into_iter().flat_map(|schema| {
+        let graphs = release_graphs(&schema);
+        let migrations = survival_classifications(&schema)
+            .into_iter()
+            .filter(|migration| migration.conditional.is_empty());
+        migrations.flat_map(move |migration| {
+            let schema = schema.clone();
+            graphs.clone().into_iter().flat_map(move |graph| {
+                let nodes: Vec<u32> = graph.nodes.keys().copied().collect();
+                let splits = allocated_splits(&nodes);
+                let (schema, migration) = (schema.clone(), migration.clone());
+                splits
+                    .into_iter()
+                    .map(move |partition| SegmentedRestrictCase {
+                        schema: schema.clone(),
+                        migration: migration.clone(),
+                        graph: graph.clone(),
+                        partition,
+                    })
+            })
+        })
+    })
+}
+
+/// Independent count of [`segmented_restrict_cases`].
+///
+/// A release schema with `e` of the six possible edges (`e <= 4`, so
+/// `C(6, e)` schemas) has `sum(j <= min(3, e), C(e, j))` release graphs and
+/// `2^3 = 8` classifications without a conditional vertex; each graph has
+/// three nodes, so `2^3 + 3^3 = 35` splits. The graphs number
+/// `1 + 6 * 2 + 15 * 4 + 20 * 8 + 15 * 15 = 458`, giving
+/// `458 * 8 * 35 = 128_240` cases.
+#[must_use]
+pub fn segmented_restrict_case_count() -> u64 {
+    let choose = |n: u64, k: u64| -> u64 { (0..k).fold(1, |acc, i| acc * (n - i) / (i + 1)) };
+    let graphs: u64 = (0..=4)
+        .map(|edges| choose(6, edges) * (0..=edges.min(3)).map(|j| choose(edges, j)).sum::<u64>())
+        .sum();
+    graphs * 8 * (2_u64.pow(3) + 3_u64.pow(3))
+}
+
+/// Every labelled two- and three-segment ownership split of `nodes`.
+///
+/// Each split carries the allocation ranges of
+/// [`SEGMENTED_RESTRICT_ALLOCATION_BASE`]; there are exactly `2^n + 3^n`
+/// splits of `n` ids below the allocation base.
+#[must_use]
+pub fn allocated_splits(nodes: &[u32]) -> Vec<Partition> {
+    [2, 3]
+        .into_iter()
+        .flat_map(|k| ownership_splits(nodes, k, InstanceShapeKind::Graph))
+        .map(with_allocation)
+        .collect()
+}
+
+/// One case of the segmented extension carrier.
+///
+/// A case is a release schema, a target schema and the migration whose
+/// vertex map sends the source onto it, a release graph of the source, and
+/// an ownership split of the graph's nodes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SegmentedExtendCase {
+    /// The source schema.
+    pub source: crate::schema::Schema,
+    /// The target schema.
+    pub target: crate::schema::Schema,
+    /// The migration.
+    pub migration: crate::migration::Migration,
+    /// The graph.
+    pub graph: Graph,
+    /// The partition of the graph's nodes, with allocation ranges.
+    pub partition: Partition,
+}
+
+/// The target vertices of the segmented extension carrier.
+pub const SEGMENTED_EXTEND_IMAGES: [&str; 2] = ["p", "q"];
+
+/// The target schema and migration of the vertex map `code` of `source`.
+///
+/// The code is read in base three, one digit per source vertex `a`, `b`,
+/// `c` in that order: `0` leaves the vertex without an image, `1` and `2`
+/// send it to the target vertex `p` and `q`. The target schema holds `p`
+/// and `q`, as records, and the image of every source
+/// edge whose endpoints are both mapped, the edge's endpoints replaced by
+/// their images (two source edges with one image are one target edge). The
+/// migration remaps each mapped vertex to its image and nothing else, so a
+/// source edge has an image exactly when one target edge joins the images
+/// of its endpoints.
+#[must_use]
+pub fn extension_map(
+    source: &crate::schema::Schema,
+    code: u8,
+) -> (crate::schema::Schema, crate::migration::Migration) {
+    let mut images = BTreeMap::new();
+    let mut digits = code;
+    for vertex in ["a", "b", "c"] {
+        match digits % 3 {
+            1 => {
+                images.insert(vertex.to_owned(), SEGMENTED_EXTEND_IMAGES[0].to_owned());
+            }
+            2 => {
+                images.insert(vertex.to_owned(), SEGMENTED_EXTEND_IMAGES[1].to_owned());
+            }
+            _ => {}
+        }
+        digits /= 3;
+    }
+    let mut target = crate::schema::Schema::default();
+    for image in SEGMENTED_EXTEND_IMAGES {
+        target = target.vertex(image, "record");
+    }
+    for edge in &source.edges {
+        if let (Some(src), Some(tgt)) = (images.get(&edge.src), images.get(&edge.tgt)) {
+            target = target.edge(src, tgt, &edge.kind, edge.name.as_deref());
+        }
+    }
+    let migration = crate::migration::Migration {
+        vertex_remap: images,
+        ..crate::migration::Migration::default()
+    };
+    (target, migration)
+}
+
+/// Every case of the segmented extension carrier.
+///
+/// The cases are each release schema
+/// ([`release_schemas`](crate::enumerate::restrict_and_contraction::release_schemas)),
+/// each of the 27 vertex maps of [`extension_map`], each release graph of
+/// the schema, and each labelled two- and three-segment ownership split of
+/// the graph's three nodes ([`allocated_splits`]).
+pub fn segmented_extend_cases() -> impl Iterator<Item = SegmentedExtendCase> {
+    use crate::enumerate::restrict_and_contraction::{release_graphs, release_schemas};
+    release_schemas().into_iter().flat_map(|source| {
+        let graphs = release_graphs(&source);
+        (0..27_u8).flat_map(move |code| {
+            let (target, migration) = extension_map(&source, code);
+            let source = source.clone();
+            graphs.clone().into_iter().flat_map(move |graph| {
+                let nodes: Vec<u32> = graph.nodes.keys().copied().collect();
+                let (source, target, migration) =
+                    (source.clone(), target.clone(), migration.clone());
+                allocated_splits(&nodes)
+                    .into_iter()
+                    .map(move |partition| SegmentedExtendCase {
+                        source: source.clone(),
+                        target: target.clone(),
+                        migration: migration.clone(),
+                        graph: graph.clone(),
+                        partition,
+                    })
+            })
+        })
+    })
+}
+
+/// Independent count of [`segmented_extend_cases`]: the 458 release graphs
+/// of [`segmented_restrict_case_count`], 27 vertex maps and 35 splits each,
+/// `458 * 27 * 35 = 432_810` cases.
+#[must_use]
+pub fn segmented_extend_case_count() -> u64 {
+    segmented_restrict_case_count() / 8 * 27
+}
+
+/// One case of the segmented graph edit carrier: a graph, a partition of
+/// its node ids and of the ids a delta may add, and a delta.
+#[derive(Clone, Debug)]
+pub struct SegmentedApplyCase {
+    /// The graph the segments hold.
+    pub graph: Graph,
+    /// The partition.
+    pub partition: Partition,
+    /// The delta applied to the segments.
+    pub delta: crate::edit::GraphDelta,
+}
+
+/// The graphs of the segmented graph edit carrier: nodes `0 .. n-1` for `n`
+/// at most three, each anchored at `a` with no value, and at most two
+/// edges `0` and `1`, each with any endpoints and the label `e`.
+#[must_use]
+pub fn segmented_apply_graphs() -> Vec<Graph> {
+    let labels = [SEdge::new("a", "a", "e", None)];
+    super::graphs(&super::GraphScope {
+        anchors: &["a"],
+        values: &[],
+        shapes: &[NodeShape::Plain],
+        labels: &labels,
+        positions: &[None],
+        max_nodes: 3,
+        max_edges: 2,
+    })
+}
+
+/// The partitions of the segmented graph edit carrier.
+///
+/// Each assigns the node ids `0` to `3` to at most three segments,
+/// numbered in the order of their least id (a restricted growth string),
+/// or assigns `0` to `2` that way and leaves `3` to no segment; each
+/// segment owns its ids as singleton ranges. Each assignment comes with
+/// three edge allocations: none; `[10 + 10 i, 19 + 10 i]` for every segment
+/// `i`; and `[10, 19]` for segment 0 alone.
+#[must_use]
+pub fn segmented_apply_partitions() -> Vec<Partition> {
+    let mut owners: Vec<Vec<Option<u32>>> = Vec::new();
+    for ids in [4_usize, 3] {
+        let mut strings: Vec<Vec<u32>> = vec![Vec::new()];
+        for _ in 0..ids {
+            strings = strings
+                .into_iter()
+                .flat_map(|string| {
+                    let next = string.iter().max().map_or(0, |max| max + 1);
+                    (0..=next.min(2)).map(move |block| {
+                        let mut longer = string.clone();
+                        longer.push(block);
+                        longer
+                    })
+                })
+                .collect();
+        }
+        owners.extend(strings.into_iter().map(|string| {
+            let mut owned: Vec<Option<u32>> = string.into_iter().map(Some).collect();
+            owned.resize(4, None);
+            owned
+        }));
+    }
+    let mut out = Vec::new();
+    for owned in owners {
+        let segments = owned.iter().flatten().max().map_or(0, |max| max + 1);
+        for allocation in 0..3_u32 {
+            let specs = (0..segments)
+                .map(|id| SegmentSpec {
+                    id: SegmentId(id),
+                    nodes: (0_u32..)
+                        .zip(&owned)
+                        .filter(|(_, owner)| **owner == Some(id))
+                        .map(|(node, _)| IdRange { lo: node, hi: node })
+                        .collect(),
+                    alloc_nodes: None,
+                    alloc_edges: match allocation {
+                        1 => Some(IdRange {
+                            lo: 10 + 10 * id,
+                            hi: 19 + 10 * id,
+                        }),
+                        2 if id == 0 => Some(IdRange { lo: 10, hi: 19 }),
+                        _ => None,
+                    },
+                })
+                .collect();
+            out.push(Partition {
+                shape: InstanceShapeKind::Graph,
+                specs,
+            });
+        }
+    }
+    out
+}
+
+/// The deltas of the segmented graph edit carrier.
+///
+/// Every atomic delta and the identity ([`super::graph_deltas`]) over the
+/// node ids `0`, `2` and `3`, the anchors `a` and `b`, no value or field,
+/// the edge ids `1`, `2` and `10`, the labels `e` and `e` named `x`, and the
+/// positions none and `0`.
+#[must_use]
+pub fn segmented_apply_deltas() -> Vec<crate::edit::GraphDelta> {
+    let labels = [
+        SEdge::new("a", "a", "e", None),
+        SEdge::new("a", "a", "e", Some("x")),
+    ];
+    super::graph_deltas(&super::DeltaScope {
+        nodes: &[0, 2, 3],
+        anchors: &["a", "b"],
+        values: &[],
+        fields: &[],
+        edges: &[1, 2, 10],
+        labels: &labels,
+        positions: &[None, Some(0)],
+    })
+}
+
+/// Every graph of [`segmented_apply_graphs`] under every partition of
+/// [`segmented_apply_partitions`] with every delta of
+/// [`segmented_apply_deltas`], in that nesting order.
+pub fn segmented_apply_cases() -> impl Iterator<Item = SegmentedApplyCase> {
+    let partitions = segmented_apply_partitions();
+    let deltas = segmented_apply_deltas();
+    segmented_apply_graphs().into_iter().flat_map(move |graph| {
+        let deltas = deltas.clone();
+        partitions.clone().into_iter().flat_map(move |partition| {
+            let graph = graph.clone();
+            deltas
+                .clone()
+                .into_iter()
+                .map(move |delta| SegmentedApplyCase {
+                    graph: graph.clone(),
+                    partition: partition.clone(),
+                    delta,
+                })
+        })
+    })
+}
+
+/// Independent counts of the segmented graph edit carrier.
+///
+/// Graphs: with `n` nodes there are `n^2` labelled edges, so
+/// `sum_(n=0)^3 (1 + n^2 + n^4) = 1 + 3 + 21 + 91 = 116` graphs (the
+/// graph with no node has no edge). Partitions: the restricted growth
+/// strings of length four with at most three blocks number
+/// `1 + 7 + 6 = 14` (the Stirling numbers `S(4, k)` for `k` up to three)
+/// and those of length three `1 + 3 + 1 = 5`, each with three edge
+/// allocations, `57`. Deltas: the identity; four node payloads per id to
+/// add or delete over three ids (two anchors, add or delete), `12`; to add
+/// or delete each of three edge ids with nine endpoint pairs and two
+/// labels, `108`; an anchor and a shape change in two directions per node,
+/// `12`; and a label and a position change in two directions per edge,
+/// `12`; `145` in all. So `116 * 57 * 145 = 958_740` cases.
+#[must_use]
+pub const fn segmented_apply_case_counts() -> (u64, u64, u64, u64) {
+    let graphs = 1 + 3 + 21 + 91;
+    let partitions = (14 + 5) * 3;
+    let deltas = 1 + 12 + 108 + 12 + 12;
+    (graphs, partitions, deltas, graphs * partitions * deltas)
+}
+
+/// The families of the segmented edit composition carrier.
+///
+/// Every graph over at most two nodes and one edge (anchor `a`, no value,
+/// label `e`) under each of four partitions of the node identifiers `0` to `3`, each segment
+/// owning its identifiers as singleton ranges and allocating edge
+/// identifiers from `[10 + 10 i, 19 + 10 i]`: all in one segment; `0` apart
+/// from `1`, `2` and `3`; `0` and `3` apart from `1` and `2`; and `0`, `1`,
+/// and `2` with `3` in three segments.
+#[must_use]
+pub fn segmented_compose_families() -> Vec<(Graph, Partition)> {
+    let labels = [SEdge::new("a", "a", "e", None)];
+    let graphs = super::graphs(&super::GraphScope {
+        anchors: &["a"],
+        values: &[],
+        shapes: &[NodeShape::Plain],
+        labels: &labels,
+        positions: &[None],
+        max_nodes: 2,
+        max_edges: 1,
+    });
+    let assignments: [[u32; 4]; 4] = [[0, 0, 0, 0], [0, 1, 1, 1], [0, 1, 1, 0], [0, 1, 2, 2]];
+    let partitions: Vec<Partition> = assignments
+        .iter()
+        .map(|owners| {
+            let segments = owners.iter().max().map_or(0, |max| max + 1);
+            Partition {
+                shape: InstanceShapeKind::Graph,
+                specs: (0..segments)
+                    .map(|id| SegmentSpec {
+                        id: SegmentId(id),
+                        nodes: (0_u32..)
+                            .zip(owners)
+                            .filter(|(_, owner)| **owner == id)
+                            .map(|(node, _)| IdRange { lo: node, hi: node })
+                            .collect(),
+                        alloc_nodes: None,
+                        alloc_edges: Some(IdRange {
+                            lo: 10 + 10 * id,
+                            hi: 19 + 10 * id,
+                        }),
+                    })
+                    .collect(),
+            }
+        })
+        .collect();
+    graphs
+        .into_iter()
+        .flat_map(|graph| {
+            partitions
+                .iter()
+                .map(move |partition| (graph.clone(), partition.clone()))
+        })
+        .collect()
+}
+
+/// The deltas of the segmented edit composition carrier.
+///
+/// Every atomic delta and the identity ([`super::graph_deltas`]) over the
+/// node identifiers `0` and `3`, the anchors `a` and `b`, no value or
+/// field, the edge identifiers `1` and `10`, the label `e`, and the
+/// positions none and `0`.
+#[must_use]
+pub fn segmented_compose_deltas() -> Vec<crate::edit::GraphDelta> {
+    let labels = [SEdge::new("a", "a", "e", None)];
+    super::graph_deltas(&super::DeltaScope {
+        nodes: &[0, 3],
+        anchors: &["a", "b"],
+        values: &[],
+        fields: &[],
+        edges: &[1, 10],
+        labels: &labels,
+        positions: &[None, Some(0)],
+    })
+}
+
+/// Independent counts of the segmented edit composition carrier.
+///
+/// Graphs: `sum_(n=0)^2 (1 + n^2) = 1 + 2 + 5 = 8`, under four partitions,
+/// `32` families. Deltas: the identity; four node payloads per identifier to
+/// add or delete over two identifiers, `8`; to add or delete each of two
+/// edge identifiers with four endpoint pairs, `16`; an anchor and a shape
+/// change in two directions per node, `8`; and a position change in two
+/// directions per edge, `4`; `37` in all. So `32 * 37 * 37 = 43_808`
+/// ordered pairs.
+#[must_use]
+pub const fn segmented_compose_counts() -> (u64, u64, u64) {
+    let families = (1 + 2 + 5) * 4;
+    let deltas = 1 + 8 + 16 + 8 + 4;
+    (families, deltas, families * deltas * deltas)
+}
+
+/// One case of the segmented table edit carrier: a table, a partition of
+/// its row ids, and a table delta.
+#[derive(Clone, Debug)]
+pub struct SegmentedTableApplyCase {
+    /// The table the segments hold.
+    pub table: Table,
+    /// The partition.
+    pub partition: Partition,
+    /// The delta applied to the segments.
+    pub delta: crate::edit::TableDelta,
+}
+
+/// The table partitions assigning the row ids `0` to `3` as `owners` does
+/// (`None` for no segment), each segment owning its ids as singleton ranges
+/// and, with `allocate`, allocating row ids from `[10 + 10 i, 19 + 10 i]`.
+fn table_partition(owners: &[Option<u32>], allocate: bool) -> Partition {
+    let segments = owners.iter().flatten().max().map_or(0, |max| max + 1);
+    Partition {
+        shape: InstanceShapeKind::Table,
+        specs: (0..segments)
+            .map(|id| SegmentSpec {
+                id: SegmentId(id),
+                nodes: (0_u32..)
+                    .zip(owners)
+                    .filter(|(_, owner)| **owner == Some(id))
+                    .map(|(node, _)| IdRange { lo: node, hi: node })
+                    .chain(allocate.then_some(IdRange {
+                        lo: 10 + 10 * id,
+                        hi: 19 + 10 * id,
+                    }))
+                    .collect(),
+                alloc_nodes: allocate.then_some(IdRange {
+                    lo: 10 + 10 * id,
+                    hi: 19 + 10 * id,
+                }),
+                alloc_edges: None,
+            })
+            .collect(),
+    }
+}
+
+/// The partitions of the segmented table edit carrier: every assignment of
+/// [`segmented_apply_partitions`] as a table partition without allocation
+/// ranges.
+#[must_use]
+pub fn segmented_table_apply_partitions() -> Vec<Partition> {
+    segmented_apply_partitions()
+        .into_iter()
+        .filter(|partition| {
+            partition
+                .specs
+                .iter()
+                .all(|spec| spec.alloc_edges.is_none())
+        })
+        .map(|partition| {
+            let owners: Vec<Option<u32>> = (0..4_u32)
+                .map(|row| {
+                    partition
+                        .specs
+                        .iter()
+                        .find(|spec| spec.nodes.iter().any(|range| range.lo == row))
+                        .map(|spec| spec.id.0)
+                })
+                .collect();
+            table_partition(&owners, false)
+        })
+        .collect()
+}
+
+/// The atomic table deltas over the row ids `ids`.
+///
+/// They are the identity; deleting or adding each row in table `a` without
+/// cells or with `f = 0`; deleting or adding the pair `a -e-> a` between
+/// each two of them; adding or removing the cell `f = 0` of each; and
+/// moving each from `a` to `b` and back.
+#[must_use]
+pub fn segmented_table_deltas(ids: &[u32]) -> Vec<crate::edit::TableDelta> {
+    use crate::edit::{TElem, TKey, TPayload, TVal, TableDelta};
+    use crate::value::Value;
+    let mut out = vec![TableDelta::identity()];
+    for id in ids {
+        for cells in [
+            BTreeMap::new(),
+            BTreeMap::from([("f".to_owned(), Value::Int(0))]),
+        ] {
+            let payload = TPayload::Row("a".to_owned(), cells);
+            let mut delete = TableDelta::identity();
+            delete.del.insert(TElem::Row(*id), payload.clone());
+            out.push(delete);
+            let mut add = TableDelta::identity();
+            add.add.insert(TElem::Row(*id), payload);
+            out.push(add);
+        }
+    }
+    let edge = SEdge::new("a", "a", "e", None);
+    for src in ids {
+        for tgt in ids {
+            let pair = TElem::Pair(edge.clone(), *src, *tgt);
+            let mut delete = TableDelta::identity();
+            delete.del.insert(pair.clone(), TPayload::Pair);
+            out.push(delete);
+            let mut add = TableDelta::identity();
+            add.add.insert(pair, TPayload::Pair);
+            out.push(add);
+        }
+    }
+    for id in ids {
+        for (old, new) in [(None, Some(Value::Int(0))), (Some(Value::Int(0)), None)] {
+            let mut cell = TableDelta::identity();
+            cell.attrs.insert(
+                TKey::Cell(*id, "f".to_owned()),
+                (TVal::Cell(old), TVal::Cell(new)),
+            );
+            out.push(cell);
+        }
+    }
+    for id in ids {
+        for (old, new) in [("a", "b"), ("b", "a")] {
+            let mut table = TableDelta::identity();
+            table.attrs.insert(
+                TKey::Table(*id),
+                (TVal::Table(old.to_owned()), TVal::Table(new.to_owned())),
+            );
+            out.push(table);
+        }
+    }
+    out
+}
+
+/// Every table of [`super::edits::tables`] under every partition of
+/// [`segmented_table_apply_partitions`] with every delta of
+/// [`segmented_table_deltas`] over the row ids `0`, `2` and `3`, in that
+/// nesting order.
+pub fn segmented_table_apply_cases() -> impl Iterator<Item = SegmentedTableApplyCase> {
+    let partitions = segmented_table_apply_partitions();
+    let deltas = segmented_table_deltas(&[0, 2, 3]);
+    super::edits::tables().into_iter().flat_map(move |table| {
+        let deltas = deltas.clone();
+        partitions.clone().into_iter().flat_map(move |partition| {
+            let table = table.clone();
+            deltas
+                .clone()
+                .into_iter()
+                .map(move |delta| SegmentedTableApplyCase {
+                    table: table.clone(),
+                    partition: partition.clone(),
+                    delta,
+                })
+        })
+    })
+}
+
+/// Independent counts of the segmented table edit carrier.
+///
+/// Tables: `105` ([`super::edits::tables_count_certificate`]). Partitions:
+/// the `14 + 5 = 19` restricted growth strings of
+/// [`segmented_apply_case_counts`]. Deltas over three row ids: the
+/// identity; two payloads to delete or add per row, `12`; nine pairs to
+/// delete or add, `18`; a cell in two directions per row, `6`; and a table
+/// in two directions per row, `6`; `43` in all. So `105 * 19 * 43 =
+/// 85_785` cases.
+#[must_use]
+pub const fn segmented_table_apply_case_counts() -> (u64, u64, u64, u64) {
+    let tables = 1 + 4 + 20 + 80;
+    let partitions = 14 + 5;
+    let deltas = 1 + 12 + 18 + 6 + 6;
+    (tables, partitions, deltas, tables * partitions * deltas)
+}
+
+/// The families of the segmented table edit composition carrier.
+///
+/// Every table of [`super::edits::tables`] over at most two rows under each
+/// of four partitions of the row ids `0` to `3` (all in one segment; `0`
+/// apart from `1`, `2` and `3`; `0` and `3` apart from `1` and `2`; and
+/// `0`, `1`, and `2` with `3` in three segments), each segment owning its
+/// ids as singleton ranges and allocating row ids from
+/// `[10 + 10 i, 19 + 10 i]`.
+#[must_use]
+pub fn segmented_table_compose_families() -> Vec<(Table, Partition)> {
+    let assignments: [[u32; 4]; 4] = [[0, 0, 0, 0], [0, 1, 1, 1], [0, 1, 1, 0], [0, 1, 2, 2]];
+    let partitions: Vec<Partition> = assignments
+        .iter()
+        .map(|owners| {
+            let owners: Vec<Option<u32>> = owners.iter().copied().map(Some).collect();
+            table_partition(&owners, true)
+        })
+        .collect();
+    super::edits::tables()
+        .into_iter()
+        .filter(|table| table.rows.len() <= 2)
+        .flat_map(|table| {
+            partitions
+                .iter()
+                .map(move |partition| (table.clone(), partition.clone()))
+        })
+        .collect()
+}
+
+/// Independent counts of the segmented table edit composition carrier.
+///
+/// Tables over at most two rows: `sum_(n=0)^2 2^n (1 + n^2) = 1 + 4 + 20 =
+/// 25`, under four partitions, `100` families. Deltas of
+/// [`segmented_table_deltas`] over the row ids `0` and `3`: the identity,
+/// `8` row deletions and additions, `8` pair deletions and additions, `4`
+/// cell changes and `4` table changes, `25` in all. So
+/// `100 * 25 * 25 = 62_500` ordered pairs.
+#[must_use]
+pub const fn segmented_table_compose_counts() -> (u64, u64, u64) {
+    let families = (1 + 4 + 20) * 4;
+    let deltas = 1 + 8 + 8 + 4 + 4;
+    (families, deltas, families * deltas * deltas)
+}
+
+/// One case of the segmented tree edit carrier: a tree with its embedding,
+/// a partition of its node ids, and a tree edit.
+#[derive(Clone, Debug)]
+pub struct SegmentedTreeApplyCase {
+    /// The tree the segments hold.
+    pub tree: Tree,
+    /// The tree's embedding: its graph encoding's
+    /// ([`crate::encode::tree_to_graph`]).
+    pub embedding: TreeEmbedding,
+    /// The partition.
+    pub partition: Partition,
+    /// The edit applied to the segments.
+    pub edit: crate::edit::TreeEdit,
+}
+
+/// The label of every arc of the segmented tree edit carrier.
+fn tree_arc_label() -> SEdge {
+    SEdge::new("a", "a", "e", None)
+}
+
+/// The trees of the segmented tree edit carrier, with their embeddings.
+///
+/// Four shapes over nodes `0 .. n-1` rooted at `0`, every node anchored at
+/// `a` and every arc labelled `a -e-> a`: the root alone; `0 -> 1`;
+/// `0 -> 1, 0 -> 2`; and `0 -> 1 -> 2`. Each comes without a fan and with
+/// the fan of hyper-edge `h` from its last node to the root under the label
+/// `x`. The embedding is the graph encoding's, so the fan node is `n` and
+/// the node counter `n` or `n + 1`.
+#[must_use]
+pub fn segmented_tree_apply_trees() -> Vec<(Tree, TreeEmbedding)> {
+    let shapes: [&[(u32, u32)]; 4] = [&[], &[(0, 1)], &[(0, 1), (0, 2)], &[(0, 1), (1, 2)]];
+    let mut out = Vec::new();
+    for arcs in shapes {
+        let n = u32::try_from(arcs.len()).unwrap_or(u32::MAX) + 1;
+        for fan in [false, true] {
+            let tree = Tree {
+                nodes: (0..n).map(|id| (id, Node::new(id, "a"))).collect(),
+                arcs: arcs
+                    .iter()
+                    .map(|(parent, child)| (*parent, *child, tree_arc_label()))
+                    .collect(),
+                fans: if fan {
+                    vec![Fan {
+                        parent: n - 1,
+                        hyper_edge: "h".to_owned(),
+                        children: BTreeMap::from([("x".to_owned(), 0)]),
+                    }]
+                } else {
+                    Vec::new()
+                },
+                root: 0,
+            };
+            if let Ok((_, embedding)) = crate::encode::tree_to_graph(&tree, None) {
+                out.push((tree, embedding));
+            }
+        }
+    }
+    out
+}
+
+/// The edits of the segmented tree edit carrier at a tree with nodes
+/// `0 .. n-1` and node counter `fresh`.
+///
+/// In order: an insertion of node `fresh` (anchored at `a`, under the label
+/// `a -e-> a`) under each node; an insertion of node `n - 1`, which exists,
+/// under the root; an insertion of node `fresh` under node `3`, which is no
+/// tree node; the deletion of each of the ids `0` to `3`; the contraction of
+/// each node; the change of each node's anchor to `b`; setting the field `f`
+/// of each node to `0`; the move of each node under each other node; the
+/// insertion of a fan of hyper-edge `g` from each node to the root under the
+/// label `y`; the deletion of the fans of `h` and of `g`; and the join of
+/// each node into each other node, the product being the primary anchored
+/// at `a`. That is `5n + 8 + 2n(n - 1)` edits.
+#[must_use]
+pub fn segmented_tree_edits(n: u32, fresh: u32) -> Vec<crate::edit::TreeEdit> {
+    use crate::edit::TreeEdit;
+    let insert = |parent: u32, child_id: u32| TreeEdit::InsertNode {
+        parent,
+        child_id,
+        node: Node::new(child_id, "a"),
+        edge: tree_arc_label(),
+    };
+    let mut out: Vec<TreeEdit> = (0..n).map(|parent| insert(parent, fresh)).collect();
+    out.push(insert(0, n - 1));
+    out.push(insert(3, fresh));
+    out.extend((0..=3).map(|id| TreeEdit::DeleteNode { id }));
+    out.extend((0..n).map(|id| TreeEdit::ContractNode { id }));
+    out.extend((0..n).map(|id| TreeEdit::RelabelNode {
+        id,
+        new_anchor: "b".to_owned(),
+    }));
+    out.extend((0..n).map(|node_id| TreeEdit::SetField {
+        node_id,
+        field: "f".to_owned(),
+        value: crate::value::Value::Int(0),
+    }));
+    for node_id in 0..n {
+        for new_parent in (0..n).filter(|parent| *parent != node_id) {
+            out.push(TreeEdit::MoveSubtree {
+                node_id,
+                new_parent,
+                edge: tree_arc_label(),
+            });
+        }
+    }
+    out.extend((0..n).map(|parent| TreeEdit::InsertFan {
+        fan: Fan {
+            parent,
+            hyper_edge: "g".to_owned(),
+            children: BTreeMap::from([("y".to_owned(), 0)]),
+        },
+    }));
+    out.extend(["h", "g"].map(|hyper| TreeEdit::DeleteFan {
+        hyper_edge: hyper.to_owned(),
+    }));
+    for primary in 0..n {
+        for joined in (0..n).filter(|joined| *joined != primary) {
+            out.push(TreeEdit::JoinFeatures {
+                primary,
+                joined: vec![joined],
+                produce: Node::new(primary, "a"),
+            });
+        }
+    }
+    out
+}
+
+/// The tree partitions assigning the node ids `0` to `4` as `owners` does
+/// (`None` for no segment), each segment owning its ids as singleton
+/// ranges.
+fn tree_owner_partition(owners: &[Option<u32>]) -> Partition {
+    let segments = owners.iter().flatten().max().map_or(0, |max| max + 1);
+    Partition {
+        shape: InstanceShapeKind::Tree,
+        specs: (0..segments)
+            .map(|id| SegmentSpec {
+                id: SegmentId(id),
+                nodes: (0_u32..)
+                    .zip(owners)
+                    .filter(|(_, owner)| **owner == Some(id))
+                    .map(|(node, _)| IdRange { lo: node, hi: node })
+                    .collect(),
+                alloc_nodes: None,
+                alloc_edges: None,
+            })
+            .collect(),
+    }
+}
+
+/// The restricted growth strings of length `len` with at most `blocks`
+/// blocks: the assignments of `len` ids to at most `blocks` segments,
+/// numbered in the order of their least id.
+fn restricted_growth(len: usize, blocks: u32) -> Vec<Vec<u32>> {
+    let mut strings: Vec<Vec<u32>> = vec![Vec::new()];
+    for _ in 0..len {
+        strings = strings
+            .into_iter()
+            .flat_map(|string| {
+                let next = string.iter().max().map_or(0, |max| max + 1);
+                (0..=next.min(blocks - 1)).map(move |block| {
+                    let mut longer = string.clone();
+                    longer.push(block);
+                    longer
+                })
+            })
+            .collect();
+    }
+    strings
+}
+
+/// The partitions of the segmented tree edit carrier: every assignment of
+/// the node ids `0` to `4` to at most three segments, then every assignment
+/// of `0` to `3` to at most three segments leaving `4` to no segment.
+#[must_use]
+pub fn segmented_tree_apply_partitions() -> Vec<Partition> {
+    let mut out = Vec::new();
+    for (len, unowned) in [(5_usize, 0_usize), (4, 1)] {
+        for string in restricted_growth(len, 3) {
+            let mut owners: Vec<Option<u32>> = string.into_iter().map(Some).collect();
+            owners.extend(std::iter::repeat_n(None, unowned));
+            out.push(tree_owner_partition(&owners));
+        }
+    }
+    out
+}
+
+/// Every tree of [`segmented_tree_apply_trees`] under every partition of
+/// [`segmented_tree_apply_partitions`] with every edit of
+/// [`segmented_tree_edits`] at that tree, in that nesting order.
+pub fn segmented_tree_apply_cases() -> impl Iterator<Item = SegmentedTreeApplyCase> {
+    let partitions = segmented_tree_apply_partitions();
+    segmented_tree_apply_trees()
+        .into_iter()
+        .flat_map(move |(tree, embedding)| {
+            let n = u32::try_from(tree.nodes.len()).unwrap_or(u32::MAX);
+            let edits = segmented_tree_edits(n, embedding.next_node);
+            partitions.clone().into_iter().flat_map(move |partition| {
+                let (tree, embedding) = (tree.clone(), embedding.clone());
+                edits
+                    .clone()
+                    .into_iter()
+                    .map(move |edit| SegmentedTreeApplyCase {
+                        tree: tree.clone(),
+                        embedding: embedding.clone(),
+                        partition: partition.clone(),
+                        edit,
+                    })
+            })
+        })
+}
+
+/// Independent counts of the segmented tree edit carrier.
+///
+/// Trees: four shapes, each without and with a fan, `8`, two with one node,
+/// two with two and four with three. Partitions: the restricted growth
+/// strings of length five with at most three blocks number
+/// `1 + 15 + 25 = 41` (the Stirling numbers `S(5, k)` for `k` up to three)
+/// and those of length four `1 + 7 + 6 = 14`, `55`. Edits at a tree of `n`
+/// nodes: `5n + 8 + 2n(n - 1)`, so `13`, `22` and `35`, and
+/// `2 * 13 + 2 * 22 + 4 * 35 = 210` over the trees. So `55 * 210 = 11_550`
+/// cases.
+#[must_use]
+pub const fn segmented_tree_apply_case_counts() -> (u64, u64, u64, u64) {
+    let trees = 8;
+    let partitions = 41 + 14;
+    let edits = 2 * 13 + 2 * 22 + 4 * 35;
+    (trees, partitions, edits, partitions * edits)
+}

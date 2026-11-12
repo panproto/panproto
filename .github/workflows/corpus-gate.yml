@@ -160,6 +160,62 @@ jobs:
           - package: panproto-lens
             binary: reference_lenses
             test: lens_path_law_certificate
+          - package: panproto-lens
+            binary: reference_lenses
+            test: graph_edit_lens_differential::graph_edit_lens_law_certificate
+            shard: 0/4
+          - package: panproto-lens
+            binary: reference_lenses
+            test: graph_edit_lens_differential::graph_edit_lens_law_certificate
+            shard: 1/4
+          - package: panproto-lens
+            binary: reference_lenses
+            test: graph_edit_lens_differential::graph_edit_lens_law_certificate
+            shard: 2/4
+          - package: panproto-lens
+            binary: reference_lenses
+            test: graph_edit_lens_differential::graph_edit_lens_law_certificate
+            shard: 3/4
+          - package: panproto-lens
+            binary: reference_lenses
+            test: segmented_graph_put::segmented_graph_put_agrees_with_the_reference_and_assembles_to_whole_state_put
+            shard: 0/4
+          - package: panproto-lens
+            binary: reference_lenses
+            test: segmented_graph_put::segmented_graph_put_agrees_with_the_reference_and_assembles_to_whole_state_put
+            shard: 1/4
+          - package: panproto-lens
+            binary: reference_lenses
+            test: segmented_graph_put::segmented_graph_put_agrees_with_the_reference_and_assembles_to_whole_state_put
+            shard: 2/4
+          - package: panproto-lens
+            binary: reference_lenses
+            test: segmented_graph_put::segmented_graph_put_agrees_with_the_reference_and_assembles_to_whole_state_put
+            shard: 3/4
+          - package: panproto-lens
+            binary: reference_lenses
+            test: segmented_graph_put_run::segmented_graph_put_run_matches_the_reference_runner_at_every_cancellation_point
+            shard: 0/4
+          - package: panproto-lens
+            binary: reference_lenses
+            test: segmented_graph_put_run::segmented_graph_put_run_matches_the_reference_runner_at_every_cancellation_point
+            shard: 1/4
+          - package: panproto-lens
+            binary: reference_lenses
+            test: segmented_graph_put_run::segmented_graph_put_run_matches_the_reference_runner_at_every_cancellation_point
+            shard: 2/4
+          - package: panproto-lens
+            binary: reference_lenses
+            test: segmented_graph_put_run::segmented_graph_put_run_matches_the_reference_runner_at_every_cancellation_point
+            shard: 3/4
+          - package: panproto-inst
+            binary: reference_edits
+            test: segmented_apply::segmented_apply_agrees_with_the_reference_on_every_case_of_the_carrier
+            shard: 0/2
+          - package: panproto-inst
+            binary: reference_edits
+            test: segmented_apply::segmented_apply_agrees_with_the_reference_on_every_case_of_the_carrier
+            shard: 1/2
           - package: panproto-inst
             binary: reference_edits
             test: graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope
@@ -223,6 +279,12 @@ jobs:
           - package: panproto-inst
             binary: reference_edits
             test: graph_independence_and_merge_match_reference_on_every_letter_pair_of_the_coverage_scope
+          - package: panproto-inst
+            binary: reference_edits
+            test: graph_rebase_keeps_independent_deltas_and_agrees_with_the_merge_on_the_rebase_scope
+          - package: panproto-inst
+            binary: reference_edits
+            test: table_rebase_keeps_independent_deltas_and_agrees_with_the_merge_on_the_rebase_scope
           - package: panproto-mig
             binary: reference_migration_search
             test: a_bounded_search_answers_or_names_its_bound_on_every_bounded_pair
