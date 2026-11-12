@@ -871,7 +871,7 @@ fn parse_number_value(text: &str) -> Result<Value, ValueFidelityError> {
     )
 }
 
-fn cst_byte_offset(cst: &Schema, vertex: &Name) -> Option<u64> {
+pub(crate) fn cst_byte_offset(cst: &Schema, vertex: &Name) -> Option<u64> {
     cst.constraints.get(vertex).and_then(|constraints| {
         constraints
             .iter()

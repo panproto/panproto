@@ -9,6 +9,7 @@ pub mod edge_lists;
 pub mod edits;
 pub mod kan_extensions;
 pub mod keys_and_registration;
+pub mod kubernetes_crds;
 pub mod lenses;
 pub mod migration_search;
 pub mod postgresql_data;

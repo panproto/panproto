@@ -28,7 +28,7 @@ use arbitrary::Unstructured;
 use libfuzzer_sys::fuzz_target;
 use panproto_mig::{SearchOptions, check_migration_morphism, find_span};
 use panproto_protocols::{
-    api, config, data_schema, data_science, database, parse_schema_document, parse_schema_source,
+    api, data_schema, data_science, database, parse_schema_document, parse_schema_source,
     serialization, web_document,
 };
 use panproto_schema::{Protocol, Schema, canonical_digest, validate};
@@ -63,11 +63,6 @@ const DOCUMENT_PROTOCOLS: [DocEntry; 7] = [
         "avro",
         serialization::avro::parse_avsc,
         serialization::avro::protocol,
-    ),
-    (
-        "k8s-crd",
-        config::k8s_crd::parse_k8s_crd_schema,
-        config::k8s_crd::protocol,
     ),
     (
         "mongodb",
