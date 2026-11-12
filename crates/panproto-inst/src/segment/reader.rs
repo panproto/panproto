@@ -341,7 +341,7 @@ impl<'a> Reader<'a> {
         Ok(self.value_entries(depth)?.into_iter().collect())
     }
 
-    /// The entries of a value map, as [`CanonicalSink::value`] writes a
+    /// The entries of a value map, as [`CanonicalSink::value`](crate::identity::CanonicalSink::value) writes a
     /// record's fields: a count, then each key and its value, refused unless
     /// the keys strictly ascend.
     ///
@@ -380,7 +380,7 @@ impl<'a> Reader<'a> {
         }
     }
 
-    /// An instance value, as [`CanonicalSink::value`]
+    /// An instance value, as [`CanonicalSink::value`](crate::identity::CanonicalSink::value)
     /// writes it.
     ///
     /// # Errors

@@ -8049,7 +8049,7 @@ pub mod segment {
     /// exceeds the working set. It then commits `4n + 2` tasks: per segment
     /// Validate, which refuses the first complement entry about an element
     /// the segment does not own; per segment Export; per segment Summarize,
-    /// the facts of [`put_facts_bytes`] from the restored source of
+    /// the node facts (written by `put_facts_bytes`) from the restored source of
     /// [`super::segmented_put::put_graph_segmented`]; the coordinator's
     /// Assemble, which refuses with that put's refusal and otherwise declines
     /// when the summary bytes and its own artifact (the count of segments and
