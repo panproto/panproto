@@ -76,12 +76,15 @@ impl<'a> Tree<'a> {
         found
     }
 
-    /// The first parser recovery marker, by offset: an `ERROR` node, a node
-    /// the parser inserted as missing, or an empty node other than the
-    /// document.
-    pub(super) fn first_recovery(&self) -> Option<usize> {
-        let markers: Vec<(usize, usize)> = self
-            .cst
+    /// The first byte of the earliest region the parser marked as
+    /// recovered: the smallest start of an `ERROR` node, a missing node or
+    /// an empty node other than the document.
+    pub(super) fn first_marker(&self) -> Option<usize> {
+        self.markers().into_iter().map(|(start, _)| start).min()
+    }
+
+    fn markers(&self) -> Vec<(usize, usize)> {
+        self.cst
             .vertices
             .iter()
             .filter(|(name, vertex)| {
@@ -99,7 +102,14 @@ impl<'a> Tree<'a> {
                 let cursor = self.cursor(name.as_ref());
                 (cursor.start, cursor.end)
             })
-            .collect();
+            .collect()
+    }
+
+    /// The first parser recovery marker, by offset: an `ERROR` node, a node
+    /// the parser inserted as missing, or an empty node other than the
+    /// document.
+    pub(super) fn first_recovery(&self) -> Option<usize> {
+        let markers = self.markers();
         // The outermost marker spans the whole region the parser could not
         // read; the innermost one nested in it is where reading failed.
         let mut current = *markers

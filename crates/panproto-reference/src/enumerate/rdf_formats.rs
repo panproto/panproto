@@ -224,3 +224,193 @@ pub fn mutations_count(graph: &Graph) -> usize {
             .sum::<usize>()
         + predicates
 }
+
+// ── Turtle ─────────────────────────────────────────────────────────────
+
+/// The base IRIs a Turtle document of the scope is read with.
+pub const TURTLE_BASES: &[Option<&str>] = &[None, Some("http://b/d/f")];
+
+/// The directive lines that open a Turtle document of the scope.
+///
+/// None; an `@prefix` for the empty prefix; a SPARQL `PREFIX` and an
+/// `@prefix` whose IRI is relative; and an `@base` followed by a
+/// lower-case SPARQL `prefix`.
+pub const TURTLE_HEADERS: &[&str] = &[
+    "",
+    "@prefix : <http://e/> .\n",
+    "PREFIX e: <http://e/>\n@prefix : <x#> .\n",
+    "@base <http://c/a/> .\nprefix : <../e/>\n",
+];
+
+/// The subject spellings of the Turtle scope.
+pub const TURTLE_SUBJECTS: &[&str] = &[
+    "<http://e/s>",
+    "<s>",
+    ":s",
+    "e:s",
+    "_:b0",
+    "[]",
+    "[ :p \"v\" ]",
+    "( 1 :o )",
+    "\"s\"",
+];
+
+/// The predicate spellings of the Turtle scope.
+pub const TURTLE_PREDICATES: &[&str] = &["a", "<http://e/p>", ":p", "e:p"];
+
+/// The object spellings of the Turtle scope.
+pub const TURTLE_OBJECTS: &[&str] = &[
+    "<http://e/o>",
+    "<../o>",
+    ":o",
+    ":\\-x.y",
+    "_:x",
+    "_:b1",
+    "[]",
+    "[ :q :r ; :t 'u' ]",
+    "( )",
+    "( 1 [] ( ) )",
+    "\"x\"",
+    "'y'",
+    "\"\"\"a\"b\"\"\"",
+    "\"x\"@en-GB",
+    "\"x\" @en",
+    "\"x\"^^<http://e/d>",
+    "\"x\"^^:d",
+    "\"\\u0041\\t\"",
+    "\"\\ud800\"",
+    "42",
+    "-1.5",
+    "+1e3",
+    ".5E-1",
+    "true",
+    "<http://e/\\u0020>",
+    "\"x\"@",
+];
+
+/// The endings of a Turtle statement of the scope.
+pub const TURTLE_ENDINGS: &[&str] = &[" .", " ; :q :r .", " , :o .", ""];
+
+/// The statement lines of the two-statement Turtle documents.
+pub const TURTLE_LINES: &[&str] = &[
+    "_:b0 :p [] .",
+    ":s :p ( _:b1 ) .",
+    "@prefix : <http://f/> .",
+    "BASE <http://g/>",
+    "<s> :p :o .",
+    "[ :p :o ] .",
+    "# c",
+];
+
+/// The separators of the two-statement Turtle documents.
+pub const TURTLE_SEPARATORS: &[&str] = &["\n", " "];
+
+/// Every document of the Turtle scope, with the base it is read with.
+///
+/// For each base and header, each subject, predicate, object and ending as
+/// one statement on the line after the header; and, with the second base
+/// and header, each ordered pair of [`TURTLE_LINES`] joined by each
+/// separator and ended by a line feed.
+#[must_use]
+pub fn turtle_documents() -> Vec<(Option<&'static str>, String)> {
+    let mut documents = Vec::new();
+    for base in TURTLE_BASES {
+        for header in TURTLE_HEADERS {
+            for s in TURTLE_SUBJECTS {
+                for p in TURTLE_PREDICATES {
+                    for o in TURTLE_OBJECTS {
+                        for ending in TURTLE_ENDINGS {
+                            documents.push((*base, format!("{header}{s} {p} {o}{ending}\n")));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    for first in TURTLE_LINES {
+        for second in TURTLE_LINES {
+            for separator in TURTLE_SEPARATORS {
+                documents.push((
+                    TURTLE_BASES[1],
+                    format!("{}{first}{separator}{second}\n", TURTLE_HEADERS[1]),
+                ));
+            }
+        }
+    }
+    documents
+}
+
+/// The count of [`turtle_documents`]: `2 * 4 * 9 * 4 * 26 * 4 + 7 * 7 * 2`.
+#[must_use]
+pub const fn turtle_documents_count() -> usize {
+    TURTLE_BASES.len()
+        * TURTLE_HEADERS.len()
+        * TURTLE_SUBJECTS.len()
+        * TURTLE_PREDICATES.len()
+        * TURTLE_OBJECTS.len()
+        * TURTLE_ENDINGS.len()
+        + TURTLE_LINES.len() * TURTLE_LINES.len() * TURTLE_SEPARATORS.len()
+}
+
+/// The documents of the format-preserving scope: those of
+/// [`turtle_documents`] with the second base and header, one statement
+/// each.
+#[must_use]
+pub fn preserving_documents() -> Vec<String> {
+    let mut documents = Vec::new();
+    for s in TURTLE_SUBJECTS {
+        for p in TURTLE_PREDICATES {
+            for o in TURTLE_OBJECTS {
+                for ending in TURTLE_ENDINGS {
+                    documents.push(format!("{}{s} {p} {o}{ending}\n", TURTLE_HEADERS[1]));
+                }
+            }
+        }
+    }
+    documents
+}
+
+/// The new values tried for a term of each kind in the format-preserving
+/// scope.
+///
+/// Each kind has a fresh value and one the route may refuse or rewrite
+/// differently: an IRI already in many documents, a label Turtle cannot
+/// write, a lexical form that is no bare token, a second tag.
+pub const EDIT_VALUES: &[(&str, &[&str])] = &[
+    ("iri", &["http://e/edited", "http://e/o"]),
+    ("blank", &["edited", "x:y"]),
+    ("literal", &["7", "a \"q\"\n"]),
+    ("language", &["de-AT", "en"]),
+];
+
+/// The base IRIs of the resolution scope.
+pub const RESOLUTION_BASES: &[&str] = &[
+    "http://a/b/c/d;p?q",
+    "http://a",
+    "http://a/",
+    "g:h",
+    "file:///x/y",
+];
+
+/// The pieces a reference of the resolution scope is built from.
+pub const RESOLUTION_PIECES: &[&str] = &["g", ".", "..", "/", "//h", "?y", "#s", ";x", "g:"];
+
+/// Every pair of a base of [`RESOLUTION_BASES`] and a reference made of at
+/// most three [`RESOLUTION_PIECES`].
+#[must_use]
+pub fn resolution_pairs() -> Vec<(&'static str, String)> {
+    let references = super::sequences(RESOLUTION_PIECES, 3);
+    let mut out = Vec::new();
+    for base in RESOLUTION_BASES {
+        for pieces in &references {
+            out.push((*base, pieces.concat()));
+        }
+    }
+    out
+}
+
+/// The count of [`resolution_pairs`]: `5 * (1 + 9 + 9^2 + 9^3)`.
+#[must_use]
+pub fn resolution_pairs_count() -> u64 {
+    5 * super::sequences_count(9, 3)
+}
