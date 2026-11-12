@@ -8,12 +8,16 @@ The `ntriples` protocol (alias `n-triples`) reads and writes N-Triples as the W3
 
 The `turtle` protocol (alias `ttl`) reads Turtle as the W3C Recommendation [*RDF 1.1 Turtle*](https://www.w3.org/TR/2014/REC-turtle-20140225/) of 25 February 2014 defines it, into the same graph encoding, and resolves relative IRI references as [RFC 3986](https://www.rfc-editor.org/rfc/rfc3986) Sec 5.2 resolves them. Its syntax and its data are likewise both read as a graph, and its graph codec, [`TurtleCodec`](https://docs.rs/panproto-io/latest/panproto_io/rdf/turtle/struct.TurtleCodec.html), is registered under the same feature.
 
+The `jsonld` protocol (alias `json-ld`) reads JSON-LD as the W3C Recommendations [*JSON-LD 1.1*](https://www.w3.org/TR/2020/REC-json-ld11-20200716/) and [*JSON-LD 1.1 Processing Algorithms and API*](https://www.w3.org/TR/2020/REC-json-ld11-api-20200716/) of 16 July 2020 define it, in the processing mode `json-ld-1.1`, into the same graph encoding. A JSON-LD document is a JSON tree, which the reader reads straight into the graph it denotes, so the protocol declares a graph syntactic shape and a graph semantic shape; its graph codec, [`JsonLdCodec`](https://docs.rs/panproto-io/latest/panproto_io/rdf/jsonld/struct.JsonLdCodec.html), is registered under the same feature.
+
 | Format | Standard | Read as | Status |
 |---|---|---|---|
 | N-Triples | RDF 1.1 N-Triples (W3C Recommendation, 2014-02-25) | graph | Read and written; the limits below |
 | Turtle | RDF 1.1 Turtle (W3C Recommendation, 2014-02-25) | graph | Read, written canonically, and read and written through a format-preserving route; the limits below |
+| JSON-LD | JSON-LD 1.1 and JSON-LD 1.1 Processing Algorithms and API (W3C Recommendations, 2020-07-16), processing mode `json-ld-1.1` | JSON tree, read as a graph | Read with the subset and refusals below, written canonically, and read and written through a format-preserving route |
 | N-Quads | RDF 1.1 N-Quads (W3C Recommendation, 2014-02-25) | | Not supported: no bundled tree-sitter grammar reads N-Quads, and the Turtle grammar refuses each of the 12 positive syntax tests of the W3C N-Quads suite that carries a graph label (see [N-Quads](#n-quads)) |
 | TriG, RDF/XML | | | Not supported; the Turtle reader refuses a TriG graph block with `NotInFormat` |
+| JSON-LD named graphs, remote contexts, framing, JSON-LD 1.0 processing | | | Not supported: the JSON-LD reader refuses a named graph with `NamedGraph` and a remote context with `Unsupported`, and offers neither framing nor the 1.0 mode |
 | RDF-star, RDF 1.2 triple terms | | | Not supported: the reader refuses `<<` with `Syntax` |
 
 ## The RDF graph encoding
@@ -77,6 +81,23 @@ The Turtle route is run against the W3C RDF 1.1 Turtle test suite, vendored besi
 
 The tree-sitter grammar alone reads 213 of the 219 positive and evaluation tests and rejects 77 of the 94 negative ones; the walker refuses the 17 it over-accepts: three IRIs whose escapes name an excluded character, two undefined prefixes, a TriG graph block, an N3 `is ... of` path and ten numeric escapes naming a surrogate.
 
+The JSON-LD route is run against the `toRdf` tests of the W3C JSON-LD 1.1 API test suite, vendored under `json-ld-api` with its licence and upstream commit: the manifest, every file of `tests/toRdf` and the one input of `tests/expand` the manifest names (`conformance_jsonld_api.rs`). An entry whose options ask for JSON-LD 1.0 processing, generalized RDF, an `rdfDirection` form or an `expandContext` is not run and counts as a limit of that class. Every other entry is read with the base its options give, or the manifest's `baseIri` followed by the input's path. A positive evaluation test passes when the route reads the input, the triples are isomorphic (by the exact check of the Turtle corpus) to those the N-Triples route reads from the expected N-Quads, the format-preserving route reads the same graph and writes the unedited graph back as the input's bytes, and canonical JSON-LD reads back as the same triples; a negative test passes when the route refuses the input with the API error code the manifest expects; a positive syntax test passes when the route reads the input. The route passes 213 of the 467 entries: 149 of the 345 positive evaluation tests, 48 of the 106 negative tests and all 16 positive syntax tests. Every other entry is a declared limit in `json-ld-api-limits.txt`, and the test fails if the list and the failing entries differ in either direction.
+
+| Limit | Entries | What the reader does |
+|---|---|---|
+| `unsupported-scoped-context` | 35 | Refuses a term definition's `@context` with `Unsupported` |
+| `unsupported-@protected` | 34 | Refuses `@protected` with `Unsupported` |
+| `unsupported-@container-@graph`, `-@index`, `-@type`, `-@language`, `-@id` | 30, 12, 10, 7, 4 | Refuses the container mapping with `Unsupported` |
+| `unsupported-@json` | 23 | Refuses a JSON literal with `Unsupported` |
+| `json-ld-1.0` | 19 | Not run: the entry asks for JSON-LD 1.0 processing |
+| `unsupported-@nest`, `-@import`, `-@included`, `-@direction`, `-@index`, `-@propagate` | 13, 9, 8, 7, 3, 2 | Refuses the keyword with `Unsupported` |
+| `named-graph` | 12 | Refuses a named graph with `NamedGraph` |
+| `unsupported-remote-context` | 6 | Refuses a remote context with `Unsupported` |
+| `refused-iri-character`, `refused-relative-iri`, `refused-malformed-iri` | 5, 2, 2 | Refuses the IRI the standard drops |
+| `rdf-direction-option`, `expand-context-option` | 4, 1 | Not run: the entry asks for an option the reader does not offer |
+| `refused-free-floating` | 3 | Refuses the free-floating value the standard drops |
+| `refused-reserved-keyword`, `refused-language-tag`, `refused-blank-predicate` | 1, 1, 1 | Refuses the value, tag or property the standard ignores or drops |
+
 ## N-Quads {#n-quads}
 
 No bundled grammar reads N-Quads. N-Quads is N-Triples with an optional graph label (an IRI or a blank node) before the final `.`, and the vendored Turtle grammar has no production for a fourth term, so reading N-Quads through tree-sitter needs one of: an N-Quads grammar; a TriG grammar, which would still not read N-Quads, whose graph label follows the triple; or an extension of the vendored Turtle grammar that admits an optional graph label before the `.` of a triple. A survey of maintained grammars found [`tree-sitter-rdf`](https://github.com/symbolith/tree-sitter-rdf) (commit `a168f6be`, 2026-11-10), by the author of the vendored Turtle grammar, which holds an RDF 1.1 N-Quads grammar among nine RDF grammars. Its package metadata declares the MIT licence, but the repository holds no licence file and declares no licence of its own. Run over the W3C N-Quads suite, it reads 52 of the 53 positive syntax tests (all but `literal_ascii_boundaries`, the raw U+0000 case N-Triples shows) and rejects 29 of the 34 negative ones. The route waits on a decision to vendor it.
@@ -130,6 +151,61 @@ An unedited graph is written as the document's bytes. An edit to the value of a 
 | `language` | tag | `@` and the tag |
 
 The route refuses, with an `RdfWriteError` naming the node, every edit it cannot carry in place. A graph that differs from the one read in more than node values (a node added or removed, an anchor changed, an edge added, removed or moved) is refused with `StructuralEdit`. A graph no document reads back as is refused as the canonical writer refuses it, so an edit that makes two terms equal is refused with `DuplicateTerm` or `DuplicateTriple` rather than merging them. A changed term the document writes in some place without a token is refused with `ImplicitTerm`: the datatype a plain string, a tagged string or a bare number or boolean implies, `rdf:first`, `rdf:rest` and `rdf:nil` of a collection, and a blank node written as `[]`, a property list or a collection cell. A label holding `:`, which Turtle cannot write, is refused with `InvalidBlankLabel`. The native and the preserving route read the same graph from every document.
+
+## What the JSON-LD reader reads and refuses
+
+The JSON-LD reader parses the document with the bundled tree-sitter JSON grammar, the grammar the JSON text route reads with, and builds the JSON value from the tree: each string token is decoded as RFC 8259 decodes it, each number token is checked against the RFC 8259 number grammar, and a comment (which the grammar admits), white space other than space, tab, line feed and carriage return, more than one top-level value and nesting deeper than 128 arrays and objects are refused. It then runs the Expansion algorithm (API Sec 5.1, with Context Processing, Create Term Definition, IRI Expansion and Value Expansion of Sec 4.1, 4.2, 5.2 and 5.3) and reads the triples of the expanded default graph as Deserialize JSON-LD to RDF (Sec 8.1 to 8.3) does. The processing mode is pinned to `json-ld-1.1`; a context's `@version` must be `1.1`.
+
+Contexts are inline. A codec made with [`JsonLdCodec::new`](https://docs.rs/panproto-io/latest/panproto_io/rdf/jsonld/struct.JsonLdCodec.html#method.new) reads with no base IRI, and one made with `with_base` reads with the base it is given, which is the API's `documentUrl`. An `@base` entry changes the base for the rest of its context's scope, and `null` in a context resets the active context to the initial one. The reader performs no network access: a context given as a string (a remote context) is refused.
+
+| Feature | Reading |
+|---|---|
+| Context entries | `@base`, `@vocab` (expanded against the vocabulary mapping before it, then the base), `@language`, `@version` |
+| Term definitions | A string, `null`, or a map with `@id`, `@reverse`, `@type` (an IRI, `@id`, `@vocab` or `@none`), `@container` (`@list` or `@set`), `@language` and `@prefix`; compact IRIs, prefixes and keyword aliases; the `@type` term with `@container: @set` |
+| Node objects | `@id`, `@type`, properties, `@reverse`, and `@graph` on a top-level object that holds nothing else |
+| Values | Strings, numbers and booleans; value objects with `@value`, `@type` and `@language`; `@list` (lists of lists included) and `@set` |
+| Blank node identifiers | `_:` and a label: an N-Triples blank node label is kept, and any other identifier gets a fresh label |
+
+Each blank node without a kept label gets a fresh label, `b` and a decimal counter from 0 that skips every label the document keeps. Triples are listed in the order the walk over the expanded items completes them. A node object's label is allocated where the walk reaches it; its `@type` triples come first, then each property's values in document order, each value's own triples before the triple that has it as object, then the reverse properties likewise. A list allocates all its cells' labels when reached, then gives each element's triples followed by the cell's `rdf:first` and `rdf:rest` triples. The API's node map relabels every blank node, so the triples are those of the API up to a renaming of blank nodes.
+
+A JSON number denotes the binary64 value nearest its decimal text, as the API's JavaScript reading of JSON gives it. Following API Sec 8.6, a value with no fractional part and a magnitude below $10^{21}$, not typed `xsd:double`, is written as the decimal integer it is (`-0` is `0`), with the datatype `xsd:integer` unless a value object or a term gives one. Any other value is written as the API's `toExponential(15)` writes it: rounded to 16 significant digits with a tie rounded away from zero, as one non-zero digit, a point, the remaining digits without trailing zeros (at least one), `E` and the exponent without a plus sign or leading zeros, with the datatype `xsd:double` unless one is given; zero is `0.0E0`. So `1.0` reads as `"1"^^xsd:integer`, `1e21` as `"1.0E21"^^xsd:double` and `1.0000152587890625` as `"1.000015258789063E0"^^xsd:double`. A boolean reads as `true` or `false` of `xsd:boolean`. A language tag keeps its case.
+
+The standard drops some data silently, and the reader follows it in two places. A key that expands to no IRI, blank node identifier or keyword is dropped (Expansion step 13.3): with no `@vocab`, a key such as `name` that no term defines denotes nothing, and so does a key of the form `@` and letters that is no keyword. A `null` value, a value object whose `@value` is `null` and a map holding only `@language` denote no value. A node object with no property denotes no triple, as in the API. Everywhere else the reader refuses what the standard would drop.
+
+Every refusal is a [`ParseInstanceError::Rdf`](https://docs.rs/panproto-io/latest/panproto_io/error/enum.ParseInstanceError.html) carrying an [`RdfReadError`](https://docs.rs/panproto-io/latest/panproto_io/rdf/struct.RdfReadError.html). A JSON-level fault has the kind `NotUtf8`, `Syntax`, `NotInFormat` (a comment) or `NestingLimit`. A JSON-LD refusal has the kind `JsonLd`, which carries a [`JsonLdRefusal`](https://docs.rs/panproto-io/latest/panproto_io/rdf/jsonld/enum.JsonLdRefusal.html) and the JSON Pointer (RFC 6901) of the value at fault; its offset is that value's first byte.
+
+| Input | Refusal |
+|---|---|
+| A document the API rejects | `Error`, with the API's error code (`invalid IRI mapping`, `cyclic IRI mapping`, `invalid value object` and the other codes of Sec 9.4.2 the subset can meet) |
+| A remote context, `@import`, `@protected`, `@propagate`, `@direction`, `@nest`, `@included`, `@index`, `@json`, a scoped context, a container other than `@list` and `@set`, any other keyword in a node object, `@language` in a node object | `Unsupported`, naming the feature |
+| An object repeating a key | `DuplicateKey`: JSON leaves its meaning open |
+| A scalar, value object or list at the top level or in the top-level `@graph` | `FreeFloating`: the standard drops it |
+| A graph object other than the top-level `@graph` | `NamedGraph`: the RDF graph encoding holds one graph |
+| A property that is a blank node identifier | `BlankPredicate`: an RDF triple cannot hold it |
+| An `@id` or `@type` value of the form `@` and letters that is no keyword | `ReservedKeyword`: the standard ignores it |
+| An IRI that is relative after expansion, holds a character `IRIREF` excludes, or holds a second `#` | `RelativeIri`, `IriCharacter`, `MalformedIri`: the standard drops the triple |
+| A language tag that is not an RDF `LANGTAG` | `InvalidLanguageTag`: the standard drops the literal |
+| A number whose nearest binary64 value is infinite | `NumberOutOfRange` |
+
+Refusals come in processing order: the JSON faults; then the first repeated key in document order; then the expansion's refusals in the order the algorithm meets them (a map's `@context` before its other entries, a `@type` value of `@json` before the entries, the entries in document order); then the refusals of the triples in the walk's order.
+
+## Canonical JSON-LD
+
+[`emit_graph`](https://docs.rs/panproto-io/latest/panproto_io/registry/struct.ProtocolRegistry.html#method.emit_graph) for `jsonld`, and [`rdf::jsonld::write`](https://docs.rs/panproto-io/latest/panproto_io/rdf/jsonld/fn.write.html), write a graph in expanded form with no context: a JSON array holding one node object per subject, each on its own line indented by two spaces, the subjects in ascending code point order of their N-Triples text. A node object is `{"@id": ...}` followed by its predicates in ascending code point order, each with the array of its objects in ascending order of their N-Triples text. An IRI object is `{"@id": iri}`, a blank node `{"@id": "_:label"}`, and a literal `{"@value": lexical}` followed by `"@language"` for a tagged string or `"@type"` for a datatype other than `xsd:string`. A string escapes `"`, backslash, backspace, form feed, line feed, carriage return and tab as two characters, every other character below U+0020 as `\u` and four lowercase hexadecimal digits, and writes every other character as itself. The empty graph is `[]`. Every IRI is absolute, so the output reads back as the same triples with or without a base. The writer refuses what the N-Triples writer refuses, and in addition an IRI holding a second `#` (`IriFragments`), which the reader would refuse.
+
+## The format-preserving JSON-LD route
+
+[`JsonLdCodec::parse_graph_preserving`](https://docs.rs/panproto-io/latest/panproto_io/rdf/jsonld/struct.JsonLdCodec.html#method.parse_graph_preserving) reads a document into the graph the native route reads, with a [`JsonLdComplement`](https://docs.rs/panproto-io/latest/panproto_io/rdf/jsonld/struct.JsonLdComplement.html) holding the CST schema of the document (its contexts, compact IRIs, terms, key order and layout), the base, the graph as read and, for each term node, the JSON tokens that write it and whether the document also writes it with no token of its own. [`emit_graph_preserving`](https://docs.rs/panproto-io/latest/panproto_io/rdf/jsonld/struct.JsonLdCodec.html#method.emit_graph_preserving) writes an unedited graph as the document's bytes, through the CST complement of the [text formats](text-formats.md).
+
+| Edited node | Token | Written as |
+|---|---|---|
+| `iri` | a key, an `@id` or `@type` value, or a string a term coerces to an IRI | a JSON string holding the absolute IRI |
+| `blank` | an `@id` or `@type` value | a JSON string holding `_:` and the label |
+| `literal` | a string value or `@value` string | a JSON string holding the lexical form |
+| `literal` | a number or boolean | the new lexical form as a bare token, when a number or boolean there converts to it; otherwise refused with `NativeLexical` |
+| `language` | an `@language` value | a JSON string holding the tag |
+
+A changed term the document writes in some place with no token of its own is refused with `ImplicitTerm`: a datatype a term coerces to or a native value implies, the default language, `rdf:type`, `rdf:first`, `rdf:rest`, `rdf:nil` and a fresh blank node. Structural edits are refused with `StructuralEdit`, and graphs no document reads back as with the canonical writer's refusals. A context may give the new spelling another meaning (a key rewritten as an absolute IRI no longer carries its term's coercion, for instance), so the route reads the rewritten document again and writes it only when it reads back as the edited graph; otherwise it refuses with `ReadBackDiffers`. The native and the preserving route read the same graph from every document.
 
 ## N-Triples documents read as the grammar defines them {#L-rdf-formats-1}
 
@@ -362,4 +438,135 @@ $E$ reads $d$ with the reading of [L-rdf-formats-4](#L-rdf-formats-4), recording
 - Reference test: `the_turtle_scopes_have_their_closed_form_counts; command: cargo nextest run -p panproto-reference --test rdf_formats_turtle --no-tests=fail -E 'test(=the_turtle_scopes_have_their_closed_form_counts)'`
 - File: `crates/panproto-io/src/rdf/turtle/reader.rs`
 - File: `crates/panproto-reference/src/pages/rdf_formats/turtle.rs`
+- File: `crates/panproto-reference/src/enumerate/rdf_formats.rs`
+
+## JSON-LD documents read as the API's algorithms define them {#L-rdf-formats-8}
+
+### Statement
+
+For a document $d$ and a base $b$ of the bounded scope, write $J(d, b)$ for `read_document(d, b)`. When $J(d, b)$ is a list of triples, the JSON-LD route with base $b$ reads $d$ as exactly that list, in the order the walk completes the triples, with the same fresh labels. When $J(d, b)$ is a JSON-LD refusal of kind $k$ at the JSON Pointer $p$, the route refuses $d$ with an `RdfReadErrorKind::JsonLd` whose refusal has kind $k$ and whose pointer is $p$. When $J(d, b)$ finds no JSON value, the route refuses $d$ with a JSON-level kind.
+
+### Outside the domain
+
+Documents outside the scope are read by the same reader, and the conformance corpus checks them on the W3C suite. A document that is not UTF-8, holds a comment or white space JSON does not have, or nests deeper than 128 levels is refused before the JSON value is built, which the reference, reading a JSON value, does not model. The reader's order of triples and its fresh labels are its own; the API's node map relabels blank nodes, and the corpus compares with the API's expected results up to that renaming.
+
+### Definitions used
+
+$J$ reads $d$ with the reference's own RFC 8259 reader, refuses the first repeated key in document order, and then transcribes the algorithms of the API over the JSON value: Context Processing and Create Term Definition (Sec 4.1, 4.2) with the `defined` map and its cycle check, IRI Expansion (Sec 5.2) with the resolution of [L-rdf-formats-5](#L-rdf-formats-5), Expansion and Value Expansion (Sec 5.1, 5.3) in document order of keys, and the reading of triples of Sec 8.1 to 8.3 over the expanded default graph, with the numbers of [L-rdf-formats-9](#L-rdf-formats-9). It applies the subset and refusals of the section above, names each refusal by its kind and the pointer of the value at fault, and allocates fresh labels and orders triples as that section states. The scope is 1,538 documents: for each of two bases (none and `http://b/d/f`), each of 20 `@context` spellings (none, each feature of the subset and several refused ones, a cycle and an invalid term) followed by each of 38 node object bodies (each value form, keyword and refusal), and 9 whole documents (scalars, arrays, empty objects, free-floating values, a nested graph object, invalid JSON). 628 of them read.
+
+### Proof
+
+1. The JSON value production builds from the tree-sitter tree equals the value the reference reads: the JSON grammar's rules for objects, arrays, strings, numbers and literals are those of RFC 8259 apart from the comments and white space production refuses first; each string token is decoded by an RFC 8259 decoder and each number token checked against the RFC 8259 grammar; members keep their source order, as the reference keeps them. Both refuse the first repeated key in document order, since production checks each key before building its value.
+2. Production follows the same steps of the same algorithms on that value: the context entries in the order of Sec 4.1, each term definition's entries in the order of Sec 4.2 (`@protected`, `@type`, `@reverse` or `@id`, then `@container`, `@index`, `@context`, `@language`, `@direction`, `@nest`, `@prefix`, and unknown entries last), and each map's `@context`, then its `@json` check, then its entries in document order. Each step tests the same conditions, so both meet the same first refusal at the same value, and its pointer, which both build by RFC 6901 from the path to that value, agrees.
+3. On a document both read, the expanded items agree item for item, since each step produces the same node, value and list objects; both walk them in the same order, allocate fresh labels by the same counter skipping the same kept labels, and convert numbers by [L-rdf-formats-9](#L-rdf-formats-9), so the lists of triples agree element for element.
+4. The exhaustive differential checks the agreement on all 1,538 documents, and the property differential on objects of one to three bodies under each context and base, nested as a property value or not.
+
+### Executable counterpart
+
+- Law ID: `rdf-formats.jsonld-reading`
+- Reference: `panproto_reference::pages::rdf_formats::jsonld::read_document`
+- Enumerator: `panproto_reference::enumerate::rdf_formats::jsonld_documents; bound: documents=1538`
+- Exhaustive differential test: `jsonld_documents_read_as_the_reference_on_every_bounded_document; command: cargo nextest run -p panproto-io --features tree-sitter --test reference_jsonld --no-tests=fail -E 'test(=jsonld_documents_read_as_the_reference_on_every_bounded_document)'`
+- Property differential test: `randomized_jsonld_documents_read_as_the_reference; command: cargo nextest run -p panproto-io --features tree-sitter --test reference_jsonld --no-tests=fail -E 'test(=randomized_jsonld_documents_read_as_the_reference)'`
+- Reference test: `jsonld_reads_contexts_values_lists_and_reverse_properties; command: cargo nextest run -p panproto-reference --test rdf_formats_jsonld --no-tests=fail -E 'test(=jsonld_reads_contexts_values_lists_and_reverse_properties)'`
+- Reference test: `jsonld_refusals_name_the_kind_and_the_pointer_of_the_value; command: cargo nextest run -p panproto-reference --test rdf_formats_jsonld --no-tests=fail -E 'test(=jsonld_refusals_name_the_kind_and_the_pointer_of_the_value)'`
+- Reference test: `keys_that_expand_to_no_iri_are_dropped_as_the_standard_requires; command: cargo nextest run -p panproto-reference --test rdf_formats_jsonld --no-tests=fail -E 'test(=keys_that_expand_to_no_iri_are_dropped_as_the_standard_requires)'`
+- File: `crates/panproto-io/src/rdf/jsonld.rs`
+- File: `crates/panproto-io/src/rdf/jsonld/expand.rs`
+- File: `crates/panproto-io/src/rdf/jsonld/to_rdf.rs`
+- File: `crates/panproto-io/src/rdf/jsonld/reader.rs`
+- File: `crates/panproto-reference/src/pages/rdf_formats/jsonld.rs`
+
+## Native numbers take the API's lexical forms {#L-rdf-formats-9}
+
+### Statement
+
+For a JSON numeral $n$ and a datatype $t$ (none or an IRI) of the bounded scope, write $N(n, t)$ for `number_form(n, t)`. The production conversion `rdf::jsonld::number_literal(n, t)` gives the literal whose lexical form and datatype are $N(n, t)$, and refuses $n$ exactly when $N(n, t)$ does, which is when the binary64 rounding of $n$ overflows.
+
+### Outside the domain
+
+A token that is not an RFC 8259 numeral is refused by the JSON reading before conversion. The API defines the conversion on the implementation's number value; the statement pins that value to the binary64 value nearest the numeral, as the API's JavaScript reading gives it.
+
+### Definitions used
+
+$N$ reads the numeral as an exact rational, rounds it to binary64 by the round-to-nearest-even rounding of the values page, decodes the result exactly, and writes it with exact rational arithmetic: the integer itself when it is an integer of magnitude below $10^{21}$ and $t$ is not `xsd:double`, and otherwise the magnitude scaled to 16 significant digits, rounded up when the remainder is at least one half, in the form of the section above. The scope is 37 numerals (signed zeros, the boundary at $10^{21}$, integers beyond $2^{53}$, the largest finite value and overflow, subnormals and underflow, ties at the sixteenth digit, and carries) under 4 datatypes (none, `xsd:double`, `xsd:integer`, another IRI): 148 pairs.
+
+### Proof
+
+1. Production parses the numeral by the correctly rounded decimal to binary64 conversion of the Rust standard library, which gives the same value as $N$'s exact rounding, and both refuse an infinite result.
+2. Production tests the fractional part, the magnitude against $10^{21}$ and the datatype as $N$ does; the integer case prints the value's exact integer digits, as $N$ does, and writes a zero of either sign as `0`.
+3. In the double case production prints the exact decimal expansion of the value (a binary64 value has at most 767 significant digits, and the printing precision exceeds it), keeps 16 digits, and rounds up when the seventeenth is at least 5. The expansion is exact, so that digit is at least 5 exactly when the remainder is at least one half, which is $N$'s test; a carry out of the first digit raises the exponent in both. Trailing zeros are removed down to one digit after the point in both.
+4. The exhaustive differential checks all 148 pairs, and the property differential checks generated numerals with up to 25 integer digits, up to 20 fraction digits and exponents from $-340$ to $340$ under each datatype.
+
+### Executable counterpart
+
+- Law ID: `rdf-formats.jsonld-numbers`
+- Reference: `panproto_reference::pages::rdf_formats::jsonld::number_form`
+- Enumerator: `panproto_reference::enumerate::rdf_formats::JSONLD_NUMERALS; bound: pairs=148`
+- Exhaustive differential test: `native_numbers_convert_as_the_reference_on_every_bounded_numeral; command: cargo nextest run -p panproto-io --features tree-sitter --test reference_jsonld --no-tests=fail -E 'test(=native_numbers_convert_as_the_reference_on_every_bounded_numeral)'`
+- Property differential test: `randomized_numerals_convert_as_the_reference; command: cargo nextest run -p panproto-io --features tree-sitter --test reference_jsonld --no-tests=fail -E 'test(=randomized_numerals_convert_as_the_reference)'`
+- Reference test: `numbers_take_the_api_forms_at_their_boundaries; command: cargo nextest run -p panproto-reference --test rdf_formats_jsonld --no-tests=fail -E 'test(=numbers_take_the_api_forms_at_their_boundaries)'`
+- File: `crates/panproto-io/src/rdf/jsonld.rs`
+- File: `crates/panproto-reference/src/pages/rdf_formats/jsonld.rs`
+
+## The JSON-LD writer prints canonical JSON-LD {#L-rdf-formats-10}
+
+### Statement
+
+For a list $t$ of triples of the bounded scope, write $C(t)$ for `canonical_text(t)`. The production writer `rdf::jsonld::write(t)` prints exactly $C(t)$, and the JSON-LD route reads $C(t)$, with no base, as a list holding exactly the distinct triples of $t$.
+
+### Outside the domain
+
+The writer is given triples: a graph that is not the graph of any list of triples is refused before writing by the refusals of [L-rdf-formats-3](#L-rdf-formats-3), and a graph with an IRI holding a second `#` by `IriFragments`, which the scope's IRIs do not hold.
+
+### Definitions used
+
+$C$ groups the distinct triples by the N-Triples text of their subject, then by predicate, and writes each group as one node object in the form of the section above. The scope is the 601 lists of [L-rdf-formats-2](#L-rdf-formats-2).
+
+### Proof
+
+1. Production groups the triples in ordered maps keyed by the subject's N-Triples text, the predicate and the object's N-Triples text, which orders and deduplicates them as $C$ does, and writes the same separators and the same string escapes.
+2. Canonical JSON-LD has no context, so every key is an absolute IRI, which IRI Expansion returns unchanged; every `@id` is an absolute IRI or a blank node identifier whose label is an N-Triples label, kept by the reading; every value object holds a string `@value` with an absolute `@type` or a `LANGTAG` `@language`. By [L-rdf-formats-8](#L-rdf-formats-8) the reading gives one triple per object of each predicate, the distinct triples of $t$, and needs no base.
+3. The differential checks the text and the triples read back on all 601 lists.
+
+### Executable counterpart
+
+- Law ID: `rdf-formats.canonical-jsonld`
+- Reference: `panproto_reference::pages::rdf_formats::jsonld::canonical_text`
+- Enumerator: `panproto_reference::enumerate::rdf_formats::triple_lists; bound: lists=601`
+- Exhaustive differential test: `canonical_jsonld_matches_the_reference_on_every_bounded_triple_list; command: cargo nextest run -p panproto-io --features tree-sitter --test reference_jsonld --no-tests=fail -E 'test(=canonical_jsonld_matches_the_reference_on_every_bounded_triple_list)'`
+- Reference test: `canonical_jsonld_writes_one_node_object_per_subject; command: cargo nextest run -p panproto-reference --test rdf_formats_jsonld --no-tests=fail -E 'test(=canonical_jsonld_writes_one_node_object_per_subject)'`
+- File: `crates/panproto-io/src/rdf/jsonld.rs`
+- File: `crates/panproto-reference/src/pages/rdf_formats/jsonld.rs`
+
+## The preserving JSON-LD route writes an edit that reads back or names why it cannot {#L-rdf-formats-11}
+
+### Statement
+
+For a document $d$ of the bounded scope that reads with base $b$, the format-preserving route writes the unedited graph as $d$ byte for byte. For each term node $k$ of its graph and each value $v$ of the scope for $k$'s anchor, setting $k$'s value to $v$ and writing through the route either gives a text that the reference reading $J$ of [L-rdf-formats-8](#L-rdf-formats-8) reads, with base $b$, as exactly the triples of the edited graph, or refuses with an `RdfWriteError` of one of the kinds the section above states for an edit of a value.
+
+### Outside the domain
+
+Structural edits are refused with `StructuralEdit` before any other check; the scope edits values only. A value that is not a string is refused with `Value`. The statement does not say which edits are written: whether a rewritten token keeps its meaning under the document's context is decided by reading the result back, and $J$ checks that reading independently.
+
+### Definitions used
+
+The scope is the 320 documents of the reading scope that read with the base `http://b/d/f`; each of their term nodes is set to each of two values for its anchor (`http://e/new` and `http://e/a#b#c` for an IRI, `z` and `b0` for a blank node, `y` and `7` for a literal, `fr` and `en-GB` for a tag), 2,040 edits, of which 900 are written.
+
+### Proof
+
+1. The complement holds the CST schema of $d$, and emitting it with no token text changed writes the document's bytes, as the text formats' CST complement does; the conformance corpus checks this on every readable input of the W3C suite.
+2. An edit that production writes passed its own read-back: the rewritten document, read by the production reading, gives the edited triples as a set. By [L-rdf-formats-8](#L-rdf-formats-8) the production reading and $J$ agree on documents of the forms the rewriting produces (the scope's documents with JSON strings and bare tokens replaced), and the differential checks this agreement on every written edit by reading the output with $J$.
+3. Every refusal is raised by a check the section above names: the canonical writer's checks on the edited graph, the implicit occurrence, the native token's form, the label's form, or the read-back. The differential checks each refusal's kind against that list.
+4. The differential checks the unedited bytes, every outcome and every read-back on the scope.
+
+### Executable counterpart
+
+- Law ID: `rdf-formats.jsonld-preservation`
+- Reference: `panproto_reference::pages::rdf_formats::jsonld::read_document`
+- Enumerator: `panproto_reference::enumerate::rdf_formats::jsonld_documents; bound: documents=320`
+- Exhaustive differential test: `preserving_edits_read_back_under_the_reference_on_every_bounded_document; command: cargo nextest run -p panproto-io --features tree-sitter --test reference_jsonld --no-tests=fail -E 'test(=preserving_edits_read_back_under_the_reference_on_every_bounded_document)'`
+- Reference test: `the_jsonld_scopes_have_their_closed_form_counts; command: cargo nextest run -p panproto-reference --test rdf_formats_jsonld --no-tests=fail -E 'test(=the_jsonld_scopes_have_their_closed_form_counts)'`
+- File: `crates/panproto-io/src/rdf/jsonld/reader.rs`
+- File: `crates/panproto-reference/src/pages/rdf_formats/jsonld.rs`
 - File: `crates/panproto-reference/src/enumerate/rdf_formats.rs`
