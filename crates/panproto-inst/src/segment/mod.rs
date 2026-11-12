@@ -41,6 +41,7 @@ mod body;
 mod builder;
 mod bytes;
 mod check;
+mod collect;
 mod error;
 mod extend;
 mod graph_apply;
@@ -73,6 +74,7 @@ pub use body::{
 pub use builder::{BuilderEdge, BuilderNode, SegmentBuilder};
 pub use bytes::{read_boundary, write_boundary, write_segment, write_view_ref};
 pub use check::{check_segment, verify_partition};
+pub use collect::{CollectableStore, Collection, Stored, collect_garbage, reachable};
 pub use error::{ErrorAt, ErrorKey, PartitionDefect, Residual, Resource, SegmentError};
 pub use extend::{
     GRAPH_EXTEND_OP, GraphExtend, GraphExtendRun, SegmentedExtendError, graph_extend_locality,

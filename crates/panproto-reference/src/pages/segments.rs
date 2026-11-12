@@ -11464,4 +11464,69 @@ pub mod segmented_table_restrict {
     }
 }
 
+pub mod segment_collection {
+    //! Store collection, defined by reachability from a set of root runs.
+    //!
+    //! This is the executable definition of L-segments-33. It never touches
+    //! a store: it maps what a store holds, before collection, to what it
+    //! must hold after.
+
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use super::segment::{ArtifactKey, Digest, TaskKey};
+
+    /// Whether a stored artifact is staged or committed.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum StoredState {
+        /// Staged and never read.
+        Staged,
+        /// Committed and readable.
+        Committed,
+    }
+
+    /// What a store holds: its artifacts, each with its state, and the
+    /// tasks each run's journal records.
+    #[derive(Clone, Debug, Default, PartialEq, Eq)]
+    pub struct StoreContents {
+        /// Every stored artifact with its state.
+        pub artifacts: BTreeSet<(ArtifactKey, StoredState)>,
+        /// Each journaled run's recorded tasks.
+        pub journals: BTreeMap<Digest, BTreeSet<TaskKey>>,
+    }
+
+    /// Definition: what a store holding `contents` holds after collection
+    /// from `roots`.
+    ///
+    /// A run reads an artifact only through its journal: the committed
+    /// artifact of a task its journal records. A holder of a root run reads
+    /// that run's journal and its journaled artifacts. So the reachable
+    /// journals are the roots', and the reachable artifacts are the committed
+    /// artifacts of a root whose task the root's journal records; collection
+    /// keeps exactly those.
+    #[must_use]
+    pub fn collected(contents: &StoreContents, roots: &BTreeSet<Digest>) -> StoreContents {
+        StoreContents {
+            artifacts: contents
+                .artifacts
+                .iter()
+                .filter(|(key, state)| {
+                    *state == StoredState::Committed
+                        && roots.contains(&key.run)
+                        && contents
+                            .journals
+                            .get(&key.run)
+                            .is_some_and(|tasks| tasks.contains(&key.task))
+                })
+                .copied()
+                .collect(),
+            journals: contents
+                .journals
+                .iter()
+                .filter(|(run, _)| roots.contains(run))
+                .map(|(run, tasks)| (*run, tasks.clone()))
+                .collect(),
+        }
+    }
+}
+
 pub use self::segment::{fresh, glue, partition, segmented};

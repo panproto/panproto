@@ -409,6 +409,39 @@ impl SegmentStore for MemoryStore {
     }
 }
 
+impl super::collect::CollectableStore for MemoryStore {
+    fn stored(&self) -> Result<Vec<(ArtifactKey, super::collect::Stored)>, Self::Error> {
+        use super::collect::Stored;
+        Ok(self
+            .staged
+            .keys()
+            .map(|key| (*key, Stored::Staged))
+            .chain(self.committed.keys().map(|key| (*key, Stored::Committed)))
+            .collect())
+    }
+
+    fn journaled(&self) -> Result<Vec<Digest>, Self::Error> {
+        Ok(self.journals.keys().copied().collect())
+    }
+
+    fn remove(
+        &mut self,
+        key: &ArtifactKey,
+        stored: super::collect::Stored,
+    ) -> Result<(), Self::Error> {
+        match stored {
+            super::collect::Stored::Staged => self.staged.remove(key),
+            super::collect::Stored::Committed => self.committed.remove(key),
+        };
+        Ok(())
+    }
+
+    fn remove_journal(&mut self, run: &Digest) -> Result<(), Self::Error> {
+        self.journals.remove(run);
+        Ok(())
+    }
+}
+
 /// The outcome of a run of [`run_segmented`].
 #[derive(Debug)]
 pub struct SegmentedRun<E> {

@@ -5626,6 +5626,27 @@
               "test": "segmented_table_get::segmented_table_get_agrees_with_the_reference_on_generated_tables"
             }
           ]
+        },
+        {
+          "id": "segments.store-collection",
+          "anchor": "L-segments-33",
+          "references": [
+            "panproto_reference::segment::collected"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "segment_collection::collection_keeps_exactly_what_the_roots_reach_on_every_bounded_store"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "segment_collection::collection_keeps_exactly_what_the_roots_reach_on_generated_stores"
+            }
+          ]
         }
       ]
     },

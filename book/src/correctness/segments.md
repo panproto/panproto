@@ -1348,3 +1348,47 @@ A row of source table $t$ *survives* when $t$ survives the vertex map; with no e
 - File: `crates/panproto-lens/src/table_lens.rs`
 - File: `crates/panproto-lens/tests/reference_lenses.rs`
 - File: `crates/panproto-reference/src/pages/segments.rs`
+
+## Collecting a store keeps exactly what live runs reach {#L-segments-33}
+
+### Statement
+
+Let $\Sigma$ be a store a set of segmented runs has written through the store contract of [L-segments-12](#L-segments-12) (staging, then an atomic commit that journals the task), and let $R$ be a set of run identities, the *roots*: runs a holder may resume and complete runs whose committed artifacts a holder reads. Call an artifact *reachable* from $R$ when it is committed by a run of $R$ under a task that run's journal records, and a journal reachable when its run is in $R$. Then `collect_garbage(Σ, R)`
+
+1. leaves exactly the reachable artifacts, each with its bytes, and exactly the reachable journals, each with its records: it removes every artifact only staged, every artifact and the journal of every run outside $R$, and nothing else;
+2. reports the journals and artifacts it removed and the number it kept, and collecting again from $R$ removes nothing;
+3. leaves every run of $R$ resumable: a run of $R$ stopped after $k$ of its tasks and run again after collection ends as the uninterrupted run and reuses $k$ tasks; a run outside $R$ run again recomputes every task and ends the same;
+4. leaves a segmented graph edit lens ([L-segments-31](#L-segments-31)) collected from its live runs (`SegmentedGraphHeld::live_runs`: its restriction and the edit runs holding the source segments it rewrote) translating every later edit as the uncollected lens does, with every segment it holds byte for byte the same.
+
+Collection removes the journals of runs outside $R$ before any artifact, so a collection stopped part way leaves no journal naming a removed artifact, and it never touches a reachable artifact or journal.
+
+### Outside the domain
+
+A store that makes a committed artifact readable without journaling its task breaks the store contract, and collection may then keep an artifact no run reads, never remove one a run reads. A store failure stops collection with the store's error; what it removed before stays removed. A run that carries tasks over from an earlier run ([L-segments-29](#L-segments-29)) copies them, so collecting the earlier run only makes the later one recompute what it would have carried over.
+
+### Definitions used
+
+The *store contract*, journals and task reuse are those of [L-segments-12](#L-segments-12). A store is *collectable* when it lists its artifacts with their states (`CollectableStore::stored`), its journaled runs, and removes either.
+
+### Proof
+
+1. Reachability. A run reads an artifact only as the committed artifact of a task its journal records ([L-segments-12](#L-segments-12)), and a holder of a complete run reads only its committed Emit and Seal artifacts, which its journal records. So nothing outside the reachable set is read by a run or holder of $R$. Commit journals a task in the step that makes its artifact readable, so every committed artifact of a run of $R$ is journaled, and production's test (committed, and of a root) admits exactly the reachable set the reference defines through the journal. Collection removes exactly the complement of that set and the journals outside $R$, which is item 1; the second collection finds nothing outside the set, which is item 2.
+2. Resumption. A run of $R$ keeps its journal and every committed artifact, so each task it committed before stopping is reusable after collection as before, and the run ends as the uninterrupted run with $k$ reuses by [L-segments-12](#L-segments-12). A run outside $R$ has no journal left, so it reuses nothing and, every phase being deterministic, writes the same artifacts. This is item 3.
+3. The edit lens. The held state reads the Emit artifacts of the restriction holding its view and complement and of the edit runs whose artifacts hold its rewritten source segments, and later steps carry tasks over only from the held restriction; all are live runs. So collection leaves every segment the lens reads, and a later step computes from the same bytes, which is item 4.
+4. The finite certificate takes every store three runs can write with two artifacts each, every artifact absent, staged, committed, or committed and staged again ($4^6 = 4{,}096$ stores), under each of the $8$ sets of roots: $32{,}768$ cases, compared with the reference's `collected`, with the $147{,}456$ removals derived apart from the run ($6$ keys, $4^5$ states of the others, and over a key's four states $2$ removals under a root and $4$ otherwise, under $4$ root sets each). Every 389th case of the segmented table get carrier of [L-segments-32](#L-segments-32) is stopped at each cancellation point beside a complete run of another lens, collected from the stopped run and from no root, and resumed; every bound case of every 97th case of the segmented restriction carrier takes up to three source edits on a lens collected after each and on an uncollected copy; and a property test collects generated sequences of stages and commits.
+
+### Executable counterpart
+
+- Law ID: `segments.store-collection`
+- Reference: `panproto_reference::segment::collected`
+- Enumerator: `segment_collection::store_of; bound: 3 runs, 2 artifacts each, 4 states each, 8 root sets, cases=32768`
+- Exhaustive differential test: `segment_collection::collection_keeps_exactly_what_the_roots_reach_on_every_bounded_store; command: cargo nextest run -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=segment_collection::collection_keeps_exactly_what_the_roots_reach_on_every_bounded_store)'`
+- Property differential test: `segment_collection::collection_keeps_exactly_what_the_roots_reach_on_generated_stores; command: cargo nextest run -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=segment_collection::collection_keeps_exactly_what_the_roots_reach_on_generated_stores)'`
+- Property scope: `up to 24 stages and commits over three runs and two artifacts each, any roots; 256 cases`
+- Production certificate: `segment_collection::a_stopped_run_resumes_after_collection_from_its_own_run; command: cargo nextest run -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=segment_collection::a_stopped_run_resumes_after_collection_from_its_own_run)'`
+- Production certificate: `segmented_graph_edit_lens_collection::a_collected_segmented_graph_edit_lens_translates_as_the_uncollected_one; command: cargo nextest run -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=segmented_graph_edit_lens_collection::a_collected_segmented_graph_edit_lens_translates_as_the_uncollected_one)'`
+- File: `crates/panproto-inst/src/segment/collect.rs`
+- File: `crates/panproto-inst/src/segment/runner.rs`
+- File: `crates/panproto-lens/src/segmented_edit_lens.rs`
+- File: `crates/panproto-lens/tests/reference_lenses.rs`
+- File: `crates/panproto-reference/src/pages/segments.rs`

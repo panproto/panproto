@@ -19984,7 +19984,7 @@ mod segmented_graph_edit_lens {
             }
         }
 
-        fn lens(&self) -> Lens {
+        pub fn lens(&self) -> Lens {
             lens_of(self.schema, self.migration)
         }
 
@@ -22902,5 +22902,456 @@ mod segmented_table_get {
             let mut counts = Counts::default();
             check_case(&lens(lens_index), &table, &partition, &mut counts);
         }
+    }
+}
+
+/// Collection of segmented run artifacts against its reference definition,
+/// and runs resumed after collection.
+mod segment_collection {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use panproto_inst::identity::Digest;
+    use panproto_inst::segment::{
+        ArtifactKey, ArtifactKind, Budget, CollectableStore, MemoryStore, Phase, RunStatus,
+        SegmentId, SegmentManifest, SegmentStore, Stored, TaskKey, TaskRecord, collect_garbage,
+        read_emitted_segment,
+    };
+    use panproto_reference::enumerate::segments::{
+        segmented_table_restrict_partitions, segmented_table_restrict_tables,
+    };
+    use panproto_reference::segment as reference;
+
+    use super::segmented_table_get::{LENSES, input, lens, run};
+
+    /// The three runs of the exhaustive carrier.
+    const RUNS: [Digest; 3] = [Digest([1; 32]), Digest([2; 32]), Digest([3; 32])];
+
+    /// The two artifacts each run of the carrier may store.
+    const KEYS: [(TaskKey, ArtifactKind); 2] = [
+        (
+            TaskKey {
+                phase: Phase::Validate,
+                segment: Some(SegmentId(0)),
+            },
+            ArtifactKind::Segment,
+        ),
+        (
+            TaskKey {
+                phase: Phase::Assemble,
+                segment: None,
+            },
+            ArtifactKind::Assembly,
+        ),
+    ];
+
+    const fn reference_phase(phase: Phase) -> reference::Phase {
+        match phase {
+            Phase::Validate => reference::Phase::Validate,
+            Phase::Export => reference::Phase::Export,
+            Phase::Summarize => reference::Phase::Summarize,
+            Phase::Assemble => reference::Phase::Assemble,
+            Phase::Emit => reference::Phase::Emit,
+            Phase::Seal => reference::Phase::Seal,
+        }
+    }
+
+    const fn reference_kind(kind: ArtifactKind) -> reference::ArtifactKind {
+        match kind {
+            ArtifactKind::Segment => reference::ArtifactKind::Segment,
+            ArtifactKind::ComplementSegment => reference::ArtifactKind::ComplementSegment,
+            ArtifactKind::Export => reference::ArtifactKind::Export,
+            ArtifactKind::Summary => reference::ArtifactKind::Summary,
+            ArtifactKind::Assembly => reference::ArtifactKind::Assembly,
+            ArtifactKind::Manifest => reference::ArtifactKind::Manifest,
+            ArtifactKind::EdgeIdRun => reference::ArtifactKind::EdgeIdRun,
+        }
+    }
+
+    fn reference_task(task: TaskKey) -> reference::TaskKey {
+        reference::TaskKey {
+            phase: reference_phase(task.phase),
+            segment: task.segment.map(|segment| reference::SegmentId(segment.0)),
+        }
+    }
+
+    fn reference_key(key: &ArtifactKey) -> reference::ArtifactKey {
+        reference::ArtifactKey {
+            run: reference::Digest(key.run.0),
+            task: reference_task(key.task),
+            kind: reference_kind(key.kind),
+        }
+    }
+
+    /// What `store` holds, in the reference's terms.
+    fn contents(store: &MemoryStore) -> reference::StoreContents {
+        let Ok(stored) = store.stored();
+        let Ok(journaled) = store.journaled();
+        reference::StoreContents {
+            artifacts: stored
+                .iter()
+                .map(|(key, state)| {
+                    (
+                        reference_key(key),
+                        match state {
+                            Stored::Staged => reference::StoredState::Staged,
+                            Stored::Committed => reference::StoredState::Committed,
+                        },
+                    )
+                })
+                .collect(),
+            journals: journaled
+                .iter()
+                .map(|run| {
+                    let Ok(journal) = store.journal(run);
+                    (
+                        reference::Digest(run.0),
+                        journal.tasks.keys().copied().map(reference_task).collect(),
+                    )
+                })
+                .collect(),
+        }
+    }
+
+    /// The store of carrier code `code`: for each run and key, two bits, the
+    /// first committing the artifact and the second staging it (again).
+    fn store_of(code: u32) -> MemoryStore {
+        let mut store = MemoryStore::default();
+        let mut bits = code;
+        for (r, run) in RUNS.iter().enumerate() {
+            for (k, (task, kind)) in KEYS.iter().enumerate() {
+                let key = ArtifactKey {
+                    run: *run,
+                    task: *task,
+                    kind: *kind,
+                };
+                let tag = u8::try_from(r * 2 + k).expect("small");
+                if bits & 1 == 1 {
+                    let Ok(()) = store.stage(&key, vec![tag]);
+                    let Ok(()) = store.commit(
+                        &key,
+                        &TaskRecord {
+                            inputs: Digest([tag; 32]),
+                            output: Digest([tag; 32]),
+                            bytes: 1,
+                        },
+                    );
+                }
+                if bits & 2 == 2 {
+                    let Ok(()) = store.stage(&key, vec![tag, tag]);
+                }
+                bits >>= 2;
+            }
+        }
+        store
+    }
+
+    /// Every store of the carrier under every set of roots: collection
+    /// leaves exactly the reference's contents, reports what it removed,
+    /// leaves every reachable artifact's bytes, and a second collection
+    /// removes nothing.
+    #[test]
+    fn collection_keeps_exactly_what_the_roots_reach_on_every_bounded_store() {
+        let mut cases = 0_u64;
+        let mut removed = 0_u64;
+        for code in 0..(1_u32 << 12) {
+            for mask in 0..8_u32 {
+                let roots: BTreeSet<Digest> = RUNS
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| mask & (1 << i) != 0)
+                    .map(|(_, run)| *run)
+                    .collect();
+                let reference_roots: BTreeSet<reference::Digest> =
+                    roots.iter().map(|run| reference::Digest(run.0)).collect();
+                let mut store = store_of(code);
+                let before = contents(&store);
+                let reads: BTreeMap<ArtifactKey, Option<Vec<u8>>> = KEYS
+                    .iter()
+                    .flat_map(|(task, kind)| {
+                        RUNS.iter().map(move |run| ArtifactKey {
+                            run: *run,
+                            task: *task,
+                            kind: *kind,
+                        })
+                    })
+                    .map(|key| {
+                        let Ok(bytes) = store.read(&key);
+                        (key, bytes)
+                    })
+                    .collect();
+                let Ok(collection) = collect_garbage(&mut store, &roots);
+                let after = contents(&store);
+                let expected = reference::collected(&before, &reference_roots);
+                assert_eq!(after, expected, "store {code:#x} under roots {mask:#b}");
+                assert_eq!(
+                    collection
+                        .journals
+                        .iter()
+                        .map(|run| reference::Digest(run.0))
+                        .collect::<BTreeSet<_>>(),
+                    before
+                        .journals
+                        .keys()
+                        .filter(|run| !expected.journals.contains_key(*run))
+                        .copied()
+                        .collect::<BTreeSet<_>>()
+                );
+                assert_eq!(
+                    u64::try_from(collection.removed.len()).expect("count"),
+                    u64::try_from(before.artifacts.len() - after.artifacts.len()).expect("count")
+                );
+                assert_eq!(collection.kept, after.artifacts.len());
+                for (key, bytes) in &reads {
+                    let Ok(now) = store.read(key);
+                    if roots.contains(&key.run) {
+                        assert_eq!(&now, bytes, "a reachable artifact keeps its bytes");
+                    } else {
+                        assert_eq!(now, None);
+                    }
+                }
+                let Ok(again) = collect_garbage(&mut store, &roots);
+                assert!(again.journals.is_empty() && again.removed.is_empty());
+                cases += 1;
+                removed += u64::try_from(collection.removed.len()).expect("count");
+            }
+        }
+        println!("segment collection: cases={cases} removed={removed}");
+        assert_eq!(cases, COLLECTION_CASES);
+        assert_eq!(removed, COLLECTION_REMOVED);
+    }
+
+    /// The carrier's case count: `4^2` states of the two keys of each of
+    /// three runs, under each of the `2^3` sets of roots.
+    const COLLECTION_CASES: u64 = 16 * 16 * 16 * 8;
+
+    /// The artifacts the carrier's collections remove, derived apart from
+    /// it: a key in one of its four states holds `0`, `1`, `1` or `2`
+    /// artifacts (none, staged, committed, both), `4` over the states; under
+    /// a root its staged copy is removed (`2` over the states), and otherwise
+    /// all are (`4`). Each of the `3 * 2 = 6` keys, over the `4^5` states of
+    /// the other keys and the `4` root sets containing its run and the `4`
+    /// that do not: `6 * 4^5 * (4 * 2 + 4 * 4) = 147,456`.
+    const COLLECTION_REMOVED: u64 = 6 * 1024 * (4 * 2 + 4 * 4);
+
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(256))]
+
+        /// Generated sequences of stages and commits over three runs and two
+        /// artifacts each, under generated roots, collect to the reference's
+        /// contents.
+        #[test]
+        fn collection_keeps_exactly_what_the_roots_reach_on_generated_stores(
+            ops in proptest::collection::vec((0_usize..3, 0_usize..2, proptest::bool::ANY, 0_u8..4), 0..24),
+            mask in 0_u32..8,
+        ) {
+            let mut store = MemoryStore::default();
+            for (run, key, commit, byte) in ops {
+                let (task, kind) = KEYS[key];
+                let key = ArtifactKey { run: RUNS[run], task, kind };
+                if commit {
+                    let Ok(()) = store.commit(
+                        &key,
+                        &TaskRecord {
+                            inputs: Digest([byte; 32]),
+                            output: Digest([byte; 32]),
+                            bytes: 1,
+                        },
+                    );
+                } else {
+                    let Ok(()) = store.stage(&key, vec![byte]);
+                }
+            }
+            let roots: BTreeSet<Digest> = RUNS
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| mask & (1 << i) != 0)
+                .map(|(_, run)| *run)
+                .collect();
+            let reference_roots: BTreeSet<reference::Digest> =
+                roots.iter().map(|run| reference::Digest(run.0)).collect();
+            let before = contents(&store);
+            let Ok(_) = collect_garbage(&mut store, &roots);
+            proptest::prop_assert_eq!(contents(&store), reference::collected(&before, &reference_roots));
+        }
+    }
+
+    /// A run stopped at each cancellation point, beside a complete run of
+    /// another lens, resumes after collection from its own run alone to
+    /// the uninterrupted run, reusing every task it committed, while the
+    /// other run's journal and artifacts are gone; collected from no root,
+    /// it recomputes every task and ends the same.
+    #[test]
+    fn a_stopped_run_resumes_after_collection_from_its_own_run() {
+        let tables = segmented_table_restrict_tables();
+        let partitions = segmented_table_restrict_partitions();
+        let (mut cases, mut points) = (0_u64, 0_u64);
+        let mut index = 0_usize;
+        for lens_index in 0..LENSES.len() {
+            let pair = lens(lens_index);
+            let other = lens((lens_index + 1) % LENSES.len());
+            for table in &tables {
+                for partition in &partitions {
+                    index += 1;
+                    if !index.is_multiple_of(389) {
+                        continue;
+                    }
+                    cases += 1;
+                    let input = input(table, partition);
+                    let mut fresh = MemoryStore::default();
+                    let baseline = run(&pair, &input, Budget::unlimited(), &mut fresh, None);
+                    let finished = baseline.report.progress.tasks_done;
+                    for cancel in 0..=baseline.report.progress.tasks_total {
+                        points += 1;
+                        for keep in [true, false] {
+                            let mut store = MemoryStore::default();
+                            let stopped =
+                                run(&pair, &input, Budget::unlimited(), &mut store, Some(cancel));
+                            let junk = run(&other, &input, Budget::unlimited(), &mut store, None);
+                            let roots: BTreeSet<Digest> = if keep {
+                                stopped.run.into_iter().collect()
+                            } else {
+                                BTreeSet::new()
+                            };
+                            let Ok(_) = collect_garbage(&mut store, &roots);
+                            if let Some(junk) = junk.run {
+                                let Ok(journal) = store.journal(&junk);
+                                assert!(journal.tasks.is_empty());
+                            }
+                            let resumed = run(&pair, &input, Budget::unlimited(), &mut store, None);
+                            assert_eq!(
+                                resumed.report.tasks_reused,
+                                if keep { cancel.min(finished) } else { 0 }
+                            );
+                            assert_eq!(
+                                format!("{:?}", resumed.report.status),
+                                format!("{:?}", baseline.report.status)
+                            );
+                            assert_eq!(
+                                resumed.manifest.as_ref().map(SegmentManifest::digest),
+                                baseline.manifest.as_ref().map(SegmentManifest::digest)
+                            );
+                            if let (RunStatus::Complete { .. }, Some(identity)) =
+                                (&resumed.report.status, resumed.run)
+                            {
+                                let Ok(_) =
+                                    collect_garbage(&mut store, &BTreeSet::from([identity]));
+                                for spec in input.partition.specs() {
+                                    assert_eq!(
+                                        read_emitted_segment(
+                                            &store,
+                                            identity,
+                                            &input.partition,
+                                            spec.id
+                                        )
+                                        .expect("a root's emitted segment survives")
+                                        .1,
+                                        read_emitted_segment(
+                                            &fresh,
+                                            baseline.run.expect("a run"),
+                                            &input.partition,
+                                            spec.id
+                                        )
+                                        .expect("emitted")
+                                        .1
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        println!("collection resumption: cases={cases} points={points}");
+        assert_eq!(cases, 741 * 15 * 6 / 389);
+    }
+}
+
+/// The segmented graph edit lens after its store is collected from its live
+/// runs translates as the uncollected lens does.
+mod segmented_graph_edit_lens_collection {
+    use std::collections::BTreeSet;
+
+    use panproto_inst::identity::ComplementShape;
+    use panproto_inst::segment::CollectableStore;
+    use panproto_reference::enumerate::edits::graph_edit_lens_letters;
+    use panproto_reference::enumerate::segments::segmented_restrict_cases;
+
+    use super::graph_edit_lens_differential::prod_delta;
+    use super::segmented_graph_edit_lens::{Case, bind, production_state, with_spare};
+    use super::{BOUNDED_LENS_FIELD, BOUNDED_LENS_VALUE};
+
+    /// Every 97th case of the segmented restriction carrier, bound, takes
+    /// up to three admitted source letters in turn on two copies of the
+    /// lens, one collected after every step: each step translates alike,
+    /// every segment of the two is byte for byte the same, and the collected
+    /// store holds journals and artifacts of the live runs only.
+    #[test]
+    fn a_collected_segmented_graph_edit_lens_translates_as_the_uncollected_one() {
+        let (mut cases, mut steps) = (0_u64, 0_u64);
+        for case in segmented_restrict_cases().step_by(97) {
+            let partition = with_spare(&case.partition, 3);
+            let edit_case = Case {
+                schema: &case.schema,
+                migration: &case.migration,
+                partition: &partition,
+            };
+            let Some((production, _, _)) = bind(&edit_case, &case.graph) else {
+                continue;
+            };
+            cases += 1;
+            let view_schema = edit_case
+                .lens()
+                .identity(ComplementShape::Graph)
+                .target_schema;
+            let (mut kept, mut collected) = (production.clone(), production);
+            let letters = graph_edit_lens_letters(
+                &case.schema,
+                &case.graph,
+                BOUNDED_LENS_FIELD,
+                &BOUNDED_LENS_VALUE,
+            );
+            let mut taken = 0;
+            for letter in &letters {
+                if taken == 3 {
+                    break;
+                }
+                let edit = prod_delta(letter);
+                let mut trial = kept.clone();
+                let Ok(expected) = trial.get_edit(&edit) else {
+                    continue;
+                };
+                let produced = collected
+                    .get_edit(&edit)
+                    .expect("the collected lens admits what the uncollected one does");
+                assert_eq!(produced, expected);
+                kept = trial;
+                collected
+                    .segmented_state()
+                    .collect_garbage()
+                    .expect("the memory store collects");
+                assert_eq!(
+                    production_state(&collected, view_schema),
+                    production_state(&kept, view_schema)
+                );
+                let state = collected.segmented_state();
+                let live = state.live_runs();
+                let store = state.store();
+                let Ok(journaled) = store.journaled();
+                let Ok(stored) = store.stored();
+                assert!(journaled.iter().all(|run| live.contains(run)));
+                assert!(
+                    stored
+                        .iter()
+                        .map(|(key, _)| key.run)
+                        .collect::<BTreeSet<_>>()
+                        .is_subset(&live)
+                );
+                taken += 1;
+                steps += 1;
+            }
+        }
+        println!("collected edit lens: cases={cases} steps={steps}");
+        assert_eq!(cases, 1_163);
+        assert!(steps > 0);
     }
 }

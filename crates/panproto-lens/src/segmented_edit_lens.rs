@@ -34,7 +34,10 @@
 //! The held manifests and runs change only once every run of a step has
 //! sealed; a refusal or a stopped run leaves the lens and every segment
 //! as they were, and the artifacts the step committed are left in the store.
-//! Retrying the same edit resumes its runs. A lens whose restriction carries
+//! Retrying the same edit resumes its runs. The runs whose artifacts the
+//! held state reads are [`SegmentedGraphHeld::live_runs`]; collecting the
+//! store from them ([`SegmentedGraphHeld::collect_garbage`]) removes every
+//! other run's artifacts and leaves the lens translating as before. A lens whose restriction carries
 //! an expression is declined with
 //! [`Residual::Global`](panproto_inst::segment::Residual::Global) when it is
 //! bound.
@@ -47,10 +50,10 @@ use std::marker::PhantomData;
 use panproto_inst::graph_edit::ComposeError;
 use panproto_inst::identity::{ComplementShape, Digest};
 use panproto_inst::segment::{
-    AnySegment, ArtifactKey, Budget, GraphRestrict, Partition, RunIncompleteReason, RunSpec,
-    RunStatus, SegmentError, SegmentId, SegmentManifest, SegmentSource, SegmentStore,
-    SegmentedApplyError, SegmentedRestrictError, SegmentedRun, TaskRecord, apply_run,
-    read_emitted_segment, run_segmented,
+    AnySegment, ArtifactKey, Budget, CollectableStore, Collection, GraphRestrict, Partition,
+    RunIncompleteReason, RunSpec, RunStatus, SegmentError, SegmentId, SegmentManifest,
+    SegmentSource, SegmentStore, SegmentedApplyError, SegmentedRestrictError, SegmentedRun,
+    TaskRecord, apply_run, collect_garbage, read_emitted_segment, run_segmented,
 };
 use panproto_inst::{GInstance, GraphDelta, RestrictPlan};
 
@@ -460,6 +463,31 @@ impl<Src: SegmentSource, St: SegmentStore> SegmentedGraphHeld<Src, St> {
     #[must_use]
     pub fn store(&self) -> std::cell::Ref<'_, St> {
         self.store.borrow()
+    }
+
+    /// The runs whose committed artifacts the held state reads: the
+    /// restriction whose Emit artifacts hold the view and complement
+    /// segments, and every edit run whose Emit artifacts hold a source
+    /// segment an edit rewrote.
+    #[must_use]
+    pub fn live_runs(&self) -> BTreeSet<Digest> {
+        std::iter::once(self.get_run)
+            .chain(self.rewritten.values().copied())
+            .collect()
+    }
+
+    /// Collect the store from [`Self::live_runs`]: remove every journal and
+    /// artifact of another run and every artifact only staged
+    /// ([`collect_garbage`]).
+    ///
+    /// # Errors
+    ///
+    /// The store's first error; nothing the lens reads is removed.
+    pub fn collect_garbage(&self) -> Result<Collection, St::Error>
+    where
+        St: CollectableStore,
+    {
+        collect_garbage(&mut *self.store.borrow_mut(), &self.live_runs())
     }
 
     /// The segments the runs of the last admitted step read from the
