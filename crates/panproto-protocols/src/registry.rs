@@ -40,8 +40,9 @@ pub enum Parser {
     /// Reads text in the protocol's own syntax through a tree-sitter
     /// grammar. This crate does not link the grammars, so the reading is
     /// done by `panproto-io` under its `tree-sitter` feature, at the path
-    /// named here, and both dispatches refuse the protocol with an error
-    /// that names it.
+    /// named here: `panproto_io::schema_documents` reaches the reader by
+    /// this path, and the dispatches of this crate refuse the protocol
+    /// with an error that names it.
     Grammar {
         /// The path of the reader, as `crate::module::function`.
         reader: &'static str,
@@ -75,10 +76,12 @@ pub struct ProtocolDescriptor {
     /// partial set, which is why the signature returns a `Result` at
     /// all.
     pub register_theories: fn(&mut HashMap<String, Theory>) -> Result<(), ProtocolError>,
-    /// Whether [`parse_schema_bundle`](crate::parse_schema_bundle)
-    /// accepts it, which is to say whether a reference from one
-    /// document into a sibling resolves rather than becoming an opaque
-    /// placeholder.
+    /// Whether its documents can be read as a bundle, which is to say
+    /// whether a reference from one document into a sibling resolves
+    /// rather than becoming an opaque placeholder. A document or source
+    /// protocol's bundles are read by
+    /// [`parse_schema_bundle`](crate::parse_schema_bundle), a grammar
+    /// protocol's by the bundle form of its `panproto-io` reader.
     pub bundle: bool,
     /// Whether
     /// [`parse_schema_bundle_project`](crate::parse_schema_bundle_project)
@@ -196,7 +199,7 @@ static DESCRIPTORS: &[ProtocolDescriptor] = &[
             api::asyncapi::register_theories(r);
             Ok(())
         },
-        bundle: false,
+        bundle: true,
         bundle_project: false,
     },
     ProtocolDescriptor {
@@ -533,7 +536,7 @@ static DESCRIPTORS: &[ProtocolDescriptor] = &[
             data_schema::json_schema::register_theories(r);
             Ok(())
         },
-        bundle: false,
+        bundle: true,
         bundle_project: false,
     },
     ProtocolDescriptor {
@@ -681,7 +684,7 @@ static DESCRIPTORS: &[ProtocolDescriptor] = &[
             api::openapi::register_theories(r);
             Ok(())
         },
-        bundle: false,
+        bundle: true,
         bundle_project: false,
     },
     ProtocolDescriptor {

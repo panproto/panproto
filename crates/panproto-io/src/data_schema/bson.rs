@@ -10,8 +10,8 @@
 //! JSON cannot tell apart in a type wrapper object (`{"$numberInt": "1"}`),
 //! and *relaxed*, which writes int32, int64 and finite double values as JSON
 //! numbers and a datetime between the years 1970 and 9999 as an RFC 3339
-//! string. [`read_extended_json`] reads either format, as the specification
-//! asks of a parser; [`write_extended_json`] writes the one its [`Mode`]
+//! string. `read_extended_json`, under the `tree-sitter` feature, reads either
+//! format, as the specification asks of a parser; [`write_extended_json`] writes the one its [`Mode`]
 //! names. Legacy Extended JSON (`$regex`, `{"$binary": …, "$type": …}`,
 //! `{"$date": <number>}`) is not a format of version 2 and is not read: a
 //! `$regex` or `$type` key is an ordinary key, and a `$binary` wrapper with

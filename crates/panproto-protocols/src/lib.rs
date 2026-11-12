@@ -161,6 +161,14 @@ pub fn parse_schema_bundle_within(
         budget.charge(Resource::InputBytes, measure(doc))?;
     }
 
+    if let Some(registry::ProtocolDescriptor {
+        parser: registry::Parser::Grammar { reader },
+        ..
+    }) = registry::descriptor(protocol)
+    {
+        return Err(read_through_grammar(protocol, reader));
+    }
+
     match protocol.replace('_', "-").as_str() {
         "atproto" => atproto::parse_lexicon_bundle(docs),
         "avro" => serialization::avro::parse_avsc_bundle(docs),
@@ -171,10 +179,13 @@ pub fn parse_schema_bundle_within(
     }
 }
 
-/// The protocol names [`parse_schema_bundle`] accepts.
+/// The protocols whose documents can be read as a bundle.
 ///
 /// Lets a caller report or validate bundle support without hard-coding a
-/// protocol name outside this crate.
+/// protocol name outside this crate. A protocol read through a tree-sitter
+/// grammar is listed when its reader has a bundle form; its bundles are
+/// read by `panproto_io::schema_documents::parse_schema_bundle`, and
+/// [`parse_schema_bundle`] refuses it with an error that names its reader.
 #[must_use]
 pub fn bundle_parser_protocols() -> Vec<&'static str> {
     registry::names_where(|d| d.bundle)
@@ -337,8 +348,8 @@ pub fn parse_schema_source_within(
 /// tree-sitter grammar, which this crate does not link.
 fn read_through_grammar(protocol: &str, reader: &str) -> ProtocolError {
     ProtocolError::Parse(format!(
-        "protocol {protocol:?} is read through its tree-sitter grammar; \
-         use {reader} (panproto-io, feature tree-sitter)"
+        "protocol {protocol:?} is read through its tree-sitter grammar by {reader}; \
+         panproto_io::schema_documents reads it by name (panproto-io, feature tree-sitter)"
     ))
 }
 

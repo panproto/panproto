@@ -26,6 +26,41 @@ use panproto_schema::{EdgeRule, Protocol};
 
 use crate::theories;
 
+/// The class of an Ansible file, which the file itself does not state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FileClass {
+    /// A playbook: a sequence of plays and playbook imports.
+    Playbook,
+    /// A task file (a role's `tasks/main.yml` or `handlers/main.yml`): a
+    /// sequence of tasks and blocks.
+    Tasks,
+    /// A variables file (a role's `defaults/main.yml` or `vars/main.yml`,
+    /// `group_vars`, `host_vars`): a mapping of variables.
+    Vars,
+}
+
+impl FileClass {
+    /// Every class, in the order [`FileClass::name`] lists them.
+    pub const ALL: [Self; 3] = [Self::Playbook, Self::Tasks, Self::Vars];
+
+    /// The class's name as a front end spells it: `playbook`, `tasks` or
+    /// `vars`.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Playbook => "playbook",
+            Self::Tasks => "tasks",
+            Self::Vars => "vars",
+        }
+    }
+
+    /// The class named `name`, as [`FileClass::name`] spells it.
+    #[must_use]
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|class| class.name() == name)
+    }
+}
+
 /// The keywords the reader keeps as constraints.
 ///
 /// Each holds the keyword's value as canonical JSON text, plus `module`

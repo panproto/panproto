@@ -19,6 +19,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use panproto_inst::Value;
+pub use panproto_protocols::config::ansible::FileClass;
 use panproto_schema::{Schema, SchemaBuilder};
 
 use super::tree::{Content, JsonTextError, Node, json_string, read_yaml};
@@ -122,19 +123,6 @@ const INCLUDES: &[(&str, &str, &str)] = &[
 
 /// The names Ansible refuses as variable names besides non-identifiers.
 const RESERVED: &[&str] = &["true", "false", "none", "True", "False", "None", "not"];
-
-/// The class of an Ansible file, which the file itself does not state.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FileClass {
-    /// A playbook: a sequence of plays and playbook imports.
-    Playbook,
-    /// A task file (a role's `tasks/main.yml` or `handlers/main.yml`): a
-    /// sequence of tasks and blocks.
-    Tasks,
-    /// A variables file (a role's `defaults/main.yml` or `vars/main.yml`,
-    /// `group_vars`, `host_vars`): a mapping of variables.
-    Vars,
-}
 
 /// A refusal of the Ansible reader: what is wrong, and where.
 #[derive(Clone, Debug, PartialEq, Eq)]

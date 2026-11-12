@@ -35,6 +35,8 @@
 //! - [`json_pathway`]: Shared lossless JSON → `WInstance` builder
 //! - [`error`]: Error types for parse and emit operations
 //! - [`arena`]: Arena allocation helpers for zero-copy hot paths
+//! - [`schema_documents`]: Schema documents read by protocol name, through
+//!   the grammar readers of this crate or the parsers of `panproto-protocols`
 //!
 //! ## Format-preservation limits
 //!
@@ -97,6 +99,8 @@ pub mod cst_extract;
 pub mod rdf;
 
 pub mod edgelist;
+
+pub mod schema_documents;
 
 #[cfg(feature = "tree-sitter")]
 pub mod unified_codec;
