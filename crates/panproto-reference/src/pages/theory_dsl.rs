@@ -19,18 +19,18 @@
 //!
 //! The model is total on its domain and says so outside it: a document using
 //! a sort kind other than `structural`, a closed sort, a directed equation,
-//! a conflict policy, a `case`, `let` or hole term, a composition (a
-//! composition body, a bundle's compositions or a protocol's inline
-//! composed theory), or a class, instance or inductive body is answered
-//! with [`Outcome::OutsideDomain`].
+//! a conflict policy, a `case`, `let` or hole term, a composition step with
+//! identified symbols, a shared sort with parameters or sides a colimit
+//! step cannot label, a protocol's inline composed theory, or a class,
+//! instance or inductive body is answered with [`Outcome::OutsideDomain`].
 
 use std::collections::BTreeMap;
 
 use crate::json::Value;
 use crate::pages::theories::theory::{
-    Defect, Equation, Implicit, Morphism, MorphismError, Op, OpImage, Site, Sort, SortExpr,
-    SortKind, SymKind, Term, Theory, check_morphism, implicit_inputs_inferable, typecheck_equation,
-    typecheck_signature,
+    CompositionMode, CompositionSpec, CompositionStep, Defect, Equation, Implicit, Morphism,
+    MorphismError, Op, OpImage, Site, Sort, SortExpr, SortKind, SymKind, Term, Theory,
+    check_morphism, implicit_inputs_inferable, recompose, typecheck_equation, typecheck_signature,
 };
 
 pub use crate::dsl_path::{Path, Segment, locate};
@@ -94,6 +94,8 @@ pub enum Refusal {
     /// A bundle defines a theory, a morphism or a protocol twice, or a
     /// protocol's inline theory is named as another theory is.
     Duplicate(String),
+    /// A composition has no step, or a step's colimit is refused.
+    ColimitFailed,
 }
 
 /// The result of the reference on one document.
@@ -130,6 +132,8 @@ pub struct Compiled {
     pub morphisms: BTreeMap<String, Morphism>,
     /// Compiled protocols.
     pub protocols: BTreeMap<String, Protocol>,
+    /// The recipe of each composed theory, by the theory's name.
+    pub compositions: BTreeMap<String, CompositionSpec>,
 }
 
 /// A step of the reference that stops on a refusal or outside the domain.
@@ -1427,13 +1431,161 @@ fn protocol_step(
 fn record_inline(out: &mut Compiled, theories: Vec<Theory>, at: &Path) -> Step<()> {
     for theory in theories {
         match out.theories.get(&theory.name) {
-            Some(existing) if *existing == theory => {}
+            Some(existing)
+                if *existing == theory && !out.compositions.contains_key(&theory.name) => {}
             Some(_) => return refuse(at.clone(), Refusal::Duplicate(theory.name)),
             None => {
                 out.theories.insert(theory.name.clone(), theory);
             }
         }
     }
+    Ok(())
+}
+
+/// Whether a step is one the reference models: no identifications, sides
+/// that are distinct node labels (non-empty, with neither `.` nor `#`) other
+/// than the step's interface label, and no shared sort with parameters.
+fn colimit_step_in_domain(step: &Value, index: usize, left: &Theory) -> Step<()> {
+    let label = |name: &str| !name.is_empty() && !name.contains(['.', '#']);
+    let interface = format!("step_{index}_interface");
+    let (l, r) = (text(step, "left"), text(step, "right"));
+    if !items(step, "identify").is_empty() {
+        return Err(Stop::Outside("identified symbols"));
+    }
+    if !label(&l) || !label(&r) || l == r || l == interface || r == interface {
+        return Err(Stop::Outside(
+            "a step whose sides a colimit step cannot label",
+        ));
+    }
+    let dependent = strings(step, "shared_sorts").iter().any(|name| {
+        left.sorts
+            .iter()
+            .any(|s| &s.name == name && !s.params.is_empty())
+    });
+    if dependent {
+        return Err(Stop::Outside("a shared sort with parameters"));
+    }
+    Ok(())
+}
+
+/// Definition: the compilation of a composition spec.
+///
+/// Each base must resolve. Each step, in order, names its left and then its
+/// right side, which resolve to a theory of the resolver or the result
+/// `step_k` of an earlier step; it denotes the colimit step of its sides
+/// over its shared sorts and operations in its mode (`amalgamate` when
+/// absent), whose theory is [`recompose`]'s replay of the recipe of the
+/// steps so far. The result is the last step's theory, named by `result`,
+/// with the recipe of every step.
+///
+/// # Errors
+///
+/// `TheoryNotFound` at a `bases` entry or a step's `left` or `right`;
+/// `ColimitFailed` at a step whose replay is refused, and at `steps` when
+/// there is none.
+///
+/// Book anchor: `L-theory-dsl-6`.
+#[must_use]
+pub fn compile_composition(
+    spec: &Value,
+    resolve_theory: &dyn Fn(&str) -> Option<Theory>,
+) -> Outcome<(Theory, CompositionSpec)> {
+    outcome(composition_step(spec, resolve_theory))
+}
+
+fn composition_step(
+    spec: &Value,
+    resolve_theory: &dyn Fn(&str) -> Option<Theory>,
+) -> Step<(Theory, CompositionSpec)> {
+    let root = Path::root();
+    let result_name = text(spec, "result");
+    let mut registry: BTreeMap<String, Theory> = BTreeMap::new();
+    for (index, base) in strings(spec, "bases").iter().enumerate() {
+        let Some(theory) = resolve_theory(base) else {
+            return refuse(
+                root.key("bases").index(index),
+                Refusal::TheoryNotFound(base.clone()),
+            );
+        };
+        registry.insert(base.clone(), theory);
+    }
+    let mut steps = Vec::new();
+    let mut last = None;
+    for (index, step) in items(spec, "steps").iter().enumerate() {
+        let at = root.key("steps").index(index);
+        let mut sides = Vec::new();
+        for side in ["left", "right"] {
+            let name = text(step, side);
+            let found = registry.get(&name).cloned().or_else(|| {
+                (!name.starts_with("step_"))
+                    .then(|| resolve_theory(&name))
+                    .flatten()
+            });
+            let Some(theory) = found else {
+                return refuse(at.key(side), Refusal::TheoryNotFound(name));
+            };
+            registry.insert(name, theory.clone());
+            sides.push(theory);
+        }
+        colimit_step_in_domain(step, index, &sides[0])?;
+        let mode = if opt_text(step, "mode").as_deref() == Some("explicit_identity") {
+            CompositionMode::ExplicitIdentity
+        } else {
+            CompositionMode::Amalgamate
+        };
+        steps.push(CompositionStep::Colimit {
+            left: text(step, "left"),
+            right: text(step, "right"),
+            shared_sorts: strings(step, "shared_sorts"),
+            shared_ops: strings(step, "shared_ops"),
+            mode,
+        });
+        let recipe = CompositionSpec {
+            result_name: format!("step_{index}"),
+            steps: steps.clone(),
+            version: 0,
+        };
+        let Ok(theory) = recompose(&recipe, &registry) else {
+            return refuse(at, Refusal::ColimitFailed);
+        };
+        registry.insert(format!("step_{index}"), theory.clone());
+        last = Some(theory);
+    }
+    let Some(mut theory) = last else {
+        return refuse(root.key("steps"), Refusal::ColimitFailed);
+    };
+    theory.name.clone_from(&result_name);
+    let version = u16::from(steps.iter().any(|step| {
+        matches!(
+            step,
+            CompositionStep::Colimit {
+                mode: CompositionMode::ExplicitIdentity,
+                ..
+            }
+        )
+    }));
+    Ok((
+        theory,
+        CompositionSpec {
+            result_name,
+            steps,
+            version,
+        },
+    ))
+}
+
+/// Record a composed theory and its recipe in `out`, refused with
+/// `Duplicate` at `at` when its name is taken.
+fn record_composition(
+    out: &mut Compiled,
+    (theory, recipe): (Theory, CompositionSpec),
+    at: &Path,
+) -> Step<()> {
+    if out.theories.contains_key(&theory.name) {
+        return refuse(at.clone(), Refusal::Duplicate(theory.name));
+    }
+    out.compositions.insert(theory.name.clone(), recipe);
+    out.theories.insert(theory.name.clone(), theory);
     Ok(())
 }
 
@@ -1450,7 +1602,7 @@ fn record_inline(out: &mut Compiled, theories: Vec<Theory>, at: &Path) -> Step<(
 ///
 /// The first refusal, at its path from the document root.
 ///
-/// Book anchors: `L-theory-dsl-1` to `L-theory-dsl-5`.
+/// Book anchors: `L-theory-dsl-1` to `L-theory-dsl-6`.
 #[must_use]
 pub fn compile_document(
     document: &Value,
@@ -1472,6 +1624,12 @@ fn document_step(document: &Value, library: &dyn Fn(&str) -> Option<Theory>) -> 
             let morphism = morphism_step(document, library)?;
             out.morphisms.insert(morphism.name.clone(), morphism);
         }
+        "compose" => {
+            let at = root.key("compose");
+            let spec = get(document, "compose").cloned().unwrap_or(Value::Null);
+            let composed = composition_step(&spec, library).map_err(|s| s.within(&at))?;
+            record_composition(&mut out, composed, &at)?;
+        }
         "protocol" => {
             let (protocol, inline) = protocol_step(document, library)?;
             out.protocols.insert(protocol.name.clone(), protocol);
@@ -1489,8 +1647,15 @@ fn document_step(document: &Value, library: &dyn Fn(&str) -> Option<Theory>) -> 
                 let theory = elaborate_step(spec, &combined).map_err(|s| s.within(&at))?;
                 out.theories.insert(name, theory);
             }
-            if !items(document, "compositions").is_empty() {
-                return Err(Stop::Outside("compositions"));
+            for (index, spec) in items(document, "compositions").iter().enumerate() {
+                let at = root.key("compositions").index(index);
+                if out.theories.contains_key(&text(spec, "result")) {
+                    return refuse(at.key("result"), Refusal::Duplicate(text(spec, "result")));
+                }
+                let seen = out.theories.clone();
+                let combined = |n: &str| seen.get(n).cloned().or_else(|| library(n));
+                let composed = composition_step(spec, &combined).map_err(|s| s.within(&at))?;
+                record_composition(&mut out, composed, &at)?;
             }
             for (index, spec) in items(document, "morphisms").iter().enumerate() {
                 let at = root.key("morphisms").index(index);

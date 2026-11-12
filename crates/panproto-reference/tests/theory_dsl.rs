@@ -255,3 +255,55 @@ fn protocol_references_resolve_compile_and_record_inline_theories() {
         Outcome::OutsideDomain(_)
     ));
 }
+
+#[test]
+fn compositions_replay_their_colimit_steps_and_locate_refusals() {
+    let composition = |steps: &str| {
+        compiled(&format!(
+            r#"{{"id":"c","description":"","compose":{{"result":"R","steps":[{steps}]}}}}"#
+        ))
+    };
+    let Outcome::Accepted(out) = composition(
+        r#"{"left":"L","right":"N","shared_sorts":["V","E"],"shared_ops":["t"],"mode":"explicit_identity"}"#,
+    ) else {
+        panic!("sharing V, E and t composes L and N with explicit identity");
+    };
+    let names: Vec<&str> = out.theories["R"]
+        .sorts
+        .iter()
+        .map(|s| s.name.as_str())
+        .collect();
+    assert_eq!(names.len(), 3, "{names:?}");
+    assert_eq!(out.compositions["R"].version, 1);
+    assert_eq!(
+        composition(r#"{"left":"L","right":"N","shared_sorts":[],"mode":"explicit_identity"}"#),
+        Outcome::Refused(
+            Path::root().key("compose").key("steps").index(0),
+            Refusal::ColimitFailed
+        )
+    );
+    assert_eq!(
+        composition(r#"{"left":"step_0","right":"N","shared_sorts":[]}"#),
+        Outcome::Refused(
+            Path::root()
+                .key("compose")
+                .key("steps")
+                .index(0)
+                .key("left"),
+            Refusal::TheoryNotFound("step_0".to_owned())
+        )
+    );
+    assert_eq!(
+        composition(""),
+        Outcome::Refused(
+            Path::root().key("compose").key("steps"),
+            Refusal::ColimitFailed
+        )
+    );
+    assert!(matches!(
+        composition(
+            r#"{"left":"L","right":"N","shared_sorts":[],"identify":[{"kind":"sort","left":"V","right":"V"}]}"#
+        ),
+        Outcome::OutsideDomain(_)
+    ));
+}

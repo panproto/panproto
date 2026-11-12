@@ -1,10 +1,10 @@
 # Theory DSL
 
-A theory document declares sorts, operations and equations, a morphism between theories, a protocol naming its schema and instance theories, or a bundle of these, as a JSON, YAML or Nickel value. This page states what the compiler does with such a value: which values the document grammar admits, how a theory's parents and imports are elaborated into one presentation, how a morphism document is compiled and checked, how a protocol document resolves and compiles its theory references, and where in the source text each refusal points. The meaning of each construct is set out in the [Theory DSL semantics](../explanation/semantics/theory-dsl.md) page; the laws below state that the compiler computes exactly that meaning on a stated finite scope, against an independent reference, `panproto_reference::pages::theory_dsl`.
+A theory document declares sorts, operations and equations, a morphism between theories, a composition of theories by colimit steps, a protocol naming its schema and instance theories, or a bundle of these, as a JSON, YAML or Nickel value. This page states what the compiler does with such a value: which values the document grammar admits, how a theory's parents and imports are elaborated into one presentation, how a morphism document is compiled and checked, how a composition document composes its steps, how a protocol document resolves and compiles its theory references, and where in the source text each refusal points. The meaning of each construct is set out in the [Theory DSL semantics](../explanation/semantics/theory-dsl.md) page; the laws below state that the compiler computes exactly that meaning on a stated finite scope, against an independent reference, `panproto_reference::pages::theory_dsl`.
 
-The reference starts from a document value, the reference crate's own JSON value; Nickel evaluation and YAML reading produce that value and are outside the laws. It checks signatures and morphisms with the reference of the [Theories](theories.md) page, which that page proves against `panproto-gat`, and transcribes everything else from the semantics page. Sorts with parameters, sort expressions applied to terms, operations with implicit inputs and equations over dependent sorts are in the domain: the reference infers implicit inputs and types equations with the Theories reference's `implicit_inputs_inferable` and `typecheck_equation`. It answers "outside the domain" for a document using a sort kind other than `structural`, a closed sort, a directed equation, a conflict policy, a `case`, `let` or hole term, a composition (a composition body, a bundle's compositions or a protocol's inline composed theory), or a class, instance or inductive body; none of the documents of the scopes below does.
+The reference starts from a document value, the reference crate's own JSON value; Nickel evaluation and YAML reading produce that value and are outside the laws. It checks signatures and morphisms with the reference of the [Theories](theories.md) page, which that page proves against `panproto-gat`, and transcribes everything else from the semantics page. Sorts with parameters, sort expressions applied to terms, operations with implicit inputs and equations over dependent sorts are in the domain: the reference infers implicit inputs and types equations with the Theories reference's `implicit_inputs_inferable` and `typecheck_equation`. It answers "outside the domain" for a document using a sort kind other than `structural`, a closed sort, a directed equation, a conflict policy, a `case`, `let` or hole term, a composition step with identified symbols, a shared sort with parameters, or sides a colimit step cannot label, a protocol's inline composed theory, or a class, instance or inductive body; none of the documents of the scopes below does.
 
-The scopes are built over a library of three theories. `L` has sorts `V` and `E`, operations `s, t : E -> V` and `r : V -> E`, and the equation `sr : s(r(v)) = v`; `K` has sorts `P` and `Q`, operations `a, b : Q -> P` and `c : P -> Q`, and `ac : a(c(p)) = p`. `C` is the theory of categories with implicit objects: sorts `Ob` and `Hom(a : Ob, b : Ob)`, operations `id(x : Ob) : Hom(x, x)` and `comp({a b c : Ob}, g : Hom(b, c), f : Hom(a, b)) : Hom(a, c)`, and the equations `idl : comp(id(b), f) = f` and `idr : comp(f, id(a)) = f`. The name `M` resolves to nothing.
+The scopes are built over a library of three theories. `L` has sorts `V` and `E`, operations `s, t : E -> V` and `r : V -> E`, and the equation `sr : s(r(v)) = v`; `K` has sorts `P` and `Q`, operations `a, b : Q -> P` and `c : P -> Q`, and `ac : a(c(p)) = p`. `C` is the theory of categories with implicit objects: sorts `Ob` and `Hom(a : Ob, b : Ob)`, operations `id(x : Ob) : Hom(x, x)` and `comp({a b c : Ob}, g : Hom(b, c), f : Hom(a, b)) : Hom(a, c)`, and the equations `idl : comp(id(b), f) = f` and `idr : comp(f, id(a)) = f`. `N` shares `V`, `E` and `t : E -> V` with `L` and adds the sort `F` and `h : F -> V`. The name `M` resolves to nothing.
 
 ## Theory documents follow the document grammar {#L-theory-dsl-1}
 
@@ -113,7 +113,7 @@ The reference resolves the domain, then the codomain; refuses the least sort-map
 
 ### Statement
 
-For every document $d$ of the scopes of laws 2, 3 and 5 that the reference refuses at path $p$, the production refusal of `read_source` or `compile_source` on $d$ is `TheoryDslError::Spanned` with path $p$ and span $(o, \ell)$, where $(o, \ell)$ is the reference's `locate(d, p)`: the byte offset and length of the value at $p$ in $d$, from its first byte to its last, the last occurrence when a member is named twice. The same document read as YAML text, which JSON text also is, is refused by the same function at the same path with span $(o, c)$, where $c$ is the byte length of the character at $o$: the first character of the refused value.
+For every document $d$ of the scopes of laws 2, 3, 5 and 6 that the reference refuses at path $p$, the production refusal of `read_source` or `compile_source` on $d$ is `TheoryDslError::Spanned` with path $p$ and span $(o, \ell)$, where $(o, \ell)$ is the reference's `locate(d, p)`: the byte offset and length of the value at $p$ in $d$, from its first byte to its last, the last occurrence when a member is named twice. The same document read as YAML text, which JSON text also is, is refused by the same function at the same path with span $(o, c)$, where $c$ is the byte length of the character at $o$: the first character of the refused value.
 
 ### Outside the domain
 
@@ -125,7 +125,7 @@ Nickel sources: a Nickel evaluation error keeps Nickel's own span. A JSON syntax
 
 ### Proof
 
-1. Every refusal names a path (laws 1, 2, 3 and 5 state which), and `compile_source` and `read_source` wrap a refusal whose path names a value of $d$ in `Spanned` with the range `locate_json` computes for JSON text, and with the first character `locate_yaml` finds for YAML text.
+1. Every refusal names a path (laws 1, 2, 3, 5 and 6 state which), and `compile_source` and `read_source` wrap a refusal whose path names a value of $d$ in `Spanned` with the range `locate_json` computes for JSON text, and with the first character `locate_yaml` finds for YAML text.
 2. `locate_json` and `locate` read the same JSON grammar, start a value at its first non-blank byte and end it after its last byte, and both keep the last occurrence of a member. `locate_yaml` reads the text with the YAML reader, follows $p$ to the last occurrence of each member, and refuses the node it reaches; the reader reports the start of that node, which in JSON text is the node's first non-blank byte, the start `locate` gives.
 3. Every path the laws name is the path of a value present in $d$, except that of a missing field, which is the path of the object lacking it; so a span exists for every refusal, and the differentials compare it with `locate` on every refused document of those scopes and of the grammar scope.
 
@@ -138,6 +138,7 @@ Nickel sources: a Nickel evaluation error keeps Nickel's own span. A JSON syntax
 - Exhaustive differential test: `dependent_theory_documents_compile_as_the_reference_on_every_bounded_document; command: cargo nextest run -p panproto-theory-dsl --test reference_theory_dsl --no-tests=fail -E 'test(=dependent_theory_documents_compile_as_the_reference_on_every_bounded_document)'`
 - Exhaustive differential test: `the_grammar_refuses_as_the_reference_on_every_mutated_document; command: cargo nextest run -p panproto-theory-dsl --test reference_theory_dsl --no-tests=fail -E 'test(=the_grammar_refuses_as_the_reference_on_every_mutated_document)'`
 - Exhaustive differential test: `protocol_documents_compile_as_the_reference_on_every_bounded_document; command: cargo nextest run -p panproto-theory-dsl --test reference_theory_dsl --no-tests=fail -E 'test(=protocol_documents_compile_as_the_reference_on_every_bounded_document)'`
+- Exhaustive differential test: `composition_documents_compile_as_the_reference_on_every_bounded_document; command: cargo nextest run -p panproto-theory-dsl --test reference_theory_dsl --no-tests=fail -E 'test(=composition_documents_compile_as_the_reference_on_every_bounded_document)'`
 - Reference test: `locate_finds_the_last_occurrence_of_a_member; command: cargo nextest run -p panproto-reference --test theory_dsl --no-tests=fail -E 'test(=locate_finds_the_last_occurrence_of_a_member)'`
 - File: `crates/panproto-dsl-eval/src/path.rs`
 - File: `crates/panproto-theory-dsl/src/compile.rs`
@@ -151,7 +152,7 @@ For a protocol or bundle document $d$ of the protocol and protocol bundle scopes
 
 ### Outside the domain
 
-A protocol's inline composed theory, and a named reference to a composition result, which the reference does not model; [Protocol bodies](../explanation/semantics/theory-dsl.md#protocol-bodies) on the semantics page states their meaning. The edge rules' kinds are not checked against any theory, so no refusal concerns them.
+A protocol's inline composed theory, which the reference does not model; [Protocol bodies](../explanation/semantics/theory-dsl.md#protocol-bodies) on the semantics page states their meaning. The edge rules' kinds are not checked against any theory, so no refusal concerns them.
 
 ### Definitions used
 
@@ -175,5 +176,40 @@ The reference resolves the schema theory reference, then the instance theory ref
 - Exhaustive differential test: `bundled_protocols_record_their_inline_theories_as_the_reference; command: cargo nextest run -p panproto-theory-dsl --test reference_theory_dsl --no-tests=fail -E 'test(=bundled_protocols_record_their_inline_theories_as_the_reference)'`
 - Reference test: `protocol_references_resolve_compile_and_record_inline_theories; command: cargo nextest run -p panproto-reference --test theory_dsl --no-tests=fail -E 'test(=protocol_references_resolve_compile_and_record_inline_theories)'`
 - File: `crates/panproto-theory-dsl/src/compile_protocol.rs`
+- File: `crates/panproto-theory-dsl/src/compile.rs`
+- File: `crates/panproto-reference/src/pages/theory_dsl.rs`
+
+## A composition document composes its colimit steps in order {#L-theory-dsl-6}
+
+### Statement
+
+For a composition or bundle document $d$ of the composition and composition bundle scopes, when the reference's `compile_document` accepts with theories $T$ and recipes $Q$, `compile_source(d, Json)` accepts with theories of the same canonical bytes as $T$ and with the recipes $Q$, step for step; when the reference refuses at path $p$, production refuses at $p$ with `TheoryNotFound` or `Duplicate` of the same name, or with `ColimitFailed`.
+
+### Outside the domain
+
+A step with `identify` entries, a step sharing a sort with parameters, and a step whose sides cannot label a diagram node (a name with `.` or `#`, a theory composed with itself, the step's interface label): production composes these as diagrams whose shared theories carry the identified symbols and records a `Diagram` step, which the reference does not model. `ColimitFailed` is compared by kind and path, not by its message.
+
+### Definitions used
+
+The reference resolves each base in order, refusing an unknown one at its `bases` entry. For each step in order it resolves the left and then the right side, a theory the resolver knows or the result `step_k` of an earlier step, refusing an unknown side at the step's `left` or `right`; records the step as `CompositionStep::Colimit` with its sides, shared sorts and shared operations and its mode (`amalgamate` when absent); and takes as the step's theory the Theories reference's `recompose` of the recipe so far, refusing at the step when the replay is refused. A composition without steps is refused at `steps`. The result is the last step's theory named by `result`; the recipe's version is 1 exactly when a step is in `explicit_identity` mode. A bundle compiles its compositions after its theories, in listed order, each seeing the bundle's theories and earlier compositions before the library, and refuses a result named as a theory or an earlier result at its `result` member. The composition scope is the product of 5 side pairs (`L` and `N` either way round, `K` and `N`, and pairs naming `M`), 5 shared-sort lists (none, `V`, `V` and `E`, `F`, `Z`), 3 shared-operation lists (none, `t`, `h`), 3 modes (absent, `amalgamate`, `explicit_identity`), 3 base lists (none, `L`, `M`) and 3 second steps (none, `step_0` with `K`, `step_1` with `K`): $5 \cdot 5 \cdot 3 \cdot 3 \cdot 3 \cdot 3 = 2{,}025$ documents, of which the reference accepts 132. The composition bundle scope lists the theory `A` and each sequence of at most three of four compositions (`A` with `L` into `R`, the same again, a result named `A`, `R` with `K` into `S`): $1 + 4 + 16 + 64 = 85$ documents.
+
+### Proof
+
+1. Production resolves the bases and then each step's sides in the reference's order, a name `step_k` only among earlier results, and locates an unknown base or side at the same member.
+2. On a step in the domain, production records `CompositionStep::Colimit` with the step's sides, shared sorts and operations and mode, as the reference does, and composes it as `pushout_by_name` (amalgamate) or `compose` over the by-name span (explicit identity), which is the step `panproto_gat::recompose` replays; the Theories page proves that replay against the reference's `recompose` (L-theories-8), and the differential checks the theory's canonical bytes on every accepted document.
+3. Each refusal of the step's composition is `ColimitFailed` at the step, and the reference's replay refuses the same steps; a composition without steps is refused at `steps` by both.
+4. Production names the result `result`, records the recipe under it with version 1 exactly when a step is in `explicit_identity` mode, and compiles a bundle's compositions in the reference's order and with its duplicate refusal.
+5. The exhaustive differentials check the agreement, the refusal, its path and its span (and the YAML span of law 4) on all 2,025 composition documents and 85 composition bundles.
+
+### Executable counterpart
+
+- Law ID: `theory-dsl.composition-documents`
+- Reference: `panproto_reference::pages::theory_dsl::compile_composition`
+- Enumerator: `panproto_reference::enumerate::theory_dsl::composition_documents; bound: documents=2025`
+- Enumerator: `panproto_reference::enumerate::theory_dsl::composition_bundle_documents; bound: documents=85`
+- Exhaustive differential test: `composition_documents_compile_as_the_reference_on_every_bounded_document; command: cargo nextest run -p panproto-theory-dsl --test reference_theory_dsl --no-tests=fail -E 'test(=composition_documents_compile_as_the_reference_on_every_bounded_document)'`
+- Exhaustive differential test: `bundled_compositions_compile_in_listed_order_as_the_reference; command: cargo nextest run -p panproto-theory-dsl --test reference_theory_dsl --no-tests=fail -E 'test(=bundled_compositions_compile_in_listed_order_as_the_reference)'`
+- Reference test: `compositions_replay_their_colimit_steps_and_locate_refusals; command: cargo nextest run -p panproto-reference --test theory_dsl --no-tests=fail -E 'test(=compositions_replay_their_colimit_steps_and_locate_refusals)'`
+- File: `crates/panproto-theory-dsl/src/compile_compose.rs`
 - File: `crates/panproto-theory-dsl/src/compile.rs`
 - File: `crates/panproto-reference/src/pages/theory_dsl.rs`

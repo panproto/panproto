@@ -146,13 +146,26 @@ pub fn theory_c() -> Theory {
     }
 }
 
-/// The library: `L`, `K` and `C`; every other name is unresolved.
+/// The library theory `N`, which shares `V`, `E` and `t : E -> V` with
+/// `L`: sorts `V`, `E` and `F`; `t : E -> V` and `h : F -> V`.
+#[must_use]
+pub fn theory_n() -> Theory {
+    Theory {
+        name: "N".to_owned(),
+        sorts: vec![simple_sort("V"), simple_sort("E"), simple_sort("F")],
+        ops: vec![unary("t", "e", "E", "V"), unary("h", "f", "F", "V")],
+        ..Theory::default()
+    }
+}
+
+/// The library: `L`, `K`, `C` and `N`; every other name is unresolved.
 #[must_use]
 pub fn library(name: &str) -> Option<Theory> {
     match name {
         "L" => Some(theory_l()),
         "K" => Some(theory_k()),
         "C" => Some(theory_c()),
+        "N" => Some(theory_n()),
         _ => None,
     }
 }
@@ -373,6 +386,91 @@ pub fn bundle_documents() -> Vec<String> {
             format!(
                 r#"{{"id":"b","description":"","bundle":"B","theories":[{}]}}"#,
                 theories.join(",")
+            )
+        })
+        .collect()
+}
+
+/// The sides of the first step of the composition scope.
+pub const COMPOSITION_SIDES: &[(&str, &str)] =
+    &[("L", "N"), ("N", "L"), ("K", "N"), ("L", "M"), ("M", "N")];
+
+/// Shared sorts of the first step of the composition scope.
+pub const COMPOSITION_SHARED_SORTS: &[&str] =
+    &["[]", r#"["V"]"#, r#"["V","E"]"#, r#"["F"]"#, r#"["Z"]"#];
+
+/// Shared operations of the first step of the composition scope.
+pub const COMPOSITION_SHARED_OPS: &[&str] =
+    &["", r#","shared_ops":["t"]"#, r#","shared_ops":["h"]"#];
+
+/// Modes of the first step of the composition scope: absent, then each
+/// mode written.
+pub const COMPOSITION_MODES: &[&str] = &[
+    "",
+    r#","mode":"amalgamate""#,
+    r#","mode":"explicit_identity""#,
+];
+
+/// `bases` members of the composition scope.
+pub const COMPOSITION_BASES: &[&str] = &["", r#""bases":["L"],"#, r#""bases":["M"],"#];
+
+/// Second steps of the composition scope: none, one over the first step's
+/// result, and one naming a later step's result.
+pub const COMPOSITION_SECOND_STEPS: &[&str] = &[
+    "",
+    r#",{"left":"step_0","right":"K","shared_sorts":[]}"#,
+    r#",{"left":"step_1","right":"K","shared_sorts":[]}"#,
+];
+
+/// Every composition document of the scope, `|COMPOSITION_SIDES|·
+/// |COMPOSITION_SHARED_SORTS|·|COMPOSITION_SHARED_OPS|·|COMPOSITION_MODES|·
+/// |COMPOSITION_BASES|·|COMPOSITION_SECOND_STEPS|` of them.
+#[must_use]
+pub fn composition_documents() -> Vec<String> {
+    let mut out = Vec::new();
+    for (left, right) in COMPOSITION_SIDES {
+        for sorts in COMPOSITION_SHARED_SORTS {
+            for ops in COMPOSITION_SHARED_OPS {
+                for mode in COMPOSITION_MODES {
+                    for bases in COMPOSITION_BASES {
+                        for second in COMPOSITION_SECOND_STEPS {
+                            out.push(format!(
+                                r#"{{"id":"c","description":"","compose":{{"result":"R",{bases}"steps":[{{"left":"{left}","right":"{right}","shared_sorts":{sorts}{ops}{mode}}}{second}]}}}}"#
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// The compositions a bundle of the composition bundle scope lists.
+///
+/// After the bundle's theory `A` with sort `X`: one composing `A` with `L`
+/// into `R`, the same composition again, one whose result is named `A`,
+/// and one composing `R` with `K` into `S`.
+pub const BUNDLE_COMPOSITIONS: &[&str] = &[
+    r#"{"result":"R","steps":[{"left":"A","right":"L","shared_sorts":[]}]}"#,
+    r#"{"result":"R","steps":[{"left":"A","right":"L","shared_sorts":[]}]}"#,
+    r#"{"result":"A","steps":[{"left":"L","right":"K","shared_sorts":[]}]}"#,
+    r#"{"result":"S","steps":[{"left":"R","right":"K","shared_sorts":[]}]}"#,
+];
+
+/// Every bundle document of the composition bundle scope: the theory `A`
+/// and each sequence of at most three of [`BUNDLE_COMPOSITIONS`], `1 + 4 +
+/// 16 + 64` of them.
+#[must_use]
+pub fn composition_bundle_documents() -> Vec<String> {
+    crate::enumerate::sequences(&(0..BUNDLE_COMPOSITIONS.len()).collect::<Vec<_>>(), 3)
+        .into_iter()
+        .map(|sequence| {
+            let compositions: Vec<&str> =
+                sequence.iter().map(|i| BUNDLE_COMPOSITIONS[*i]).collect();
+            format!(
+                r#"{{"id":"b","description":"","bundle":"B","theories":[{{"theory":"A","sorts":[{{"name":"X"}}]}}],"compositions":[{}]}}"#,
+                compositions.join(",")
             )
         })
         .collect()

@@ -7543,6 +7543,33 @@
           ]
         },
         {
+          "id": "theory-dsl.composition-documents",
+          "anchor": "L-theory-dsl-6",
+          "references": [
+            "panproto_reference::pages::theory_dsl::compile_composition"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-theory-dsl",
+              "binary": "panproto-theory-dsl::reference_theory_dsl",
+              "test": "composition_documents_compile_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-theory-dsl",
+              "binary": "panproto-theory-dsl::reference_theory_dsl",
+              "test": "bundled_compositions_compile_in_listed_order_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::theory_dsl",
+              "test": "compositions_replay_their_colimit_steps_and_locate_refusals"
+            }
+          ]
+        },
+        {
           "id": "theory-dsl.refusal-location",
           "anchor": "L-theory-dsl-4",
           "references": [
@@ -7573,6 +7600,12 @@
               "crate": "panproto-theory-dsl",
               "binary": "panproto-theory-dsl::reference_theory_dsl",
               "test": "protocol_documents_compile_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-theory-dsl",
+              "binary": "panproto-theory-dsl::reference_theory_dsl",
+              "test": "composition_documents_compile_as_the_reference_on_every_bounded_document"
             },
             {
               "role": "reference",
