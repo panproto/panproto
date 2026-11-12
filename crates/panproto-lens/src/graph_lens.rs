@@ -606,6 +606,15 @@ fn restorable_part(view: &GInstance, errors: &[PutDomainError]) -> GInstance {
                 elem: ViewRef::Node(id),
                 ..
             } => {
+                let incident: Vec<EdgeId> = restorable
+                    .out_edges(*id)
+                    .iter()
+                    .chain(restorable.in_edges(*id))
+                    .copied()
+                    .collect();
+                for edge in incident {
+                    let _ = restorable.remove_edge(edge);
+                }
                 let _ = restorable.remove_node(*id);
             }
             PutDomainError::UnrepresentableViewEdge {
@@ -2722,5 +2731,49 @@ mod tests {
             LensError::PutDomain(error)
                 if matches!(*error, PutDomainError::PlanCompilation { .. })
         ));
+    }
+
+    #[test]
+    fn an_edge_at_a_node_with_no_source_anchor_is_reported_unrepresentable()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use panproto_inst::{EdgeId, GEdge, Node, ViewRef};
+        use panproto_schema::{Edge, Protocol, SchemaBuilder};
+
+        let schema = SchemaBuilder::new(&Protocol::default())
+            .vertex("a", "s", None)?
+            .vertex("b", "t", None)?
+            .edge("a", "b", "p", Some("x"))?
+            .build()?;
+        let lens = crate::protolens::elementary::drop_sort("t")
+            .instantiate_checked(&schema, &Protocol::default())?;
+        let (_, complement) = super::get(&lens, &GInstance::new())?;
+        let mut view = GInstance::new();
+        view.insert_node(Node::new(0, "a"))?;
+        view.insert_node(Node::new(1, "b"))?;
+        let label = Edge {
+            src: "a".into(),
+            tgt: "b".into(),
+            kind: "p".into(),
+            name: Some("x".into()),
+        };
+        view.insert_edge(EdgeId(0), GEdge::new(0, 1, label))?;
+        assert_eq!(
+            check_put_domain(&lens, &view, &complement),
+            Err(vec![
+                PutDomainError::UnrepresentableViewEdge {
+                    elem: ViewRef::Edge(EdgeId(0)),
+                },
+                PutDomainError::AmbiguousReverseAnchor {
+                    elem: ViewRef::Node(1),
+                    candidates: Vec::new(),
+                },
+            ])
+        );
+        assert!(matches!(
+            put(&lens, &view, &complement),
+            Err(LensError::PutDomain(first))
+                if matches!(*first, PutDomainError::UnrepresentableViewEdge { .. })
+        ));
+        Ok(())
     }
 }

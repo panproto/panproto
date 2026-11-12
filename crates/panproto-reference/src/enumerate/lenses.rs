@@ -2719,9 +2719,22 @@ fn typed_candidates(schema: &Schema, anchors: &[&str]) -> Vec<(usize, usize, SEd
 /// self-loops and two-cycles included). Labelled and unpruned.
 #[must_use]
 pub fn bounded_lens_graph_states(schema: &Schema) -> Vec<Graph> {
+    graph_states_up_to(schema, BOUNDED_LENS_MAX_NODES, BOUNDED_LENS_MAX_EDGES)
+}
+
+/// Every graph state over `schema` with at most `max_nodes` nodes and
+/// `max_edges` edges.
+///
+/// The states have nodes `0..n-1` anchored at the schema's vertices, each
+/// with no value or [`BOUNDED_LENS_VALUE`], and edges `0..m-1`, each one of
+/// the typed candidates (parallel edges, self-loops and two-cycles
+/// included), in ascending node count, anchor code, value mask, edge count
+/// and edge code. Labelled and unpruned.
+#[must_use]
+pub fn graph_states_up_to(schema: &Schema, max_nodes: usize, max_edges: usize) -> Vec<Graph> {
     let vertices: Vec<&str> = schema.vertices.keys().map(String::as_str).collect();
     let mut out = Vec::new();
-    for nodes in 0..=BOUNDED_LENS_MAX_NODES {
+    for nodes in 0..=max_nodes {
         for mut anchor_code in 0..power(vertices.len(), nodes) {
             let anchors: Vec<&str> = (0..nodes)
                 .map(|_| {
@@ -2739,7 +2752,7 @@ pub fn bounded_lens_graph_states(schema: &Schema) -> Vec<Graph> {
                         bounded_lens_node(id, anchor, values & (1 << id) != 0),
                     );
                 }
-                for edges in 0..=BOUNDED_LENS_MAX_EDGES {
+                for edges in 0..=max_edges {
                     for mut code in 0..power(candidates.len(), edges) {
                         let mut graph = base.clone();
                         for id in 0..edges {
@@ -2769,9 +2782,17 @@ pub fn bounded_lens_graph_states(schema: &Schema) -> Vec<Graph> {
 /// with `c = sum_{(x, y) in E} k_x k_y`.
 #[must_use]
 pub fn bounded_lens_graph_state_count(schema: &Schema) -> usize {
+    graph_state_count_up_to(schema, BOUNDED_LENS_MAX_NODES, BOUNDED_LENS_MAX_EDGES)
+}
+
+/// Independent count of [`graph_states_up_to`] by anchor multiplicities:
+/// `sum_{n <= max_nodes} sum_{k} n! / prod k_v! * 2^n * sum_{m <= max_edges} c^m`
+/// with `c = sum_{(x, y) in E} k_x k_y`.
+#[must_use]
+pub fn graph_state_count_up_to(schema: &Schema, max_nodes: usize, max_edges: usize) -> usize {
     let vertices: Vec<&String> = schema.vertices.keys().collect();
     let mut total = 0;
-    for nodes in 0..=BOUNDED_LENS_MAX_NODES {
+    for nodes in 0..=max_nodes {
         for split in multiplicities(vertices.len(), nodes) {
             let arrangements = multinomial(nodes, &split);
             let typed: usize = schema
@@ -2785,7 +2806,7 @@ pub fn bounded_lens_graph_state_count(schema: &Schema) -> usize {
                     }
                 })
                 .sum();
-            let edge_sets: usize = (0..=BOUNDED_LENS_MAX_EDGES).map(|m| power(typed, m)).sum();
+            let edge_sets: usize = (0..=max_edges).map(|m| power(typed, m)).sum();
             total += arrangements * power(2, nodes) * edge_sets;
         }
     }
@@ -5898,5 +5919,185 @@ mod tests {
             graph_tree_route_law_observation_count_certificate(),
             bounded_lens_tree_square_count_certificate().observations + 2
         );
+    }
+}
+
+/// Vertices of every schema in the elementary protolens carrier.
+pub const ELEMENTARY_VERTICES: [&str; 2] = ["a", "b"];
+/// The `(kind, name)` labels of the candidate `a -> b` schema edges.
+pub const ELEMENTARY_EDGE_LABELS: [(&str, &str); 3] = [("p", "x"), ("p", "y"), ("q", "x")];
+/// The two kind assignments of `(a, b)`.
+pub const ELEMENTARY_KIND_ASSIGNMENTS: [[&str; 2]; 2] = [["s", "t"], ["s", "s"]];
+/// Most edges in a carrier schema.
+pub const ELEMENTARY_MAX_SCHEMA_EDGES: usize = 2;
+/// Most nodes and edges in a source state.
+pub const ELEMENTARY_SOURCE_BOUND: (usize, usize) = (2, 2);
+/// Most nodes and edges in a put view.
+pub const ELEMENTARY_VIEW_BOUND: (usize, usize) = (2, 1);
+
+/// The elementary protolens alphabet of the L-lenses-21 certificate.
+///
+/// It has one entry per kind the lens DSL's step alphabet compiles to, with
+/// a second parameterization where a kind has a refusal or collision
+/// boundary.
+///
+/// In order: rename sort `s` to the fresh `u` and onto the present `t`;
+/// rename operation `p` to the fresh `r` and onto the present `q`; rename
+/// edge name `x` to the fresh `z` and onto the present `y`; pull back along
+/// the swaps of `s, t` and `p, q`; add and drop an equation; drop the sort
+/// `t` by kind and `a` by id; drop operation `p`; drop the edges `a -> b`
+/// named `x`; add the sort `c` of kind `t`; add the edge `a -> b` of kind
+/// `p` named `w`; add the operation `o` from `a` to `b`.
+#[must_use]
+pub fn elementary_protolens_alphabet() -> Vec<crate::lens::ElementaryProtolens> {
+    use crate::lens::ElementaryProtolens as E;
+    let name = |text: &str| text.to_owned();
+    let swap = |left: &str, right: &str| {
+        BTreeMap::from([(name(left), name(right)), (name(right), name(left))])
+    };
+    let rename_edge_name = |new: &str| E::RenameEdgeName {
+        src: name("a"),
+        tgt: name("b"),
+        old: name("x"),
+        new: name(new),
+    };
+    vec![
+        E::RenameSort {
+            old: name("s"),
+            new: name("u"),
+        },
+        E::RenameSort {
+            old: name("s"),
+            new: name("t"),
+        },
+        E::RenameOp {
+            old: name("p"),
+            new: name("r"),
+        },
+        E::RenameOp {
+            old: name("p"),
+            new: name("q"),
+        },
+        rename_edge_name("z"),
+        rename_edge_name("y"),
+        E::Pullback {
+            sorts: swap("s", "t"),
+            ops: swap("p", "q"),
+        },
+        E::AddEquation,
+        E::DropEquation,
+        E::DropSort(name("t")),
+        E::DropSort(name("a")),
+        E::DropOp(name("p")),
+        E::DropEdge {
+            src: name("a"),
+            tgt: name("b"),
+            name: Some(name("x")),
+        },
+        E::AddSort {
+            sort: name("c"),
+            kind: name("t"),
+        },
+        E::AddEdge(SEdge::new("a", "b", "p", Some("w"))),
+        E::AddEdge(SEdge::new("a", "b", "o", Some("o"))),
+    ]
+}
+
+/// The schemas of the elementary protolens carrier: both vertices under
+/// each kind assignment, with each set of at most two candidate edges, in
+/// kind-assignment and then edge-subset order.
+#[must_use]
+pub fn elementary_protolens_schemas() -> Vec<Schema> {
+    let labels: Vec<(&str, &str)> = ELEMENTARY_EDGE_LABELS.to_vec();
+    let mut out = Vec::new();
+    for [a, b] in ELEMENTARY_KIND_ASSIGNMENTS {
+        for edges in super::subsets(&labels, ELEMENTARY_MAX_SCHEMA_EDGES) {
+            let mut schema = Schema::default()
+                .vertex(ELEMENTARY_VERTICES[0], a)
+                .vertex(ELEMENTARY_VERTICES[1], b);
+            for (kind, edge_name) in edges {
+                schema = schema.edge("a", "b", kind, Some(edge_name));
+            }
+            out.push(schema);
+        }
+    }
+    out
+}
+
+/// The schema whose vertices and edges are those of either argument, the
+/// carrier of the views put back through a lens from `source` to `target`.
+#[must_use]
+pub fn elementary_view_schema(source: &Schema, target: &Schema) -> Schema {
+    let mut union = source.clone();
+    for (vertex, kind) in &target.vertices {
+        union
+            .vertices
+            .entry(vertex.clone())
+            .or_insert_with(|| kind.clone());
+    }
+    union.edges.extend(target.edges.iter().cloned());
+    union
+}
+
+/// Independent census of the L-lenses-21 certificate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ElementaryProtolensCountCertificate {
+    /// Kinds in [`elementary_protolens_alphabet`].
+    pub kinds: usize,
+    /// Schemas in [`elementary_protolens_schemas`].
+    pub schemas: usize,
+    /// Source states summed over the schemas.
+    pub source_states: usize,
+    /// `(kind, schema, source)` get cases.
+    pub get_cases: usize,
+    /// `(kind, schema)` pairs whose precondition fails.
+    pub inapplicable: usize,
+    /// `(kind, schema)` pairs refused for identifying two edges.
+    pub identifying: usize,
+    /// `(kind, schema)` pairs that instantiate.
+    pub instantiated: usize,
+    /// `(kind, schema, source, view)` put cases over instantiated pairs.
+    pub put_cases: usize,
+}
+
+/// Count the L-lenses-21 carrier from the closed-form state counts and the
+/// reference's applicability verdicts, without materializing a state.
+#[must_use]
+pub fn elementary_protolens_count_certificate() -> ElementaryProtolensCountCertificate {
+    let alphabet = elementary_protolens_alphabet();
+    let schemas = elementary_protolens_schemas();
+    let (source_nodes, source_edges) = ELEMENTARY_SOURCE_BOUND;
+    let (view_nodes, view_edges) = ELEMENTARY_VIEW_BOUND;
+    let source_counts: Vec<usize> = schemas
+        .iter()
+        .map(|schema| graph_state_count_up_to(schema, source_nodes, source_edges))
+        .collect();
+    let source_states: usize = source_counts.iter().sum();
+    let (mut inapplicable, mut identifying, mut instantiated, mut put_cases) = (0, 0, 0, 0);
+    for kind in &alphabet {
+        for (schema, sources) in schemas.iter().zip(&source_counts) {
+            if !kind.precondition().holds(schema) {
+                inapplicable += 1;
+                continue;
+            }
+            match kind.target_and_migration(schema) {
+                Err(_) => identifying += 1,
+                Ok((target, _)) => {
+                    instantiated += 1;
+                    let views = elementary_view_schema(schema, &target);
+                    put_cases += sources * graph_state_count_up_to(&views, view_nodes, view_edges);
+                }
+            }
+        }
+    }
+    ElementaryProtolensCountCertificate {
+        kinds: alphabet.len(),
+        schemas: schemas.len(),
+        source_states,
+        get_cases: alphabet.len() * source_states,
+        inapplicable,
+        identifying,
+        instantiated,
+        put_cases,
     }
 }

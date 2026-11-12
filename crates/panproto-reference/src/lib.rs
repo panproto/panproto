@@ -114,6 +114,7 @@
 //! | Representation equality and expression evaluation | [`value::representation`], [`value::eval`] | `values.md` |
 //! | Reification and tree edit application | [`encode::reify`], [`edit::apply_tree`] | `representation.md`, `edits.md` |
 //! | Protolens operations | [`lens::protolens_schema`], [`lens::protolens_instance`], [`lens::get`], [`lens::put`] | `lenses.md` |
+//! | Elementary protolens kinds | [`lens::ElementaryProtolens::target_and_migration`], [`lens::relabel`], [`lens::restrict`], [`lens::extend`] | `lenses.md` |
 //! | Tree view alignment | [`lens::align_tree_view`] | `lenses.md` |
 //! | Graph and table observable squares | [`lens::graph_square`], [`lens::graph_put_square`], [`lens::table_square`], [`lens::table_put_square`], [`lens::relational_table_get`], [`lens::relational_table_put`] | `lenses.md` |
 //! | Migration observable squares | [`migration::graph_square`], [`migration::table_square`], [`migration::tree_square`] | `lenses.md` |
