@@ -233,7 +233,7 @@ fn validation_view_unrepresentable_is_appended_without_changing_existing_error_b
         br#"{"validation_view_unrepresentable":{"segment":3,"edges":4294967297}}"#
     );
     assert_eq!(SEGMENT_FORMAT_VERSION, 1);
-    assert_eq!(SEGMENT_MANIFEST_VERSION, 1);
+    assert_eq!(SEGMENT_MANIFEST_VERSION, 2);
 
     // Length-delimited JSON bytes of every pre-existing variant. The digest
     // pins all 23 old wire encodings, including nested payloads.

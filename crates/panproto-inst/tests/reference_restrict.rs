@@ -4537,15 +4537,16 @@ mod segmented_witnesses {
         assert_eq!(narrow_seal, wide_seal);
         // Per segment: the 56-byte header and the record (id 4, one node
         // range 8 after its count 8, two absent allocation ranges 2, stats
-        // 52, the greatest node 5, the greatest edge 5 or 1, two digests
-        // 64, the outgoing and incoming cross maps 8 + 36 per peer each);
+        // 52, the greatest node 5, the greatest edge 5 or 1, two absent
+        // tree counters 2, two digests 64, the outgoing and incoming cross
+        // maps 8 + 36 per peer each);
         // segment 0 adds one edge id 4 and its longest frame, an edge
         // (tag 1, id, endpoints 12, the label's three names 9 + 9 + 12,
         // its name 1 + 10, no position 1, after its length 8); segment 1
         // adds its longest frame, a node (tag 1, id 4, anchor 9, no value,
         // discriminator or position 3, no fields or annotations 16, plain
         // shape 1, after its length 8).
-        let record = |max_edge: u64| 4 + 8 + 8 + 2 + 52 + 5 + max_edge + 64 + 8 + 8 + 36;
+        let record = |max_edge: u64| 4 + 8 + 8 + 2 + 52 + 5 + max_edge + 2 + 64 + 8 + 8 + 36;
         let segment_0 = 56 + record(5) + 4 + (1 + 4 + 8 + 9 + 9 + 12 + 11 + 1 + 8);
         let segment_1 = 56 + record(1) + (1 + 4 + 9 + 3 + 16 + 1 + 8);
         assert_eq!(narrow_seal, segment_0 + segment_1);

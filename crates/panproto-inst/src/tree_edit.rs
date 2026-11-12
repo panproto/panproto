@@ -1456,7 +1456,11 @@ fn target_tree(
         fans.push(fan.clone());
         new_fans.push((parent_edge, fan));
     }
-    let target = WInstance::new(nodes, arcs, fans, tree.root, tree.schema_root.clone());
+    // The schema root is the root's anchor, which the edit may change.
+    let schema_root = nodes
+        .get(&tree.root)
+        .map_or_else(|| tree.schema_root.clone(), |root| root.anchor.clone());
+    let target = WInstance::new(nodes, arcs, fans, tree.root, schema_root);
     let after_embedding = TreeEmbedding {
         arcs: arc_ids,
         fans: fan_ids_after,
