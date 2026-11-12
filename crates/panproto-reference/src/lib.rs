@@ -128,6 +128,7 @@
 //! | Optimal total morphisms and spans, the morphism checker, the search cost, the isomorphism edge pairing and the answer digest | [`pages::migration_search::optimal_total`], [`pages::migration_search::optimal_span`], [`pages::migration_search::check_total`], [`pages::migration_search::check_span`], [`pages::migration_search::cost`], [`pages::migration_search::paired_edge_images`], [`pages::migration_search::digest`] | `migration-search.md` |
 //! | The per-element three-way schema merge, well-formedness, the merge rendering and conflict order, the selected migration's surviving identity and the repository format marker | [`pages::schema_merge::merge`], [`pages::schema_merge::Schema::well_formed`], [`pages::schema_merge::render`], [`pages::schema_merge::Conflict::order_key`], [`pages::schema_merge::Conflict::swapped`], [`pages::schema_merge::surviving_identity`], [`pages::schema_merge::may_rename`], [`pages::schema_merge::repository_format`] | `schema-merge.md` |
 //! | Theory DSL document grammar, elaboration, morphism documents and refusal location | [`pages::theory_dsl::check_document`], [`pages::theory_dsl::elaborate`], [`pages::theory_dsl::compile_morphism`], [`pages::theory_dsl::compile_document`], [`pages::theory_dsl::locate`] | `theory-dsl.md` |
+//! | Lens DSL document grammar, compilation of steps and rules, vertical and horizontal composition, and refusal location | [`pages::lens_dsl::check_document`], [`pages::lens_dsl::step_stages`], [`pages::lens_dsl::compile_document`], [`pages::lens_dsl::rules_stages`], [`pages::lens_dsl::vertical`], [`pages::lens_dsl::horizontal`], [`dsl_path::locate`] | `lens-dsl.md` |
 //!
 //! [`enumerate`] holds the exhaustive small-scope enumerators (labelled,
 //! with no pruning of isomorphic copies, each with an independent count),
@@ -138,6 +139,7 @@ mod blake3_ref;
 pub mod bytes;
 pub mod canonical;
 pub mod coerce;
+pub mod dsl_path;
 pub mod edit;
 pub mod encode;
 pub mod enumerate;

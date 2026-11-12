@@ -9,6 +9,7 @@ pub mod json_schema;
 pub mod kan_extensions;
 pub mod keys_and_registration;
 pub mod kubernetes_crds;
+pub mod lens_dsl;
 pub mod lenses;
 mod lexical_formats;
 pub mod migration_search;

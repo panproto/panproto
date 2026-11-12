@@ -159,6 +159,25 @@ pub enum ComplementConstructor {
     },
 }
 
+impl ComplementConstructor {
+    /// Whether the complement keeps no residue: it is empty, an `Iso`
+    /// coercion, a scoped complement whose inner one keeps none, or a
+    /// composite whose every part keeps none.
+    #[must_use]
+    pub fn is_lossless(&self) -> bool {
+        match self {
+            Self::Empty
+            | Self::CoercedSortData {
+                class: panproto_gat::CoercionClass::Iso,
+                ..
+            } => true,
+            Self::Composite(parts) => parts.iter().all(Self::is_lossless),
+            Self::Scoped { inner, .. } => inner.is_lossless(),
+            _ => false,
+        }
+    }
+}
+
 /// A protolens: a dependent function from schemas to lenses.
 ///
 /// A `Protolens` is **not** a lens. A [`Lens`] is a concrete pair
@@ -374,18 +393,11 @@ impl Protolens {
         crate::optic::classify_transform(&self.target.transform)
     }
 
-    /// Returns `true` if this protolens produces lossless lenses
-    /// (empty complement).
+    /// Returns `true` if this protolens produces lossless lenses: its
+    /// complement keeps no residue (see [`ComplementConstructor::is_lossless`]).
     #[must_use]
-    pub const fn is_lossless(&self) -> bool {
-        matches!(
-            self.complement_constructor,
-            ComplementConstructor::Empty
-                | ComplementConstructor::CoercedSortData {
-                    class: panproto_gat::CoercionClass::Iso,
-                    ..
-                }
-        )
+    pub fn is_lossless(&self) -> bool {
+        self.complement_constructor.is_lossless()
     }
 
     /// Serialize to JSON.
@@ -848,6 +860,24 @@ pub fn vertical_compose(eta: &Protolens, theta: &Protolens) -> Result<Protolens,
     })
 }
 
+/// `first.compose(second)`, an identity factor dropped from the composite
+/// transform: `Id ∘ F = F ∘ Id = F`, so the horizontal composite of two
+/// protolenses whose sources are the identity has the identity as its
+/// source, and composes vertically after any protolens.
+fn compose_endofunctors(
+    first: &TheoryEndofunctor,
+    second: &TheoryEndofunctor,
+) -> TheoryEndofunctor {
+    let mut composed = first.compose(second);
+    match (&first.transform, &second.transform) {
+        (TheoryTransform::Identity, other) | (other, TheoryTransform::Identity) => {
+            composed.transform = other.clone();
+        }
+        _ => {}
+    }
+    composed
+}
+
 /// Horizontal composition of protolenses: given `η : F ⟹ G` and
 /// `θ : F' ⟹ G'`, produce `η * θ : F∘F' ⟹ G∘G'`.
 ///
@@ -856,8 +886,8 @@ pub fn vertical_compose(eta: &Protolens, theta: &Protolens) -> Result<Protolens,
 /// Currently infallible, but returns `Result` for future compatibility
 /// with static compatibility checks.
 pub fn horizontal_compose(eta: &Protolens, theta: &Protolens) -> Result<Protolens, LensError> {
-    let source = eta.source.compose(&theta.source);
-    let target = eta.target.compose(&theta.target);
+    let source = compose_endofunctors(&eta.source, &theta.source);
+    let target = compose_endofunctors(&eta.target, &theta.target);
     let complement = ComplementConstructor::Composite(vec![
         eta.complement_constructor.clone(),
         theta.complement_constructor.clone(),
@@ -4192,6 +4222,17 @@ mod tests {
     }
 
     #[test]
+    fn a_scoped_or_composite_protolens_is_lossless_exactly_when_every_part_is() {
+        let rename = elementary::rename_sort("a", "b");
+        assert!(elementary::scoped("item", rename.clone()).is_lossless());
+        assert!(!elementary::scoped("item", elementary::drop_sort("a")).is_lossless());
+        let both = horizontal_compose(&rename, &elementary::rename_op("f", "g")).unwrap();
+        assert!(both.is_lossless());
+        let lossy = horizontal_compose(&rename, &elementary::drop_op("f")).unwrap();
+        assert!(!lossy.is_lossless());
+    }
+
+    #[test]
     fn complement_constructor_types() {
         assert!(matches!(
             elementary::rename_sort("a", "b").complement_constructor,
@@ -4233,6 +4274,18 @@ mod tests {
         let p2 = elementary::rename_sort("c", "d");
         let composed = horizontal_compose(&p1, &p2).unwrap();
         assert!(composed.name.contains('*'));
+    }
+
+    #[test]
+    fn a_horizontal_composite_of_identity_sourced_protolenses_composes_after_any_protolens() {
+        let h = horizontal_compose(
+            &elementary::rename_sort("a", "b"),
+            &elementary::rename_sort("c", "d"),
+        )
+        .unwrap();
+        assert_eq!(h.source.transform, panproto_gat::TheoryTransform::Identity);
+        let chain = ProtolensChain::new(vec![elementary::drop_op("f"), h]);
+        assert!(chain.fuse().is_ok(), "Id composed with Id is the identity");
     }
 
     #[test]

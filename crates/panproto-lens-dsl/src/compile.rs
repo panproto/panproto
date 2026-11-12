@@ -598,9 +598,10 @@ fn finalize(doc: &LensDocument, body: BodyOutput) -> Result<CompiledLens, LensDs
 /// `None` if every element is lossless.
 ///
 /// Stages are visited in order; within a stage, its chain steps in order
-/// and then its field transforms, anchors in name order. A chain step is
-/// lossless per [`Protolens::is_lossless`](panproto_lens::Protolens::is_lossless);
-/// a field transform is lossless when its coercion class is.
+/// and then its field transforms, anchors in name order; then a symmetric
+/// body's right leg. A chain step is lossless per
+/// [`Protolens::is_lossless`](panproto_lens::Protolens::is_lossless); a
+/// field transform is lossless when its coercion class is.
 fn first_lossy_element(compiled: &CompiledLens) -> Option<String> {
     for stage in &compiled.stages {
         if let Some(step) = stage.chain.steps.iter().find(|step| !step.is_lossless()) {
@@ -619,7 +620,12 @@ fn first_lossy_element(compiled: &CompiledLens) -> Option<String> {
             }
         }
     }
-    None
+    compiled
+        .symmetric
+        .iter()
+        .flat_map(|legs| &legs.right.steps)
+        .find(|step| !step.is_lossless())
+        .map(|step| format!("right leg step `{}`", step.name))
 }
 
 /// Verify the compiled chain's output schema NSID against the declared

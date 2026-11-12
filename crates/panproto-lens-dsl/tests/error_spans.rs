@@ -468,3 +468,50 @@ fn a_reference_cycle_is_refused() {
     };
     assert_eq!(cycle, ["top", "LOOP", "LOOP2", "LOOP"]);
 }
+
+#[test]
+fn a_symmetric_lens_whose_right_leg_drops_a_field_is_not_invertible() {
+    let error = refusal(&doc(
+        r#""symmetric": {"left": [], "right": [{"remove_field": "a"}]}, "invertible": true"#,
+    ));
+    assert_eq!(path(&error).as_deref(), Some("/invertible"));
+    assert!(matches!(
+        error.unlocated(),
+        LensDslError::NotInvertible { .. }
+    ));
+}
+
+#[test]
+fn a_scoped_rename_and_a_horizontal_composite_of_renames_are_invertible() {
+    compiled(&doc(
+        r#""steps": [{"scoped": {"focus": "item", "inner": [{"rename_op": {"old": "f", "new": "g"}}]}}], "invertible": true"#,
+    ));
+    compiled(&doc(
+        r#""compose": {"mode": "horizontal", "lenses": [{"inline": {"steps": [{"rename_sort": {"old": "s", "new": "t"}}]}}, {"inline": {"steps": [{"rename_op": {"old": "f", "new": "g"}}]}}]}, "invertible": true"#,
+    ));
+}
+
+#[test]
+fn a_horizontal_composite_composes_after_a_step_inside_a_horizontal_part() {
+    let mut docs = library();
+    for source in [
+        r#"{"id": "H", "source": "s", "target": "t", "compose": {"mode": "horizontal", "lenses": [{"inline": {"steps": [{"rename_sort": {"old": "s", "new": "t"}}]}}, {"inline": {"steps": [{"drop_op": "f"}]}}]}}"#,
+        r#"{"id": "AH", "source": "s", "target": "t", "compose": {"mode": "vertical", "lenses": [{"ref": "A"}, {"ref": "H"}]}}"#,
+    ] {
+        match eval::eval_json(source) {
+            Ok(document) => {
+                docs.insert(document.id.clone(), document);
+            }
+            Err(error) => panic!("{source}: {error:?}"),
+        }
+    }
+    let Ok(top) = eval::eval_json(
+        r#"{"id": "top", "source": "s", "target": "t", "compose": {"mode": "horizontal", "lenses": [{"ref": "AH"}]}}"#,
+    ) else {
+        panic!("the composing document reads");
+    };
+    let Ok(lens) = compile_with_refs(&top, "b", &docs) else {
+        panic!("Id composed with Id is the identity, so the part fuses");
+    };
+    assert_eq!(lens.chain.steps.len(), 1);
+}
