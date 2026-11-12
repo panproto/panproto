@@ -105,7 +105,12 @@ chain installs those transforms in the compiled migration. `to_json()` and
 ## Tree-sitter grammar packages
 
 The default source build enables the 11 `group-core` grammars: Python,
-JavaScript, TypeScript, Java, C#, C++, PHP, Bash, C, Go, and Rust. Optional
+JavaScript, TypeScript, Java, C#, C++, PHP, Bash, C, Go, and Rust, and its
+default `format-preserving` feature links the data-format grammars (JSON,
+YAML, PostgreSQL and the rest of `group-data`) that the schema readers of
+OpenAPI, AsyncAPI, JSON Schema, Kubernetes CRDs, CloudFormation, Ansible and
+PostgreSQL and the format-preserving instance codecs use. Those readers take
+their grammars from the extension, not from a companion package. Optional
 companion wheels register other grammar groups through the
 `panproto.grammars` Python entry-point group. `panproto-grammars-all` contains
 all 262 grammars currently declared by `panproto-grammars`.

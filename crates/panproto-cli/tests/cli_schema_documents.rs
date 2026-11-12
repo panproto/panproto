@@ -148,7 +148,7 @@ fn an_ansible_file_without_its_class_is_refused() {
 fn a_postgresql_script_is_read_by_its_reader() {
     agrees(
         "postgresql",
-        "postgresql-docs/cases/create-table-examples-01.sql",
+        "postgresql-docs/cases/create-table-examples-02.sql",
         &[],
         |b| {
             postgresql::read_ddl(std::str::from_utf8(b).unwrap(), OtherStatements::Refuse)
