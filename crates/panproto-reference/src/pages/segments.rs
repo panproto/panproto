@@ -7258,7 +7258,7 @@ pub mod segment {
     /// Seal holds, of this artifact, its header, its record, one edge id
     /// when there is one, and its longest frame with its length.
     fn restrict_emit_bytes(
-        view: &GraphSegment,
+        view: &AnySegment,
         complement: Option<&GraphComplementSegment>,
         record: &SegmentRecord,
         schema: Digest,
@@ -7272,21 +7272,20 @@ pub mod segment {
             }
             None => (0, Vec::new()),
         };
-        let view = AnySegment::Graph(view.clone());
-        let view_bytes = canonical_segment_bytes(&view, schema, p)?;
+        let view_bytes = canonical_segment_bytes(view, schema, p)?;
         let record_bytes = canonical_record_bytes(record);
-        let mut run: Vec<u32> = owned_edges(&view)
+        let mut run: Vec<u32> = owned_edges(view)
             .into_iter()
             .filter_map(|edge| edge.id)
             .collect();
         run.sort_unstable();
-        let frames = segment_frames(&view)?;
+        let frames = segment_frames(view)?;
         let longest = frames
             .iter()
             .map(|frame| size(frame).saturating_add(8))
             .max()
             .unwrap_or(0);
-        let stream = segment_record_stream(&view)?;
+        let stream = segment_record_stream(view)?;
         let mut w = Canonical::default();
         for field in [
             elements,
@@ -7529,8 +7528,14 @@ pub mod segment {
                     complement: bytes,
                     seal_held: held,
                     bytes: artifact,
-                } = restrict_emit_bytes(view, Some(complement), record, self.spec.schema, self.p)
-                    .map_err(PipelineStop::Failed)?;
+                } = restrict_emit_bytes(
+                    &AnySegment::Graph(view.clone()),
+                    Some(complement),
+                    record,
+                    self.spec.schema,
+                    self.p,
+                )
+                .map_err(PipelineStop::Failed)?;
                 seal_held = seal_held.saturating_add(held);
                 let needed = self.report.complement.bytes.saturating_add(bytes);
                 if self.budget.complement.is_some_and(|limit| needed > limit) {
@@ -8384,7 +8389,7 @@ pub mod segment {
                 manifest_records(&any, self.p, self.spec.schema).map_err(pipeline_failed)?;
             let mut emitted = Canonical::default();
             let mut seal_held: u64 = 0;
-            for (segment, record) in outputs.iter().zip(&records) {
+            for (segment, record) in any.iter().zip(&records) {
                 if self.cancelled() {
                     return Err(PipelineStop::Cancelled.into());
                 }
@@ -8393,7 +8398,7 @@ pub mod segment {
                 seal_held = seal_held.saturating_add(artifact.seal_held);
                 self.task(
                     Phase::Emit,
-                    Some(segment.segment),
+                    Some(segment.segment()),
                     ArtifactKind::ComplementSegment,
                     assembly,
                     || Ok(artifact.bytes.clone()),
@@ -8795,7 +8800,10 @@ pub mod segment {
     /// Operation bytes of graph delta application in a run identity.
     pub const GRAPH_APPLY_OP: &[u8] = b"graph apply";
 
-    /// Inputs naming a reference run of segmented graph delta application.
+    /// Operation bytes of table delta application in a run identity.
+    pub const TABLE_APPLY_OP: &[u8] = b"table apply";
+
+    /// Inputs naming a reference run of segmented delta application.
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub struct ApplyRunSpec {
         /// Schema digest of the input segments, and of the rewritten ones.
@@ -8806,24 +8814,25 @@ pub mod segment {
         pub cancel_after_tasks: Option<u32>,
     }
 
-    /// A reference run of segmented graph delta application.
+    /// A reference run of segmented delta application over segments `S`
+    /// whose whole-state application refuses with `E`.
     #[derive(Clone, Debug, PartialEq, Eq)]
-    pub struct ApplyRun {
+    pub struct ApplyRun<S = GraphSegment, E = crate::edit::ApplyError> {
         /// Run identity naming the artifacts in the store.
         pub run: Digest,
         /// The segments the run reads.
         pub read: BTreeSet<SegmentId>,
         /// The edited family when complete.
-        pub output: Option<Vec<GraphSegment>>,
+        pub output: Option<Vec<S>>,
         /// Output manifest when complete.
         pub manifest: Option<SegmentManifest>,
         /// Deterministic execution report.
-        pub report: SegmentRunReport<super::segmented_apply::SegmentedApplyRefusal>,
+        pub report: SegmentRunReport<super::segmented_apply::SegmentedApplyRefusal<E>>,
     }
 
-    fn apply_report(
+    fn apply_report<E>(
         report: SegmentRunReport,
-    ) -> SegmentRunReport<super::segmented_apply::SegmentedApplyRefusal> {
+    ) -> SegmentRunReport<super::segmented_apply::SegmentedApplyRefusal<E>> {
         use super::segmented_apply::SegmentedApplyRefusal;
         let status = match report.status {
             RunStatus::Complete { manifest } => RunStatus::Complete { manifest },
@@ -8998,6 +9007,173 @@ pub mod segment {
         Ok(w.0)
     }
 
+    /// What a table segment's facts name: the rows the delta names, the
+    /// rows it deletes or moves to another table, and the pairs it deletes
+    /// or adds.
+    struct TableFactNames {
+        named: BTreeSet<u32>,
+        incident: BTreeSet<u32>,
+        pairs: BTreeSet<(SEdge, u32, u32)>,
+    }
+
+    /// The names of [`table_apply_facts_bytes`] for `delta`.
+    fn table_fact_names(delta: &crate::edit::TableDelta) -> TableFactNames {
+        use crate::edit::{TElem, TKey};
+        let mut names = TableFactNames {
+            named: BTreeSet::new(),
+            incident: BTreeSet::new(),
+            pairs: BTreeSet::new(),
+        };
+        for element in delta.del.keys().chain(delta.add.keys()) {
+            match element {
+                TElem::Row(row) => {
+                    names.named.insert(*row);
+                }
+                TElem::Pair(edge, src, tgt) => {
+                    names.named.extend([*src, *tgt]);
+                    names.pairs.insert((edge.clone(), *src, *tgt));
+                }
+            }
+        }
+        for element in delta.del.keys() {
+            if let TElem::Row(row) = element {
+                names.incident.insert(*row);
+            }
+        }
+        for key in delta.attrs.keys() {
+            match key {
+                TKey::Cell(row, _) => {
+                    names.named.insert(*row);
+                }
+                TKey::Table(row) => {
+                    names.named.insert(*row);
+                    names.incident.insert(*row);
+                }
+            }
+        }
+        names
+    }
+
+    /// The table of row `row` as `segment` holds it: its own row's table,
+    /// its ghost's anchor, or the source anchor of an in-stub leaving it.
+    fn held_table(segment: &TableSegment, row: u32) -> Option<&Name> {
+        if let Some((table, _)) = segment.rows.get(&row) {
+            return Some(table);
+        }
+        if let Some(ghost) = segment.boundary.ghosts.get(&row) {
+            return Some(&ghost.anchor);
+        }
+        segment
+            .boundary
+            .in_stubs
+            .values()
+            .find(|stub| stub.src == row)
+            .map(|stub| &stub.src_anchor)
+    }
+
+    /// Definition: the Summarize artifact of a segmented table apply, the
+    /// facts of `segment` about `delta`.
+    ///
+    /// The named rows are the rows the delta deletes, adds or changes (a
+    /// cell or the table) and the endpoints of the pairs it deletes or adds;
+    /// the incident rows are the rows the segment owns that the delta
+    /// deletes or whose table it changes. The artifact lists, each part
+    /// counted and ascending: as row records, the segment's rows that are
+    /// named; as pair records, its pairs that the delta deletes or adds and
+    /// its pairs with an incident endpoint; as pair records, its in-stubs
+    /// entering an incident row; and, as row id and table name, the table
+    /// the segment holds for every endpoint of those pairs and in-stubs that
+    /// is not a listed row.
+    ///
+    /// # Errors
+    ///
+    /// A decode error for a row outside the canonical value domain.
+    pub fn table_apply_facts_bytes(
+        segment: &TableSegment,
+        delta: &crate::edit::TableDelta,
+    ) -> Result<Vec<u8>, SegmentError> {
+        let TableFactNames {
+            named,
+            incident,
+            pairs: delta_pairs,
+        } = table_fact_names(delta);
+        let incident: BTreeSet<u32> = incident
+            .into_iter()
+            .filter(|row| segment.rows.contains_key(row))
+            .collect();
+        let rows: Vec<(&u32, &(Name, BTreeMap<String, Value>))> = segment
+            .rows
+            .iter()
+            .filter(|(id, _)| named.contains(*id))
+            .collect();
+        let pairs: Vec<&(SEdge, u32, u32)> = segment
+            .pairs
+            .iter()
+            .filter(|pair| {
+                delta_pairs.contains(*pair)
+                    || incident.contains(&pair.1)
+                    || incident.contains(&pair.2)
+            })
+            .collect();
+        let stubs: BTreeSet<(SEdge, u32, u32)> = segment
+            .boundary
+            .in_stubs
+            .keys()
+            .filter_map(|elem| match elem {
+                ViewRef::Pair { edge, src, tgt } if incident.contains(tgt) => {
+                    Some((edge.clone(), *src, *tgt))
+                }
+                _ => None,
+            })
+            .collect();
+        let mut w = Canonical::default();
+        w.len(rows.len());
+        for (id, (table, cells)) in &rows {
+            let mut body = Writer::default();
+            body.u32(**id);
+            body.str(table);
+            write_map(&mut body, cells)
+                .ok_or_else(|| decode_error(ArtifactKind::Summary, "noncanonical table row"))?;
+            w.0.extend(body.bytes);
+        }
+        w.len(pairs.len());
+        for pair in &pairs {
+            write_pair(&mut w, pair);
+        }
+        w.len(stubs.len());
+        for pair in &stubs {
+            write_pair(&mut w, pair);
+        }
+        let mut tables: BTreeMap<u32, &Name> = BTreeMap::new();
+        for (_, src, tgt) in pairs.iter().copied().chain(&stubs) {
+            for end in [*src, *tgt] {
+                let listed = segment.rows.contains_key(&end) && named.contains(&end);
+                if !listed && let Some(table) = held_table(segment, end) {
+                    tables.insert(end, table);
+                }
+            }
+        }
+        w.len(tables.len());
+        for (id, table) in tables {
+            w.u32(id);
+            w.string(table);
+        }
+        Ok(w.0)
+    }
+
+    /// The shape-independent parts of a reference apply run: the input
+    /// family, the read set from the sealed records, the delta's digest and
+    /// operation bytes, each read segment's facts, and the in-memory
+    /// outcome.
+    struct ApplyRunParts<'f, E> {
+        segments: Vec<AnySegment>,
+        read_set: &'f dyn Fn(&[SegmentRecord]) -> BTreeSet<SegmentId>,
+        lens: Digest,
+        op: &'static [u8],
+        facts: &'f dyn Fn(&AnySegment) -> Result<Vec<u8>, SegmentError>,
+        whole: Result<Vec<AnySegment>, super::segmented_apply::SegmentedApplyRefusal<E>>,
+    }
+
     /// Definition: the checkpointed run of segmented graph delta
     /// application.
     ///
@@ -9030,13 +9206,101 @@ pub mod segment {
         store: &mut S,
         progress: &mut dyn FnMut(&Progress),
     ) -> ApplyRun {
-        let per = u32::try_from(segments.len()).unwrap_or(u32::MAX);
-        let mut report = base_report(
-            InstanceShapeKind::Graph,
-            budget,
-            per.saturating_mul(4).saturating_add(2),
-        );
-        let any: Vec<AnySegment> = segments.iter().cloned().map(AnySegment::Graph).collect();
+        let whole = super::segmented_apply::apply_graph_segmented(delta, segments, p)
+            .map(|output| output.into_iter().map(AnySegment::Graph).collect());
+        let parts = ApplyRunParts {
+            segments: segments.iter().cloned().map(AnySegment::Graph).collect(),
+            read_set: &|records| super::segmented_apply::read_set(delta, records, p),
+            lens: Digest(crate::edit::graph_delta_digest(delta).unwrap_or_default()),
+            op: GRAPH_APPLY_OP,
+            facts: &|segment| match segment {
+                AnySegment::Graph(segment) => apply_facts_bytes(segment, delta),
+                _ => Err(decode_error(ArtifactKind::Segment, "not a graph segment")),
+            },
+            whole,
+        };
+        let run = apply_with_progress(parts, p, spec, budget, store, progress);
+        ApplyRun {
+            run: run.run,
+            read: run.read,
+            output: run.output.map(|output| {
+                output
+                    .into_iter()
+                    .filter_map(|segment| match segment {
+                        AnySegment::Graph(segment) => Some(segment),
+                        _ => None,
+                    })
+                    .collect()
+            }),
+            manifest: run.manifest,
+            report: run.report,
+        }
+    }
+
+    /// Definition: the checkpointed run of segmented table delta
+    /// application.
+    ///
+    /// It is the run of [`segmented_apply_with_progress`] with the table
+    /// definitions in place of the graph ones: the read set of
+    /// [`super::segmented_apply::table_read_set`], the delta's digest
+    /// ([`crate::edit::table_delta_digest`]) and [`TABLE_APPLY_OP`] in the
+    /// run identity, the facts of [`table_apply_facts_bytes`] at Summarize,
+    /// and the refusal and output of
+    /// [`super::segmented_apply::apply_table_segmented`]. A table segment
+    /// holds no edge id, so Seal holds the header and record of each Emit
+    /// artifact.
+    pub fn segmented_table_apply_with_progress<S: SegmentStore>(
+        delta: &crate::edit::TableDelta,
+        segments: &[TableSegment],
+        p: &Partition,
+        spec: &ApplyRunSpec,
+        budget: Budget,
+        store: &mut S,
+        progress: &mut dyn FnMut(&Progress),
+    ) -> ApplyRun<TableSegment, crate::edit::TableApplyError> {
+        let whole = super::segmented_apply::apply_table_segmented(delta, segments, p)
+            .map(|output| output.into_iter().map(AnySegment::Table).collect());
+        let parts = ApplyRunParts {
+            segments: segments.iter().cloned().map(AnySegment::Table).collect(),
+            read_set: &|records| super::segmented_apply::table_read_set(delta, records, p),
+            lens: Digest(crate::edit::table_delta_digest(delta).unwrap_or_default()),
+            op: TABLE_APPLY_OP,
+            facts: &|segment| match segment {
+                AnySegment::Table(segment) => table_apply_facts_bytes(segment, delta),
+                _ => Err(decode_error(ArtifactKind::Segment, "not a table segment")),
+            },
+            whole,
+        };
+        let run = apply_with_progress(parts, p, spec, budget, store, progress);
+        ApplyRun {
+            run: run.run,
+            read: run.read,
+            output: run.output.map(|output| {
+                output
+                    .into_iter()
+                    .filter_map(|segment| match segment {
+                        AnySegment::Table(segment) => Some(segment),
+                        _ => None,
+                    })
+                    .collect()
+            }),
+            manifest: run.manifest,
+            report: run.report,
+        }
+    }
+
+    /// The run of [`segmented_apply_with_progress`] over shape-independent
+    /// parts.
+    fn apply_with_progress<E: Clone, S: SegmentStore>(
+        parts: ApplyRunParts<'_, E>,
+        p: &Partition,
+        spec: &ApplyRunSpec,
+        budget: Budget,
+        store: &mut S,
+        progress: &mut dyn FnMut(&Progress),
+    ) -> ApplyRun<AnySegment, E> {
+        let per = u32::try_from(parts.segments.len()).unwrap_or(u32::MAX);
+        let mut report = base_report(p.shape, budget, per.saturating_mul(4).saturating_add(2));
         let stopped = |run, report| ApplyRun {
             run,
             read: BTreeSet::new(),
@@ -9044,7 +9308,13 @@ pub mod segment {
             manifest: None,
             report,
         };
-        let input = match seal_manifest(&any, p, spec.schema, ManifestRole::Source, spec.binding) {
+        let input = match seal_manifest(
+            &parts.segments,
+            p,
+            spec.schema,
+            ManifestRole::Source,
+            spec.binding,
+        ) {
             Ok(manifest) => manifest,
             Err(error) => {
                 return stopped(
@@ -9053,30 +9323,30 @@ pub mod segment {
                 );
             }
         };
-        let read = super::segmented_apply::read_set(delta, &input.segments, p);
+        let read = (parts.read_set)(&input.segments);
         let count = u32::try_from(read.len()).unwrap_or(u32::MAX);
         let total = count.saturating_mul(4).saturating_add(2);
         report.progress.tasks_total = total;
         report.progress.elements_total = u64::from(total);
-        let lens = Digest(crate::edit::graph_delta_digest(delta).unwrap_or_default());
         let run = restrict_run_identity(
-            lens,
+            parts.lens,
             Digest::derive(MANIFEST_CONTEXT, &canonical_manifest_bytes(&input)),
             p,
-            GRAPH_APPLY_OP,
+            parts.op,
         );
-        let read_segments: Vec<&GraphSegment> = segments
+        let read_segments: Vec<&AnySegment> = parts
+            .segments
             .iter()
-            .filter(|segment| read.contains(&segment.segment))
+            .filter(|segment| read.contains(&segment.segment()))
             .collect();
         let read_any: Vec<AnySegment> = read_segments
             .iter()
-            .map(|segment| AnySegment::Graph((*segment).clone()))
+            .map(|segment| (*segment).clone())
             .collect();
         let mut state = RunnerState {
             p,
             spec: RunSpec {
-                operation: lens,
+                operation: parts.lens,
                 schema: spec.schema,
                 binding: spec.binding,
                 cancel_after_tasks: spec.cancel_after_tasks,
@@ -9102,19 +9372,18 @@ pub mod segment {
                 return run;
             }
         }
-        let whole = super::segmented_apply::apply_graph_segmented(delta, segments, p);
-        let outcome = state.apply_phases(&read_segments, delta, &whole);
-        let mut result = finish_apply_run(state, whole, outcome);
+        let outcome = state.apply_phases(&read_segments, parts.facts, &parts.whole);
+        let mut result = finish_apply_run(state, parts.whole, outcome);
         result.read = read;
         result
     }
 
     /// The run a segmented apply's phases ended as.
-    fn finish_apply_run<S: SegmentStore>(
+    fn finish_apply_run<E, S: SegmentStore>(
         mut state: RunnerState<'_, '_, S>,
-        whole: ApplyOutcome,
-        outcome: Result<(Vec<u8>, SegmentManifest), ApplyStop>,
-    ) -> ApplyRun {
+        whole: ApplyOutcome<E>,
+        outcome: Result<(Vec<u8>, SegmentManifest), ApplyStop<E>>,
+    ) -> ApplyRun<AnySegment, E> {
         let run = state.run;
         state.report.peak_estimated_bytes = state.peak;
         let stopped = |report| ApplyRun {
@@ -9159,28 +9428,30 @@ pub mod segment {
         }
     }
 
-    enum ApplyStop {
+    enum ApplyStop<E> {
         Pipeline(PipelineStop),
-        Refused(super::segmented_apply::SegmentedApplyRefusal),
+        Refused(super::segmented_apply::SegmentedApplyRefusal<E>),
     }
 
-    impl From<PipelineStop> for ApplyStop {
+    impl<E> From<PipelineStop> for ApplyStop<E> {
         fn from(stop: PipelineStop) -> Self {
             Self::Pipeline(stop)
         }
     }
 
-    type ApplyOutcome = Result<Vec<GraphSegment>, super::segmented_apply::SegmentedApplyRefusal>;
+    type ApplyOutcome<E> =
+        Result<Vec<AnySegment>, super::segmented_apply::SegmentedApplyRefusal<E>>;
 
     impl<S: SegmentStore> RunnerState<'_, '_, S> {
         /// The phases of a segmented apply over the read segments `read`,
-        /// whose in-memory outcome is `whole`.
-        fn apply_phases(
+        /// whose facts `facts` writes and whose in-memory outcome is
+        /// `whole`.
+        fn apply_phases<E: Clone>(
             &mut self,
-            read: &[&GraphSegment],
-            delta: &crate::edit::GraphDelta,
-            whole: &ApplyOutcome,
-        ) -> Result<(Vec<u8>, SegmentManifest), ApplyStop> {
+            read: &[&AnySegment],
+            facts: &dyn Fn(&AnySegment) -> Result<Vec<u8>, SegmentError>,
+            whole: &ApplyOutcome<E>,
+        ) -> Result<(Vec<u8>, SegmentManifest), ApplyStop<E>> {
             let mut summaries = Canonical::default();
             let mut summary_total: u64 = 0;
             for phase in [Phase::Validate, Phase::Export, Phase::Summarize] {
@@ -9195,10 +9466,10 @@ pub mod segment {
                         Phase::Export => (ArtifactKind::Export, Vec::new()),
                         _ => (
                             ArtifactKind::Summary,
-                            apply_facts_bytes(segment, delta).map_err(PipelineStop::Failed)?,
+                            facts(segment).map_err(PipelineStop::Failed)?,
                         ),
                     };
-                    let stored = self.task(phase, Some(segment.segment), kind, &input, || {
+                    let stored = self.task(phase, Some(segment.segment()), kind, &input, || {
                         Ok(output.clone())
                     })?;
                     if phase == Phase::Summarize {
@@ -9245,19 +9516,18 @@ pub mod segment {
 
         /// The Emit tasks of the read segments `read` and the Seal task of
         /// the edited family `outputs`.
-        fn apply_emit_and_seal(
+        fn apply_emit_and_seal<E>(
             &mut self,
-            read: &[&GraphSegment],
-            outputs: &[GraphSegment],
-        ) -> Result<(Vec<u8>, SegmentManifest), ApplyStop> {
-            let any: Vec<AnySegment> = outputs.iter().cloned().map(AnySegment::Graph).collect();
-            let records =
-                manifest_records(&any, self.p, self.spec.schema).map_err(PipelineStop::Failed)?;
+            read: &[&AnySegment],
+            outputs: &[AnySegment],
+        ) -> Result<(Vec<u8>, SegmentManifest), ApplyStop<E>> {
+            let records = manifest_records(outputs, self.p, self.spec.schema)
+                .map_err(PipelineStop::Failed)?;
             let (run_before, reuse_before) = (self.report.tasks_run, self.report.tasks_reused);
             let mut emitted = Canonical::default();
             let mut seal_held: u64 = 0;
             for (segment, record) in outputs.iter().zip(&records) {
-                if !read.iter().any(|held| held.segment == segment.segment) {
+                if !read.iter().any(|held| held.segment() == segment.segment()) {
                     continue;
                 }
                 if self.cancelled() {
@@ -9265,7 +9535,11 @@ pub mod segment {
                 }
                 let artifact = restrict_emit_bytes(segment, None, record, self.spec.schema, self.p)
                     .map_err(PipelineStop::Failed)?;
-                let one_id = if segment.edges.is_empty() { 0 } else { 4 };
+                let one_id = if owned_edges(segment).iter().any(|edge| edge.id.is_some()) {
+                    4
+                } else {
+                    0
+                };
                 seal_held = seal_held
                     .saturating_add(EMIT_HEADER_LEN)
                     .saturating_add(
@@ -9274,7 +9548,7 @@ pub mod segment {
                     .saturating_add(one_id);
                 self.task(
                     Phase::Emit,
-                    Some(segment.segment),
+                    Some(segment.segment()),
                     ArtifactKind::ComplementSegment,
                     &[],
                     || Ok(artifact.bytes.clone()),
@@ -9292,7 +9566,7 @@ pub mod segment {
                 return Err(PipelineStop::Cancelled.into());
             }
             let mut manifest = seal_manifest(
-                &any,
+                outputs,
                 self.p,
                 self.spec.schema,
                 ManifestRole::Source,
@@ -9970,18 +10244,23 @@ pub mod segmented_apply {
 
     use super::segment::{
         AnySegment, Digest, GraphSegment, ManifestRole, Partition, SegmentError, SegmentId,
-        SegmentRecord, assemble_graph, partition_graph, seal_manifest,
+        SegmentRecord, TableSegment, assemble_graph, assemble_table, partition_graph,
+        partition_table, seal_manifest,
     };
-    use crate::edit::{ApplyError, AttrKey, GElem, GPayload, GraphDelta, apply};
+    use crate::edit::{
+        ApplyError, AttrKey, GElem, GPayload, GraphDelta, TElem, TKey, TableApplyError, TableDelta,
+        apply, apply_table,
+    };
 
-    /// Why a segmented graph delta application returns no output.
+    /// Why a segmented delta application returns no output, with `E` the
+    /// refusal of whole-state application.
     #[derive(Clone, Debug, PartialEq, Eq)]
-    pub enum SegmentedApplyRefusal {
-        /// The family is invalid, or the edited graph cannot be split and
+    pub enum SegmentedApplyRefusal<E = ApplyError> {
+        /// The family is invalid, or the edited instance cannot be split and
         /// sealed under the partition.
         Segment(SegmentError),
         /// Whole-state application refuses the delta.
-        Edit(ApplyError),
+        Edit(E),
     }
 
     /// Definition: segmented graph delta application.
@@ -10007,6 +10286,73 @@ pub mod segmented_apply {
         seal_manifest(&any, p, Digest::default(), ManifestRole::Source, None)
             .map_err(SegmentedApplyRefusal::Segment)?;
         Ok(split)
+    }
+
+    /// Definition: segmented table delta application.
+    ///
+    /// Glue `segments` under `p` and refuse an invalid family with the glue
+    /// refusal; apply `delta` to the glued table with [`apply_table`] and
+    /// refuse with its refusal; split the edited table with
+    /// [`partition_table`] and refuse with its refusal; seal the split as a
+    /// source and refuse with the seal's refusal; otherwise return the
+    /// split.
+    ///
+    /// # Errors
+    ///
+    /// As stated above.
+    pub fn apply_table_segmented(
+        delta: &TableDelta,
+        segments: &[TableSegment],
+        p: &Partition,
+    ) -> Result<Vec<TableSegment>, SegmentedApplyRefusal<TableApplyError>> {
+        let t = assemble_table(segments, p).map_err(SegmentedApplyRefusal::Segment)?;
+        let edited = apply_table(delta, &t).map_err(SegmentedApplyRefusal::Edit)?;
+        let split = partition_table(&edited, p).map_err(SegmentedApplyRefusal::Segment)?;
+        let any: Vec<AnySegment> = split.iter().cloned().map(AnySegment::Table).collect();
+        seal_manifest(&any, p, Digest::default(), ManifestRole::Source, None)
+            .map_err(SegmentedApplyRefusal::Segment)?;
+        Ok(split)
+    }
+
+    /// Definition: the segments a segmented apply of the table delta
+    /// `delta` reads, from the records of the family's manifest under `p`.
+    ///
+    /// The owner of each row the delta deletes or adds, of each endpoint of
+    /// a pair it deletes or adds, and of each row whose cell or table it
+    /// changes; for a table change also every segment the row owner's
+    /// record lists as a peer of a crossing pair, in either direction. A
+    /// row no range owns adds nothing.
+    #[must_use]
+    pub fn table_read_set(
+        delta: &TableDelta,
+        records: &[SegmentRecord],
+        p: &Partition,
+    ) -> BTreeSet<SegmentId> {
+        let mut read = BTreeSet::new();
+        for element in delta.del.keys().chain(delta.add.keys()) {
+            match element {
+                TElem::Row(row) => read.extend(p.owner_of_node(*row)),
+                TElem::Pair(_, src, tgt) => {
+                    read.extend(p.owner_of_node(*src));
+                    read.extend(p.owner_of_node(*tgt));
+                }
+            }
+        }
+        for key in delta.attrs.keys() {
+            match key {
+                TKey::Cell(row, _) => read.extend(p.owner_of_node(*row)),
+                TKey::Table(row) => {
+                    if let Some(owner) = p.owner_of_node(*row) {
+                        read.insert(owner);
+                        if let Some(record) = records.iter().find(|record| record.id == owner) {
+                            read.extend(record.cross_out.keys());
+                            read.extend(record.cross_in.keys());
+                        }
+                    }
+                }
+            }
+        }
+        read
     }
 
     /// Definition: the segments that may hold edge id `edge` in the family

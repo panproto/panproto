@@ -10,9 +10,11 @@
 //! rest. Graph restriction is one operation ([`GraphRestrict`], run by
 //! [`graph_restrict_run`]), graph extension another
 //! ([`GraphExtend`](super::GraphExtend)), graph put, in `panproto-lens`,
-//! a third, and graph delta application ([`GraphApply`](super::GraphApply))
-//! a fourth, which runs its segment phases for its affected segments alone
-//! ([`PhaseOperation::affected`]).
+//! a third, and delta application to a graph or a table
+//! ([`SegmentApply`](super::SegmentApply)) a fourth, which runs its segment
+//! phases for its affected segments alone ([`PhaseOperation::affected`]).
+//! The runner is shape-generic: an operation names the shape it reads and
+//! writes ([`PhaseOperation::shape`]) and emits segments of that shape.
 //!
 //! [`graph_restrict_run`] runs [`graph_restrict_segmented`] as follows:
 //!
@@ -995,19 +997,40 @@ fn missing_section(kind: ArtifactKind) -> ReadStop {
     ))
 }
 
-/// The view segment and complement bytes `segment` emitted in run `run`.
+/// The graph view segment and complement bytes `segment` emitted in run
+/// `run`: [`read_emitted_segment`] of a graph run.
 ///
 /// # Errors
 ///
-/// [`SegmentError::Decode`] when the store holds no Emit artifact for the
-/// segment or holds a malformed one, and the error of
-/// [`AnySegment::from_canonical_bytes`] for its view segment.
+/// The errors of [`read_emitted_segment`], and [`SegmentError::Decode`]
+/// when the emitted segment is not a graph segment.
 pub fn read_emitted<S: SegmentStore>(
     store: &S,
     run: Digest,
     partition: &Partition,
     segment: SegmentId,
 ) -> Result<EmittedSegment, SegmentError> {
+    let (view, complement) = read_emitted_segment(store, run, partition, segment)?;
+    let AnySegment::Graph(view) = view else {
+        return Err(malformed(ArtifactKind::Segment, "not a graph segment"));
+    };
+    Ok(EmittedSegment { view, complement })
+}
+
+/// The output segment, of any shape, and the complement bytes `segment`
+/// emitted in run `run`.
+///
+/// # Errors
+///
+/// [`SegmentError::Decode`] when the store holds no Emit artifact for the
+/// segment or holds a malformed one, and the error of
+/// [`AnySegment::from_canonical_bytes`] for its output segment.
+pub fn read_emitted_segment<S: SegmentStore>(
+    store: &S,
+    run: Digest,
+    partition: &Partition,
+    segment: SegmentId,
+) -> Result<(AnySegment, Vec<u8>), SegmentError> {
     let key = ArtifactKey {
         run,
         task: TaskKey {
@@ -1022,13 +1045,7 @@ pub fn read_emitted<S: SegmentStore>(
         .ok_or_else(|| malformed(ArtifactKind::ComplementSegment, "no emitted segment"))?;
     let (_, view, complement) = decode_emit(&bytes)?;
     let (view, _) = AnySegment::from_canonical_bytes(view, partition)?;
-    let AnySegment::Graph(view) = view else {
-        return Err(malformed(ArtifactKind::Segment, "not a graph segment"));
-    };
-    Ok(EmittedSegment {
-        view,
-        complement: complement.to_vec(),
-    })
+    Ok((view, complement.to_vec()))
 }
 
 /// The artifact kind each phase's task writes: the validated input segment,
@@ -1114,8 +1131,9 @@ impl PhaseContext<'_> {
 /// an operation that emits one.
 #[derive(Clone, Debug)]
 pub struct Emission {
-    /// The output segment, laid out under the input's partition.
-    pub segment: GraphSegment,
+    /// The output segment, laid out under the input's partition, of the
+    /// operation's shape ([`PhaseOperation::shape`]).
+    pub segment: AnySegment,
     /// Its complement segment, `None` for an operation that emits none.
     pub complement: Option<GraphComplementSegment>,
 }
@@ -1135,6 +1153,10 @@ pub trait PhaseOperation {
     /// The operation bytes of the run's identity
     /// ([`RunJournal::run_digest`]).
     fn op(&self) -> &'static [u8];
+
+    /// The shape of the instances the operation reads and writes; an input
+    /// manifest of another shape is refused before any task.
+    fn shape(&self) -> InstanceShapeKind;
 
     /// The operation a global residual names.
     fn segment_op(&self) -> SegmentOp;
@@ -1358,6 +1380,10 @@ impl PhaseOperation for GraphRestrict<'_> {
         GRAPH_RESTRICT_OP
     }
 
+    fn shape(&self) -> InstanceShapeKind {
+        InstanceShapeKind::Graph
+    }
+
     fn segment_op(&self) -> SegmentOp {
         SegmentOp::Restrict
     }
@@ -1471,7 +1497,7 @@ impl PhaseOperation for GraphRestrict<'_> {
             .nth(position)
             .ok_or_else(|| malformed(ArtifactKind::Assembly, "a boundary is missing"))?;
         Ok(Emission {
-            segment: view,
+            segment: AnySegment::Graph(view),
             complement: Some(complement),
         })
     }
@@ -1768,7 +1794,7 @@ impl<O: PhaseOperation, Src: SegmentSource, St: SegmentStore> Runner<'_, O, Src,
             .specs()
             .get(position)
             .ok_or_else(|| malformed(ArtifactKind::Assembly, "a segment spec is missing"))?;
-        let view = AnySegment::Graph(segment);
+        let view = segment;
         let view_bytes = view.canonical_bytes(&self.spec.output_schema, &self.partition)?;
         let record = SegmentRecord::of(&view, spec, &self.spec.output_schema);
         Ok(emit_bytes(
@@ -1910,7 +1936,7 @@ impl<O: PhaseOperation, Src: SegmentSource, St: SegmentStore> Runner<'_, O, Src,
                 })
                 .collect();
             let header = ManifestHeader {
-                shape: InstanceShapeKind::Graph,
+                shape: self.op.shape(),
                 schema: self.spec.output_schema,
                 role,
                 binding: self.input.binding,
@@ -2060,9 +2086,9 @@ fn preflight<O: PhaseOperation>(
 ) -> Result<Prepared, Box<Refused<O::Error>>> {
     let failed = |error: SegmentError| Box::new((RunStatus::Failed(O::Error::from(error)), None));
     verify_manifest(input, spec.input).map_err(failed)?;
-    if input.shape != InstanceShapeKind::Graph {
+    if input.shape != op.shape() {
         return Err(failed(SegmentError::ShapeMismatch {
-            expected: InstanceShapeKind::Graph,
+            expected: op.shape(),
             found: input.shape,
         }));
     }

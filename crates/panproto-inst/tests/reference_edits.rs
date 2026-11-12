@@ -3771,13 +3771,12 @@ mod segmented_apply {
 
     use panproto_inst::identity::Digest;
     use panproto_inst::segment::{
-        AnySegment, ArtifactKey, Budget, EdgeIdRun, FamilyIndex, FreshIds, GraphApplyRun,
-        GraphSegment, IdKind, IdRange, ManifestHeader, ManifestRole, MemoryStore, MissingSegment,
-        Partition, Phase, RecordSource, Residual, Resource, RunIncompleteReason, RunJournal,
-        RunSpec, RunStatus, SegmentError, SegmentId, SegmentManifest, SegmentRecord,
-        SegmentRunReport, SegmentSource, SegmentSpec, SegmentStore, SegmentedApplyError,
-        TaskRecord, assemble_graph, graph_apply_run, graph_apply_segmented, partition_graph,
-        read_emitted, seal_full, verify_manifest,
+        AnySegment, ApplyRun, ArtifactKey, Budget, EdgeIdRun, FamilyIndex, FreshIds, GraphSegment,
+        IdKind, IdRange, ManifestHeader, ManifestRole, MemoryStore, MissingSegment, Partition,
+        Phase, RecordSource, Residual, Resource, RunIncompleteReason, RunJournal, RunSpec,
+        RunStatus, SegmentError, SegmentId, SegmentManifest, SegmentRecord, SegmentRunReport,
+        SegmentSource, SegmentSpec, SegmentStore, SegmentedApplyError, TaskRecord, apply_run,
+        apply_segmented, assemble_graph, partition_graph, read_emitted, seal_full, verify_manifest,
     };
     use panproto_inst::{EdgeId, GEdge, GraphDelta};
     use panproto_reference::enumerate::segments as carrier;
@@ -3923,8 +3922,15 @@ mod segmented_apply {
         let held = partition_graph(&whole, &production_partition).expect("production split");
         let reference_held = segments::partition_graph(graph, partition).expect("reference split");
         let production_delta = delta_to_production(delta);
-        let family =
-            FamilyIndex::of_segments(&held, &production_partition).expect("a family index");
+        let family = FamilyIndex::of_segments(
+            &held
+                .iter()
+                .cloned()
+                .map(AnySegment::Graph)
+                .collect::<Vec<_>>(),
+            &production_partition,
+        )
+        .expect("a family index");
         let read = family.read_set(&production_delta);
         let any: Vec<segments::AnySegment> = reference_held
             .iter()
@@ -3944,7 +3950,7 @@ mod segmented_apply {
             expected_read,
             "read set of {delta:?} on {graph:?} under {partition:?}"
         );
-        let production = graph_apply_segmented(&production_delta, &held, &production_partition);
+        let production = apply_segmented(&production_delta, &held, &production_partition);
         let expected = segments::apply_graph_segmented(delta, &reference_held, partition);
         let mut whole_state = whole;
         let applied = production_delta.apply(&mut whole_state);
@@ -4277,8 +4283,8 @@ mod segmented_apply {
         budget: Budget,
         store: &mut St,
         cancel: Option<u32>,
-    ) -> GraphApplyRun {
-        graph_apply_run(
+    ) -> ApplyRun {
+        apply_run(
             delta,
             &input.manifest,
             source,
@@ -4434,7 +4440,7 @@ mod segmented_apply {
         partition: &segments::Partition,
         delta: &reference::GraphDelta,
         budget: Budget,
-        baseline: &GraphApplyRun,
+        baseline: &ApplyRun,
     ) -> u64 {
         let production_delta = delta_to_production(delta);
         let run = baseline.run.expect("a run identity");
@@ -4586,7 +4592,11 @@ mod segmented_apply {
                 reference::AttrVal::Position(Some(0)),
             ),
         );
-        let mut fresh = FreshIds::of(&input.held[3], &input.partition.specs()[3]).expect("ids");
+        let mut fresh = FreshIds::of(
+            &AnySegment::Graph(input.held[3].clone()),
+            &input.partition.specs()[3],
+        )
+        .expect("ids");
         let id = fresh.edge().expect("a fresh edge id");
         assert_eq!(id, EdgeId(40));
         let added = delta_to_production(&reference::GraphDelta::identity()).with_added_edge(
@@ -4866,7 +4876,11 @@ mod segmented_apply {
         let input = input(&graph, &partition);
         // Segment 2 owns node 2 alone and has no node allocation range;
         // segment 3 has no edge allocation range.
-        let mut two = FreshIds::of(&input.held[2], &input.partition.specs()[2]).expect("ids");
+        let mut two = FreshIds::of(
+            &AnySegment::Graph(input.held[2].clone()),
+            &input.partition.specs()[2],
+        )
+        .expect("ids");
         assert_eq!(
             two.node(),
             Err(SegmentError::NoAllocationRange {
@@ -4876,7 +4890,11 @@ mod segmented_apply {
         );
         assert_eq!(two.edge(), Ok(EdgeId(30)));
         assert_eq!(two.edge(), Ok(EdgeId(31)));
-        let mut three = FreshIds::of(&input.held[3], &input.partition.specs()[3]).expect("ids");
+        let mut three = FreshIds::of(
+            &AnySegment::Graph(input.held[3].clone()),
+            &input.partition.specs()[3],
+        )
+        .expect("ids");
         assert_eq!(
             three.edge(),
             Err(SegmentError::NoAllocationRange {
@@ -4885,7 +4903,11 @@ mod segmented_apply {
             })
         );
         // Two fresh edges from node 2, to node 3 and to itself, apply.
-        let mut two = FreshIds::of(&input.held[2], &input.partition.specs()[2]).expect("ids");
+        let mut two = FreshIds::of(
+            &AnySegment::Graph(input.held[2].clone()),
+            &input.partition.specs()[2],
+        )
+        .expect("ids");
         let label = panproto_schema::Edge {
             src: "a".into(),
             tgt: "a".into(),
@@ -4895,7 +4917,7 @@ mod segmented_apply {
         let delta = GraphDelta::identity()
             .with_added_edge(two.edge().expect("an id"), GEdge::new(2, 3, label.clone()))
             .with_added_edge(two.edge().expect("an id"), GEdge::new(2, 2, label));
-        let output = graph_apply_segmented(&delta, &input.held, &input.partition).expect("applies");
+        let output = apply_segmented(&delta, &input.held, &input.partition).expect("applies");
         let glued = assemble_graph(output, &input.partition).expect("glues");
         assert_eq!(glued.edge(EdgeId(30)).map(|edge| edge.tgt), Some(3));
         assert_eq!(glued.edge(EdgeId(31)).map(|edge| edge.tgt), Some(2));
@@ -5047,7 +5069,7 @@ mod segmented_apply {
         held: &[GraphSegment],
         partition: &Partition,
     ) -> Option<Vec<Vec<u8>>> {
-        graph_apply_segmented(delta, held, partition)
+        apply_segmented(delta, held, partition)
             .ok()
             .map(|output| output.iter().map(|s| bytes(s, partition)).collect())
     }
@@ -5088,7 +5110,7 @@ mod segmented_apply {
             let reference_held = segments::partition_graph(graph, partition).expect("split");
             for first in &delta_cases {
                 let a = delta_to_production(first);
-                let after_first = graph_apply_segmented(&a, &held, &production_partition);
+                let after_first = apply_segmented(&a, &held, &production_partition);
                 for second in &delta_cases {
                     let b = delta_to_production(second);
                     let composite = a.compose(&b);
@@ -5100,7 +5122,7 @@ mod segmented_apply {
                     let outcome = after_first.as_ref().map_or(
                         PairOutcome::FirstRefused,
                         |middle| match (
-                            graph_apply_segmented(&b, middle, &production_partition),
+                            apply_segmented(&b, middle, &production_partition),
                             &composite,
                         ) {
                             (Err(_), _) => PairOutcome::SecondRefused,
@@ -5165,7 +5187,7 @@ mod segmented_apply {
             let held = partition_graph(&graph_to_production(&case.graph), &production_partition)
                 .expect("split");
             let delta = delta_to_production(&case.delta);
-            let Ok(output) = graph_apply_segmented(&delta, &held, &production_partition) else {
+            let Ok(output) = apply_segmented(&delta, &held, &production_partition) else {
                 continue;
             };
             let inverse = delta.invert();
@@ -5299,13 +5321,13 @@ mod segmented_apply {
             let production_partition = prod_partition(&partition);
             let held = partition_graph(&graph_to_production(&graph), &production_partition)
                 .expect("split");
-            if let Ok(after_first) = graph_apply_segmented(&first, &held, &production_partition) {
+            if let Ok(after_first) = apply_segmented(&first, &held, &production_partition) {
                 proptest::prop_assert_eq!(
                     applied_bytes(&first.invert(), &after_first, &production_partition),
                     Some(held.iter().map(|s| bytes(s, &production_partition)).collect())
                 );
                 if let (Ok(after_second), Ok(composite)) = (
-                    graph_apply_segmented(&second, &after_first, &production_partition),
+                    apply_segmented(&second, &after_first, &production_partition),
                     first.compose(&second),
                 ) {
                     proptest::prop_assert_eq!(

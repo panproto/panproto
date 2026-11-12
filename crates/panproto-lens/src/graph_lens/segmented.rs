@@ -46,7 +46,7 @@ use panproto_inst::{
     EdgeId, GEdge, GInstance, GraphComplement, Node, NodeShape, PutDomainError, RestrictPlan,
     SynthKey, ViewRef, write_edge_record, write_node_record,
 };
-use panproto_schema::{CanonicalWriter, KeyPart, KeyRole, KeyScope, Schema};
+use panproto_schema::{CanonicalWriter, InstanceShapeKind, KeyPart, KeyRole, KeyScope, Schema};
 
 use super::{
     PutScope, Restored, fan_violations, key_values, refusal_from_restrict, required_violations,
@@ -1259,6 +1259,10 @@ impl<C: SegmentSource> PhaseOperation for GraphPut<'_, C> {
         GRAPH_PUT_OP
     }
 
+    fn shape(&self) -> InstanceShapeKind {
+        InstanceShapeKind::Graph
+    }
+
     fn segment_op(&self) -> SegmentOp {
         SegmentOp::Put
     }
@@ -1382,7 +1386,7 @@ impl<C: SegmentSource> PhaseOperation for GraphPut<'_, C> {
                 message: "a boundary is missing".to_owned(),
             })?;
         Ok(Emission {
-            segment: restored,
+            segment: AnySegment::Graph(restored),
             complement: None,
         })
     }

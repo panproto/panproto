@@ -781,7 +781,7 @@ For extension the artifacts are: Validate, the input segment's canonical bytes; 
 
 ### Statement
 
-Let $P$ be a graph partition and $S$ a family of graph segments that `verify_partition` accepts under $P$, whose glued graph $G = \operatorname{glue}_P(S)$ lies in the fan domain and whose edge identifiers satisfy the seal floor rule of $P$ (so that $S$ seals, [L-segments-9](#L-segments-9)). Let $\delta$ be a graph delta and write $\operatorname{apply}$ for whole-state application, `GraphDelta::apply` ([L-edits-1](edits.md#L-edits-1)). Write $R(\delta)$ for the *read set*, `FamilyIndex::read_set`, defined below from $\delta$ and the manifest records of $S$ alone. Then `graph_apply_segmented` of $\delta$ over $S$ and $P$ reads the segments of $R(\delta)$ and no other, and:
+Let $P$ be a graph partition and $S$ a family of graph segments that `verify_partition` accepts under $P$, whose glued graph $G = \operatorname{glue}_P(S)$ lies in the fan domain and whose edge identifiers satisfy the seal floor rule of $P$ (so that $S$ seals, [L-segments-9](#L-segments-9)). Let $\delta$ be a graph delta and write $\operatorname{apply}$ for whole-state application, `GraphDelta::apply` ([L-edits-1](edits.md#L-edits-1)). Write $R(\delta)$ for the *read set*, `FamilyIndex::read_set`, defined below from $\delta$ and the manifest records of $S$ alone. Then `apply_segmented` of $\delta$ over $S$ and $P$ reads the segments of $R(\delta)$ and no other, and:
 
 1. when $\operatorname{apply}(\delta, G)$ succeeds and its split under $P$ seals, the output is $\operatorname{split}_P(\operatorname{apply}(\delta, G))$, so that $\operatorname{glue}_P$ of the output is $\operatorname{apply}(\delta, G)$, and every segment outside $R(\delta)$ is returned unchanged;
 2. when $\operatorname{apply}(\delta, G)$ refuses, the output is that refusal;
@@ -828,7 +828,7 @@ The *holders* of an edge identifier $e$ are the segments that may hold it: with 
 
 ### Statement
 
-Let $P$, $S$ and $\delta$ satisfy the hypotheses of [L-segments-20](#L-segments-20), let $M$ be a manifest sealing $S$ under $P$ with trusted digest $d$, and let $B$ be a budget. Write $k$ for the size of $R(\delta)$, $\operatorname{run}_c$ for `graph_apply_run` of $\delta$ over $M$, $d$ and the canonical bytes of $S$, under $B$, stopped once $c$ tasks are done, and $\operatorname{ref}_c$ for the reference runner `segmented_apply_with_progress` on the same inputs. The production run is `run_segmented` of the phase operation `GraphApply`, whose affected set (`PhaseOperation::affected`) is $R(\delta)$: its segment phases run for the read segments alone, $4k + 2$ tasks. For every $c$ from $0$ to $4k + 2$:
+Let $P$, $S$ and $\delta$ satisfy the hypotheses of [L-segments-20](#L-segments-20), let $M$ be a manifest sealing $S$ under $P$ with trusted digest $d$, and let $B$ be a budget. Write $k$ for the size of $R(\delta)$, $\operatorname{run}_c$ for `apply_run` of $\delta$ over $M$, $d$ and the canonical bytes of $S$, under $B$, stopped once $c$ tasks are done, and $\operatorname{ref}_c$ for the reference runner `segmented_apply_with_progress` on the same inputs. The production run is `run_segmented` of the phase operation `SegmentApply`, whose affected set (`PhaseOperation::affected`) is $R(\delta)$: its segment phases run for the read segments alone, $4k + 2$ tasks. For every $c$ from $0$ to $4k + 2$:
 
 1. the report of $\operatorname{run}_c$ on an empty store equals the report of $\operatorname{ref}_c$ on an empty store, field by field as in [L-segments-12](#L-segments-12), the locality being `Exchange`;
 2. running again without a cancellation point against the same store gives the report of the reference run resumed the same way, reuses $\min(c, j)$ tasks, where $j$ is the number of tasks the uninterrupted run completes, and returns the status and manifest of the uninterrupted run, leaving no staged artifact;
@@ -876,11 +876,11 @@ For an edit the artifacts are: Validate, the read segment's canonical bytes; Exp
 
 ### Statement
 
-Let $P$ and $S$ satisfy the hypotheses of [L-segments-20](#L-segments-20) and write $\operatorname{seg}(\delta, S)$ for `graph_apply_segmented` of $\delta$ over $S$ and $P$.
+Let $P$ and $S$ satisfy the hypotheses of [L-segments-20](#L-segments-20) and write $\operatorname{seg}(\delta, S)$ for `apply_segmented` of $\delta$ over $S$ and $P$.
 
 1. Composition. For graph deltas $a$ and $b$, if $\operatorname{seg}(a, S)$ returns a family $S'$, $\operatorname{seg}(b, S')$ returns a family $S''$, and `compose(a, b)` is defined, then $\operatorname{seg}(\operatorname{compose}(a, b), S) = S''$, segment by segment and byte for byte.
 2. Inversion. If $\operatorname{seg}(\delta, S)$ returns $S'$, then $\operatorname{seg}(\operatorname{invert}(\delta), S') = S$, segment by segment and byte for byte.
-3. Inversion as checkpointed runs. If `graph_apply_run` of $\delta$ over a manifest $M$ sealing $S$ completes with manifest $M'$, then `graph_apply_run` of $\operatorname{invert}(\delta)$ over $M'$, reading the emitted segments in place of the read ones and the input segments elsewhere, completes with $M$ with its instance digest cleared. The two manifests are equal byte for byte when $M$ carries no instance digest; when $M$ was sealed with one (`seal_full`), they differ in that field alone, and so in their digests, since an edited manifest carries none.
+3. Inversion as checkpointed runs. If `apply_run` of $\delta$ over a manifest $M$ sealing $S$ completes with manifest $M'$, then `apply_run` of $\operatorname{invert}(\delta)$ over $M'$, reading the emitted segments in place of the read ones and the input segments elsewhere, completes with $M$ with its instance digest cleared. The two manifests are equal byte for byte when $M$ carries no instance digest; when $M$ was sealed with one (`seal_full`), they differ in that field alone, and so in their digests, since an edited manifest carries none.
 
 ### Outside the domain
 

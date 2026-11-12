@@ -26,10 +26,12 @@
 //! - segmented graph extension ([`graph_extend_segmented`]), which runs the
 //!   graph extend engine segment by segment under the source's partition,
 //!   and its checkpointed run ([`graph_extend_run`]);
-//! - segmented graph edits ([`graph_apply_segmented`]), which apply a
-//!   [`GraphDelta`](crate::graph_edit::GraphDelta) reading only the segments
-//!   it can change ([`FamilyIndex::read_set`]), and their checkpointed run
-//!   ([`graph_apply_run`]), with [`FreshIds`] for the ids a delta adds;
+//! - segmented edits ([`apply_segmented`]), which apply a
+//!   [`GraphDelta`](crate::graph_edit::GraphDelta) or a
+//!   [`TableDelta`](crate::table_delta::TableDelta) reading only the
+//!   segments it can change ([`FamilyIndex::read_set`]), and their
+//!   checkpointed run ([`apply_run`]), with [`FreshIds`] for the ids a delta
+//!   adds;
 //! - the typed failure [`SegmentError`] and the [`Residual`] of an operation
 //!   declined within a budget.
 
@@ -40,6 +42,7 @@ mod bytes;
 mod check;
 mod error;
 mod extend;
+mod graph_apply;
 mod ids;
 mod manifest;
 mod partition;
@@ -50,6 +53,7 @@ mod runner;
 mod split;
 mod store;
 mod stream;
+mod table_apply;
 #[cfg(test)]
 mod tests;
 mod tree_bytes;
@@ -57,8 +61,8 @@ mod validate;
 
 pub use crate::identity::SEGMENT_EDGE_IDS_CONTEXT;
 pub use apply::{
-    FamilyIndex, FreshIds, GRAPH_APPLY_OP, GraphApply, GraphApplyRun, SegmentedApplyError,
-    graph_apply_run, graph_apply_segmented,
+    ApplyRun, FamilyIndex, FreshIds, SegmentApply, SegmentDelta, SegmentedApplyError, apply_run,
+    apply_segmented,
 };
 pub use body::{
     AnySegment, Boundary, Ghost, GraphSegment, InStub, SegmentStats, TableSegment, TreeSegment,
@@ -71,6 +75,7 @@ pub use extend::{
     GRAPH_EXTEND_OP, GraphExtend, GraphExtendRun, SegmentedExtendError, graph_extend_locality,
     graph_extend_run, graph_extend_segmented,
 };
+pub use graph_apply::GRAPH_APPLY_OP;
 pub use ids::{EdgeFloor, IdAllocator, IdKind, IdRange, RangeExhausted, SegmentId};
 pub use manifest::{
     EdgeIdRun, ManifestHeader, ManifestRole, SegmentManifest, SegmentRecord, audit_path,
@@ -87,8 +92,8 @@ pub use runner::{
     Budget, ComplementSize, Emission, EmittedSegment, GRAPH_RESTRICT_OP, GraphRestrict,
     GraphRestrictRun, MemoryModel, MemoryStore, MissingSegment, PhaseContext, PhaseOperation,
     PhaseReport, PhaseStop, Progress, RunIncompleteReason, RunSpec, RunStatus, SegmentRunReport,
-    SegmentSource, SegmentedRun, graph_restrict_run, phase_artifact, read_emitted, run_segmented,
-    store_failure,
+    SegmentSource, SegmentedRun, graph_restrict_run, phase_artifact, read_emitted,
+    read_emitted_segment, run_segmented, store_failure,
 };
 pub use split::{
     assemble_graph, assemble_table, assemble_tree, partition_graph, partition_table, partition_tree,
@@ -98,6 +103,7 @@ pub use stream::{
     InstanceRecord, RecordSource, SegmentRecords, decode_record_stream, instance_digest,
     record_stream,
 };
+pub use table_apply::TABLE_APPLY_OP;
 pub use tree_bytes::{
     FanRecord, canonical_winstance_bytes, winstance_digest, write_arc_record, write_winstance,
     write_winstance_header,

@@ -23,7 +23,7 @@
 //! [`graph_extend_with_plan`]: crate::graph_extend_with_plan
 
 use panproto_gat::Name;
-use panproto_schema::CanonicalWriter;
+use panproto_schema::{CanonicalWriter, InstanceShapeKind};
 
 use super::body::{AnySegment, Boundary, Ghost, GraphSegment, InStub};
 use super::error::{Residual, SegmentError};
@@ -333,6 +333,10 @@ impl PhaseOperation for GraphExtend<'_> {
         GRAPH_EXTEND_OP
     }
 
+    fn shape(&self) -> InstanceShapeKind {
+        InstanceShapeKind::Graph
+    }
+
     fn segment_op(&self) -> SegmentOp {
         SegmentOp::Extend
     }
@@ -383,7 +387,7 @@ impl PhaseOperation for GraphExtend<'_> {
         })?;
         let extended = extended_segment(self.plan, &held, parts).map_err(ExtendStop::Failed)?;
         Ok(Emission {
-            segment: extended,
+            segment: AnySegment::Graph(extended),
             complement: None,
         })
     }

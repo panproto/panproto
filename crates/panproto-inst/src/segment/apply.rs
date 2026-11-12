@@ -1,77 +1,55 @@
-//! Applying a graph delta to a graph held as segments.
+//! Applying a delta to an instance held as segments.
 //!
-//! A [`GraphDelta`] names every element it deletes, adds or changes by id,
-//! so the segments it can change are known from the delta and the input
-//! manifest alone: the owners of the nodes it names, the segments that may
-//! hold the edges it names, the owners of the endpoints of the edges it
-//! deletes or adds, and, for an anchor or label change, the peers whose
-//! boundary records copy the anchor or label ([`FamilyIndex::read_set`]).
-//! A segmented apply reads those segments and no other; every other segment
-//! keeps its bytes and its manifest record.
+//! A delta names every element it deletes, adds or changes by id, so the
+//! segments it can change are known from the delta and the input manifest
+//! alone ([`SegmentDelta::read_set`]). A segmented apply reads those
+//! segments and no other; every other segment keeps its bytes and its
+//! manifest record.
 //!
-//! Each segment it reads reports its *facts*: the nodes it owns that the
-//! delta names or touches, the edges it holds that the delta names, and
-//! every edge incident to a node the delta deletes or touches (its own edges
-//! with their payloads, its in-stubs with their ids, endpoints and labels).
-//! These are exactly what [`GraphDelta::check`] reads of the whole graph, so
-//! one coordinator glues them into a small graph and runs the whole-state
-//! checks on it, in their order, returning the whole-state refusal before
-//! any segment is rewritten. Each segment then rewrites itself: its own
-//! nodes and edges as the delta changes them, and its boundary from its own
-//! edges and in-stubs with the anchors after the delta, which the facts
-//! carry for every node a new ghost or in-stub names.
+//! Each segment it reads reports its *facts*: the elements it holds that
+//! the whole-state checks of the delta read ([`SegmentDelta::facts`]). One
+//! coordinator glues the facts into a small instance and runs the
+//! whole-state checks on it, in their order, returning the whole-state
+//! refusal before any segment is rewritten ([`SegmentDelta::check_facts`]). Each
+//! read segment then rewrites itself ([`SegmentDelta::edit`]): its own
+//! elements as the delta changes them, and its boundary with the anchors
+//! after the delta, which the facts carry for every element a new ghost or
+//! in-stub names.
 //!
-//! The ids a delta adds are the caller's. A node no range owns is refused
-//! ([`SegmentError::Unowned`]) and an edge id the seal floor rule refuses
-//! for the segment owning its source is refused
-//! ([`SegmentError::EdgeIdOutsideAllocation`],
-//! [`SegmentError::NoAllocationRange`]), as sealing the edited whole graph
-//! under the partition would refuse them. [`FreshIds`] hands out ids that
-//! neither refuses.
+//! Graph deltas ([`GraphDelta`]) and table deltas ([`TableDelta`]) are
+//! segment deltas. [`apply_segmented`] applies one in memory, and
+//! [`apply_run`] as a checkpointed run of the phase operation
+//! [`SegmentApply`].
 //!
-//! The fan-domain check ([`GraphDelta::check`], check 7) is made at the
-//! nodes whose fan conditions the delta can change: added nodes, nodes whose
-//! metadata it changes, endpoints of edges it deletes or adds and sources of
-//! edges whose label it changes. On an input in the fan domain these are the
-//! only nodes that can leave it, so the check agrees with the whole-state
-//! check.
+//! [`GraphDelta`]: crate::graph_edit::GraphDelta
+//! [`TableDelta`]: crate::table_delta::TableDelta
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use panproto_gat::Name;
-use panproto_schema::CanonicalWriter;
+use panproto_schema::InstanceShapeKind;
 
-use super::body::{AnySegment, Boundary, Ghost, GraphSegment, InStub};
-use super::bytes::{read_edges, read_nodes};
+use super::body::AnySegment;
 use super::error::SegmentError;
 use super::ids::{EdgeFloor, IdAllocator, IdKind, IdRange, SegmentId};
 use super::manifest::{ManifestRole, SegmentManifest};
 use super::partition::{OwnerIndex, Partition, SegmentSpec};
-use super::reader::Reader;
 use super::runner::{
     Budget, Emission, PhaseContext, PhaseOperation, PhaseStop, Progress, RunSpec, SegmentSource,
     SegmentedRun, run_segmented,
 };
 use super::store::{ArtifactKind, Phase, SegmentStore};
 use crate::edit_error::EditError;
-use crate::ginstance::{EdgeId, FanDomain, GEdge, GInstance};
-use crate::graph_edit::{AttrKey, ElemRef, GraphDelta, Payload};
+use crate::ginstance::EdgeId;
+use crate::identity::Digest;
 use crate::locality::{Locality, SegmentOp};
-use crate::metadata::Node;
-use crate::view_ref::ViewRef;
-use crate::{write_edge_record, write_node_record};
 
-/// The operation bytes of graph delta application in a run's identity
-/// ([`RunJournal::run_digest`](super::RunJournal::run_digest)).
-pub const GRAPH_APPLY_OP: &[u8] = b"graph apply";
-
-/// Why a segmented graph delta application returned no output.
+/// Why a segmented delta application returned no output.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum SegmentedApplyError {
-    /// The family is invalid, or the edited graph cannot be laid out and
-    /// sealed under the partition: an added node no range owns, or an added
-    /// edge id the seal floor rule refuses.
+    /// The family is invalid, or the edited instance cannot be laid out and
+    /// sealed under the partition: an added node or row no range owns, or
+    /// an added edge id the seal floor rule refuses.
     #[error(transparent)]
     Segment(SegmentError),
     /// Whole-state application refuses the delta with this error.
@@ -85,12 +63,12 @@ impl From<SegmentError> for SegmentedApplyError {
     }
 }
 
-/// What the read set of a delta is computed from, for one family of graph
+/// What the read set of a delta is computed from, for one family of
 /// segments.
 ///
-/// It holds the owner of each node id, the seal floor rule of the edge ids,
-/// each segment's largest edge id and the peers of each segment's crossing
-/// edges.
+/// It holds the owner of each node or row id, the seal floor rule of the
+/// edge ids, each segment's largest edge id and the peers of each segment's
+/// crossing edges (or crossing pairs).
 ///
 /// It is read off a manifest's records ([`FamilyIndex::of_manifest`]) or off
 /// the segments themselves ([`FamilyIndex::of_segments`]), which give the
@@ -98,7 +76,7 @@ impl From<SegmentError> for SegmentedApplyError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FamilyIndex {
     index: OwnerIndex,
-    floor: EdgeFloor,
+    pub(super) floor: EdgeFloor,
     alloc_edges: Vec<(IdRange, SegmentId)>,
     max_edge: BTreeMap<SegmentId, u32>,
     cross_out: BTreeMap<SegmentId, BTreeSet<SegmentId>>,
@@ -151,32 +129,29 @@ impl FamilyIndex {
     ///
     /// The partition's error when it is invalid.
     pub fn of_segments(
-        segments: &[GraphSegment],
+        segments: &[AnySegment],
         partition: &Partition,
     ) -> Result<Self, SegmentError> {
         let mut family = Self::new(partition)?;
         for segment in segments {
-            if let Some(max) = segment.edges.keys().next_back() {
-                family.max_edge.insert(segment.segment, max.0);
+            let id = segment.segment();
+            if let Some(max) = segment.max_edge() {
+                family.max_edge.insert(id, max);
             }
-            family.cross_out.insert(
-                segment.segment,
-                segment.boundary.ghosts.values().map(|g| g.owner).collect(),
-            );
+            let boundary = segment.boundary();
+            family
+                .cross_out
+                .insert(id, boundary.ghosts.values().map(|g| g.owner).collect());
             family.cross_in.insert(
-                segment.segment,
-                segment
-                    .boundary
-                    .in_stubs
-                    .values()
-                    .map(|s| s.src_owner)
-                    .collect(),
+                id,
+                boundary.in_stubs.values().map(|s| s.src_owner).collect(),
             );
         }
         Ok(family)
     }
 
-    /// The segment owning node `node`, `None` when no range contains it.
+    /// The segment owning node (or row) `node`, `None` when no range
+    /// contains it.
     #[must_use]
     pub fn owner(&self, node: u32) -> Option<SegmentId> {
         self.index.owner_of_node(node)
@@ -204,490 +179,150 @@ impl FamilyIndex {
         }
     }
 
-    /// The segments a segmented apply of `delta` reads, and the only ones it
-    /// can rewrite:
-    ///
-    /// - the owner of every node the delta deletes, adds or changes;
-    /// - for an anchor change, also the peers of its owner's crossing edges
-    ///   in both directions, whose ghosts and in-stubs copy the anchor;
-    /// - for a deleted or added edge, the owners of the endpoints its
-    ///   payload names, and every segment that may hold its id
-    ///   ([`Self::holders`]);
-    /// - for an edge whose label or position changes, every segment that may
-    ///   hold it, and for a label change the peers those segments' crossing
-    ///   edges enter, whose in-stubs copy the label.
-    ///
-    /// A node no range owns contributes no segment.
+    /// The segments the crossing edges (or pairs) of `segment` enter: the
+    /// owners of its ghosts.
+    pub(super) fn peers_out(&self, segment: SegmentId) -> impl Iterator<Item = SegmentId> + '_ {
+        self.cross_out.get(&segment).into_iter().flatten().copied()
+    }
+
+    /// The segments whose crossing edges (or pairs) enter `segment`: the
+    /// owners of the sources of its in-stubs.
+    pub(super) fn peers_in(&self, segment: SegmentId) -> impl Iterator<Item = SegmentId> + '_ {
+        self.cross_in.get(&segment).into_iter().flatten().copied()
+    }
+
+    /// The segments a segmented apply of `delta` reads, and the only ones
+    /// it can rewrite ([`SegmentDelta::read_set`]).
     #[must_use]
-    pub fn read_set(&self, delta: &GraphDelta) -> BTreeSet<SegmentId> {
-        let mut read = BTreeSet::new();
-        let own = |read: &mut BTreeSet<SegmentId>, node: u32| {
-            if let Some(owner) = self.owner(node) {
-                read.insert(owner);
-            }
-        };
-        for node in delta.del_nodes().keys().chain(delta.add_nodes().keys()) {
-            own(&mut read, *node);
-        }
-        for (id, edge) in delta.del_edges().iter().chain(delta.add_edges()) {
-            own(&mut read, edge.src);
-            own(&mut read, edge.tgt);
-            read.extend(self.holders(*id));
-        }
-        for key in delta.attrs().keys() {
-            match key {
-                AttrKey::Anchor { node } => {
-                    if let Some(owner) = self.owner(*node) {
-                        read.insert(owner);
-                        read.extend(peers(&self.cross_out, owner));
-                        read.extend(peers(&self.cross_in, owner));
-                    }
-                }
-                AttrKey::EdgeLabel { edge } => {
-                    for holder in self.holders(*edge) {
-                        read.insert(holder);
-                        read.extend(peers(&self.cross_out, holder));
-                    }
-                }
-                AttrKey::EdgePosition { edge } => read.extend(self.holders(*edge)),
-                other => {
-                    if let ElemRef::Node(node) = other.element() {
-                        own(&mut read, node);
-                    }
-                }
-            }
-        }
-        read
+    pub fn read_set<D: SegmentDelta>(&self, delta: &D) -> BTreeSet<SegmentId> {
+        delta.read_set(self)
     }
 }
 
-/// The peers `map` records for `segment`.
-fn peers(
-    map: &BTreeMap<SegmentId, BTreeSet<SegmentId>>,
-    segment: SegmentId,
-) -> impl Iterator<Item = SegmentId> + '_ {
-    map.get(&segment).into_iter().flatten().copied()
+mod sealed {
+    pub trait Sealed {}
+    impl Sealed for crate::graph_edit::GraphDelta {}
+    impl Sealed for crate::table_delta::TableDelta {}
 }
 
-/// The nodes whose fan conditions `delta` can change, as `held` sees them:
-/// added nodes, nodes whose metadata changes, the endpoints of deleted and
-/// added edges, and the sources of the edges `held` holds whose label
-/// changes.
-fn touched(delta: &GraphDelta, held: Option<&GraphSegment>) -> BTreeSet<u32> {
-    let mut nodes: BTreeSet<u32> = delta.add_nodes().keys().copied().collect();
-    for edge in delta.del_edges().values().chain(delta.add_edges().values()) {
-        nodes.insert(edge.src);
-        nodes.insert(edge.tgt);
-    }
-    for key in delta.attrs().keys() {
-        match key {
-            AttrKey::Meta { node } => {
-                nodes.insert(*node);
-            }
-            AttrKey::EdgeLabel { edge } => {
-                if let Some(held) = held.and_then(|h| h.edges.get(edge)) {
-                    nodes.insert(held.src);
-                }
-            }
-            _ => {}
-        }
-    }
-    nodes
-}
-
-/// What one segment reports to the coordinator about a delta.
-///
-/// `nodes` holds the nodes the segment owns that the delta deletes, changes
-/// or touches ([`touched`], which covers the added nodes and the endpoints
-/// of added edges); `edges` the edges it holds that the delta deletes, adds
-/// or changes, and every edge it holds incident to a node it owns that the
-/// delta deletes or touches; `stubs` every in-stub entering such a node, as
-/// its id, source, target and label.
-#[derive(Clone, Debug, Default)]
-struct Facts {
-    nodes: BTreeMap<u32, Node>,
-    edges: BTreeMap<EdgeId, GEdge>,
-    stubs: BTreeMap<EdgeId, (u32, u32, panproto_schema::Edge)>,
-}
-
-impl Facts {
-    /// The facts of `held` about `delta`.
-    fn of(held: &GraphSegment, delta: &GraphDelta) -> Self {
-        let mut named: BTreeSet<u32> = touched(delta, Some(held));
-        named.extend(delta.del_nodes().keys());
-        let incident: BTreeSet<u32> = named
-            .iter()
-            .copied()
-            .filter(|n| held.nodes.contains_key(n))
-            .collect();
-        named.extend(delta.attrs().keys().filter_map(|key| match key.element() {
-            ElemRef::Node(node) => Some(node),
-            _ => None,
-        }));
-        let named_edge = |id: &EdgeId| {
-            delta.del_edges().contains_key(id)
-                || delta.add_edges().contains_key(id)
-                || delta
-                    .attrs()
-                    .keys()
-                    .any(|key| key.element() == ElemRef::Edge(*id))
-        };
-        let nodes = held
-            .nodes
-            .iter()
-            .filter(|(id, _)| named.contains(id))
-            .map(|(id, node)| (*id, node.clone()))
-            .collect();
-        let edges = held
-            .edges
-            .iter()
-            .filter(|(id, edge)| {
-                named_edge(id) || incident.contains(&edge.src) || incident.contains(&edge.tgt)
-            })
-            .map(|(id, edge)| (*id, edge.clone()))
-            .collect();
-        let stubs = held
-            .boundary
-            .in_stubs
-            .iter()
-            .filter_map(|(elem, stub)| match elem {
-                ViewRef::Edge(id) if incident.contains(&stub.tgt) => {
-                    Some((*id, (stub.src, stub.tgt, stub.label.clone())))
-                }
-                _ => None,
-            })
-            .collect();
-        Self {
-            nodes,
-            edges,
-            stubs,
-        }
-    }
-
-    /// The facts' canonical bytes: the nodes as node records, the edges as
-    /// edge records, then the stubs as id, source, target and label, each
-    /// part counted and ascending by id.
-    fn bytes(&self) -> Vec<u8> {
-        let mut sink = CanonicalWriter::new();
-        sink.len(self.nodes.len());
-        for node in self.nodes.values() {
-            write_node_record(&mut sink, node);
-        }
-        sink.len(self.edges.len());
-        for (id, edge) in &self.edges {
-            write_edge_record(&mut sink, *id, edge);
-        }
-        sink.len(self.stubs.len());
-        for (id, (src, tgt, label)) in &self.stubs {
-            sink.u32(id.0);
-            sink.u32(*src);
-            sink.u32(*tgt);
-            sink.edge(label);
-        }
-        sink.into_bytes()
-    }
-
-    fn decode(bytes: &[u8]) -> Result<Self, SegmentError> {
-        let mut r = Reader::new(bytes, ArtifactKind::Summary);
-        let nodes = read_nodes(&mut r)?;
-        let edges = read_edges(&mut r)?;
-        let n = r.count(16)?;
-        let mut stubs = BTreeMap::new();
-        for _ in 0..n {
-            let id = EdgeId(r.u32()?);
-            if stubs.keys().next_back().is_some_and(|last| *last >= id) {
-                return Err(r.error("stubs are not strictly ascending"));
-            }
-            stubs.insert(id, (r.u32()?, r.u32()?, r.edge()?));
-        }
-        r.finish()?;
-        Ok(Self {
-            nodes,
-            edges,
-            stubs,
-        })
-    }
-}
-
-/// The graph the facts of the segments a delta reads describe: every
-/// reported node, every reported edge (a held edge's payload over an
-/// in-stub's copy), and a placeholder for every endpoint no fact reports.
-fn facts_graph<'f>(facts: impl IntoIterator<Item = &'f Facts>) -> Result<GInstance, EditError> {
-    let mut nodes: BTreeMap<u32, Node> = BTreeMap::new();
-    let mut edges: BTreeMap<EdgeId, GEdge> = BTreeMap::new();
-    let mut stubs: BTreeMap<EdgeId, GEdge> = BTreeMap::new();
-    for fact in facts {
-        nodes.extend(fact.nodes.iter().map(|(id, node)| (*id, node.clone())));
-        edges.extend(fact.edges.iter().map(|(id, edge)| (*id, edge.clone())));
-        stubs.extend(
-            fact.stubs
-                .iter()
-                .map(|(id, (src, tgt, label))| (*id, GEdge::new(*src, *tgt, label.clone()))),
-        );
-    }
-    for (id, stub) in stubs {
-        edges.entry(id).or_insert(stub);
-    }
-    for edge in edges.values() {
-        for end in [edge.src, edge.tgt] {
-            nodes
-                .entry(end)
-                .or_insert_with(|| Node::new(end, Name::default()));
-        }
-    }
-    let mut graph = GInstance::new();
-    for node in nodes.into_values() {
-        graph
-            .insert_node(node)
-            .map_err(|error| EditError::ApplyFailed(error.to_string()))?;
-    }
-    for (id, edge) in edges {
-        graph
-            .insert_edge(id, edge)
-            .map_err(|error| EditError::ApplyFailed(error.to_string()))?;
-    }
-    Ok(graph)
-}
-
-/// The whole-state refusal of `delta` on the family whose read segments
-/// reported `facts`, and then the refusals of laying the edited graph out
-/// under the family's partition: the least added node no range owns, then
-/// the least added edge id the seal floor rule refuses for the segment
-/// owning its source.
-fn check<'f>(
-    delta: &GraphDelta,
-    facts: impl IntoIterator<Item = &'f Facts> + Clone,
-    family: &FamilyIndex,
-) -> Result<(), SegmentedApplyError> {
-    let graph = facts_graph(facts.clone()).map_err(SegmentedApplyError::Edit)?;
-    delta
-        .check_local(&graph)
-        .map_err(SegmentedApplyError::Edit)?;
-    let mut edited = graph;
-    delta
-        .mutate(&mut edited)
-        .map_err(SegmentedApplyError::Edit)?;
-    let mut nodes = touched(delta, None);
-    for fact in facts {
-        for key in delta.attrs().keys() {
-            if let AttrKey::EdgeLabel { edge } = key
-                && let Some(held) = fact.edges.get(edge)
-            {
-                nodes.insert(held.src);
-            }
-        }
-    }
-    for node in nodes {
-        if let Some(reason) = FanDomain::violations_at(&edited, node, None)
-            .into_iter()
-            .next()
-        {
-            return Err(SegmentedApplyError::Edit(EditError::MalformedFan {
-                node,
-                reason,
-            }));
-        }
-    }
-    if let Some(node) = delta
-        .add_nodes()
-        .keys()
-        .find(|node| family.owner(**node).is_none())
-    {
-        return Err(SegmentedApplyError::Segment(SegmentError::Unowned {
-            elem: ViewRef::Node(*node),
-        }));
-    }
-    for (id, edge) in delta.add_edges() {
-        let holder = family.owner(edge.src).ok_or(SegmentError::Unowned {
-            elem: ViewRef::Edge(*id),
-        })?;
-        family.floor.check(holder, id.0)?;
-    }
-    Ok(())
-}
-
-/// The anchor of every node the facts report, as it is after `delta`.
-fn anchors_after<'f>(
-    delta: &GraphDelta,
-    facts: impl IntoIterator<Item = &'f Facts>,
-) -> BTreeMap<u32, Name> {
-    let mut anchors: BTreeMap<u32, Name> = BTreeMap::new();
-    for fact in facts {
-        anchors.extend(fact.nodes.iter().map(|(id, n)| (*id, n.anchor.clone())));
-    }
-    for (key, change) in delta.attrs() {
-        if let (AttrKey::Anchor { node }, crate::graph_edit::AttrVal::Anchor(anchor)) =
-            (key, &change.new)
-        {
-            anchors.insert(*node, anchor.clone());
-        }
-    }
-    anchors.extend(
-        delta
-            .add_nodes()
-            .iter()
-            .map(|(id, n)| (*id, n.anchor.clone())),
-    );
-    anchors
-}
-
-/// The segment `held` after `delta`, once the delta is checked: its own
-/// nodes and edges as the delta deletes, adds and changes them, a ghost for
-/// every remote target of its edges and an in-stub for every remote edge
-/// entering it, with the anchors after the delta (`anchors`, then the
-/// segment's own copies for the nodes the delta leaves alone).
-fn edit_segment(
-    held: &GraphSegment,
-    delta: &GraphDelta,
-    family: &FamilyIndex,
-    anchors: &BTreeMap<u32, Name>,
-) -> Result<GraphSegment, SegmentError> {
-    let here = held.segment;
-    let is_here = |node: u32| family.owner(node) == Some(here);
-    let mut nodes = held.nodes.clone();
-    let mut edges = held.edges.clone();
-    for id in delta.del_nodes().keys() {
-        nodes.remove(id);
-    }
-    for id in delta.del_edges().keys() {
-        edges.remove(id);
-    }
-    for (id, node) in delta.add_nodes() {
-        if is_here(*id) {
-            nodes.insert(*id, node.clone());
-        }
-    }
-    for (id, edge) in delta.add_edges() {
-        if is_here(edge.src) {
-            edges.insert(*id, edge.clone());
-        }
-    }
-    for (key, change) in delta.attrs() {
-        match key.element() {
-            ElemRef::Node(node) => {
-                if let Some(node) = nodes.get_mut(&node) {
-                    node.set(key, &change.new);
-                }
-            }
-            ElemRef::Edge(edge) => {
-                if let Some(edge) = edges.get_mut(&edge) {
-                    edge.set(key, &change.new);
-                }
-            }
-            _ => {}
-        }
-    }
-    let anchor = |node: u32| {
-        anchors
-            .get(&node)
-            .or_else(|| held.boundary.ghosts.get(&node).map(|g| &g.anchor))
-            .or_else(|| {
-                held.boundary
-                    .in_stubs
-                    .values()
-                    .find(|stub| stub.src == node)
-                    .map(|stub| &stub.src_anchor)
-            })
-            .cloned()
-            .unwrap_or_default()
-    };
-    let owner_or_refuse =
-        |node: u32, elem: ViewRef| family.owner(node).ok_or(SegmentError::Unowned { elem });
-    let mut boundary = Boundary::default();
-    for (id, edge) in &edges {
-        let owner = owner_or_refuse(edge.tgt, ViewRef::Edge(*id))?;
-        if owner != here {
-            boundary.ghosts.entry(edge.tgt).or_insert_with(|| Ghost {
-                node: edge.tgt,
-                owner,
-                anchor: anchor(edge.tgt),
-            });
-        }
-    }
-    for (elem, stub) in &held.boundary.in_stubs {
-        let ViewRef::Edge(id) = elem else {
-            return Err(SegmentError::InStubMismatch { elem: elem.clone() });
-        };
-        if delta.del_edges().contains_key(id) {
-            continue;
-        }
-        let mut stub = stub.clone();
-        if let Some(change) = delta.attrs().get(&AttrKey::EdgeLabel { edge: *id })
-            && let crate::graph_edit::AttrVal::Label(label) = &change.new
-        {
-            stub.label = label.clone();
-        }
-        stub.src_anchor = anchor(stub.src);
-        boundary.in_stubs.insert(elem.clone(), stub);
-    }
-    for (id, edge) in delta.add_edges() {
-        let src_owner = owner_or_refuse(edge.src, ViewRef::Edge(*id))?;
-        if is_here(edge.tgt) && src_owner != here {
-            boundary.in_stubs.insert(
-                ViewRef::Edge(*id),
-                InStub {
-                    src: edge.src,
-                    src_owner,
-                    src_anchor: anchor(edge.src),
-                    tgt: edge.tgt,
-                    label: edge.edge.clone(),
-                },
-            );
-        }
-    }
-    Ok(GraphSegment {
-        segment: here,
-        nodes,
-        edges,
-        boundary,
-    })
-}
-
-/// Apply `delta` to the graph held as `segments` under `partition`, reading
+/// A delta that a family of segments applies segment by segment, reading
 /// only the segments it can change.
 ///
+/// The facts a segment reports, and the refusal and rewriting computed from
+/// them, are exchanged as canonical bytes, the form a checkpointed run
+/// commits them in. The trait is sealed: it is implemented by
+/// [`GraphDelta`] and [`TableDelta`], whose implementations carry the proofs
+/// of the segmented edit laws.
+///
+/// [`GraphDelta`]: crate::graph_edit::GraphDelta
+/// [`TableDelta`]: crate::table_delta::TableDelta
+pub trait SegmentDelta: sealed::Sealed {
+    /// The segments of the instances the delta applies to.
+    type Segment: Clone;
+
+    /// The shape of those instances.
+    const SHAPE: InstanceShapeKind;
+
+    /// The operation bytes of its application in a run's identity
+    /// ([`RunJournal::run_digest`](super::RunJournal::run_digest)).
+    const OP: &'static [u8];
+
+    /// The digest naming the delta in a run's identity.
+    fn digest(&self) -> Digest;
+
+    /// The segments a segmented apply of the delta reads, and the only ones
+    /// it can rewrite, computed from the delta and `family` alone.
+    fn read_set(&self, family: &FamilyIndex) -> BTreeSet<SegmentId>;
+
+    /// The canonical bytes of the facts `held` reports about the delta.
+    fn facts(&self, held: &Self::Segment) -> Vec<u8>;
+
+    /// The refusal of the delta on the family whose read segments reported
+    /// `facts`: the whole-state refusal, then the refusal of laying the
+    /// edited instance out under the family's partition.
+    ///
+    /// # Errors
+    ///
+    /// That refusal, and [`SegmentError::Decode`] for malformed facts.
+    fn check_facts(
+        &self,
+        facts: &[Vec<u8>],
+        family: &FamilyIndex,
+    ) -> Result<(), SegmentedApplyError>;
+
+    /// The segment `held` after the delta, once [`Self::check_facts`] has passed
+    /// on `facts`, the facts of every read segment.
+    ///
+    /// # Errors
+    ///
+    /// [`SegmentError::Decode`] for malformed facts, and
+    /// [`SegmentError::Unowned`] for an element whose owner no range
+    /// gives, which a checked delta never names.
+    fn edit(
+        &self,
+        held: &Self::Segment,
+        facts: &[Vec<u8>],
+        family: &FamilyIndex,
+    ) -> Result<Self::Segment, SegmentError>;
+
+    /// The id of `segment`.
+    fn id(segment: &Self::Segment) -> SegmentId;
+
+    /// `segment` as a segment of any shape.
+    fn into_any(segment: Self::Segment) -> AnySegment;
+
+    /// `segment` as a segment of this delta's shape, `None` when it is of
+    /// another shape.
+    fn from_any(segment: AnySegment) -> Option<Self::Segment>;
+}
+
+/// Apply `delta` to the instance held as `segments` under `partition`,
+/// reading only the segments it can change.
+///
 /// The segments are checked as [`verify_partition`] checks them. The
-/// segments of [`FamilyIndex::read_set`] report their facts, the
-/// coordinator runs the whole-state checks of [`GraphDelta::check`] on them,
-/// and each of those segments is rewritten; every other segment is returned
-/// unchanged. Gluing the output under `partition` gives
-/// [`GraphDelta::apply`] of the glued input, and the output is the split of
-/// that graph under `partition` ([`partition_graph`]).
+/// segments of [`SegmentDelta::read_set`] report their facts, the
+/// coordinator runs the whole-state checks on them, and each of those
+/// segments is rewritten; every other segment is returned unchanged.
+/// Gluing the output under `partition` gives whole-state application
+/// ([`GraphDelta::apply`], [`TableDelta::apply`]) of the glued input, and
+/// the output is the split of that instance under `partition`
+/// ([`partition_graph`], [`partition_table`]).
 ///
 /// [`verify_partition`]: super::verify_partition
+/// [`GraphDelta::apply`]: crate::graph_edit::GraphDelta::apply
+/// [`TableDelta::apply`]: crate::table_delta::TableDelta::apply
 /// [`partition_graph`]: super::partition_graph
+/// [`partition_table`]: super::partition_table
 ///
 /// # Errors
 ///
 /// [`SegmentedApplyError::Segment`] with the error of `verify_partition`;
-/// then [`SegmentedApplyError::Edit`] with the refusal of
-/// [`GraphDelta::apply`] on the glued graph, the fan-domain check made at
-/// the nodes the delta touches; then [`SegmentedApplyError::Segment`] with
-/// [`SegmentError::Unowned`] for the least added node no range owns, and
-/// with the seal floor rule's refusal ([`EdgeFloor::check`]) for the least
-/// added edge id it refuses for the owner of the edge's source.
-pub fn graph_apply_segmented(
-    delta: &GraphDelta,
-    segments: &[GraphSegment],
+/// then the refusal of [`SegmentDelta::check_facts`]: the whole-state refusal as
+/// [`SegmentedApplyError::Edit`], then [`SegmentedApplyError::Segment`] with
+/// [`SegmentError::Unowned`] for the least added node or row no range owns,
+/// and, for a graph, with the seal floor rule's refusal
+/// ([`EdgeFloor::check`]) for the least added edge id it refuses for the
+/// owner of the edge's source.
+pub fn apply_segmented<D: SegmentDelta>(
+    delta: &D,
+    segments: &[D::Segment],
     partition: &Partition,
-) -> Result<Vec<GraphSegment>, SegmentedApplyError> {
-    let any: Vec<AnySegment> = segments.iter().cloned().map(AnySegment::Graph).collect();
+) -> Result<Vec<D::Segment>, SegmentedApplyError> {
+    let any: Vec<AnySegment> = segments.iter().cloned().map(D::into_any).collect();
     super::check::verify_partition(&any, partition)?;
-    let family = FamilyIndex::of_segments(segments, partition)?;
+    let family = FamilyIndex::of_segments(&any, partition)?;
     let read = family.read_set(delta);
-    let held: BTreeMap<SegmentId, &GraphSegment> =
-        segments.iter().map(|s| (s.segment, s)).collect();
-    let facts: Vec<Facts> = read
+    let held: BTreeMap<SegmentId, &D::Segment> = segments.iter().map(|s| (D::id(s), s)).collect();
+    let facts: Vec<Vec<u8>> = read
         .iter()
         .filter_map(|id| held.get(id))
-        .map(|segment| Facts::of(segment, delta))
+        .map(|segment| delta.facts(segment))
         .collect();
-    check(delta, &facts, &family)?;
-    let anchors = anchors_after(delta, &facts);
+    delta.check_facts(&facts, &family)?;
     let mut output = Vec::with_capacity(segments.len());
     for segment in partition.specs().iter().filter_map(|s| held.get(&s.id)) {
-        output.push(if read.contains(&segment.segment) {
-            edit_segment(segment, delta, &family, &anchors)?
+        output.push(if read.contains(&D::id(segment)) {
+            delta.edit(segment, &facts, &family)?
         } else {
             (*segment).clone()
         });
@@ -695,24 +330,24 @@ pub fn graph_apply_segmented(
     Ok(output)
 }
 
-/// Fresh ids for the nodes and edges a delta adds to one segment, drawn from
-/// the allocation ranges its partition assigns it.
+/// Fresh ids for the nodes (or rows) and edges a delta adds to one segment,
+/// drawn from the allocation ranges its partition assigns it.
 ///
 /// A node id is drawn from the segment's node allocation range above every
 /// node the segment owns in that range, so the segment owns it and holds no
 /// node under it; an edge id from its edge allocation range above every edge
 /// id the segment holds in that range, so no segment holds it and the seal
 /// floor rule admits it for an edge whose source the segment owns. A delta
-/// whose added nodes take node ids from the owner's allocator and whose added
-/// edges take edge ids from the allocator of their source's owner is refused
-/// by [`graph_apply_segmented`] for no id it adds.
+/// whose added nodes or rows take ids from the owner's allocator and whose
+/// added edges take edge ids from the allocator of their source's owner is
+/// refused by [`apply_segmented`] for no id it adds.
 ///
 /// ```
 /// use std::collections::BTreeMap;
 ///
 /// use panproto_inst::graph_edit::GraphDelta;
 /// use panproto_inst::segment::{
-///     Boundary, FreshIds, GraphSegment, IdRange, SegmentId, SegmentSpec,
+///     AnySegment, Boundary, FreshIds, GraphSegment, IdRange, SegmentId, SegmentSpec,
 /// };
 /// use panproto_inst::{EdgeId, GEdge, Node};
 /// use panproto_schema::Edge;
@@ -723,12 +358,12 @@ pub fn graph_apply_segmented(
 ///     alloc_nodes: Some(IdRange { lo: 50, hi: 99 }),
 ///     alloc_edges: Some(IdRange { lo: 1_000, hi: 1_999 }),
 /// };
-/// let segment = GraphSegment {
+/// let segment = AnySegment::Graph(GraphSegment {
 ///     segment: SegmentId(0),
 ///     nodes: BTreeMap::from([(50, Node::new(50, "person"))]),
 ///     edges: BTreeMap::new(),
 ///     boundary: Boundary::default(),
-/// };
+/// });
 /// let mut fresh = FreshIds::of(&segment, &spec)?;
 /// let node = fresh.node()?;
 /// let edge = fresh.edge()?;
@@ -759,17 +394,21 @@ impl FreshIds {
     ///
     /// [`SegmentError::InvertedRange`] when an allocation range of `spec`
     /// is inverted.
-    pub fn of(segment: &GraphSegment, spec: &SegmentSpec) -> Result<Self, SegmentError> {
+    pub fn of(segment: &AnySegment, spec: &SegmentSpec) -> Result<Self, SegmentError> {
         let nodes = spec
             .alloc_nodes
             .map(|range| range.check(spec.id))
             .transpose()?
-            .map(|range| IdAllocator::from_source(range, segment.nodes.keys().copied()));
+            .map(|range| {
+                IdAllocator::from_source(range, segment.node_anchors().into_iter().map(|(n, _)| n))
+            });
         let edges = spec
             .alloc_edges
             .map(|range| range.check(spec.id))
             .transpose()?
-            .map(|range| IdAllocator::from_source(range, segment.edges.keys().map(|e| e.0)));
+            .map(|range| {
+                IdAllocator::from_source(range, segment.edge_id_run().into_iter().map(|e| e.0))
+            });
         Ok(Self {
             segment: spec.id,
             nodes,
@@ -777,7 +416,7 @@ impl FreshIds {
         })
     }
 
-    /// A fresh node id.
+    /// A fresh node (or row) id.
     ///
     /// # Errors
     ///
@@ -813,56 +452,55 @@ fn draw(
 
 type ApplyStop = PhaseStop<SegmentedApplyError>;
 
-/// Graph delta application as a [`PhaseOperation`] over the segments the
-/// delta can change ([`FamilyIndex::read_set`] of the input manifest, the
+/// Delta application as a [`PhaseOperation`] over the segments the delta
+/// can change ([`SegmentDelta::read_set`] of the input manifest, the
 /// operation's affected set).
 ///
 /// - Validate keeps each read segment's canonical bytes, checked against the
 ///   input manifest.
 /// - Export writes nothing.
-/// - Summarize writes the segment's facts: the nodes, edges and in-stubs the
-///   whole-state checks read of it.
-/// - Assemble (the coordinator) glues the facts and returns the whole-state
-///   refusal, then the refusal of laying the result out under the
-///   partition; otherwise it writes nothing. It holds the facts, never a
-///   segment.
-/// - Emit rewrites the segment, reading the facts for the anchors of the
-///   nodes its new ghosts and in-stubs name, without a complement.
+/// - Summarize writes the segment's facts ([`SegmentDelta::facts`]).
+/// - Assemble (the coordinator) returns the refusal of
+///   [`SegmentDelta::check_facts`] on the facts; otherwise it writes nothing. It
+///   holds the facts, never a segment.
+/// - Emit rewrites the segment ([`SegmentDelta::edit`]), reading the facts
+///   for the anchors after the delta, without a complement.
 /// - Seal reseals the input manifest with the rewritten records as a
 ///   source, keeping every other record.
-pub struct GraphApply<'d> {
+pub struct SegmentApply<'d, D> {
     /// The delta.
-    pub delta: &'d GraphDelta,
+    pub delta: &'d D,
 }
 
-impl GraphApply<'_> {
-    fn validated(cx: &PhaseContext<'_>, segment: SegmentId) -> Result<GraphSegment, ApplyStop> {
+impl<D: SegmentDelta> SegmentApply<'_, D> {
+    fn validated(cx: &PhaseContext<'_>, segment: SegmentId) -> Result<D::Segment, ApplyStop> {
         let bytes = cx.artifact(Phase::Validate, Some(segment))?;
-        match AnySegment::from_canonical_bytes(&bytes, cx.partition())?.0 {
-            AnySegment::Graph(segment) => Ok(segment),
-            _ => Err(ApplyStop::from(SegmentError::Decode {
+        D::from_any(AnySegment::from_canonical_bytes(&bytes, cx.partition())?.0).ok_or_else(|| {
+            ApplyStop::from(SegmentError::Decode {
                 artifact: ArtifactKind::Segment,
-                message: "not a graph segment".to_owned(),
-            })),
-        }
+                message: "a segment of another shape".to_owned(),
+            })
+        })
     }
 
-    fn facts(cx: &PhaseContext<'_>) -> Result<Vec<Facts>, ApplyStop> {
+    fn facts(cx: &PhaseContext<'_>) -> Result<Vec<Vec<u8>>, ApplyStop> {
         let mut facts = Vec::new();
         for segment in cx.segments() {
-            facts.push(Facts::decode(
-                &cx.artifact(Phase::Summarize, Some(segment))?,
-            )?);
+            facts.push(cx.artifact(Phase::Summarize, Some(segment))?);
         }
         Ok(facts)
     }
 }
 
-impl PhaseOperation for GraphApply<'_> {
+impl<D: SegmentDelta> PhaseOperation for SegmentApply<'_, D> {
     type Error = SegmentedApplyError;
 
     fn op(&self) -> &'static [u8] {
-        GRAPH_APPLY_OP
+        D::OP
+    }
+
+    fn shape(&self) -> InstanceShapeKind {
+        D::SHAPE
     }
 
     fn segment_op(&self) -> SegmentOp {
@@ -884,22 +522,22 @@ impl PhaseOperation for GraphApply<'_> {
     }
 
     fn summarize(&self, cx: &PhaseContext<'_>, segment: SegmentId) -> Result<Vec<u8>, ApplyStop> {
-        Ok(Facts::of(&Self::validated(cx, segment)?, self.delta).bytes())
+        Ok(self.delta.facts(&Self::validated(cx, segment)?))
     }
 
     fn assemble(&self, cx: &PhaseContext<'_>) -> Result<Vec<u8>, ApplyStop> {
         let family = FamilyIndex::of_manifest(cx.input())?;
-        let facts = Self::facts(cx)?;
-        check(self.delta, &facts, &family).map_err(ApplyStop::Failed)?;
+        self.delta
+            .check_facts(&Self::facts(cx)?, &family)
+            .map_err(ApplyStop::Failed)?;
         Ok(Vec::new())
     }
 
     fn emit(&self, cx: &PhaseContext<'_>, segment: SegmentId) -> Result<Emission, ApplyStop> {
         let family = FamilyIndex::of_manifest(cx.input())?;
-        let anchors = anchors_after(self.delta, &Self::facts(cx)?);
         let held = Self::validated(cx, segment)?;
         Ok(Emission {
-            segment: edit_segment(&held, self.delta, &family, &anchors)?,
+            segment: D::into_any(self.delta.edit(&held, &Self::facts(cx)?, &family)?),
             complement: None,
         })
     }
@@ -909,37 +547,38 @@ impl PhaseOperation for GraphApply<'_> {
     }
 }
 
-/// The outcome of [`graph_apply_run`].
-pub type GraphApplyRun = SegmentedRun<SegmentedApplyError>;
+/// The outcome of [`apply_run`].
+pub type ApplyRun = SegmentedRun<SegmentedApplyError>;
 
-/// Apply `delta` to the graph the input manifest `input` seals as a
+/// Apply `delta` to the instance the input manifest `input` seals as a
 /// checkpointed run.
 ///
-/// The run is [`run_segmented`] of [`GraphApply`], reading its segments from
-/// `source` and committing to `store`, with `spec.lens` replaced by the
-/// delta's digest ([`GraphDelta::digest`]), so the run's identity names the
-/// delta, and `spec.output_schema` by the input's schema. It reads only the
-/// segments of [`FamilyIndex::read_set`], `4k + 2` tasks for `k` of them, and
-/// a segment it does not read keeps its record in the output manifest. A
-/// refused delta ends at Assemble with the whole-state refusal, before any
-/// Emit task, so it seals nothing and every segment is left as it was. A
-/// complete run emits each rewritten segment ([`read_emitted`]); gluing them
-/// with the unread input segments gives [`GraphDelta::apply`] of the glued
-/// input, and the output manifest is the seal of that graph's split under
-/// the input's partition as a source, without an instance digest.
+/// The run is [`run_segmented`] of [`SegmentApply`], reading its segments
+/// from `source` and committing to `store`, with `spec.lens` replaced by the
+/// delta's digest ([`SegmentDelta::digest`]), so the run's identity names
+/// the delta, and `spec.output_schema` by the input's schema. It reads only
+/// the segments of [`SegmentDelta::read_set`], `4k + 2` tasks for `k` of
+/// them, and a segment it does not read keeps its record in the output
+/// manifest. A refused delta ends at Assemble with the refusal of
+/// [`apply_segmented`], before any Emit task, so it seals nothing and every
+/// segment is left as it was. A complete run emits each rewritten segment
+/// ([`read_emitted_segment`]); gluing them with the unread input segments
+/// gives whole-state application to the glued input, and the output
+/// manifest is the seal of that instance's split under the input's
+/// partition as a source, without an instance digest.
 ///
-/// [`read_emitted`]: super::read_emitted
-pub fn graph_apply_run<Src: SegmentSource, St: SegmentStore>(
-    delta: &GraphDelta,
+/// [`read_emitted_segment`]: super::read_emitted_segment
+pub fn apply_run<D: SegmentDelta, Src: SegmentSource, St: SegmentStore>(
+    delta: &D,
     input: &SegmentManifest,
     source: &Src,
     spec: RunSpec,
     budget: Budget,
     store: &mut St,
     progress: &mut dyn FnMut(&Progress),
-) -> GraphApplyRun {
+) -> ApplyRun {
     run_segmented(
-        &GraphApply { delta },
+        &SegmentApply { delta },
         input,
         source,
         RunSpec {
