@@ -103,11 +103,11 @@ pub enum ElementaryRefusal {
     /// pair in edge order.
     IdentifiesEdges {
         /// The lesser edge.
-        first: SEdge,
+        first: Box<SEdge>,
         /// The greater edge.
-        second: SEdge,
+        second: Box<SEdge>,
         /// Their common image.
-        image: SEdge,
+        image: Box<SEdge>,
     },
 }
 
@@ -168,7 +168,7 @@ impl ElementaryProtolens {
             Self::RenameSort { old, new } => relabel(
                 schema,
                 &BTreeMap::from([(old.clone(), new.clone())]),
-                |edge| edge.clone(),
+                SEdge::clone,
             ),
             Self::RenameOp { old, new } => {
                 relabel(schema, &BTreeMap::new(), |edge| rename_kind(edge, old, new))
@@ -195,7 +195,7 @@ impl ElementaryProtolens {
                 })
             }
             Self::AddEquation | Self::DropEquation => {
-                relabel(schema, &BTreeMap::new(), |edge| edge.clone())
+                relabel(schema, &BTreeMap::new(), SEdge::clone)
             }
             Self::DropSort(name) => Ok(restrict(
                 schema,
@@ -269,9 +269,9 @@ pub fn relabel(
         let image = edge_image(edge);
         if let Some(first) = preimage.insert(image.clone(), edge.clone()) {
             return Err(ElementaryRefusal::IdentifiesEdges {
-                first,
-                second: edge.clone(),
-                image,
+                first: Box::new(first),
+                second: Box::new(edge.clone()),
+                image: Box::new(image),
             });
         }
         if image != *edge {
@@ -312,10 +312,12 @@ pub fn relabel(
     Ok((target, migration))
 }
 
-/// Definition: A restriction keeps the vertices `keep_vertex` admits (by id
-/// and kind), the edges `keep_edge` admits between kept vertices, and the
-/// hyper-edges `keep_hyper` admits (by kind) whose signature vertices are all
-/// kept; the migration is the inclusion of the kept subschema.
+/// Definition: A restriction keeps a subschema; the migration is its
+/// inclusion.
+///
+/// It keeps the vertices `keep_vertex` admits (by id and kind), the edges
+/// `keep_edge` admits between kept vertices, and the hyper-edges
+/// `keep_hyper` admits (by kind) whose signature vertices are all kept.
 ///
 /// Book anchors: `L-lenses-21`.
 pub fn restrict(
@@ -372,10 +374,12 @@ pub fn restrict(
     (target, migration)
 }
 
-/// Definition: An extension adds a vertex (replacing the kind of a vertex
-/// with that id) and an edge whose endpoints are both vertices of the
-/// extended schema; every source vertex and edge survives under its own
-/// name.
+/// Definition: An extension adds a vertex and an edge; every source vertex
+/// and edge survives under its own name.
+///
+/// The added vertex replaces the kind of a vertex with its id, and the edge
+/// is added only when both its endpoints are vertices of the extended
+/// schema.
 ///
 /// Book anchors: `L-lenses-21`.
 #[must_use]

@@ -5935,9 +5935,11 @@ pub const ELEMENTARY_SOURCE_BOUND: (usize, usize) = (2, 2);
 /// Most nodes and edges in a put view.
 pub const ELEMENTARY_VIEW_BOUND: (usize, usize) = (2, 1);
 
-/// The elementary protolens alphabet of the L-lenses-21 certificate, one
-/// entry per kind the lens DSL's step alphabet compiles to, with a second
-/// parameterization where a kind has a refusal or collision boundary.
+/// The elementary protolens alphabet of the L-lenses-21 certificate.
+///
+/// It has one entry per kind the lens DSL's step alphabet compiles to, with
+/// a second parameterization where a kind has a refusal or collision
+/// boundary.
 ///
 /// In order: rename sort `s` to the fresh `u` and onto the present `t`;
 /// rename operation `p` to the fresh `r` and onto the present `q`; rename
