@@ -371,17 +371,29 @@ fn positions(value: &Value, prefix: &mut Vec<usize>, out: &mut Vec<Vec<usize>>) 
 /// order.
 #[must_use]
 pub fn shape_documents() -> (Vec<String>, Vec<String>, Vec<String>) {
+    mutations(SHAPE_BASES, REPLACEMENTS)
+}
+
+/// The grammar mutations of `bases`: for each base document and each
+/// position in it, every replacement of `replacements` (JSON text in which
+/// `@` stands for the value replaced), then the removal of each object
+/// member and the addition of an unknown member `zz` to each object.
+///
+/// Returns `(replacements, removals, additions)`, the three families in that
+/// order. A base that is not JSON text contributes nothing.
+#[must_use]
+pub fn mutations(bases: &[&str], replacements: &[&str]) -> (Vec<String>, Vec<String>, Vec<String>) {
     let mut replaced = Vec::new();
     let mut removed = Vec::new();
     let mut added = Vec::new();
-    for base in SHAPE_BASES {
+    for base in bases {
         let Some(root) = crate::json::parse(base) else {
             continue;
         };
         let mut all = Vec::new();
         positions(&root, &mut Vec::new(), &mut all);
         for steps in &all {
-            for replacement in REPLACEMENTS {
+            for replacement in replacements {
                 let swap = |v: &Value| crate::json::parse(&replacement.replace('@', &to_text(v)));
                 if let Some(doc) = edit(&root, steps, &swap) {
                     replaced.push(to_text(&doc));

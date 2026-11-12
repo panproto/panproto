@@ -136,6 +136,7 @@ mod blake3_ref;
 pub mod bytes;
 pub mod canonical;
 pub mod coerce;
+pub mod dsl_path;
 pub mod edit;
 pub mod encode;
 pub mod enumerate;
