@@ -9,7 +9,13 @@
 //! versions, parameter locations and styles, examples, scopes, the
 //! specification extensions) describes the API and constrains no instance.
 //!
-//! The `asyncapi` and `raml` schema keywords are JSON Schema's: string
+//! An `asyncapi` constraint holds a field's value, a binding, or a Schema
+//! Object keyword's value, as canonical JSON text, and reads as an
+//! `openapi` one does: the Schema Object keywords bound string lengths in
+//! code points and numbers inclusively, and every other sort describes the
+//! API and constrains no instance.
+//!
+//! The `raml` schema keywords are JSON Schema's: string
 //! lengths count Unicode code points and `format` names a value format of
 //! the protocol's family. `default` and `deprecated` describe and do not
 //! constrain. The JSON:API `required` sort is written both as a
@@ -21,7 +27,6 @@
 //! record or list type has no value of its own, so reading the flag as a
 //! required value would refute every valid instance that holds one.
 
-use panproto_gat::Name;
 use panproto_schema::{ConstraintSemantics, LengthUnit};
 
 use super::ConstraintRow;
@@ -182,12 +187,180 @@ pub(super) const ROWS: &[ConstraintRow] = &[
     row("openapi", "externalDocs", || {
         ConstraintSemantics::Annotation
     }),
-    row("asyncapi", "required", || ConstraintSemantics::Annotation),
-    row("asyncapi", "format", || {
-        ConstraintSemantics::Format(Name::from("asyncapi"))
+    row("asyncapi", "title", || ConstraintSemantics::Annotation),
+    row("asyncapi", "summary", || ConstraintSemantics::Annotation),
+    row("asyncapi", "description", || {
+        ConstraintSemantics::Annotation
     }),
-    row("asyncapi", "enum", || ConstraintSemantics::Enum),
+    row("asyncapi", "tags", || ConstraintSemantics::Annotation),
+    row("asyncapi", "security", || ConstraintSemantics::Annotation),
+    row("asyncapi", "enum", || ConstraintSemantics::Annotation),
     row("asyncapi", "default", || ConstraintSemantics::Annotation),
+    row("asyncapi", "examples", || ConstraintSemantics::Annotation),
+    row("asyncapi", "contentType", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("asyncapi", "name", || ConstraintSemantics::Annotation),
+    row("asyncapi", "location", || ConstraintSemantics::Annotation),
+    row("asyncapi", "asyncapi", || ConstraintSemantics::Annotation),
+    row("asyncapi", "id", || ConstraintSemantics::Annotation),
+    row("asyncapi", "servers", || ConstraintSemantics::Annotation),
+    row("asyncapi", "defaultContentType", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("asyncapi", "channels", || ConstraintSemantics::Annotation),
+    row("asyncapi", "operations", || ConstraintSemantics::Annotation),
+    row("asyncapi", "version", || ConstraintSemantics::Annotation),
+    row("asyncapi", "termsOfService", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("asyncapi", "url", || ConstraintSemantics::Annotation),
+    row("asyncapi", "email", || ConstraintSemantics::Annotation),
+    row("asyncapi", "host", || ConstraintSemantics::Annotation),
+    row("asyncapi", "protocol", || ConstraintSemantics::Annotation),
+    row("asyncapi", "protocolVersion", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("asyncapi", "pathname", || ConstraintSemantics::Annotation),
+    row("asyncapi", "variables", || ConstraintSemantics::Annotation),
+    row("asyncapi", "address", || ConstraintSemantics::Annotation),
+    row("asyncapi", "messages", || ConstraintSemantics::Annotation),
+    row("asyncapi", "parameters", || ConstraintSemantics::Annotation),
+    row("asyncapi", "action", || ConstraintSemantics::Annotation),
+    row("asyncapi", "traits", || ConstraintSemantics::Annotation),
+    row("asyncapi", "headers", || ConstraintSemantics::Annotation),
+    row("asyncapi", "payload", || ConstraintSemantics::Annotation),
+    row("asyncapi", "schemas", || ConstraintSemantics::Annotation),
+    row("asyncapi", "securitySchemes", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("asyncapi", "serverVariables", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("asyncapi", "correlationIds", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("asyncapi", "replies", || ConstraintSemantics::Annotation),
+    row("asyncapi", "replyAddresses", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("asyncapi", "externalDocs", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("asyncapi", "operationTraits", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("asyncapi", "messageTraits", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("asyncapi", "serverBindings", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("asyncapi", "channelBindings", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("asyncapi", "operationBindings", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("asyncapi", "messageBindings", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("asyncapi", "schemaFormat", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("asyncapi", "type", || ConstraintSemantics::Annotation),
+    row("asyncapi", "in", || ConstraintSemantics::Annotation),
+    row("asyncapi", "scheme", || ConstraintSemantics::Annotation),
+    row("asyncapi", "bearerFormat", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("asyncapi", "openIdConnectUrl", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("asyncapi", "scopes", || ConstraintSemantics::Annotation),
+    row("asyncapi", "authorizationUrl", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("asyncapi", "tokenUrl", || ConstraintSemantics::Annotation),
+    row("asyncapi", "refreshUrl", || ConstraintSemantics::Annotation),
+    row("asyncapi", "availableScopes", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("asyncapi", "http", || ConstraintSemantics::Annotation),
+    row("asyncapi", "ws", || ConstraintSemantics::Annotation),
+    row("asyncapi", "kafka", || ConstraintSemantics::Annotation),
+    row("asyncapi", "anypointmq", || ConstraintSemantics::Annotation),
+    row("asyncapi", "amqp", || ConstraintSemantics::Annotation),
+    row("asyncapi", "amqp1", || ConstraintSemantics::Annotation),
+    row("asyncapi", "mqtt", || ConstraintSemantics::Annotation),
+    row("asyncapi", "mqtt5", || ConstraintSemantics::Annotation),
+    row("asyncapi", "nats", || ConstraintSemantics::Annotation),
+    row("asyncapi", "jms", || ConstraintSemantics::Annotation),
+    row("asyncapi", "sns", || ConstraintSemantics::Annotation),
+    row("asyncapi", "solace", || ConstraintSemantics::Annotation),
+    row("asyncapi", "sqs", || ConstraintSemantics::Annotation),
+    row("asyncapi", "stomp", || ConstraintSemantics::Annotation),
+    row("asyncapi", "redis", || ConstraintSemantics::Annotation),
+    row("asyncapi", "mercure", || ConstraintSemantics::Annotation),
+    row("asyncapi", "ibmmq", || ConstraintSemantics::Annotation),
+    row("asyncapi", "googlepubsub", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("asyncapi", "pulsar", || ConstraintSemantics::Annotation),
+    row("asyncapi", "ros2", || ConstraintSemantics::Annotation),
+    row("asyncapi", "extension", || ConstraintSemantics::Annotation),
+    row("asyncapi", "ignored", || ConstraintSemantics::Annotation),
+    row("asyncapi", "$comment", || ConstraintSemantics::Annotation),
+    row("asyncapi", "const", || ConstraintSemantics::Annotation),
+    row("asyncapi", "multipleOf", || ConstraintSemantics::Annotation),
+    row("asyncapi", "maximum", || ConstraintSemantics::Maximum),
+    row("asyncapi", "exclusiveMaximum", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("asyncapi", "minimum", || ConstraintSemantics::Minimum),
+    row("asyncapi", "exclusiveMinimum", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("asyncapi", "maxLength", || {
+        ConstraintSemantics::MaxLength(LengthUnit::Chars)
+    }),
+    row("asyncapi", "minLength", || {
+        ConstraintSemantics::MinLength(LengthUnit::Chars)
+    }),
+    row("asyncapi", "pattern", || ConstraintSemantics::Annotation),
+    row("asyncapi", "maxItems", || ConstraintSemantics::Annotation),
+    row("asyncapi", "minItems", || ConstraintSemantics::Annotation),
+    row("asyncapi", "uniqueItems", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("asyncapi", "maxProperties", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("asyncapi", "minProperties", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("asyncapi", "required", || ConstraintSemantics::Annotation),
+    row("asyncapi", "format", || ConstraintSemantics::Annotation),
+    row("asyncapi", "contentEncoding", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("asyncapi", "contentMediaType", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("asyncapi", "readOnly", || ConstraintSemantics::Annotation),
+    row("asyncapi", "writeOnly", || ConstraintSemantics::Annotation),
+    row("asyncapi", "definitions", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("asyncapi", "properties", || ConstraintSemantics::Annotation),
+    row("asyncapi", "patternProperties", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("asyncapi", "annotation", || ConstraintSemantics::Annotation),
+    row("asyncapi", "discriminator", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("asyncapi", "deprecated", || ConstraintSemantics::Annotation),
     row("jsonapi", "required", || ConstraintSemantics::Annotation),
     row("raml", "required", || ConstraintSemantics::Annotation),
     row("raml", "pattern", || ConstraintSemantics::Pattern),

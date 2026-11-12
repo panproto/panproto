@@ -1,0 +1,21 @@
+asyncapi: 3.1.0
+info:
+  title: T
+  version: 1.0.0
+channels:
+  c:
+    messages:
+      m:
+        $ref: "#/components/messages/m"
+operations:
+  o:
+    action: send
+    channel:
+      $ref: "#/channels/c"
+    messages:
+      - $ref: "#/components/messages/m"
+components:
+  messages:
+    m:
+      payload:
+        type: string

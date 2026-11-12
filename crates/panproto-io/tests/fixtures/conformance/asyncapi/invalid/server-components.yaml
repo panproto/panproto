@@ -1,0 +1,13 @@
+asyncapi: 3.1.0
+info:
+  title: T
+  version: 1.0.0
+channels:
+  c:
+    servers:
+      - $ref: "#/components/servers/s"
+components:
+  servers:
+    s:
+      host: h
+      protocol: mqtt

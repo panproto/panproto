@@ -280,6 +280,7 @@ fn a_protocol_read_through_a_grammar_names_its_reader() {
         grammar_read,
         [
             ("ansible", "panproto_io::config::ansible::read_ansible"),
+            ("asyncapi", "panproto_io::api::asyncapi::read_asyncapi"),
             (
                 "cloudformation",
                 "panproto_io::config::cloudformation::read_template"

@@ -1,11 +1,13 @@
 //! Value-kind rows for the API description protocols (`openapi`,
-//! `graphql`).
+//! `asyncapi`, `graphql`).
 //!
 //! An `openapi` Schema Object is a `json-schema` subschema and holds what it
 //! holds there: a `string` vertex a string, a `boolean` vertex a boolean,
 //! and the numeric, `null`, `union`, `any`, `true` and `false` vertices the
 //! open kind. Every other object of an `OpenAPI` description, and an
-//! `object` or `array` subschema, holds no scalar.
+//! `object` or `array` subschema, holds no scalar. An `asyncapi` Schema
+//! Object is a `json-schema` subschema too, with the same rows, and every
+//! other object of an `AsyncAPI` description holds no scalar.
 //!
 //! Every GraphQL scalar type, built-in or custom, is a `scalar` vertex, so
 //! the vertex kind alone does not say which scalar it is; `scalar` holds
@@ -59,6 +61,51 @@ pub(super) const ROWS: &[ValueKindRow] = &[
     },
     ValueKindRow {
         protocol: "openapi",
+        vertex_kind: "false",
+        kind: ScalarKind::Any,
+    },
+    ValueKindRow {
+        protocol: "asyncapi",
+        vertex_kind: "string",
+        kind: ScalarKind::Str,
+    },
+    ValueKindRow {
+        protocol: "asyncapi",
+        vertex_kind: "boolean",
+        kind: ScalarKind::Bool,
+    },
+    ValueKindRow {
+        protocol: "asyncapi",
+        vertex_kind: "integer",
+        kind: ScalarKind::Any,
+    },
+    ValueKindRow {
+        protocol: "asyncapi",
+        vertex_kind: "number",
+        kind: ScalarKind::Any,
+    },
+    ValueKindRow {
+        protocol: "asyncapi",
+        vertex_kind: "null",
+        kind: ScalarKind::Any,
+    },
+    ValueKindRow {
+        protocol: "asyncapi",
+        vertex_kind: "union",
+        kind: ScalarKind::Any,
+    },
+    ValueKindRow {
+        protocol: "asyncapi",
+        vertex_kind: "any",
+        kind: ScalarKind::Any,
+    },
+    ValueKindRow {
+        protocol: "asyncapi",
+        vertex_kind: "true",
+        kind: ScalarKind::Any,
+    },
+    ValueKindRow {
+        protocol: "asyncapi",
         vertex_kind: "false",
         kind: ScalarKind::Any,
     },
@@ -190,6 +237,126 @@ pub(super) const NON_SCALAR: &[NonScalarRow] = &[
     },
     NonScalarRow {
         protocol: "openapi",
+        vertex_kind: "array",
+    },
+    NonScalarRow {
+        protocol: "asyncapi",
+        vertex_kind: "asyncapi",
+    },
+    NonScalarRow {
+        protocol: "asyncapi",
+        vertex_kind: "info",
+    },
+    NonScalarRow {
+        protocol: "asyncapi",
+        vertex_kind: "contact",
+    },
+    NonScalarRow {
+        protocol: "asyncapi",
+        vertex_kind: "license",
+    },
+    NonScalarRow {
+        protocol: "asyncapi",
+        vertex_kind: "server",
+    },
+    NonScalarRow {
+        protocol: "asyncapi",
+        vertex_kind: "server-variable",
+    },
+    NonScalarRow {
+        protocol: "asyncapi",
+        vertex_kind: "channel",
+    },
+    NonScalarRow {
+        protocol: "asyncapi",
+        vertex_kind: "operation",
+    },
+    NonScalarRow {
+        protocol: "asyncapi",
+        vertex_kind: "operation-trait",
+    },
+    NonScalarRow {
+        protocol: "asyncapi",
+        vertex_kind: "operation-reply",
+    },
+    NonScalarRow {
+        protocol: "asyncapi",
+        vertex_kind: "operation-reply-address",
+    },
+    NonScalarRow {
+        protocol: "asyncapi",
+        vertex_kind: "parameter",
+    },
+    NonScalarRow {
+        protocol: "asyncapi",
+        vertex_kind: "server-bindings",
+    },
+    NonScalarRow {
+        protocol: "asyncapi",
+        vertex_kind: "channel-bindings",
+    },
+    NonScalarRow {
+        protocol: "asyncapi",
+        vertex_kind: "operation-bindings",
+    },
+    NonScalarRow {
+        protocol: "asyncapi",
+        vertex_kind: "message-bindings",
+    },
+    NonScalarRow {
+        protocol: "asyncapi",
+        vertex_kind: "message",
+    },
+    NonScalarRow {
+        protocol: "asyncapi",
+        vertex_kind: "message-trait",
+    },
+    NonScalarRow {
+        protocol: "asyncapi",
+        vertex_kind: "message-example",
+    },
+    NonScalarRow {
+        protocol: "asyncapi",
+        vertex_kind: "tag",
+    },
+    NonScalarRow {
+        protocol: "asyncapi",
+        vertex_kind: "external-docs",
+    },
+    NonScalarRow {
+        protocol: "asyncapi",
+        vertex_kind: "components",
+    },
+    NonScalarRow {
+        protocol: "asyncapi",
+        vertex_kind: "multi-format-schema",
+    },
+    NonScalarRow {
+        protocol: "asyncapi",
+        vertex_kind: "security-scheme",
+    },
+    NonScalarRow {
+        protocol: "asyncapi",
+        vertex_kind: "oauth-flows",
+    },
+    NonScalarRow {
+        protocol: "asyncapi",
+        vertex_kind: "oauth-flow",
+    },
+    NonScalarRow {
+        protocol: "asyncapi",
+        vertex_kind: "correlation-id",
+    },
+    NonScalarRow {
+        protocol: "asyncapi",
+        vertex_kind: "reference",
+    },
+    NonScalarRow {
+        protocol: "asyncapi",
+        vertex_kind: "object",
+    },
+    NonScalarRow {
+        protocol: "asyncapi",
         vertex_kind: "array",
     },
     NonScalarRow {

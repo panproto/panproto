@@ -1,0 +1,10 @@
+asyncapi: 3.1.0
+info:
+  title: T
+  version: 1.0.0
+components:
+  messages:
+    a:
+      $ref: "#/components/messages/b"
+    b:
+      $ref: "#/components/messages/a"

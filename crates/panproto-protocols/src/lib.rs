@@ -442,11 +442,12 @@ mod dispatch_tests {
 
     #[test]
     fn parser_protocol_lists_have_expected_sizes() {
-        assert_eq!(document_parser_protocols().len(), 37);
+        assert_eq!(document_parser_protocols().len(), 36);
         assert_eq!(source_parser_protocols().len(), 10);
         assert!(document_parser_protocols().contains(&"atproto"));
         assert!(!document_parser_protocols().contains(&"json-schema"));
         assert!(!document_parser_protocols().contains(&"openapi"));
+        assert!(!document_parser_protocols().contains(&"asyncapi"));
         assert!(source_parser_protocols().contains(&"graphql"));
         assert!(!source_parser_protocols().contains(&"postgresql"));
         assert!(source_parser_protocols().contains(&"protobuf"));
