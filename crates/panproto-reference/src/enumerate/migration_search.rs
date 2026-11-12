@@ -15,7 +15,9 @@ pub const EDGE_KIND: &str = "prop";
 /// The edge names of the scope: an unnamed edge and the name `n`.
 pub const EDGE_NAMES: &[Option<&str>] = &[None, Some("n")];
 
-/// Every schema with at least one and at most `max_vertices` vertices drawn
+/// Every schema of the scope up to the given size.
+///
+/// A schema has at least one and at most `max_vertices` vertices drawn
 /// from [`VERTEX_IDS`], each of a kind in [`VERTEX_KINDS`], and at most
 /// `max_edges` edges, each of kind [`EDGE_KIND`] with a name in
 /// [`EDGE_NAMES`] between an ordered pair of its vertices (loops included).
