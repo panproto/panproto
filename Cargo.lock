@@ -2357,6 +2357,7 @@ dependencies = [
  "panproto-gat",
  "panproto-lens",
  "panproto-protocols",
+ "panproto-reference",
  "panproto-schema",
  "proptest",
  "rustc-hash",

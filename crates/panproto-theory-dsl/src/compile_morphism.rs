@@ -22,7 +22,8 @@ use crate::path::DocumentPath;
 /// Returns [`TheoryDslError::TheoryNotFound`] if domain or codomain
 /// cannot be resolved, [`TheoryDslError::UnknownMapKey`] for the least
 /// key (sort map before operation map) that names no symbol of the domain,
-/// or [`TheoryDslError::MorphismCheck`] if the morphism fails validation.
+/// or [`TheoryDslError::MorphismCheck`] if the morphism fails validation,
+/// located at the map entry refused (see the book's theory DSL semantics).
 pub fn compile_morphism(
     spec: &MorphismSpec,
     resolver: &dyn Fn(&str) -> Option<Theory>,
@@ -88,11 +89,63 @@ pub fn compile_morphism(
     );
 
     panproto_gat::check_morphism(&morphism, &domain, &codomain).map_err(|e| {
+        let at = refused_entry(&e, spec, &domain);
         TheoryDslError::MorphismCheck {
             morphism: spec.morphism.clone(),
             error: e,
         }
+        .within(&at)
     })?;
 
     Ok(morphism)
+}
+
+/// The path, relative to the spec, of the map entry a morphism check
+/// refuses.
+///
+/// [`panproto_gat::check_morphism`] checks the domain's sorts in order and
+/// then its operations in order, so a refusal that names a target symbol
+/// belongs to the first domain symbol mapped to it. A missing entry is
+/// located at the map that lacks it, an entry refused for the symbol it
+/// maps at that entry, and a refusal of an equation, which no entry of the
+/// spec states, at the spec itself.
+fn refused_entry(
+    error: &panproto_gat::GatError,
+    spec: &MorphismSpec,
+    domain: &Theory,
+) -> DocumentPath {
+    use panproto_gat::GatError;
+    let root = DocumentPath::root();
+    let first_mapped_to = |map: &HashMap<String, String>, names: Vec<&str>, target: &str| {
+        names
+            .into_iter()
+            .find(|name| map.get(*name).is_some_and(|image| image == target))
+            .map(str::to_owned)
+    };
+    let entry = match error {
+        GatError::MissingSortMapping(_) => return root.key("sort_map"),
+        GatError::MissingOpMapping(_) => return root.key("op_map"),
+        GatError::SortArityMismatch { sort, .. }
+        | GatError::SortKindMismatch { sort, .. }
+        | GatError::SortParamMismatch { sort, .. }
+        | GatError::MorphismClosureMismatch { sort, .. } => Some(("sort_map", sort.clone())),
+        GatError::SortNotFound(target) => first_mapped_to(
+            &spec.sort_map,
+            domain.sorts.iter().map(|s| &*s.name).collect(),
+            target,
+        )
+        .map(|name| ("sort_map", name)),
+        GatError::OpNotFound(target) => first_mapped_to(
+            &spec.op_map,
+            domain.ops.iter().map(|o| &*o.name).collect(),
+            target,
+        )
+        .map(|name| ("op_map", name)),
+        GatError::OpTypeMismatch { op, .. }
+        | GatError::TermAssignmentUnboundVar { op, .. }
+        | GatError::TermAssignmentSortMismatch { op, .. }
+        | GatError::TermAssignmentIllTyped { op, .. } => Some(("op_map", op.clone())),
+        _ => None,
+    };
+    entry.map_or(root, |(map, name)| DocumentPath::root().key(map).key(&name))
 }

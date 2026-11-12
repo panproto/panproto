@@ -6,12 +6,28 @@ use thiserror::Error;
 /// Errors arising from loading, evaluating, or compiling lens documents.
 #[derive(Debug, Error, Diagnostic)]
 pub enum LensDslError {
-    /// Nickel evaluation failed.
+    /// Nickel evaluation failed, with no source span in the evaluated
+    /// text (for instance, an error inside an imported module).
     #[error("nickel evaluation failed: {message}")]
     #[diagnostic(code(panproto_lens_dsl::nickel_eval))]
     NickelEval {
         /// Human-readable error message from the Nickel evaluator.
         message: String,
+    },
+
+    /// Nickel evaluation failed at a place in the evaluated text, which
+    /// Nickel's own diagnostic locates.
+    #[error("nickel evaluation failed: {message}")]
+    #[diagnostic(code(panproto_lens_dsl::nickel_eval_spanned))]
+    NickelEvalSpanned {
+        /// Human-readable error message from the Nickel evaluator.
+        message: String,
+        /// The evaluated source text.
+        #[source_code]
+        src: String,
+        /// The byte range Nickel's diagnostic names.
+        #[label("here")]
+        span: miette::SourceSpan,
     },
 
     /// JSON deserialization failed.
@@ -27,48 +43,55 @@ pub enum LensDslError {
         message: String,
     },
 
-    /// The lens document has no body variant (steps, rules, compose, or auto).
-    #[error("lens document '{id}' has no body: expected one of steps, rules, compose, or auto")]
-    #[diagnostic(code(panproto_lens_dsl::no_body))]
-    NoBody {
-        /// The lens document ID.
-        id: String,
+    /// A document value breaks the document grammar.
+    #[error("malformed document at '{path}': {problem}")]
+    #[diagnostic(code(panproto_lens_dsl::shape))]
+    Shape {
+        /// The path of the refused value (for a missing field, of the
+        /// object that lacks it).
+        path: crate::path::DocumentPath,
+        /// What is wrong with it.
+        problem: crate::shape::ShapeProblem,
     },
 
-    /// The lens document has multiple body variants.
-    #[error("lens document '{id}' has multiple bodies: {variants}")]
-    #[diagnostic(code(panproto_lens_dsl::multiple_bodies))]
-    MultipleBodies {
-        /// The lens document ID.
-        id: String,
-        /// Comma-separated list of present variants.
-        variants: String,
+    /// A refusal of the document element at `path`.
+    #[error("{error} (at '{path}')")]
+    #[diagnostic(code(panproto_lens_dsl::at))]
+    At {
+        /// The path of the element refused.
+        path: crate::path::DocumentPath,
+        /// The refusal.
+        error: Box<Self>,
     },
 
-    /// An unrecognized step variant was encountered.
-    #[error("unrecognized step at index {index}: could not match any known step variant")]
-    #[diagnostic(code(panproto_lens_dsl::unknown_step))]
-    UnknownStep {
-        /// Zero-based index of the step in the pipeline.
-        index: usize,
+    /// A refusal located in the source text the document was read from.
+    #[error("{error}")]
+    #[diagnostic(code(panproto_lens_dsl::spanned))]
+    Spanned {
+        /// The path of the element refused, when the refusal names one.
+        path: Option<crate::path::DocumentPath>,
+        /// The source text.
+        #[source_code]
+        src: String,
+        /// The byte range of the refused text in `src`.
+        #[label("here")]
+        span: miette::SourceSpan,
+        /// The refusal.
+        error: Box<Self>,
     },
 
     /// Expression parsing failed.
-    #[error("expression parse error in step {step_desc}: {message}")]
+    #[error("expression parse error: {message}")]
     #[diagnostic(code(panproto_lens_dsl::expr_parse))]
     ExprParse {
-        /// Description of the step containing the expression.
-        step_desc: String,
         /// Human-readable parse error.
         message: String,
     },
 
     /// A term in an equation was not in the term grammar.
-    #[error("malformed term in {step_desc}: {term:?}: {message}")]
+    #[error("malformed term {term:?}: {message}")]
     #[diagnostic(code(panproto_lens_dsl::term_parse))]
     TermParse {
-        /// Description of the step containing the term.
-        step_desc: String,
         /// The term text as the document wrote it.
         term: String,
         /// What the term grammar refused.
@@ -77,13 +100,53 @@ pub enum LensDslError {
 
     /// A default value could not be carried into the instance algebra
     /// as written, or contradicted its declared kind.
-    #[error("invalid default in {step_desc}: {message}")]
+    #[error("invalid default: {message}")]
     #[diagnostic(code(panproto_lens_dsl::default_value))]
     DefaultValue {
-        /// Description of the step declaring the default.
-        step_desc: String,
         /// What was wrong with the default.
         message: String,
+    },
+
+    /// A protolens chain could not be fused into one protolens: a
+    /// `scoped` step's inner stage, or a part of a horizontal composition,
+    /// whose adjacent steps are not composable.
+    #[error("cannot fuse the chain: {error}")]
+    #[diagnostic(code(panproto_lens_dsl::fuse))]
+    Fuse {
+        /// The lens engine's refusal.
+        error: Box<panproto_lens::LensError>,
+    },
+
+    /// A part of a horizontal composition compiles to the empty chain,
+    /// which has no protolens to compose.
+    #[error("a part of a horizontal composition is empty")]
+    #[diagnostic(code(panproto_lens_dsl::empty_horizontal_part))]
+    EmptyHorizontalPart,
+
+    /// A step of a `symmetric` leg acts on values (`apply_expr`,
+    /// `compute_field`, or `add_field` with an `expr`). A symmetric lens is
+    /// assembled from the legs' protolens chains alone, so the value-level
+    /// transform would be dropped.
+    #[error("a symmetric leg cannot carry a value-level step")]
+    #[diagnostic(code(panproto_lens_dsl::value_step_in_symmetric_leg))]
+    ValueStepInSymmetricLeg,
+
+    /// The named references of `compose` bodies form a cycle.
+    #[error("lens references form a cycle: {}", cycle.join(" -> "))]
+    #[diagnostic(code(panproto_lens_dsl::ref_cycle))]
+    RefCycle {
+        /// The references along the cycle, the repeated one last.
+        cycle: Vec<String>,
+    },
+
+    /// A referenced lens document was refused.
+    #[error("referenced lens '{lens_ref}' is refused: {error}")]
+    #[diagnostic(code(panproto_lens_dsl::in_ref))]
+    InRef {
+        /// The reference.
+        lens_ref: String,
+        /// The refusal of the referenced document, located in it.
+        error: Box<Self>,
     },
 
     /// A referenced lens was not found during composition.
@@ -119,12 +182,10 @@ pub enum LensDslError {
         ext: String,
     },
 
-    /// Rule compilation failed.
-    #[error("rule compilation error at rule index {index}: {message}")]
+    /// A rule's template could not be read.
+    #[error("rule compilation error: {message}")]
     #[diagnostic(code(panproto_lens_dsl::rule_compile))]
     RuleCompile {
-        /// Zero-based index of the rule.
-        index: usize,
         /// Human-readable error.
         message: String,
     },
@@ -185,18 +246,15 @@ pub enum LensDslError {
         message: String,
     },
 
-    /// A `coerce_sort` step declares a coercion class whose forward and
-    /// inverse expressions do not satisfy the class's round-trip laws on
-    /// the sampled inputs, so the declaration cannot be honest. The check
-    /// is evidence, not proof: the sampled inputs that fail to round-trip
-    /// are enough to reject the declaration, though passing them would not
-    /// prove honesty for every input.
-    #[error("coerce_sort step {step_desc}: dishonest coercion declaration: {message}")]
+    /// A `coerce_sort` step or a directed equation declares a coercion
+    /// class whose forward and inverse expressions do not satisfy the
+    /// class's round-trip laws on the sampled inputs, so the declaration
+    /// cannot be honest. The check is evidence, not proof: the sampled
+    /// inputs that fail to round-trip are enough to reject the declaration,
+    /// though passing them would not prove honesty for every input.
+    #[error("dishonest coercion declaration: {message}")]
     #[diagnostic(code(panproto_lens_dsl::coercion_not_honest))]
     CoercionNotHonest {
-        /// Description of the step whose declared coercion failed
-        /// verification (e.g. `coerce_sort[2]`).
-        step_desc: String,
         /// The honesty check's rendering, carrying the per-sample
         /// violations and the evidence-not-proof caveat.
         message: String,
@@ -213,12 +271,69 @@ pub enum LensDslError {
     },
 }
 
+impl LensDslError {
+    /// This refusal, raised by an element at `prefix`, located in the
+    /// enclosing document: a path the refusal already names is taken
+    /// relative to `prefix`, and a refusal that names none is located at
+    /// `prefix` itself.
+    #[must_use]
+    pub fn within(self, prefix: &crate::path::DocumentPath) -> Self {
+        match self {
+            Self::At { path, error } => Self::At {
+                path: prefix.join(&path),
+                error,
+            },
+            Self::Shape { path, problem } => Self::Shape {
+                path: prefix.join(&path),
+                problem,
+            },
+            Self::Spanned { .. } => self,
+            error => Self::At {
+                path: prefix.clone(),
+                error: Box::new(error),
+            },
+        }
+    }
+
+    /// The document path this refusal names, if any.
+    #[must_use]
+    pub const fn path(&self) -> Option<&crate::path::DocumentPath> {
+        match self {
+            Self::At { path, .. } | Self::Shape { path, .. } => Some(path),
+            Self::Spanned { path, .. } => path.as_ref(),
+            _ => None,
+        }
+    }
+
+    /// The refusal without its location, by value.
+    #[must_use]
+    pub fn into_unlocated(self) -> Self {
+        match self {
+            Self::At { error, .. } | Self::Spanned { error, .. } => error.into_unlocated(),
+            other => other,
+        }
+    }
+
+    /// The refusal without its location.
+    #[must_use]
+    pub fn unlocated(&self) -> &Self {
+        match self {
+            Self::At { error, .. } | Self::Spanned { error, .. } => error.unlocated(),
+            other => other,
+        }
+    }
+}
+
 impl From<panproto_dsl_eval::DslEvalError> for LensDslError {
     fn from(err: panproto_dsl_eval::DslEvalError) -> Self {
         match err {
-            panproto_dsl_eval::DslEvalError::NickelEval { message }
-            | panproto_dsl_eval::DslEvalError::NickelEvalSpanned { message, .. } => {
-                Self::NickelEval { message }
+            panproto_dsl_eval::DslEvalError::NickelEval { message } => Self::NickelEval { message },
+            panproto_dsl_eval::DslEvalError::NickelEvalSpanned { message, src, span } => {
+                Self::NickelEvalSpanned {
+                    message,
+                    src,
+                    span: miette::SourceSpan::new(span.0.into(), span.1),
+                }
             }
             panproto_dsl_eval::DslEvalError::Json(e) => Self::Json(e),
             panproto_dsl_eval::DslEvalError::Yaml { message } => Self::Yaml { message },

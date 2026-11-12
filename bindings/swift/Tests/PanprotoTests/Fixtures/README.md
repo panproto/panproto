@@ -55,7 +55,7 @@ Payloads are CBOR (`ciborium`) except where the file name says `.json`.
 | `protocol-geojson.cbor` | `Raw.registryGetBuiltin(name:)` | 1468 | name `geojson` |
 | `protocol-graphql.cbor` | `Raw.registryGetBuiltin(name:)` | 1969 | name `graphql` |
 | `protocol-iso-space.cbor` | `Raw.registryGetBuiltin(name:)` | 2472 | name `iso-space` |
-| `protocol-json-schema.cbor` | `Raw.registryGetBuiltin(name:)` | 2004 | name `json-schema` |
+| `protocol-json-schema.cbor` | `Raw.registryGetBuiltin(name:)` | 3656 | name `json-schema` |
 | `protocol-jsonapi.cbor` | `Raw.registryGetBuiltin(name:)` | 1458 | name `jsonapi` |
 | `protocol-jsonld.cbor` | `Raw.registryGetBuiltin(name:)` | 1401 | name `jsonld` |
 | `protocol-k8s-crd.cbor` | `Raw.registryGetBuiltin(name:)` | 3668 | name `k8s-crd` |

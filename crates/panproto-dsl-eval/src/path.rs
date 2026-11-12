@@ -1,4 +1,4 @@
-//! Paths to the elements of a theory document, and their source spans.
+//! Paths to the elements of a document, and their source spans.
 //!
 //! A [`DocumentPath`] names one value of a document by the member names
 //! and array indices that lead to it from the document root, as a JSON

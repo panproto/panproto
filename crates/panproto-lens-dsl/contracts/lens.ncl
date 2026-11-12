@@ -26,7 +26,7 @@
   AddFieldSpec = {
     name | String,
     kind | String,
-    fallback | optional,
+    "default" | optional,
     expr | String | optional,
   },
 
@@ -88,7 +88,7 @@
   AddSortSpec = {
     name | String,
     kind | String,
-    fallback | optional,
+    "default" | optional,
   },
 
   AddOpSpec = {
@@ -129,8 +129,7 @@
   # -- Rule contracts --
 
   FeaturePattern = {
-    name | String | optional,
-    type_id | String | optional,
+    name | String,
   },
 
   Replacement = {
@@ -188,9 +187,15 @@
     weight | Number | optional,
   },
 
+  Stringency = std.contract.from_predicate (fun x =>
+    x == "strict" || x == "balanced" || x == "lenient" || x == "exploratory"
+  ),
+
   HintSpec = {
     anchors | { _ : String } | optional,
     constraints | Array Constraint | optional,
+    stringency | Stringency | optional,
+    alias_clusters | Array (Array String) | optional,
   },
 
   AutoSpec = {
@@ -218,6 +223,19 @@
     rules | Array Rule | optional,
     compose | ComposeSpec | optional,
     auto | AutoSpec | optional,
+    from_diff | {} | optional,
+    symmetric | { left | Array Step, right | Array Step, focus | String | optional } | optional,
+
+    directed_equations | Array {
+      name | String,
+      lhs | String,
+      rhs | String,
+      impl | String,
+      inverse | String | optional,
+      source_kind | String | optional,
+      target_kind | String | optional,
+      coercion | Coercion | optional,
+    } | optional,
 
     passthrough | Passthrough | optional,
     invertible | Bool | optional,
@@ -237,12 +255,12 @@
 
   rename = fun _old _new => { rename_field = { old = _old, new = _new } },
 
-  add = fun _name _kind _fallback => {
-    add_field = { name = _name, kind = _kind, fallback = _fallback }
+  add = fun _name _kind _default => {
+    add_field = { name = _name, kind = _kind, "default" = _default }
   },
 
-  add_computed = fun _name _kind _fallback _expr => {
-    add_field = { name = _name, kind = _kind, fallback = _fallback, expr = _expr }
+  add_computed = fun _name _kind _default _expr => {
+    add_field = { name = _name, kind = _kind, "default" = _default, expr = _expr }
   },
 
   apply = fun _field _expr => {
@@ -317,8 +335,8 @@
     }
   },
 
-  add_sort = fun _name _kind _fallback => {
-    add_sort = { name = _name, kind = _kind, fallback = _fallback }
+  add_sort = fun _name _kind _default => {
+    add_sort = { name = _name, kind = _kind, "default" = _default }
   },
 
   drop_sort = fun _name => { drop_sort = _name },
@@ -374,10 +392,10 @@
   # -- Template helpers --
 
   counter_fields = fun _fields =>
-    _fields |> std.array.map (fun _f => { add_field = { name = _f, kind = "integer", fallback = 0 } }),
+    _fields |> std.array.map (fun _f => { add_field = { name = _f, kind = "integer", "default" = 0 } }),
 
   string_fields = fun _fields =>
-    _fields |> std.array.map (fun _f => { add_field = { name = _f, kind = "string", fallback = "" } }),
+    _fields |> std.array.map (fun _f => { add_field = { name = _f, kind = "string", "default" = "" } }),
 
   map_name = fun _from _to => {
     pattern = { name = _from },

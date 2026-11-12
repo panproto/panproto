@@ -25,16 +25,7 @@ use crate::document::{
 use crate::error::TheoryDslError;
 use crate::path::DocumentPath;
 
-/// The surface syntax of a document's source text.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SourceFormat {
-    /// Nickel, evaluated with the bundled contract library.
-    Nickel,
-    /// JSON.
-    Json,
-    /// YAML.
-    Yaml,
-}
+pub use panproto_dsl_eval::SourceFormat;
 
 /// Attach the source text and the byte range of the refused element to a
 /// refusal.
@@ -44,13 +35,10 @@ pub enum SourceFormat {
 /// another source, or of JSON text in which the path names no value, is
 /// returned as it is, still naming its path.
 fn spanned(error: TheoryDslError, source: &str, format: SourceFormat) -> TheoryDslError {
-    if format != SourceFormat::Json {
-        return error;
-    }
     let Some(path) = error.path().cloned() else {
         return error;
     };
-    match crate::path::locate_json(source, &path) {
+    match panproto_dsl_eval::source::locate(source, format, &path) {
         Some((offset, length)) => TheoryDslError::Spanned {
             path: Some(path),
             src: source.to_owned(),
@@ -79,8 +67,7 @@ fn spanned(error: TheoryDslError, source: &str, format: SourceFormat) -> TheoryD
 pub fn read_source(source: &str, format: SourceFormat) -> Result<TheoryDocument, TheoryDslError> {
     let value = match format {
         SourceFormat::Json => serde_json::from_str::<serde_json::Value>(source).map_err(|e| {
-            let offset = byte_offset(source, e.line(), e.column());
-            let length = usize::from(offset < source.len());
+            let (offset, length) = panproto_dsl_eval::source::json_syntax_span(source, &e);
             TheoryDslError::Spanned {
                 path: None,
                 src: source.to_owned(),
@@ -92,18 +79,6 @@ pub fn read_source(source: &str, format: SourceFormat) -> Result<TheoryDocument,
         SourceFormat::Nickel => crate::eval::nickel_value(source, &[])?,
     };
     crate::shape::read_document(&value).map_err(|e| spanned(e, source, format))
-}
-
-/// The byte offset of the 1-based `line` and `column` that `serde_json`
-/// reports, clamped to the text: the column counts the bytes read on the
-/// line, so the byte named is the one before it.
-fn byte_offset(source: &str, line: usize, column: usize) -> usize {
-    let line_start: usize = source
-        .split_inclusive('\n')
-        .take(line.saturating_sub(1))
-        .map(str::len)
-        .sum();
-    (line_start + column.saturating_sub(1)).min(source.len())
 }
 
 /// Read a document from its source text and compile it with [`compile`],

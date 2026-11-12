@@ -141,11 +141,11 @@ pub(crate) fn enforce_coercion_laws(
 /// of `F` to `n` when `n` is in `X`, to `A_n` when there is an alias, and
 /// to `F_n` otherwise, applying the renaming to every sort and operation
 /// named inside a declaration. In the spec's own declarations a sort head
-/// or operation head `t` stands for: `t` when the spec declares `t`;
-/// otherwise `ρ(n)` when `t` is `F.n` or `A.n` for an import that declares
-/// `n`; otherwise the renamed `n` of the first import without an alias
-/// that declares `n` as a symbol of that kind (an exposed `n` is renamed
-/// to itself); otherwise `t`.
+/// or operation head `t` stands for: `t` when the spec or one of its
+/// parents declares `t` as a symbol of that kind; otherwise `ρ(n)` when `t`
+/// is `F.n` or `A.n` for an import that declares `n`; otherwise `ρ(t)` for
+/// the first import that declares `t` as a symbol of that kind and either
+/// has no alias or exposes `t`; otherwise `t`.
 ///
 /// Every refusal names the document path of the element refused, relative
 /// to the spec: a local declaration by its own path, and a declaration a
@@ -174,6 +174,22 @@ pub fn compile_theory_with_resolver(
         })?;
         union.include(&theory, &Origin::Included(at));
     }
+    let own = OwnNames {
+        sorts: spec
+            .sorts
+            .iter()
+            .map(|s| s.name.as_str())
+            .chain(union.sorts.iter().map(|(s, _)| &*s.name))
+            .map(Arc::from)
+            .collect(),
+        ops: spec
+            .ops
+            .iter()
+            .map(|o| o.name.as_str())
+            .chain(union.ops.iter().map(|(o, _)| &*o.name))
+            .map(Arc::from)
+            .collect(),
+    };
     let mut scope = Scope::default();
     for (index, import) in spec.imports.iter().enumerate() {
         let at = DocumentPath::root().key("imports").index(index);
@@ -187,9 +203,16 @@ pub fn compile_theory_with_resolver(
         let renamed = scope.import(import, &theory, &at)?;
         union.include(&renamed, &Origin::Included(at));
     }
-    let local = compile_local(spec, &scope.local_maps(spec))?;
+    let local = compile_local(spec, &scope.local_maps(&own))?;
     union.include_local(local);
     union.check(spec)
+}
+
+/// The sort and operation names the spec and its parents declare, which a
+/// bare imported name does not shadow.
+struct OwnNames {
+    sorts: Vec<Arc<str>>,
+    ops: Vec<Arc<str>>,
 }
 
 /// Where a declaration of the compiled theory comes from.
@@ -490,28 +513,25 @@ impl Scope {
     }
 
     /// The renaming of sort heads and operation heads in the spec's own
-    /// declarations.
-    fn local_maps(&self, spec: &TheorySpec) -> Maps {
-        let local_sorts: Vec<&str> = spec.sorts.iter().map(|s| s.name.as_str()).collect();
-        let local_ops: Vec<&str> = spec.ops.iter().map(|o| o.name.as_str()).collect();
+    /// declarations: a bare imported name the spec or a parent declares is
+    /// left as it is.
+    fn local_maps(&self, own: &OwnNames) -> Maps {
         let pick = |qualified: &HashMap<String, Arc<str>>,
                     bare: &HashMap<String, Arc<str>>,
-                    local: &[&str]| {
+                    own: &[Arc<str>]| {
             let mut map: HashMap<Arc<str>, Arc<str>> = bare
                 .iter()
-                .filter(|(name, _)| !local.contains(&name.as_str()))
+                .filter(|(name, _)| !own.iter().any(|n| **n == ***name))
                 .map(|(name, new)| (Arc::from(name.as_str()), Arc::clone(new)))
                 .collect();
             for (name, new) in qualified {
-                if !local.contains(&name.as_str()) {
-                    map.insert(Arc::from(name.as_str()), Arc::clone(new));
-                }
+                map.insert(Arc::from(name.as_str()), Arc::clone(new));
             }
             map
         };
         Maps {
-            sorts: pick(&self.qualified_sorts, &self.bare_sorts, &local_sorts),
-            ops: pick(&self.qualified_ops, &self.bare_ops, &local_ops),
+            sorts: pick(&self.qualified_sorts, &self.bare_sorts, &own.sorts),
+            ops: pick(&self.qualified_ops, &self.bare_ops, &own.ops),
         }
     }
 }
@@ -1307,7 +1327,14 @@ fn find_matching_paren(s: &str) -> Option<usize> {
 }
 
 /// Split a string by commas at the top level (not inside parentheses).
+///
+/// Blank text has no parts. Otherwise every part is kept, an empty one
+/// included, so that `f(x,)` and `f(,x)` reach the term parser's refusal
+/// of an empty term instead of reading as `f(x)`.
 fn split_top_level_commas(s: &str) -> Vec<&str> {
+    if s.trim().is_empty() {
+        return Vec::new();
+    }
     let mut parts = Vec::new();
     let mut depth = 0u32;
     let mut start = 0;
@@ -1322,10 +1349,7 @@ fn split_top_level_commas(s: &str) -> Vec<&str> {
             _ => {}
         }
     }
-    let tail = s[start..].trim();
-    if !tail.is_empty() {
-        parts.push(tail);
-    }
+    parts.push(s[start..].trim());
     parts
 }
 
