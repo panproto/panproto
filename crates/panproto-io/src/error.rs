@@ -240,6 +240,16 @@ pub enum ParseInstanceError {
         error: crate::edgelist::EdgeListReadError,
     },
 
+    /// A binary BSON document the decoder refuses, with the byte offset at
+    /// fault.
+    #[error("protocol '{protocol}' refuses the BSON document at {error}")]
+    Bson {
+        /// The protocol name.
+        protocol: String,
+        /// The refusal.
+        error: crate::data_schema::bson::BsonDecodeError,
+    },
+
     /// An RDF document the protocol's reader refuses, with the byte offset
     /// of the token at fault.
     #[error("protocol '{protocol}' refuses the document {error}")]
@@ -326,6 +336,24 @@ pub enum EmitInstanceError {
         protocol: String,
         /// The refusal.
         error: crate::edgelist::EdgeListWriteError,
+    },
+
+    /// An instance the BSON tree encoding refuses, with the node at fault.
+    #[error("protocol '{protocol}' cannot write the instance: {error}")]
+    BsonInstance {
+        /// The protocol name.
+        protocol: String,
+        /// The refusal.
+        error: crate::data_schema::bson::BsonInstanceError,
+    },
+
+    /// A document the binary BSON writer refuses, with the path at fault.
+    #[error("protocol '{protocol}' cannot write the document: {error}")]
+    BsonWrite {
+        /// The protocol name.
+        protocol: String,
+        /// The refusal.
+        error: crate::data_schema::bson::BsonWriteError,
     },
 
     /// A graph the protocol's RDF writer refuses, with the node at fault.
