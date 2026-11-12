@@ -1085,6 +1085,7 @@ pub fn extract_json_cst_with_protocol(
 ) -> Result<(WInstance, CstComplement), CstCodecError> {
     validate_cst_has_no_recovery_markers(cst, "JSON")?;
     validate_json_cst_string_tokens(cst)?;
+    validate_json_cst_number_tokens(cst)?;
     if !domain_schema.has_vertex(root_vertex) {
         return Err(CstCodecError::SchemaMismatch(format!(
             "root vertex '{root_vertex}' not found in domain schema"
@@ -1093,6 +1094,7 @@ pub fn extract_json_cst_with_protocol(
 
     let mut state = ExtractState::new();
     let doc_vertex = find_cst_root(cst)?;
+    validate_json_cst_is_one_value(cst, &doc_vertex)?;
 
     let top_value = cst_child_by_edge_kind(cst, &doc_vertex, "child_of")
         .ok_or_else(|| CstCodecError::Structure("document has no child".into()))?;
@@ -2019,6 +2021,58 @@ fn set_xml_text_run(cst: &mut Schema, run: &[Name], new_text: &str) {
 
 /// The CST kinds that spell a key.
 const TOML_KEY_KINDS: [&str; 3] = ["bare_key", "quoted_key", "dotted_key"];
+
+/// Refuse what RFC 8259 does not admit and the tree-sitter JSON grammar
+/// does: a comment anywhere, and a text holding more than one value.
+fn validate_json_cst_is_one_value(cst: &Schema, doc_vertex: &str) -> Result<(), CstCodecError> {
+    let comment = cst
+        .vertices
+        .iter()
+        .filter(|(_, vertex)| vertex.kind.as_ref() == "comment")
+        .map(|(name, _)| cst_byte_offset(cst, name))
+        .min_by_key(|offset| offset.unwrap_or(u64::MAX));
+    if let Some(offset) = comment {
+        return Err(CstCodecError::Structure(offset.map_or_else(
+            || "JSON comment at an unrecorded byte; RFC 8259 admits none".to_owned(),
+            |start| format!("JSON comment at byte {start}; RFC 8259 admits none"),
+        )));
+    }
+    let values = cst_children_by_edge_kind(cst, doc_vertex, "child_of").len();
+    if values > 1 {
+        return Err(CstCodecError::Structure(format!(
+            "JSON text holds {values} values; RFC 8259 admits exactly one"
+        )));
+    }
+    Ok(())
+}
+
+/// Refuse a number token with a decimal point that no digit follows (`1.`,
+/// `1.e5`), which the tree-sitter JSON grammar lexes as a number and RFC
+/// 8259 does not (its `frac` is a decimal point and at least one digit).
+fn validate_json_cst_number_tokens(cst: &Schema) -> Result<(), CstCodecError> {
+    let fault = cst
+        .vertices
+        .iter()
+        .filter(|(_, vertex)| vertex.kind.as_ref() == "number")
+        .filter(|(name, _)| {
+            let token = cst_source_text(cst, name);
+            token.find('.').is_some_and(|point| {
+                !token[point + 1..]
+                    .bytes()
+                    .next()
+                    .is_some_and(|byte| byte.is_ascii_digit())
+            })
+        })
+        .map(|(name, _)| cst_byte_offset(cst, name))
+        .min_by_key(|offset| offset.unwrap_or(u64::MAX));
+    match fault {
+        None => Ok(()),
+        Some(offset) => Err(CstCodecError::Structure(offset.map_or_else(
+            || "JSON number at an unrecorded byte has no digit after its decimal point; RFC 8259 requires one".to_owned(),
+            |start| format!("JSON number at byte {start} has no digit after its decimal point; RFC 8259 requires one"),
+        ))),
+    }
+}
 
 fn validate_json_cst_string_tokens(cst: &Schema) -> Result<(), CstCodecError> {
     for (name, vertex) in &cst.vertices {

@@ -37,15 +37,6 @@ const FIXTURES: &[(&str, bool, &[&str])] = &[
     ),
     ("graphql", false, &["graphql/swapi.graphql"]),
     (
-        "json-schema",
-        true,
-        &[
-            "jsonschema/github-workflow.json",
-            "jsonschema/package.json",
-            "jsonschema/tsconfig.json",
-        ],
-    ),
-    (
         "protobuf",
         false,
         &[

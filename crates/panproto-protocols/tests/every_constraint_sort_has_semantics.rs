@@ -34,7 +34,6 @@ use panproto_schema::{ConstraintSemantics, LengthUnit, Schema};
 const SCHEMA_DIRS: &[(&str, &str, bool)] = &[
     ("atproto/lexicons", "atproto", true),
     ("graphql", "graphql", false),
-    ("jsonschema", "json-schema", true),
     ("protobuf", "protobuf", false),
 ];
 
@@ -298,9 +297,9 @@ fn length_units_follow_each_protocol() {
 
 /// Every constraint the fixtures declare reads under its protocol's
 /// meaning: compiling a validation plan for each fixture finds no
-/// ill-formed declaration. The only static findings are value formats
-/// outside the fixed set validation evaluates (such as atproto's `at-uri`),
-/// which are unsupported declarations by design.
+/// ill-formed declaration. A value format outside the fixed set validation
+/// evaluates would be an unsupported declaration by design; every format
+/// the fixtures name is inside it, so there is none.
 #[test]
 fn fixture_constraints_read_under_their_semantics() {
     use panproto_inst::validation::{IncompleteReason, ValidationOptions, ValidationPlan};
@@ -325,8 +324,8 @@ fn fixture_constraints_read_under_their_semantics() {
         unexpected.is_empty(),
         "fixture declarations that do not read: {unexpected:#?}"
     );
-    assert!(
-        unsupported_formats > 0,
+    assert_eq!(
+        unsupported_formats, 0,
         "the fixtures name formats outside the set"
     );
 }
@@ -616,13 +615,13 @@ fn external_column_rows_have_an_instance_per_row() {
 }
 
 /// The schema fixtures are found by walking `fixtures/`: the repository's
-/// tree yields its fifteen schemas, and a file added under a schema
+/// tree yields its twelve schemas, and a file added under a schema
 /// directory is read under that directory's protocol, while a file in a
 /// directory the walk does not classify is an error rather than skipped.
 #[test]
 fn schema_fixtures_are_every_file_under_a_schema_directory() {
     let found = fixtures();
-    assert_eq!(found.len(), 15, "{found:#?}");
+    assert_eq!(found.len(), 12, "{found:#?}");
     for (dir, protocol, _) in SCHEMA_DIRS {
         assert!(
             found
@@ -642,7 +641,7 @@ fn schema_fixtures_are_every_file_under_a_schema_directory() {
     write("FIXTURES.md");
     write("atproto/records/post.json");
     write("graphql/added.graphql");
-    write("jsonschema/nested/added.json");
+    write("atproto/lexicons/nested/added.json");
     let classified = schema_fixtures(&root);
     write("avro/added.avsc");
     let unclassified = schema_fixtures(&root);
@@ -650,12 +649,12 @@ fn schema_fixtures_are_every_file_under_a_schema_directory() {
     assert_eq!(
         classified,
         Ok(vec![
-            ("graphql", false, "graphql/added.graphql".to_owned()),
             (
-                "json-schema",
+                "atproto",
                 true,
-                "jsonschema/nested/added.json".to_owned()
+                "atproto/lexicons/nested/added.json".to_owned()
             ),
+            ("graphql", false, "graphql/added.graphql".to_owned()),
         ])
     );
     assert_eq!(unclassified, Err(vec!["avro/added.avsc".to_owned()]));

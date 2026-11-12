@@ -1,6 +1,12 @@
-//! Instance codecs for data schema protocols.
+//! Instance codecs and schema readers for data schema protocols.
 //!
 //! Instances of data schemas are documents conforming to those schemas.
+//! Under the `tree-sitter` feature, `json_schema::read_schema` reads a JSON
+//! Schema 2020-12 document, and `json_schema::read_bundle` a set of them,
+//! through the shared JSON route into a `json-schema` schema.
+
+#[cfg(feature = "tree-sitter")]
+pub mod json_schema;
 
 use crate::registry::ProtocolRegistry;
 

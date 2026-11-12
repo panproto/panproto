@@ -523,13 +523,15 @@ static DESCRIPTORS: &[ProtocolDescriptor] = &[
     ProtocolDescriptor {
         name: "json-schema",
         aliases: &[],
-        parser: Parser::Document(data_schema::json_schema::parse_json_schema),
+        parser: Parser::Grammar {
+            reader: "panproto_io::data_schema::json_schema::read_schema",
+        },
         protocol: data_schema::json_schema::protocol,
         register_theories: |r| {
             data_schema::json_schema::register_theories(r);
             Ok(())
         },
-        bundle: true,
+        bundle: false,
         bundle_project: false,
     },
     ProtocolDescriptor {
