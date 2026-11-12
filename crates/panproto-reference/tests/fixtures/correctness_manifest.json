@@ -7346,6 +7346,117 @@
           ]
         }
       ]
+    },
+    "theory-dsl": {
+      "reference_files": [
+        "crates/panproto-reference/src/pages/theory_dsl.rs",
+        "crates/panproto-reference/src/enumerate/theory_dsl.rs"
+      ],
+      "laws": [
+        {
+          "id": "theory-dsl.document-grammar",
+          "anchor": "L-theory-dsl-1",
+          "references": [
+            "panproto_reference::pages::theory_dsl::check_document"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-theory-dsl",
+              "binary": "panproto-theory-dsl::reference_theory_dsl",
+              "test": "the_grammar_refuses_as_the_reference_on_every_mutated_document"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::theory_dsl",
+              "test": "the_document_grammar_refuses_in_field_table_order"
+            }
+          ]
+        },
+        {
+          "id": "theory-dsl.elaboration",
+          "anchor": "L-theory-dsl-2",
+          "references": [
+            "panproto_reference::pages::theory_dsl::elaborate"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-theory-dsl",
+              "binary": "panproto-theory-dsl::reference_theory_dsl",
+              "test": "theory_documents_compile_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-theory-dsl",
+              "binary": "panproto-theory-dsl::reference_theory_dsl",
+              "test": "bundles_compile_their_theories_in_listed_order_as_the_reference"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-theory-dsl",
+              "binary": "panproto-theory-dsl::reference_theory_dsl",
+              "test": "longer_theory_documents_compile_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::theory_dsl",
+              "test": "imports_rename_and_parents_take_precedence_over_bare_imported_names"
+            }
+          ]
+        },
+        {
+          "id": "theory-dsl.morphism-documents",
+          "anchor": "L-theory-dsl-3",
+          "references": [
+            "panproto_reference::pages::theory_dsl::compile_morphism"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-theory-dsl",
+              "binary": "panproto-theory-dsl::reference_theory_dsl",
+              "test": "morphism_documents_compile_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::theory_dsl",
+              "test": "morphism_refusals_are_located_at_the_entry_they_concern"
+            }
+          ]
+        },
+        {
+          "id": "theory-dsl.refusal-location",
+          "anchor": "L-theory-dsl-4",
+          "references": [
+            "panproto_reference::pages::theory_dsl::locate",
+            "panproto_reference::pages::theory_dsl::compile_document"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-theory-dsl",
+              "binary": "panproto-theory-dsl::reference_theory_dsl",
+              "test": "theory_documents_compile_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-theory-dsl",
+              "binary": "panproto-theory-dsl::reference_theory_dsl",
+              "test": "the_grammar_refuses_as_the_reference_on_every_mutated_document"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::theory_dsl",
+              "test": "locate_finds_the_last_occurrence_of_a_member"
+            }
+          ]
+        }
+      ]
     }
   }
 }
