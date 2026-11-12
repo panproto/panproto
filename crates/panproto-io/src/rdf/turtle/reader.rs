@@ -489,33 +489,73 @@ impl<'a> Walk<'_, 'a> {
         Term::Literal(literal)
     }
 
-    /// Walk the document's statements in order. When the parser could not
-    /// read the document from `recovery` on, the statements that end before
-    /// it are still walked, so a fault there is reported first.
+    /// Walk the document's statements in order.
+    ///
+    /// When the parser could not read the document from `recovery` on, the
+    /// statements that end before it are still walked, so a fault there is
+    /// reported first; then each term token that ends before `recovery`
+    /// and lies in no walked statement is checked on its own (an IRI's
+    /// escapes and resolution, a prefixed name's prefix, a string's
+    /// escapes, a label's form), and the first it refuses is reported.
+    /// Only then is the place the grammar cannot read reported.
     fn document(&mut self, root: &Cursor<'a>, recovery: Option<usize>) -> Result<(), RdfReadError> {
         let mut cursor = 0;
         for child in self.tree.children(root) {
-            if recovery.is_some_and(|offset| child.end > offset) {
-                break;
+            if let Some(offset) = recovery
+                && child.end > offset
+            {
+                self.check_tokens(cursor, offset)?;
+                return Err(syntax(offset));
             }
             if let Some(i) = self.text[cursor..child.start].find(|c: char| !is_white(c)) {
                 return Err(syntax(cursor + i));
             }
-            match child.kind {
-                "comment" => {}
-                "directive" => self.directive(&child)?,
-                "triple" => self.statement(&child)?,
-                _ => return Err(not_in_format(&child)),
-            }
+            self.child(&child)?;
             cursor = child.end;
         }
         if let Some(offset) = recovery {
+            self.check_tokens(cursor, offset)?;
             return Err(syntax(offset));
         }
         if let Some(i) = self.text[cursor..].find(|c: char| !is_white(c)) {
             return Err(syntax(cursor + i));
         }
         Ok(())
+    }
+
+    /// Check, in document order, each term token from `from` that ends by
+    /// `to`.
+    fn check_tokens(&mut self, from: usize, to: usize) -> Result<(), RdfReadError> {
+        let mut tokens: Vec<Cursor<'a>> = [
+            "iri_reference",
+            "prefixed_name",
+            "string",
+            "blank_node_label",
+        ]
+        .iter()
+        .flat_map(|kind| self.tree.all_of_kind(kind))
+        .filter(|token| token.start >= from && token.end <= to)
+        .collect();
+        tokens.sort_by_key(|token| token.start);
+        for token in &tokens {
+            match token.kind {
+                "iri_reference" => self.iri_reference(token).map(drop)?,
+                "prefixed_name" => self.prefixed_name(token).map(drop)?,
+                "string" => self.string(token).map(drop)?,
+                _ => self.blank_label(token).map(drop)?,
+            }
+        }
+        Ok(())
+    }
+
+    /// Walk one child of the document.
+    fn child(&mut self, child: &Cursor<'a>) -> Result<(), RdfReadError> {
+        match child.kind {
+            "comment" => Ok(()),
+            "directive" => self.directive(child),
+            "triple" => self.statement(child),
+            _ => Err(not_in_format(child)),
+        }
     }
 }
 
@@ -711,7 +751,7 @@ impl TurtleCodec {
             .parse(input, "input.ttl")
             .map_err(|_| syntax(0))?;
         let tree = Tree { cst: &cst };
-        let recovery = tree.first_recovery();
+        let recovery = tree.first_marker();
         let Some(root) = tree.root() else {
             let fault = recovery.or_else(|| text.find(|c: char| !is_white(c)));
             return fault.map_or_else(

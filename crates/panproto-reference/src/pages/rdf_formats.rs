@@ -1,5 +1,7 @@
 //! Complete reference operations assigned to `rdf-formats`.
 
+pub mod turtle;
+
 pub mod ntriples {
     //! RDF 1.1 N-Triples, transcribed from the grammar of the
     //! Recommendation (Sec 7) over characters, with the RDF graph encoding
@@ -239,7 +241,7 @@ pub mod ntriples {
     }
 
     /// Whether `IRIREF` excludes `c`.
-    const fn excluded(c: char) -> bool {
+    pub(super) const fn excluded(c: char) -> bool {
         matches!(
             c,
             '\u{0}'..='\u{20}' | '<' | '>' | '"' | '{' | '}' | '|' | '^' | '`' | '\\'
@@ -248,7 +250,7 @@ pub mod ntriples {
 
     /// Whether `iri` starts with a scheme: a letter, then letters, digits,
     /// `+`, `-` and `.`, then `:`.
-    fn absolute(iri: &str) -> bool {
+    pub(super) fn absolute(iri: &str) -> bool {
         let Some(colon) = iri.find(':') else {
             return false;
         };
@@ -259,7 +261,7 @@ pub mod ntriples {
                 .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
     }
 
-    fn pn_chars_base(c: char) -> bool {
+    pub(super) fn pn_chars_base(c: char) -> bool {
         let n = u32::from(c);
         c.is_ascii_alphabetic()
             || (0xC0..=0xD6).contains(&n)
@@ -432,7 +434,7 @@ pub mod ntriples {
 
     // ── Canonical writing ───────────────────────────────────────────
 
-    fn quote(text: &str) -> String {
+    pub(super) fn quote(text: &str) -> String {
         let mut out = String::from('"');
         for c in text.chars() {
             let n = u32::from(c);
@@ -459,7 +461,7 @@ pub mod ntriples {
         out
     }
 
-    fn term_text(term: &Term) -> String {
+    pub(super) fn term_text(term: &Term) -> String {
         match term {
             Term::Iri(iri) => format!("<{iri}>"),
             Term::Blank(label) => format!("_:{label}"),
