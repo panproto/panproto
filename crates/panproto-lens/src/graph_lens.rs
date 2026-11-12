@@ -29,7 +29,10 @@ use crate::{Lens, LensError};
 
 mod segmented;
 
-pub use segmented::{SegmentedPutError, graph_put_locality, put_segmented};
+pub use segmented::{
+    GRAPH_PUT_OP, GraphPut, GraphPutRun, HeldView, SegmentedPutError, graph_put_locality,
+    put_segmented, put_segmented_run,
+};
 
 type KeyBuckets = BTreeMap<(Option<u32>, Vec<u8>), (Vec<panproto_inst::Value>, Vec<u32>)>;
 
