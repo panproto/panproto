@@ -60,6 +60,7 @@ const DECLARED: &[(&str, InstanceShapeKind, InstanceShapeKind)] = &[
     ("iso-space", Tree, Graph),
     ("json-schema", Tree, Tree),
     ("jsonapi", Tree, Graph),
+    ("jsonld", Graph, Graph),
     ("k8s-crd", Tree, Tree),
     ("laf-graf", Tree, Graph),
     ("mongodb", Tree, Graph),

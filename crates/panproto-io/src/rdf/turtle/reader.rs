@@ -637,7 +637,10 @@ fn replacement(graph: &GInstance, id: u32, token: &TokenKind) -> Result<String, 
 /// Refuse `graph` when it differs from `original` in more than node values:
 /// a node added or removed, an anchor changed, or an edge added, removed,
 /// renamed or moved.
-fn structural_difference(graph: &GInstance, original: &GInstance) -> Result<(), RdfWriteError> {
+pub(in crate::rdf) fn structural_difference(
+    graph: &GInstance,
+    original: &GInstance,
+) -> Result<(), RdfWriteError> {
     let mut ids: Vec<u32> = graph
         .nodes()
         .keys()
@@ -684,7 +687,7 @@ fn structural_difference(graph: &GInstance, original: &GInstance) -> Result<(), 
 
 /// Give the CST vertex `vertex` a `literal-value` holding `text`, so that
 /// emission writes `text` over the whole span the vertex covers.
-fn set_token_text(cst: &mut Schema, vertex: &str, text: &str) {
+pub(in crate::rdf) fn set_token_text(cst: &mut Schema, vertex: &str, text: &str) {
     let constraints = cst.constraints.entry(Name::from(vertex)).or_default();
     if let Some(existing) = constraints
         .iter_mut()

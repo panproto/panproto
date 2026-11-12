@@ -16,7 +16,7 @@
 --
 -- The built-in protocol registry functions ('listBuiltinProtocols' \/
 -- 'getBuiltinProtocol') wrap the C ABI's @pp_registry_list_builtin@ \/
--- @pp_registry_get_builtin@. They enumerate and resolve exactly the 62
+-- @pp_registry_get_builtin@. They enumerate and resolve exactly the 63
 -- semantic descriptors in the shared protocol registry without needing a
 -- registry handle, returning the 'Panproto.Protocol.Protocol' value the
 -- @registry@ surface emits as CBOR. Unlike Python's
@@ -107,7 +107,7 @@ class (SchemaBackend back, InstanceBackend back) => IoBackend back where
     -- release method.
     releaseRegistry :: IoRegistryRep back -> IO ()
 
-    -- | List the canonical names of all 62 semantic protocol descriptors.
+    -- | List the canonical names of all 63 semantic protocol descriptors.
     -- Grammar-derived names are not included. Wraps
     -- @pp_registry_list_builtin@ (@helpers::builtin_protocol_names@),
     -- and needs no registry handle.

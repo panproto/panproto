@@ -259,4 +259,4 @@ pub fn decode_local(local: &str) -> String {
 }
 
 #[cfg(feature = "tree-sitter")]
-mod reader;
+pub(super) mod reader;
