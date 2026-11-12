@@ -18,8 +18,8 @@ use panproto_schema::{Protocol, Schema};
 
 use crate::error::ProtocolError;
 use crate::{
-    annotation, api, config, data_schema, data_science, database, domain, rdf, serialization, text,
-    web_document,
+    annotation, api, config, data_schema, data_science, database, domain, edgelist, rdf,
+    serialization, text, web_document,
 };
 
 /// How a protocol's schema documents arrive, and the function that
@@ -391,6 +391,30 @@ static DESCRIPTORS: &[ProtocolDescriptor] = &[
         protocol: domain::edi_x12::protocol,
         register_theories: |r| {
             domain::edi_x12::register_theories(r);
+            Ok(())
+        },
+        bundle: false,
+        bundle_project: false,
+    },
+    ProtocolDescriptor {
+        name: "edgelist-csv",
+        aliases: &[],
+        parser: Parser::Programmatic,
+        protocol: edgelist::csv::protocol,
+        register_theories: |r| {
+            edgelist::csv::register_theories(r);
+            Ok(())
+        },
+        bundle: false,
+        bundle_project: false,
+    },
+    ProtocolDescriptor {
+        name: "edgelist-tsv",
+        aliases: &[],
+        parser: Parser::Programmatic,
+        protocol: edgelist::tsv::protocol,
+        register_theories: |r| {
+            edgelist::tsv::register_theories(r);
             Ok(())
         },
         bundle: false,

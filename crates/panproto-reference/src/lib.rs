@@ -118,6 +118,7 @@
 //! | PostgreSQL DDL column types, keys and references, and canonical text | [`pages::postgresql_ddl::column_type`], [`pages::postgresql_ddl::render`], [`pages::postgresql_ddl::read_script`], [`pages::postgresql_ddl::canonical_text`] | `postgresql-ddl.md` |
 //! | N-Triples reading, the RDF graph encoding and canonical writing | [`pages::rdf_formats::ntriples::read_document`], [`pages::rdf_formats::ntriples::encode`], [`pages::rdf_formats::ntriples::canonical_text`], [`pages::rdf_formats::ntriples::write_graph`] | `rdf-formats.md` |
 //! | Turtle reading, IRI resolution, canonical Turtle and format-preserving edits | [`pages::rdf_formats::turtle::read_document`], [`pages::rdf_formats::turtle::resolve`], [`pages::rdf_formats::turtle::canonical_text`], [`pages::rdf_formats::turtle::edit`], [`pages::rdf_formats::turtle::edited_triples`] | `rdf-formats.md` |
+//! | Edge-list reading, the edge-list graph encoding and canonical writing | [`pages::edge_lists::read_document`], [`pages::edge_lists::encode`], [`pages::edge_lists::canonical_text`], [`pages::edge_lists::write_graph`] | `edge-lists.md` |
 //!
 //! [`enumerate`] holds the exhaustive small-scope enumerators (labelled,
 //! with no pruning of isomorphic copies, each with an independent count),

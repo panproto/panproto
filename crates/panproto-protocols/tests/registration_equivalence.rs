@@ -136,7 +136,8 @@ const NEW_IN_0_75: &[&str] = &[
     "nquads",
     "turtle",
     "jsonld",
-    "edgelist",
+    "edgelist-csv",
+    "edgelist-tsv",
 ];
 
 fn shared(name: &str, sorts: &[&str]) -> Theory {

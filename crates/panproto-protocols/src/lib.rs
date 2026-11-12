@@ -33,6 +33,7 @@
 //! - **Config**: K8s CRD, Docker Compose, `CloudFormation`, Ansible
 //! - **Text**: YAML, TOML, CSV, TSV
 //! - **RDF**: N-Triples, Turtle
+//! - **Edge lists**: CSV and TSV edge lists
 
 /// Linguistic annotation format protocol definitions.
 pub mod annotation;
@@ -48,6 +49,8 @@ pub mod data_science;
 pub mod database;
 /// Domain-specific protocol definitions.
 pub mod domain;
+/// Edge-list graph format protocols (CSV and TSV edge lists).
+pub mod edgelist;
 /// Shared emit helpers for protocol serialization.
 pub mod emit;
 /// Error types for protocol operations.
