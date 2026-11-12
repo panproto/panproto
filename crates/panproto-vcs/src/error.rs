@@ -420,6 +420,14 @@ pub enum VcsError {
         total: usize,
     },
 
+    /// Replaying a commit onto another (rebase or cherry-pick) conflicts
+    /// on the instances it changes.
+    #[error("replaying the commit's instances gives {} conflict(s)", conflicts.len())]
+    InstanceConflicts {
+        /// The conflicts, in listing order.
+        conflicts: Vec<crate::instance_merge::InstanceConflict>,
+    },
+
     /// The conflicts of one key are resolved for different sides; a key's
     /// instance is taken whole from one side.
     #[error("the conflicts under the key {key:?} are resolved for different sides")]

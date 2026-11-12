@@ -53,7 +53,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use panproto_inst::graph_edit::EditConflict;
 use panproto_inst::validation::{CheckKind, Diagnostic, Requirement};
 use panproto_inst::{GInstance, GraphDelta, TableDelta, ValidationReport, WInstance};
-use panproto_schema::Schema;
+use panproto_schema::{Protocol, Schema};
 
 use crate::error::VcsError;
 use crate::hash::ObjectId;
@@ -314,6 +314,70 @@ pub fn merge_tracked(
     load: &mut LoadDataSet<'_>,
     validate: &mut ValidateInstance<'_>,
 ) -> Result<TrackedMerge, VcsError> {
+    combine_tracked(Combine::Merge, [base, ours, theirs], load, validate)
+}
+
+/// How two deltas from one instance are combined.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Combine {
+    /// Merged: the two deltas' merge applies to the base, and every
+    /// conflict of their independence is reported.
+    Merge,
+    /// Rebased: the second side's delta is rebased over the first's
+    /// ([`GraphDelta::rebase`], [`TableDelta::rebase`]) and applied to the
+    /// first side's instance, and the [`RebaseConflict`](panproto_inst::graph_edit::RebaseConflict)'s
+    /// conflict is reported.
+    Rebase,
+}
+
+/// Replay a commit's changes to the instances it tracks onto a tip.
+///
+/// `parent` and `replayed` are the tracked maps of the replayed commit's
+/// first parent and of the commit; `tip` is that of the commit it is
+/// replayed onto. Only the keys the commit changes (those it tracks under
+/// another data set than its parent, or stops tracking) are decided, as
+/// [`merge_tracked`] decides them with the parent as base, the tip as ours
+/// and the commit as theirs, except that two deltas of one instance are
+/// combined by [`Combine::Rebase`]: the commit's delta is rebased over the
+/// delta from the parent's instance to the tip's (the composite of the
+/// deltas committed since) and applied to the tip's instance. The keys the
+/// commit leaves as its parent had them are absent from the result.
+///
+/// # Errors
+///
+/// As [`merge_tracked`].
+pub fn replay_tracked(
+    parent: &Tracked,
+    tip: &Tracked,
+    replayed: &Tracked,
+    load: &mut LoadDataSet<'_>,
+    validate: &mut ValidateInstance<'_>,
+) -> Result<TrackedMerge, VcsError> {
+    let changed: BTreeSet<&String> = parent
+        .keys()
+        .chain(replayed.keys())
+        .filter(|key| !same(parent.get(*key), replayed.get(*key)))
+        .collect();
+    let only = |map: &Tracked| -> Tracked {
+        map.iter()
+            .filter(|(key, _)| changed.contains(key))
+            .map(|(key, entry)| (key.clone(), entry.clone()))
+            .collect()
+    };
+    combine_tracked(
+        Combine::Rebase,
+        [&only(parent), &only(tip), &only(replayed)],
+        load,
+        validate,
+    )
+}
+
+fn combine_tracked(
+    mode: Combine,
+    [base, ours, theirs]: [&Tracked; 3],
+    load: &mut LoadDataSet<'_>,
+    validate: &mut ValidateInstance<'_>,
+) -> Result<TrackedMerge, VcsError> {
     let keys: BTreeSet<&String> = base
         .keys()
         .chain(ours.keys())
@@ -322,7 +386,7 @@ pub fn merge_tracked(
     let mut out = TrackedMerge::default();
     for key in keys {
         let entries = [base.get(key), ours.get(key), theirs.get(key)];
-        let (outcome, schema) = merge_key(key, entries, load)?;
+        let (outcome, schema) = merge_key(mode, key, entries, load)?;
         let conflicts = match outcome {
             KeyOutcome::Kept(None) => Vec::new(),
             KeyOutcome::Kept(Some(id)) => {
@@ -418,6 +482,7 @@ fn same(a: Entry<'_>, b: Entry<'_>) -> bool {
 
 /// A key's merge, with the schema of a merged instance.
 fn merge_key(
+    mode: Combine,
     key: &str,
     [base, ours, theirs]: [Entry<'_>; 3],
     load: &mut LoadDataSet<'_>,
@@ -471,7 +536,8 @@ fn merge_key(
     let (schema, base_instance) = load(&base.1)?;
     let (_, ours_instance) = load(&ours.1)?;
     let (_, theirs_instance) = load(&theirs.1)?;
-    let outcome = merge_instances(
+    let outcome = combine_instances(
+        mode,
         key,
         &schema,
         &base_instance,
@@ -503,29 +569,76 @@ pub fn merge_instances(
     ours: &Instance,
     theirs: &Instance,
 ) -> Result<Result<Instance, Vec<InstanceConflict>>, VcsError> {
+    combine_instances(Combine::Merge, key, schema, base, ours, theirs)
+}
+
+/// The replay onto `tip` of the change from `parent` to `replayed`.
+///
+/// The three are instances of one shape of `schema` under `key`. The delta
+/// from `parent` to `replayed` is rebased over the delta from `parent` to
+/// `tip` and applied to `tip`, record by record for a sequence of trees
+/// under the rules of [`merge_instances`]; a refused rebase gives its one
+/// conflict per conflicting record.
+///
+/// # Errors
+///
+/// As [`merge_instances`].
+pub fn rebase_instances(
+    key: &str,
+    schema: &Schema,
+    parent: &Instance,
+    tip: &Instance,
+    replayed: &Instance,
+) -> Result<Result<Instance, Vec<InstanceConflict>>, VcsError> {
+    combine_instances(Combine::Rebase, key, schema, parent, tip, replayed)
+}
+
+fn combine_instances(
+    mode: Combine,
+    key: &str,
+    schema: &Schema,
+    base: &Instance,
+    ours: &Instance,
+    theirs: &Instance,
+) -> Result<Result<Instance, Vec<InstanceConflict>>, VcsError> {
     match (base, ours, theirs) {
         (Instance::Graph(b), Instance::Graph(o), Instance::Graph(t)) => {
-            merge_graphs(key, None, b, o, t).map(|merged| merged.map(Instance::Graph))
+            merge_graphs(mode, key, None, b, o, t).map(|merged| merged.map(Instance::Graph))
         }
         (Instance::Table(b), Instance::Table(o), Instance::Table(t)) => {
             let (dours, dtheirs) = (TableDelta::diff(b, o), TableDelta::diff(b, t));
-            let conflicts = dours.independence(&dtheirs);
-            if conflicts.is_empty() {
-                let merged = dours.merge(&dtheirs).map_err(|e| refused(&e))?;
-                let mut out = b.clone();
-                merged.apply(&mut out).map_err(|e| refused(&e))?;
-                return Ok(Ok(Instance::Table(out)));
+            let combined = match mode {
+                Combine::Merge => {
+                    let conflicts = dours.independence(&dtheirs);
+                    if conflicts.is_empty() {
+                        let merged = dours.merge(&dtheirs).map_err(|e| refused(&e))?;
+                        Ok((merged, b))
+                    } else {
+                        Err(conflicts)
+                    }
+                }
+                Combine::Rebase => dtheirs
+                    .rebase(std::slice::from_ref(&dours))
+                    .map(|rebased| (rebased, o))
+                    .map_err(|found| vec![found.conflict]),
+            };
+            match combined {
+                Ok((delta, onto)) => {
+                    let mut out = onto.clone();
+                    delta.apply(&mut out).map_err(|e| refused(&e))?;
+                    Ok(Ok(Instance::Table(out)))
+                }
+                Err(conflicts) => Ok(Err(edit_conflicts(
+                    key,
+                    None,
+                    &RecordDelta::Table(dours),
+                    &RecordDelta::Table(dtheirs),
+                    conflicts,
+                ))),
             }
-            Ok(Err(edit_conflicts(
-                key,
-                None,
-                &RecordDelta::Table(dours),
-                &RecordDelta::Table(dtheirs),
-                conflicts,
-            )))
         }
         (Instance::Tree(b), Instance::Tree(o), Instance::Tree(t)) => {
-            merge_trees(key, schema, b, o, t)
+            merge_trees(mode, key, schema, b, o, t)
         }
         _ => {
             let (expected, found) = if base.shape() == ours.shape() {
@@ -563,8 +676,9 @@ fn edit_conflicts(
         .collect()
 }
 
-/// The three-way merge of three graphs.
+/// The three-way merge, or rebase, of three graphs.
 fn merge_graphs(
+    mode: Combine,
     key: &str,
     record: Option<usize>,
     base: &GInstance,
@@ -572,13 +686,29 @@ fn merge_graphs(
     theirs: &GInstance,
 ) -> Result<Result<GInstance, Vec<InstanceConflict>>, VcsError> {
     let (dours, dtheirs) = (GraphDelta::diff(base, ours), GraphDelta::diff(base, theirs));
-    let conflicts = dours.independence(&dtheirs);
-    if conflicts.is_empty() {
-        let merged = dours.merge(&dtheirs).map_err(|e| refused(&e))?;
-        let mut out = base.clone();
-        merged.apply(&mut out).map_err(|e| refused(&e))?;
-        return Ok(Ok(out));
-    }
+    let combined = match mode {
+        Combine::Merge => {
+            let conflicts = dours.independence(&dtheirs);
+            if conflicts.is_empty() {
+                let merged = dours.merge(&dtheirs).map_err(|e| refused(&e))?;
+                Ok((merged, base))
+            } else {
+                Err(conflicts)
+            }
+        }
+        Combine::Rebase => dtheirs
+            .rebase(std::slice::from_ref(&dours))
+            .map(|rebased| (rebased, ours))
+            .map_err(|found| vec![found.conflict]),
+    };
+    let conflicts = match combined {
+        Ok((delta, onto)) => {
+            let mut out = onto.clone();
+            delta.apply(&mut out).map_err(|e| refused(&e))?;
+            return Ok(Ok(out));
+        }
+        Err(conflicts) => conflicts,
+    };
     Ok(Err(edit_conflicts(
         key,
         record,
@@ -590,6 +720,7 @@ fn merge_graphs(
 
 /// The three-way merge of three sequences of trees, record by record.
 fn merge_trees(
+    mode: Combine,
     key: &str,
     schema: &Schema,
     base: &[WInstance],
@@ -608,7 +739,7 @@ fn merge_trees(
         match (ours.get(index), theirs.get(index)) {
             (Some(o), Some(t)) => {
                 let (o, t) = (graph_form(schema, o)?, graph_form(schema, t)?);
-                match merge_graphs(key, Some(index), &base_graph, &o, &t)? {
+                match merge_graphs(mode, key, Some(index), &base_graph, &o, &t)? {
                     Ok(graph) => match graph.to_wtype_embedded(schema) {
                         Ok((tree, _)) => merged.push(tree),
                         Err(error) => conflicts.push(record_conflict(
@@ -704,6 +835,138 @@ pub fn apply_resolutions(
         };
         if let Some(id) = id {
             out.insert(key.to_owned(), MergedEntry::Kept(id));
+        }
+    }
+    Ok(out)
+}
+
+/// The failing records of `instance` under `schema` and `protocol`: each
+/// record (tree, or the one table or graph) whose report has a required
+/// check that failed or did not complete, with its index.
+pub(crate) fn instance_failures(
+    schema: &Schema,
+    protocol: &Protocol,
+    instance: &crate::payload::Instance,
+) -> Vec<(usize, panproto_inst::ValidationReport)> {
+    let reports = match instance {
+        Instance::Tree(trees) => trees
+            .iter()
+            .map(|tree| panproto_inst::validate_wtype(tree, schema, protocol))
+            .collect(),
+        Instance::Table(table) => vec![panproto_inst::validate_table(table, schema, protocol)],
+        Instance::Graph(graph) => vec![panproto_inst::validate_graph(graph, schema, protocol)],
+    };
+    let required = panproto_inst::validation::Requirement::Required;
+    reports
+        .into_iter()
+        .enumerate()
+        .filter(|(_, report)| {
+            report.diagnostics.iter().any(|d| d.requirement == required)
+                || report.incomplete.iter().any(|i| i.requirement == required)
+        })
+        .collect()
+}
+
+/// What a replayed commit records about the instances it changes.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ReplayedData {
+    /// One data set per key the replay changes and tracks, in key order.
+    pub data_ids: Vec<ObjectId>,
+    /// The keys the replay stops tracking.
+    pub untracked: Vec<String>,
+}
+
+/// Replay onto `tip` the instances `commit` changes from its first parent
+/// `parent` ([`replay_tracked`]), and store what the replayed commit
+/// records.
+///
+/// `lifted` lists, aligned with `commit.data_ids`, each of the commit's data
+/// sets as lifted to the replayed commit's schema; a data set the replay
+/// takes from the commit is recorded in its lifted form. A merged instance
+/// is stored under the schema its three versions share. Merged instances
+/// are validated under the protocol their schema names, resolved through
+/// the commit's protocol object, then `registered`, then the registry.
+///
+/// # Errors
+///
+/// [`VcsError::InstanceConflicts`] with every conflict when the replay
+/// conflicts, and the errors of [`replay_tracked`], of tracking and of the
+/// store.
+pub fn replay_commit_data<S: std::hash::BuildHasher>(
+    store: &mut dyn crate::store::Store,
+    [parent, tip, commit]: [&crate::object::CommitObject; 3],
+    lifted: &[ObjectId],
+    registered: &std::collections::HashMap<String, Protocol, S>,
+) -> Result<ReplayedData, VcsError> {
+    let parent_tracked = crate::instance_vc::tracked(store, parent)?;
+    let tip_tracked = crate::instance_vc::tracked(store, tip)?;
+    let replayed = crate::instance_vc::tracked(store, commit)?;
+    let stored = crate::data_mig::commit_protocol(store, commit)?;
+    let replay = {
+        let view: &dyn crate::store::Store = &*store;
+        let coproduct = crate::tree::project_coproduct_protocol();
+        let mut load = |dataset: &DataSetObject| {
+            Ok((
+                crate::tree::assemble_schema_dyn(view, &dataset.schema_id, &coproduct)?,
+                dataset.decode()?,
+            ))
+        };
+        let mut validate = |schema: &Schema, instance: &Instance| {
+            let protocol = crate::data_mig::protocol_for_schema(
+                schema,
+                crate::data_mig::ProtocolSources {
+                    stored: stored.as_ref(),
+                    registered,
+                },
+            )?;
+            Ok(instance_failures(schema, &protocol, instance))
+        };
+        replay_tracked(
+            &parent_tracked,
+            &tip_tracked,
+            &replayed,
+            &mut load,
+            &mut validate,
+        )?
+    };
+    if !replay.conflicts.is_empty() {
+        return Err(VcsError::InstanceConflicts {
+            conflicts: replay.conflicts,
+        });
+    }
+    let changed: BTreeSet<&String> = parent_tracked
+        .keys()
+        .chain(replayed.keys())
+        .filter(|key| !same(parent_tracked.get(*key), replayed.get(*key)))
+        .collect();
+    let mut out = ReplayedData::default();
+    for key in changed {
+        match replay.merged.get(key) {
+            None => {
+                if tip_tracked.contains_key(key) {
+                    out.untracked.push(key.clone());
+                }
+            }
+            Some(MergedEntry::Kept(id)) => {
+                let recorded = commit
+                    .data_ids
+                    .iter()
+                    .position(|own| own == id)
+                    .and_then(|index| lifted.get(index))
+                    .unwrap_or(id);
+                if tip_tracked.get(key).map(|(tip_id, _)| tip_id) != Some(recorded) {
+                    out.data_ids.push(*recorded);
+                }
+            }
+            Some(MergedEntry::Merged {
+                schema_id,
+                instance,
+            }) => {
+                let dataset =
+                    DataSetObject::from_instance(*schema_id, instance, Some(key.clone()))?;
+                out.data_ids
+                    .push(store.put(&crate::object::Object::DataSet(dataset))?);
+            }
         }
     }
     Ok(out)

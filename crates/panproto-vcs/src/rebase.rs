@@ -149,6 +149,15 @@ fn replay_one<S: BuildHasher>(
         registered,
     )?;
 
+    // Replay the instances the commit changes onto the tip: each changed
+    // key's delta is rebased over the deltas committed since its parent.
+    let replayed = crate::instance_merge::replay_commit_data(
+        store,
+        [&parent_commit, &tip_commit, &commit],
+        &lifted_data_ids,
+        registered,
+    )?;
+
     let mig_src = store.put(&Object::FlatSchema(Box::new(ours_schema)))?;
     let mig_tgt = store.put(&Object::FlatSchema(Box::new(result.merged_schema.clone())))?;
     let merged_schema_id = crate::tree::store_schema_as_tree(store, result.merged_schema)?;
@@ -166,8 +175,11 @@ fn replay_one<S: BuildHasher>(
     )
     .parents(vec![current_tip])
     .migration_id(migration_id);
-    if !lifted_data_ids.is_empty() {
-        builder = builder.data_ids(lifted_data_ids);
+    if !replayed.data_ids.is_empty() {
+        builder = builder.data_ids(replayed.data_ids);
+    }
+    if !replayed.untracked.is_empty() {
+        builder = builder.untracked(replayed.untracked);
     }
     if !lifted_complement_ids.is_empty() {
         builder = builder.complement_ids(lifted_complement_ids);

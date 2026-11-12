@@ -52,28 +52,12 @@ pub fn cherry_pick<S: BuildHasher>(
     registered: &HashMap<String, Protocol, S>,
 ) -> Result<ObjectId, VcsError> {
     // Load the commit being cherry-picked.
-    let commit = match store.get(&commit_id)? {
-        Object::Commit(c) => c,
-        other => {
-            return Err(VcsError::WrongObjectType {
-                expected: "commit",
-                found: other.type_name(),
-            });
-        }
-    };
+    let commit = load_commit(store, &commit_id)?;
 
     // Need at least one parent to compute the diff.
     let parent_id = commit.parents.first().ok_or(VcsError::NoPath)?;
 
-    let parent_commit = match store.get(parent_id)? {
-        Object::Commit(c) => c,
-        other => {
-            return Err(VcsError::WrongObjectType {
-                expected: "commit",
-                found: other.type_name(),
-            });
-        }
-    };
+    let parent_commit = load_commit(store, parent_id)?;
 
     // Load schemas.
     let base_schema = load_schema_dyn(store, &parent_commit.schema_id)?;
@@ -83,15 +67,7 @@ pub fn cherry_pick<S: BuildHasher>(
     let head_id = store::resolve_head(store)?.ok_or_else(|| VcsError::RefNotFound {
         name: "HEAD".to_owned(),
     })?;
-    let head_commit = match store.get(&head_id)? {
-        Object::Commit(c) => c,
-        other => {
-            return Err(VcsError::WrongObjectType {
-                expected: "commit",
-                found: other.type_name(),
-            });
-        }
-    };
+    let head_commit = load_commit(store, &head_id)?;
     let ours_schema = load_schema_dyn(store, &head_commit.schema_id)?;
 
     // Three-way merge.
@@ -134,6 +110,15 @@ pub fn cherry_pick<S: BuildHasher>(
         registered,
     )?;
 
+    // Replay the instances the commit changes onto the tip: each changed
+    // key's delta is rebased over the deltas committed since its parent.
+    let replayed = crate::instance_merge::replay_commit_data(
+        store,
+        [&parent_commit, &head_commit, &commit],
+        &lifted_data_ids,
+        registered,
+    )?;
+
     // Store the merged schema.
     let mig_src = store.put(&Object::FlatSchema(Box::new(ours_schema)))?;
     let mig_tgt = store.put(&Object::FlatSchema(Box::new(result.merged_schema.clone())))?;
@@ -155,8 +140,11 @@ pub fn cherry_pick<S: BuildHasher>(
     )
     .parents(vec![head_id])
     .migration_id(migration_id);
-    if !lifted_data_ids.is_empty() {
-        builder = builder.data_ids(lifted_data_ids);
+    if !replayed.data_ids.is_empty() {
+        builder = builder.data_ids(replayed.data_ids);
+    }
+    if !replayed.untracked.is_empty() {
+        builder = builder.untracked(replayed.untracked);
     }
     if !lifted_complement_ids.is_empty() {
         builder = builder.complement_ids(lifted_complement_ids);
@@ -191,26 +179,10 @@ pub fn cherry_pick_with_options<S: BuildHasher>(
     registered: &HashMap<String, Protocol, S>,
 ) -> Result<ObjectId, VcsError> {
     // Load the commit being cherry-picked.
-    let commit = match store.get(&commit_id)? {
-        Object::Commit(c) => c,
-        other => {
-            return Err(VcsError::WrongObjectType {
-                expected: "commit",
-                found: other.type_name(),
-            });
-        }
-    };
+    let commit = load_commit(store, &commit_id)?;
 
     let parent_id = commit.parents.first().ok_or(VcsError::NoPath)?;
-    let parent_commit = match store.get(parent_id)? {
-        Object::Commit(c) => c,
-        other => {
-            return Err(VcsError::WrongObjectType {
-                expected: "commit",
-                found: other.type_name(),
-            });
-        }
-    };
+    let parent_commit = load_commit(store, parent_id)?;
 
     let base_schema = load_schema_dyn(store, &parent_commit.schema_id)?;
     let theirs_schema = load_schema_dyn(store, &commit.schema_id)?;
@@ -218,15 +190,7 @@ pub fn cherry_pick_with_options<S: BuildHasher>(
     let head_id = store::resolve_head(store)?.ok_or_else(|| VcsError::RefNotFound {
         name: "HEAD".to_owned(),
     })?;
-    let head_commit = match store.get(&head_id)? {
-        Object::Commit(c) => c,
-        other => {
-            return Err(VcsError::WrongObjectType {
-                expected: "commit",
-                found: other.type_name(),
-            });
-        }
-    };
+    let head_commit = load_commit(store, &head_id)?;
     let ours_schema = load_schema_dyn(store, &head_commit.schema_id)?;
 
     let result = merge::three_way_merge(&base_schema, &ours_schema, &theirs_schema);
@@ -276,6 +240,15 @@ pub fn cherry_pick_with_options<S: BuildHasher>(
         registered,
     )?;
 
+    // Replay the instances the commit changes onto the tip: each changed
+    // key's delta is rebased over the deltas committed since its parent.
+    let replayed = crate::instance_merge::replay_commit_data(
+        store,
+        [&parent_commit, &head_commit, &commit],
+        &lifted_data_ids,
+        registered,
+    )?;
+
     let migration_id = store.put(&Object::Migration {
         src: mig_src,
         tgt: mig_tgt,
@@ -292,8 +265,11 @@ pub fn cherry_pick_with_options<S: BuildHasher>(
         CommitObject::builder(merged_schema_id, commit.protocol.clone(), author, message)
             .parents(vec![head_id])
             .migration_id(migration_id);
-    if !lifted_data_ids.is_empty() {
-        builder = builder.data_ids(lifted_data_ids);
+    if !replayed.data_ids.is_empty() {
+        builder = builder.data_ids(replayed.data_ids);
+    }
+    if !replayed.untracked.is_empty() {
+        builder = builder.untracked(replayed.untracked);
     }
     if !lifted_complement_ids.is_empty() {
         builder = builder.complement_ids(lifted_complement_ids);
@@ -362,6 +338,16 @@ fn load_schema_dyn(
 ) -> Result<panproto_schema::Schema, VcsError> {
     let proto = crate::tree::project_coproduct_protocol();
     crate::tree::assemble_schema_dyn(store, schema_id, &proto)
+}
+
+fn load_commit(store: &dyn Store, id: &ObjectId) -> Result<CommitObject, VcsError> {
+    match store.get(id)? {
+        Object::Commit(commit) => Ok(commit),
+        other => Err(VcsError::WrongObjectType {
+            expected: "commit",
+            found: other.type_name(),
+        }),
+    }
 }
 
 #[cfg(test)]
@@ -454,15 +440,7 @@ mod tests {
         let new_id = cherry_pick(&mut store, c1_id, "alice", &registered())?;
 
         // Verify the new commit has vertex b.
-        let new_commit = match store.get(&new_id)? {
-            Object::Commit(c) => c,
-            other => {
-                return Err(VcsError::WrongObjectType {
-                    expected: "commit",
-                    found: other.type_name(),
-                });
-            }
-        };
+        let new_commit = load_commit(&store, &new_id)?;
         let new_schema = crate::tree::resolve_commit_schema(&store, &new_commit)?;
         assert!(new_schema.vertices.contains_key("b"));
         assert!(new_schema.vertices.contains_key("a"));

@@ -1175,7 +1175,7 @@ impl Repository {
                     .ok_or_else(|| VcsError::UnknownProtocol {
                         name: schema.protocol.clone(),
                     })?;
-            let failing = instance_failures(&schema, &protocol, instance);
+            let failing = crate::instance_merge::instance_failures(&schema, &protocol, instance);
             if !failing.is_empty() {
                 return Err(VcsError::InstanceValidationFailed {
                     key: key.to_owned(),
@@ -1623,7 +1623,9 @@ impl Repository {
                         .ok_or_else(|| VcsError::UnknownProtocol {
                             name: schema.protocol.clone(),
                         })?;
-                Ok(instance_failures(schema, &protocol, instance))
+                Ok(crate::instance_merge::instance_failures(
+                    schema, &protocol, instance,
+                ))
             };
             instance_merge::merge_tracked(&base, &ours, &theirs, &mut load, &mut validate)?
         };
@@ -1928,34 +1930,6 @@ fn lift_records(
 /// required check left undecided. Advisory entries never decide the status
 /// and give no reason. An unresolved protocol name is the one reason
 /// `unknown protocol "{name}"`.
-/// The failing records of `instance` under `schema` and `protocol`: each
-/// record (tree, or the one table or graph) whose report has a required
-/// check that failed or did not complete, with its index.
-fn instance_failures(
-    schema: &Schema,
-    protocol: &Protocol,
-    instance: &crate::payload::Instance,
-) -> Vec<(usize, panproto_inst::ValidationReport)> {
-    use crate::payload::Instance;
-    let reports = match instance {
-        Instance::Tree(trees) => trees
-            .iter()
-            .map(|tree| panproto_inst::validate_wtype(tree, schema, protocol))
-            .collect(),
-        Instance::Table(table) => vec![panproto_inst::validate_table(table, schema, protocol)],
-        Instance::Graph(graph) => vec![panproto_inst::validate_graph(graph, schema, protocol)],
-    };
-    let required = panproto_inst::validation::Requirement::Required;
-    reports
-        .into_iter()
-        .enumerate()
-        .filter(|(_, report)| {
-            report.diagnostics.iter().any(|d| d.requirement == required)
-                || report.incomplete.iter().any(|i| i.requirement == required)
-        })
-        .collect()
-}
-
 fn record_violations(
     schema: &Schema,
     protocol: Option<&Protocol>,
