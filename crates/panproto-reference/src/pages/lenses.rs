@@ -3,6 +3,8 @@
 // Structural alignment of a tree view read from a serialization.
 mod alignment;
 mod constructions;
+// The elementary protolens kinds of the lens DSL's step alphabet.
+mod elementary;
 // Shared put-domain machinery and graph restoration.
 mod domain;
 mod graph;

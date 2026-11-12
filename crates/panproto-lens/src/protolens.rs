@@ -3389,9 +3389,10 @@ fn rebuild_adjacency(schema: &mut Schema) {
 /// Rename sorts (vertex kinds) within a schema, all at once.
 ///
 /// Each name `renames` maps is replaced by its image wherever the schema
-/// uses it as a sort: vertex kinds, edge kinds, coercion keys, hyper-edge
-/// signature entries and constraint sorts. The renaming is simultaneous, so
-/// a map that swaps two sorts swaps them.
+/// uses it as a sort: vertex kinds, recorded edge kinds, coercion keys and
+/// constraint sorts. Vertex ids, and the hyper-edge signatures that name
+/// them, are not sorts and do not change. The renaming is simultaneous, so a
+/// map that swaps two sorts swaps them.
 fn apply_sort_renames(schema: &Schema, renames: &HashMap<Arc<str>, Arc<str>>) -> Schema {
     let rename = |name: &Name| {
         renames
@@ -3410,11 +3411,6 @@ fn apply_sort_renames(schema: &Schema, renames: &HashMap<Arc<str>, Arc<str>>) ->
         .iter()
         .map(|((from, to), spec)| ((rename(from), rename(to)), spec.clone()))
         .collect();
-    for hyper_edge in new_schema.hyper_edges.values_mut() {
-        for vertex in hyper_edge.signature.values_mut() {
-            *vertex = rename(vertex);
-        }
-    }
     for constraints in new_schema.constraints.values_mut() {
         for constraint in constraints {
             constraint.sort = rename(&constraint.sort);
@@ -6193,5 +6189,37 @@ mod renames_keep_every_edge {
             let restored = crate::graph_lens::put(&lens, &view, &complement).unwrap();
             assert!(GInstance::identical(&restored, &source));
         }
+    }
+
+    #[test]
+    fn renaming_a_sort_keeps_the_vertex_ids_a_hyper_edge_names() {
+        let schema = SchemaBuilder::new(&Protocol::default())
+            .vertex("obj", "obj", None)
+            .unwrap()
+            .vertex("row", "row", None)
+            .unwrap()
+            .hyper_edge(
+                "fan",
+                "fan",
+                HashMap::from([("l".to_owned(), "obj".to_owned())]),
+                "l",
+            )
+            .unwrap()
+            .build()
+            .unwrap();
+        let lens = elementary::rename_sort("obj", "thing")
+            .instantiate_checked(&schema, &Protocol::default())
+            .unwrap();
+        let fan = &lens.tgt_schema.hyper_edges[&panproto_gat::Name::from("fan")];
+        assert_eq!(
+            fan.signature[&panproto_gat::Name::from("l")].as_str(),
+            "obj"
+        );
+        assert_eq!(
+            lens.tgt_schema.vertices[&panproto_gat::Name::from("obj")]
+                .kind
+                .as_str(),
+            "thing"
+        );
     }
 }
