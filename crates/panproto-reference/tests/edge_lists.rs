@@ -162,7 +162,7 @@ fn the_writer_refuses_what_no_edge_list_reads_back_as() {
 
 #[test]
 fn the_edge_list_scopes_have_their_closed_form_counts() {
-    for (dialect, count) in [(Dialect::Csv, 25_321), (Dialect::Tsv, 21_547)] {
+    for (dialect, count) in [(Dialect::Csv, 32_761), (Dialect::Tsv, 21_547)] {
         assert_eq!(documents_count(dialect), count);
         assert_eq!(documents(dialect).len(), count);
     }

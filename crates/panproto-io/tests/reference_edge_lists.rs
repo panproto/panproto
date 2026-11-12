@@ -78,7 +78,7 @@ fn assert_reads_agree(codec: &EdgeListCodec, text: &str) {
 
 #[test]
 fn edge_list_documents_read_as_the_reference_on_every_bounded_document() {
-    for (dialect, count) in [(Dialect::Csv, 25_321), (Dialect::Tsv, 21_547)] {
+    for (dialect, count) in [(Dialect::Csv, 32_761), (Dialect::Tsv, 21_547)] {
         let codec = EdgeListCodec::new(dialect).unwrap();
         let documents = documents(reference_dialect(dialect));
         assert_eq!(documents.len(), count);

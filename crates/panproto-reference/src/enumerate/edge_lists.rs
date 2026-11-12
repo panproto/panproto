@@ -32,6 +32,8 @@ pub const CSV_RECORDS: &[&str] = &[
     "a,b,c,d",
     " a , b ",
     "\"x\ny\",\"\"",
+    "x\"a,b\"y,c",
+    "1\"2\"3,b",
 ];
 
 /// The TSV header spellings of the document scope.

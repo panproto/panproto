@@ -1007,12 +1007,14 @@ fn find_cst_root(cst: &Schema) -> Result<String, CstCodecError> {
     ))
 }
 
-fn validate_cst_has_no_recovery_markers(cst: &Schema, format: &str) -> Result<(), CstCodecError> {
-    let count = cst
-        .vertices
+/// The start byte of each parser recovery marker of `cst` (an `ERROR`
+/// node, a node marked missing, or a zero-width named node other than the
+/// format's legitimately empty ones), `None` for one with no recorded span.
+fn recovery_marker_starts(cst: &Schema, format: &str) -> Vec<Option<usize>> {
+    cst.vertices
         .iter()
-        .filter(|(name, vertex)| {
-            let constraints = cst.constraints.get(*name);
+        .filter_map(|(name, vertex)| {
+            let constraints = cst.constraints.get(name);
             let explicitly_missing = constraints.is_some_and(|constraints| {
                 constraints
                     .iter()
@@ -1035,9 +1037,14 @@ fn validate_cst_has_no_recovery_markers(cst: &Schema, format: &str) -> Result<()
                     (format, vertex.kind.as_ref()),
                     ("YAML", "stream" | "document") | ("tabular", "field" | "text")
                 );
-            *vertex.kind == *"ERROR" || explicitly_missing || zero_width_named_recovery
+            (*vertex.kind == *"ERROR" || explicitly_missing || zero_width_named_recovery)
+                .then_some(span.map(|(start, _)| start))
         })
-        .count();
+        .collect()
+}
+
+fn validate_cst_has_no_recovery_markers(cst: &Schema, format: &str) -> Result<(), CstCodecError> {
+    let count = recovery_marker_starts(cst, format).len();
     if count == 0 {
         Ok(())
     } else {
@@ -6819,7 +6826,13 @@ pub fn extract_tabular_cst_with_protocol(
         domain_schema,
         protocol,
         table_vertex,
-        headers: tabular_headers(cst, row_vertices[0])?,
+        // A TSV header is read from its text by `tsv_rows`; the grammar's
+        // fields of a TSV row need not be its tab-separated fields.
+        headers: if format == "tsv" {
+            Vec::new()
+        } else {
+            tabular_headers(cst, row_vertices[0])?
+        },
         format,
         delimiter: match format {
             "csv" => Some(b','),
@@ -6934,13 +6947,27 @@ fn tabular_complement(
 ///
 /// # Errors
 ///
-/// Returns [`CstCodecError`] when the parser could not read the whole text,
-/// the CST has no root, or a CSV header field is not a well-formed field.
+/// Returns [`CstCodecError`] when the parser could not read the header
+/// record (a recovery marker starts before the header row ends), the CST
+/// has no root, or a CSV header field is not a well-formed field. Recovery
+/// markers after the header are left to the table extraction.
 #[cfg(feature = "tree-sitter")]
 pub(crate) fn tabular_header(cst: &Schema) -> Result<Option<Vec<String>>, CstCodecError> {
-    validate_cst_has_no_recovery_markers(cst, "tabular")?;
     let doc_vertex = find_cst_root(cst)?;
     let rows = cst_children_by_edge_kind(cst, &doc_vertex, "child_of");
+    let header_end = rows
+        .first()
+        .and_then(|header| cst_recorded_span(cst, header))
+        .map_or(usize::MAX, |(_, end)| end);
+    let in_header = recovery_marker_starts(cst, "tabular")
+        .into_iter()
+        .filter(|start| start.is_none_or(|start| start < header_end))
+        .count();
+    if in_header > 0 {
+        return Err(CstCodecError::Structure(format!(
+            "tabular CST contains {in_header} parser recovery marker(s) in its header record"
+        )));
+    }
     let Some(header) = rows.first() else {
         return Ok(None);
     };
@@ -6990,15 +7017,15 @@ fn tsv_lines(source: &str) -> Vec<(usize, &str)> {
 }
 
 /// The text of one CSV or TSV field vertex, as [`decode_tabular_field`]
-/// reads it, refusing a CSV field that is not an RFC 4180 field: a `"` in
-/// an unquoted field, or a quoted field whose closing quote is followed by
-/// more text or that holds a `"` not doubled.
+/// reads it, refusing a CSV field that opens with a quote and is not an
+/// RFC 4180 quoted field: one whose closing quote is followed by more text,
+/// or that holds a `"` not doubled. A field that does not open with a quote
+/// is read as its text, quotes included.
 fn read_tabular_field(cst: &Schema, field: &Name) -> Result<String, CstCodecError> {
     let raw = literal_text_deep(cst, field);
     let format = cst.protocol.as_ref();
-    if format == "csv" && raw.contains('"') {
+    if format == "csv" && raw.starts_with('"') {
         let well_formed = raw.len() >= 2
-            && raw.starts_with('"')
             && raw.ends_with('"')
             && !raw[1..raw.len() - 1].replace("\"\"", "").contains('"');
         if !well_formed {
@@ -7086,11 +7113,12 @@ impl TabularReader<'_> {
                     Some((
                         start,
                         delimited_field_starts(text, delimiter, self.format == "csv"),
+                        text.trim_end_matches(['\r', '\n']).len(),
                     ))
                 });
         let field_count = layout
             .as_ref()
-            .map_or(fields.len(), |(_, starts)| starts.len());
+            .map_or(fields.len(), |(_, starts, _)| starts.len());
         let headers = self.headers.len();
         if field_count != headers && !(field_count < headers && layout.is_none()) {
             return Err(CstCodecError::Structure(format!(
@@ -7101,8 +7129,41 @@ impl TabularReader<'_> {
                 headers
             )));
         }
+        if let Some((row_start, starts, len)) = &layout {
+            // Each field the grammar reads must be exactly one delimited
+            // field of the record, and each non-empty delimited field must be
+            // read: otherwise the grammar has split the record differently
+            // (a quote inside an unquoted field can carry it past a
+            // delimiter), and reading on would lose or move text.
+            let regions: HashSet<(usize, usize)> = starts
+                .iter()
+                .enumerate()
+                .map(|(i, &start)| (start, starts.get(i + 1).map_or(*len, |next| next - 1)))
+                .collect();
+            let read: HashSet<(usize, usize)> = fields
+                .iter()
+                .filter_map(|field| cst_recorded_span(cst, field))
+                .map(|(start, end)| {
+                    (
+                        start.saturating_sub(*row_start),
+                        end.saturating_sub(*row_start),
+                    )
+                })
+                .collect();
+            if !read.is_subset(&regions)
+                || regions
+                    .iter()
+                    .any(|&(start, end)| end > start && !read.contains(&(start, end)))
+            {
+                return Err(CstCodecError::Structure(format!(
+                    "data row {} at byte {:?} is not read as its delimited fields",
+                    row_idx + 1,
+                    cst_byte_offset(cst, row_name),
+                )));
+            }
+        }
         Ok(match &layout {
-            Some((row_start, starts)) => (
+            Some((row_start, starts, _)) => (
                 fields
                     .iter()
                     .map(|field| {
