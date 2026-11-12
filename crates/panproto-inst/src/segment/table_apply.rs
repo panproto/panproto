@@ -329,19 +329,13 @@ fn anchors_after(delta: &TableDelta, facts: &[Facts]) -> BTreeMap<RowId, Name> {
     anchors
 }
 
-/// The segment `held` after `delta`, once the delta is checked: its own
-/// rows and pairs as the delta deletes, adds and changes them, a ghost for
-/// every remote target of its pairs and an in-stub for every remote pair
-/// entering it, with the tables after the delta (`anchors`, then the
-/// segment's own copies for the rows the delta leaves alone).
-fn edit_segment(
+/// The rows and pairs `held` owns after `delta`, with `is_here` telling
+/// the rows the segment owns.
+fn edited_parts(
     held: &TableSegment,
     delta: &TableDelta,
-    family: &FamilyIndex,
-    anchors: &BTreeMap<RowId, Name>,
-) -> Result<TableSegment, SegmentError> {
-    let here = held.segment;
-    let is_here = |row: RowId| family.owner(row.0) == Some(here);
+    is_here: &dyn Fn(RowId) -> bool,
+) -> (BTreeMap<RowId, (Name, Row)>, BTreeSet<Pair>) {
     let mut rows = held.rows.clone();
     for id in delta.del_rows().keys() {
         rows.remove(id);
@@ -377,6 +371,23 @@ fn edit_segment(
             pairs.insert(pair.clone());
         }
     }
+    (rows, pairs)
+}
+
+/// The segment `held` after `delta`, once the delta is checked: its own
+/// rows and pairs as the delta deletes, adds and changes them, a ghost for
+/// every remote target of its pairs and an in-stub for every remote pair
+/// entering it, with the tables after the delta (`anchors`, then the
+/// segment's own copies for the rows the delta leaves alone).
+fn edit_segment(
+    held: &TableSegment,
+    delta: &TableDelta,
+    family: &FamilyIndex,
+    anchors: &BTreeMap<RowId, Name>,
+) -> Result<TableSegment, SegmentError> {
+    let here = held.segment;
+    let is_here = |row: RowId| family.owner(row.0) == Some(here);
+    let (rows, pairs) = edited_parts(held, delta, &is_here);
     let anchor = |row: RowId| {
         anchors
             .get(&row)

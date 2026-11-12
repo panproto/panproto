@@ -9054,6 +9054,9 @@ pub mod segment {
         names
     }
 
+    /// A row of a table segment: its table and its cells.
+    type TableRow = (Name, BTreeMap<String, Value>);
+
     /// The table of row `row` as `segment` holds it: its own row's table,
     /// its ghost's anchor, or the source anchor of an in-stub leaving it.
     fn held_table(segment: &TableSegment, row: u32) -> Option<&Name> {
@@ -9101,10 +9104,11 @@ pub mod segment {
             .into_iter()
             .filter(|row| segment.rows.contains_key(row))
             .collect();
-        let rows: Vec<(&u32, &(Name, BTreeMap<String, Value>))> = segment
+        let rows: BTreeMap<u32, &TableRow> = segment
             .rows
             .iter()
             .filter(|(id, _)| named.contains(*id))
+            .map(|(id, row)| (*id, row))
             .collect();
         let pairs: Vec<&(SEdge, u32, u32)> = segment
             .pairs
@@ -9130,7 +9134,7 @@ pub mod segment {
         w.len(rows.len());
         for (id, (table, cells)) in &rows {
             let mut body = Writer::default();
-            body.u32(**id);
+            body.u32(*id);
             body.str(table);
             write_map(&mut body, cells)
                 .ok_or_else(|| decode_error(ArtifactKind::Summary, "noncanonical table row"))?;

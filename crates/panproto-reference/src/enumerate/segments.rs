@@ -1169,11 +1169,12 @@ pub fn segmented_table_apply_partitions() -> Vec<Partition> {
         .collect()
 }
 
-/// The atomic table deltas over the row ids `ids`: the identity; deleting
-/// or adding each row in table `a` without cells or with `f = 0`; deleting
-/// or adding the pair `a -e-> a` between each two of them; adding or
-/// removing the cell `f = 0` of each; and moving each from `a` to `b` and
-/// back.
+/// The atomic table deltas over the row ids `ids`.
+///
+/// They are the identity; deleting or adding each row in table `a` without
+/// cells or with `f = 0`; deleting or adding the pair `a -e-> a` between
+/// each two of them; adding or removing the cell `f = 0` of each; and
+/// moving each from `a` to `b` and back.
 #[must_use]
 pub fn segmented_table_deltas(ids: &[u32]) -> Vec<crate::edit::TableDelta> {
     use crate::edit::{TElem, TKey, TPayload, TVal, TableDelta};
