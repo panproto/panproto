@@ -407,7 +407,7 @@ fn typecheck_app_with_implicits(
         }
     }
 
-    let mgu = unify_all(term_eqs).map_err(|e| match e {
+    let mgu = unify_metavariables(term_eqs, &fresh_rename).map_err(|e| match e {
         GatError::SortUnificationFailure { reason } => GatError::SortUnificationFailure {
             reason: format!("implicit inference for {op}: {reason}"),
         },
@@ -464,6 +464,15 @@ fn push_sort_expr_eqs_into(
 /// producing a term-level substitution that is then applied back to the
 /// inferred sort expressions.
 ///
+/// An argument that is itself an application also constrains the
+/// enclosing operation's implicit parameters: its output sort is unified
+/// with the declared input sort at that position, so that in
+/// `comp(id(a), f)` with implicit `a b c` the implicit `b` is solved to
+/// `a` and `f` is inferred at `Hom(?, a)`. These argument constraints
+/// only sharpen the inferred context; when they admit no unifier the
+/// variable constraints alone are used, and [`typecheck_term`] then
+/// reports the ill-typed argument.
+///
 /// # Errors
 ///
 /// Returns [`GatError::ConflictingVarSort`] when two sort-expression
@@ -473,24 +482,33 @@ fn push_sort_expr_eqs_into(
 /// referenced operation is absent from the theory.
 pub fn infer_var_sorts(eq: &Equation, theory: &Theory) -> Result<VarContext, GatError> {
     let mut ctx = VarContext::default();
-    let mut term_eqs: Vec<(Term, Term)> = Vec::new();
+    let mut constraints = Constraints::default();
     let mut next_implicit_scope = 0;
     collect_constraints(
         &eq.lhs,
         theory,
         &mut ctx,
-        &mut term_eqs,
+        &mut constraints,
         &mut next_implicit_scope,
     )?;
     collect_constraints(
         &eq.rhs,
         theory,
         &mut ctx,
-        &mut term_eqs,
+        &mut constraints,
         &mut next_implicit_scope,
     )?;
 
-    let substitution = unify_all(term_eqs)?;
+    let Constraints {
+        variables,
+        arguments,
+    } = constraints;
+    let mut combined = variables.clone();
+    combined.extend(arguments);
+    let substitution = match unify_all(combined) {
+        Ok(substitution) => substitution,
+        Err(_) => unify_all(variables)?,
+    };
     if !substitution.is_empty() {
         for sort in ctx.values_mut() {
             *sort = sort.subst(&substitution);
@@ -499,35 +517,49 @@ pub fn infer_var_sorts(eq: &Equation, theory: &Theory) -> Result<VarContext, Gat
     Ok(ctx)
 }
 
+/// Term equality constraints gathered while inferring variable sorts.
+#[derive(Default)]
+struct Constraints {
+    /// Constraints from two uses of the same variable.
+    variables: Vec<(Term, Term)>,
+    /// Constraints between an application argument's output sort and the
+    /// declared input sort at its position.
+    arguments: Vec<(Term, Term)>,
+}
+
 /// Recursive helper: walk a term and constrain each variable argument
 /// to the expected input sort of its enclosing operation (with the
 /// running substitution θ applied so earlier arguments flow into later
 /// expected sorts).
+///
+/// Returns the sort of an application, its output sort under θ with
+/// the implicit parameters as metavariables, and `None` for any other
+/// term.
 fn collect_constraints(
     term: &Term,
     theory: &Theory,
     ctx: &mut VarContext,
-    term_eqs: &mut Vec<(Term, Term)>,
+    constraints: &mut Constraints,
     next_implicit_scope: &mut usize,
-) -> Result<(), GatError> {
+) -> Result<Option<SortExpr>, GatError> {
     let (op, args) = match term {
         Term::App { op, args } => (op, args),
         Term::Case {
             scrutinee,
             branches,
         } => {
-            collect_constraints(scrutinee, theory, ctx, term_eqs, next_implicit_scope)?;
+            collect_constraints(scrutinee, theory, ctx, constraints, next_implicit_scope)?;
             for b in branches {
-                collect_constraints(&b.body, theory, ctx, term_eqs, next_implicit_scope)?;
+                collect_constraints(&b.body, theory, ctx, constraints, next_implicit_scope)?;
             }
-            return Ok(());
+            return Ok(None);
         }
         Term::Let { bound, body, .. } => {
-            collect_constraints(bound, theory, ctx, term_eqs, next_implicit_scope)?;
-            collect_constraints(body, theory, ctx, term_eqs, next_implicit_scope)?;
-            return Ok(());
+            collect_constraints(bound, theory, ctx, constraints, next_implicit_scope)?;
+            collect_constraints(body, theory, ctx, constraints, next_implicit_scope)?;
+            return Ok(None);
         }
-        Term::Var(_) | Term::Hole { .. } => return Ok(()),
+        Term::Var(_) | Term::Hole { .. } => return Ok(None),
     };
     let operation = theory
         .find_op(op)
@@ -566,21 +598,25 @@ fn collect_constraints(
             });
         };
         let expected = declared_sort.subst(&theta);
-        match arg {
-            Term::Var(var_name) => {
-                if let Some(existing) = ctx.get(var_name).cloned() {
-                    unify_sort_exprs(&existing, &expected, var_name, term_eqs)?;
-                } else {
-                    ctx.insert(Arc::clone(var_name), expected);
-                }
+        if let Term::Var(var_name) = arg {
+            if let Some(existing) = ctx.get(var_name).cloned() {
+                unify_sort_exprs(&existing, &expected, var_name, &mut constraints.variables)?;
+            } else {
+                ctx.insert(Arc::clone(var_name), expected);
             }
-            Term::App { .. } | Term::Case { .. } | Term::Hole { .. } | Term::Let { .. } => {
-                collect_constraints(arg, theory, ctx, term_eqs, next_implicit_scope)?;
+        } else if let Some(arg_sort) =
+            collect_constraints(arg, theory, ctx, constraints, next_implicit_scope)?
+        {
+            if arg_sort.head() == expected.head() && arg_sort.args().len() == expected.args().len()
+            {
+                for (x, y) in expected.args().iter().zip(arg_sort.args().iter()) {
+                    constraints.arguments.push((x.clone(), y.clone()));
+                }
             }
         }
         theta.insert(Arc::clone(param_name), arg.clone());
     }
-    Ok(())
+    Ok(Some(operation.output.subst(&theta)))
 }
 
 /// Push pairwise equality constraints between two sort expressions.
@@ -623,7 +659,36 @@ fn unify_sort_exprs(
 /// Returns a substitution mapping variable names to terms, or a
 /// [`GatError::SortUnificationFailure`] when the constraints are
 /// unsatisfiable.
-fn unify_all(mut eqs: Vec<(Term, Term)>) -> Result<FxHashMap<Arc<str>, Term>, GatError> {
+fn unify_all(eqs: Vec<(Term, Term)>) -> Result<FxHashMap<Arc<str>, Term>, GatError> {
+    unify_with(eqs, &|_| true)
+}
+
+/// First-order unification in which only the named metavariables may be
+/// bound; every other variable is rigid and unifies only with itself.
+///
+/// Used where an operation's implicit parameters are solved against the
+/// sorts of its explicit arguments: the context's variables are fixed
+/// there, and binding one would identify two distinct variables.
+fn unify_metavariables(
+    eqs: Vec<(Term, Term)>,
+    metavariables: &FxHashMap<Arc<str>, Term>,
+) -> Result<FxHashMap<Arc<str>, Term>, GatError> {
+    let flexible: FxHashSet<&Arc<str>> = metavariables
+        .values()
+        .filter_map(|term| match term {
+            Term::Var(name) => Some(name),
+            _ => None,
+        })
+        .collect();
+    unify_with(eqs, &|name| flexible.contains(name))
+}
+
+/// Robinson unification binding only variables that `is_flexible`
+/// admits.
+fn unify_with(
+    mut eqs: Vec<(Term, Term)>,
+    is_flexible: &dyn Fn(&Arc<str>) -> bool,
+) -> Result<FxHashMap<Arc<str>, Term>, GatError> {
     let mut subst: FxHashMap<Arc<str>, Term> = FxHashMap::default();
 
     while let Some((a, b)) = eqs.pop() {
@@ -631,7 +696,7 @@ fn unify_all(mut eqs: Vec<(Term, Term)>) -> Result<FxHashMap<Arc<str>, Term>, Ga
         let b = apply_subst(&b, &subst);
         match (a, b) {
             (Term::Var(x), Term::Var(y)) if x == y => {}
-            (Term::Var(x), t) | (t, Term::Var(x)) => {
+            (Term::Var(x), t) | (t, Term::Var(x)) if is_flexible(&x) => {
                 if occurs_in(&x, &t) {
                     return Err(GatError::SortUnificationFailure {
                         reason: format!("occurs check failed: {x} in {t}"),
@@ -1919,7 +1984,7 @@ fn typecheck_app_with_implicits_collecting_holes(
         }
     }
 
-    let mgu = unify_all(term_eqs).map_err(|e| match e {
+    let mgu = unify_metavariables(term_eqs, &fresh_rename).map_err(|e| match e {
         GatError::SortUnificationFailure { reason } => GatError::SortUnificationFailure {
             reason: format!("implicit inference for {op}: {reason}"),
         },
@@ -2458,6 +2523,99 @@ mod tests {
         theory.eqs.push(assoc);
         typecheck_theory(&theory)?;
         Ok(())
+    }
+
+    /// A category whose composition takes its objects implicitly:
+    /// `comp : {a b c : Ob} -> Hom(b, c) -> Hom(a, b) -> Hom(a, c)`.
+    fn implicit_category_theory() -> Theory {
+        let hom = |x: &str, y: &str| SortExpr::App {
+            name: Arc::from("Hom"),
+            args: vec![Term::var(x), Term::var(y)],
+        };
+        let ob = Sort::simple("Ob");
+        let hom_sort = Sort::dependent(
+            "Hom",
+            vec![SortParam::new("a", "Ob"), SortParam::new("b", "Ob")],
+        );
+        let id = Operation::unary("id", "x", "Ob", hom("x", "x"));
+        let comp = Operation::with_implicit(
+            "comp",
+            vec![
+                (Arc::from("a"), SortExpr::from("Ob"), Implicit::Yes),
+                (Arc::from("b"), SortExpr::from("Ob"), Implicit::Yes),
+                (Arc::from("c"), SortExpr::from("Ob"), Implicit::Yes),
+                (Arc::from("g"), hom("b", "c"), Implicit::No),
+                (Arc::from("f"), hom("a", "b"), Implicit::No),
+            ],
+            hom("a", "c"),
+        );
+        Theory::new("Cat", vec![ob, hom_sort], vec![id, comp], Vec::new())
+    }
+
+    #[test]
+    fn implicit_composition_identity_laws_typecheck() -> Result<(), Box<dyn std::error::Error>> {
+        let mut theory = implicit_category_theory();
+        theory.eqs.push(Equation::new(
+            "left_id",
+            Term::app(
+                "comp",
+                vec![Term::app("id", vec![Term::var("a")]), Term::var("f")],
+            ),
+            Term::var("f"),
+        ));
+        theory.eqs.push(Equation::new(
+            "right_id",
+            Term::app(
+                "comp",
+                vec![Term::var("f"), Term::app("id", vec![Term::var("a")])],
+            ),
+            Term::var("f"),
+        ));
+        theory.eqs.push(Equation::new(
+            "assoc",
+            Term::app(
+                "comp",
+                vec![
+                    Term::var("h"),
+                    Term::app("comp", vec![Term::var("g"), Term::var("f")]),
+                ],
+            ),
+            Term::app(
+                "comp",
+                vec![
+                    Term::app("comp", vec![Term::var("h"), Term::var("g")]),
+                    Term::var("f"),
+                ],
+            ),
+        ));
+        typecheck_theory(&theory)?;
+        let left = infer_var_sorts(&theory.eqs[0], &theory)?;
+        let f_sort = left.get("f").ok_or("f has no inferred sort")?;
+        assert_eq!(&**f_sort.head(), "Hom");
+        assert_eq!(f_sort.args()[1], Term::var("a"));
+        Ok(())
+    }
+
+    #[test]
+    fn implicit_composition_of_identities_on_distinct_variables_is_refused() {
+        for rhs in ["a", "b"] {
+            let mut theory = implicit_category_theory();
+            theory.eqs.push(Equation::new(
+                "distinct",
+                Term::app(
+                    "comp",
+                    vec![
+                        Term::app("id", vec![Term::var("a")]),
+                        Term::app("id", vec![Term::var("b")]),
+                    ],
+                ),
+                Term::app("id", vec![Term::var(rhs)]),
+            ));
+            assert!(
+                typecheck_theory(&theory).is_err(),
+                "comp(id(a), id(b)) = id({rhs}) identifies distinct variables",
+            );
+        }
     }
 
     // --- A3: unification soundness, occurs check, idempotence ---
