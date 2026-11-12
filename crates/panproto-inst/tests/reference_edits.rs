@@ -6965,4 +6965,965 @@ mod segmented_tree_apply {
             );
         }
     }
+
+    /// The sealed source family of one tree under one partition.
+    struct Input {
+        manifest: SegmentManifest,
+        bytes: BTreeMap<SegmentId, Vec<u8>>,
+        partition: Partition,
+        held: Vec<TreeSegment>,
+        reference: Vec<segments::TreeSegment>,
+    }
+
+    fn input(
+        tree: &reference_model::Tree,
+        embedding: &panproto_reference::encode::TreeEmbedding,
+        partition: &segments::Partition,
+    ) -> Input {
+        let production_partition = prod_partition(partition);
+        let (whole, production_embedding_state) = production_tree(tree, embedding);
+        let held = partition_tree(&whole, &production_embedding_state, &production_partition)
+            .expect("production split");
+        let any: Vec<AnySegment> = held.iter().cloned().map(AnySegment::Tree).collect();
+        let (manifest, bytes) = seal_family(&any, &production_partition);
+        Input {
+            manifest,
+            bytes,
+            partition: production_partition,
+            held,
+            reference: segments::partition_tree(tree, embedding, partition)
+                .expect("reference split"),
+        }
+    }
+
+    fn seen_production(run: &ApplyRun) -> Seen {
+        seen_production_by(&run.report, &|error| {
+            format!("{:?}", production_refusal(error))
+        })
+    }
+
+    fn seen_reference(
+        run: &segments::ApplyRun<segments::TreeSegment, reference::TreeApplyError>,
+    ) -> Seen {
+        seen_reference_by(&run.report, &|error| {
+            format!("{:?}", reference_refusal(error))
+        })
+    }
+
+    fn production_run<Src: SegmentSource, St: SegmentStore>(
+        edit: &TreeEdit,
+        input: &Input,
+        source: &Src,
+        budget: Budget,
+        store: &mut St,
+        cancel: Option<u32>,
+    ) -> ApplyRun {
+        apply_run(
+            edit,
+            &input.manifest,
+            source,
+            RunSpec {
+                lens: Digest([0; 32]),
+                input: input.manifest.digest(),
+                output_schema: Digest([0; 32]),
+                cancel_after_tasks: cancel,
+            },
+            budget,
+            store,
+            &mut |_| {},
+        )
+    }
+
+    fn reference_run(
+        edit: &reference::TreeEdit,
+        input: &Input,
+        partition: &segments::Partition,
+        budget: Budget,
+        store: &mut segments::MemoryStore,
+        cancel: Option<u32>,
+    ) -> segments::ApplyRun<segments::TreeSegment, reference::TreeApplyError> {
+        segments::segmented_tree_apply_with_progress(
+            edit,
+            &input.reference,
+            partition,
+            &segments::ApplyRunSpec {
+                schema: segments::Digest(SCHEMA),
+                binding: None,
+                cancel_after_tasks: cancel,
+            },
+            segments::Budget {
+                working_set: budget.working_set,
+                complement: budget.complement,
+                summary: budget.summary,
+                affected_segments: budget.affected_segments,
+            },
+            store,
+            &mut |_| {},
+        )
+    }
+
+    /// Check the run law on one case under `budget`, as the graph and table
+    /// run laws are checked: the production report equals the reference
+    /// runner's, uninterrupted and, when `every_point`, at every
+    /// cancellation point and after resuming; a complete run reads each
+    /// segment of the read set once and no other, emits the reference's
+    /// edited segments and seals the reference's manifest; a refused or
+    /// declined run seals nothing. It returns how the run ended and the
+    /// cancellation points checked.
+    fn check_run(
+        tree: &reference_model::Tree,
+        embedding: &panproto_reference::encode::TreeEmbedding,
+        partition: &segments::Partition,
+        edit: &reference::TreeEdit,
+        budget: Budget,
+        every_point: bool,
+    ) -> (RunOutcome, u64) {
+        let input = input(tree, embedding, partition);
+        let production_edit = tree_edit_to_production(edit);
+        let source = CountingSource {
+            bytes: input.bytes.clone(),
+            reads: RefCell::new(BTreeMap::new()),
+        };
+        let mut store = MemoryStore::default();
+        let baseline = production_run(&production_edit, &input, &source, budget, &mut store, None);
+        let mut reference_store = segments::MemoryStore::default();
+        let expected = reference_run(edit, &input, partition, budget, &mut reference_store, None);
+        assert_eq!(
+            seen_production(&baseline),
+            seen_reference(&expected),
+            "run of {edit:?} on {tree:?} under {partition:?}"
+        );
+        let run = baseline.run.expect("a run identity");
+        assert_eq!(run.0, expected.run.0, "run identity");
+        let outcome = match &baseline.report.status {
+            RunStatus::Complete { manifest } => {
+                let read: BTreeSet<SegmentId> = expected
+                    .read
+                    .iter()
+                    .map(|segment| SegmentId(segment.0))
+                    .collect();
+                assert_eq!(
+                    source.reads.borrow().clone(),
+                    read.iter()
+                        .map(|segment| (*segment, 1))
+                        .collect::<BTreeMap<_, _>>(),
+                    "a complete run reads each segment of its read set once and no other"
+                );
+                let sealed = baseline.manifest.as_ref().expect("a manifest");
+                assert_eq!(verify_manifest(sealed, *manifest), Ok(()));
+                assert_eq!(
+                    sealed.canonical_bytes(),
+                    segments::canonical_manifest_bytes(
+                        expected.manifest.as_ref().expect("a reference manifest")
+                    ),
+                    "the sealed manifest of {edit:?} on {tree:?}"
+                );
+                let output = expected.output.as_ref().expect("the edited family");
+                for segment in &read {
+                    let (emitted, complement) =
+                        read_emitted_segment(&store, run, &input.partition, *segment)
+                            .expect("an emitted segment");
+                    assert_eq!(complement, Vec::<u8>::new());
+                    assert_eq!(
+                        emitted
+                            .canonical_bytes(&Digest(SCHEMA), &input.partition)
+                            .expect("bytes"),
+                        reference_bytes(&output[segment.0 as usize], partition)
+                    );
+                }
+                RunOutcome::Complete
+            }
+            RunStatus::Failed(_) => {
+                assert!(sealed_nothing(&store, run), "a refused run seals nothing");
+                RunOutcome::Refused
+            }
+            RunStatus::Residual(_) => {
+                assert!(sealed_nothing(&store, run), "a declined run seals nothing");
+                RunOutcome::Declined
+            }
+            RunStatus::Incomplete { reason } => panic!("an uninterrupted run stopped: {reason:?}"),
+        };
+        let points = if every_point {
+            check_cancellations(&input, partition, edit, budget, &baseline)
+        } else {
+            0
+        };
+        (outcome, points)
+    }
+
+    /// Stopping the run at every cancellation point and resuming it reports
+    /// what the reference runner reports, and ends as `baseline`.
+    fn check_cancellations(
+        input: &Input,
+        partition: &segments::Partition,
+        edit: &reference::TreeEdit,
+        budget: Budget,
+        baseline: &ApplyRun,
+    ) -> u64 {
+        let production_edit = tree_edit_to_production(edit);
+        let run = baseline.run.expect("a run identity");
+        let (total, done) = (
+            baseline.report.progress.tasks_total,
+            baseline.report.progress.tasks_done,
+        );
+        for cancel in 0..=total {
+            let mut store = MemoryStore::default();
+            let stopped = production_run(
+                &production_edit,
+                input,
+                &input.bytes,
+                budget,
+                &mut store,
+                Some(cancel),
+            );
+            let mut reference_store = segments::MemoryStore::default();
+            let expected_stop = reference_run(
+                edit,
+                input,
+                partition,
+                budget,
+                &mut reference_store,
+                Some(cancel),
+            );
+            assert_eq!(
+                seen_production(&stopped),
+                seen_reference(&expected_stop),
+                "run cancelled after {cancel} tasks"
+            );
+            let resumed = production_run(
+                &production_edit,
+                input,
+                &input.bytes,
+                budget,
+                &mut store,
+                None,
+            );
+            let again = reference_run(edit, input, partition, budget, &mut reference_store, None);
+            assert_eq!(
+                seen_production(&resumed),
+                seen_reference(&again),
+                "run resumed after {cancel} tasks"
+            );
+            assert_eq!(resumed.report.tasks_reused, cancel.min(done));
+            assert_eq!(resumed.manifest, baseline.manifest);
+            assert_eq!(
+                store
+                    .staged_uncommitted(&run)
+                    .unwrap_or_else(|never| match never {}),
+                Vec::<ArtifactKey>::new()
+            );
+        }
+        u64::from(total) + 1
+    }
+
+    /// Every 37th case of the segmented tree edit carrier, run as a
+    /// checkpointed run from every cancellation point against the reference
+    /// runner.
+    #[test]
+    fn segmented_tree_apply_run_matches_the_reference_runner_at_every_cancellation_point() {
+        let mut outcomes: BTreeMap<RunOutcome, u64> = BTreeMap::new();
+        let mut points = 0;
+        for case in carrier::segmented_tree_apply_cases().step_by(37) {
+            let (outcome, checked) = check_run(
+                &case.tree,
+                &case.embedding,
+                &case.partition,
+                &case.edit,
+                Budget::unlimited(),
+                true,
+            );
+            *outcomes.entry(outcome).or_insert(0) += 1;
+            points += checked;
+        }
+        println!("{outcomes:?}, {points} cancellation points");
+        assert_eq!(
+            outcomes,
+            BTreeMap::from([(RunOutcome::Complete, 188), (RunOutcome::Refused, 125)])
+        );
+        assert_eq!(points, 3_391);
+    }
+
+    /// The `a -e-> a` arc label of the witnesses.
+    fn arc() -> reference_model::SEdge {
+        reference_model::SEdge::new("a", "a", "e", None)
+    }
+
+    /// The witness family: the tree `0 -> 1, 0 -> 2, 1 -> 3, 2 -> 4` with the
+    /// fan of `h` from 3 to 4 (fan node 5, node counter 6), under four
+    /// segments: 0 owns the root and the fresh ids 6 to 9, 1 owns 1 and 3, 2
+    /// owns 2 and 4, and 3 owns the fan node 5.
+    fn witness() -> (
+        reference_model::Tree,
+        panproto_reference::encode::TreeEmbedding,
+        segments::Partition,
+    ) {
+        let tree = reference_model::Tree {
+            nodes: (0..5)
+                .map(|id| (id, reference_model::Node::new(id, "a")))
+                .collect(),
+            arcs: vec![(0, 1, arc()), (0, 2, arc()), (1, 3, arc()), (2, 4, arc())],
+            fans: vec![reference_model::Fan {
+                parent: 3,
+                hyper_edge: "h".to_owned(),
+                children: BTreeMap::from([("x".to_owned(), 4)]),
+            }],
+            root: 0,
+        };
+        let (_, embedding) =
+            panproto_reference::encode::tree_to_graph(&tree, None).expect("the witness embeds");
+        assert_eq!((embedding.next_node, embedding.fans[0].0), (6, 5));
+        let ranges = |pairs: &[(u32, u32)]| -> Vec<segments::IdRange> {
+            pairs
+                .iter()
+                .map(|(lo, hi)| segments::IdRange { lo: *lo, hi: *hi })
+                .collect()
+        };
+        let owned: [&[(u32, u32)]; 4] = [
+            &[(0, 0), (6, 9)],
+            &[(1, 1), (3, 3)],
+            &[(2, 2), (4, 4)],
+            &[(5, 5)],
+        ];
+        let partition = segments::Partition {
+            shape: segments::InstanceShapeKind::Tree,
+            specs: (0_u32..)
+                .zip(owned)
+                .map(|(id, owned)| segments::SegmentSpec {
+                    id: segments::SegmentId(id),
+                    nodes: ranges(owned),
+                    alloc_nodes: None,
+                    alloc_edges: None,
+                })
+                .collect(),
+        };
+        (tree, embedding, partition)
+    }
+
+    fn insert(parent: u32, child_id: u32) -> reference::TreeEdit {
+        reference::TreeEdit::InsertNode {
+            parent,
+            child_id,
+            node: reference_model::Node::new(child_id, "a"),
+            edge: arc(),
+        }
+    }
+
+    #[test]
+    fn a_segmented_tree_apply_reads_only_the_owners_and_peers_of_what_it_names() {
+        let (tree, embedding, partition) = witness();
+        let input = input(&tree, &embedding, &partition);
+        let any: Vec<AnySegment> = input.held.iter().cloned().map(AnySegment::Tree).collect();
+        let family = FamilyIndex::of_segments(&any, &input.partition).expect("an index");
+        // A field of node 3 reads its owner alone; relabelling node 4 reads
+        // its owner and the holders of the arc and the fan edge into it;
+        // deleting the fans of `h` reads the fan's holder and the owners of
+        // its endpoints; inserting node 6 under node 3 reads the parent's
+        // owner, the child's owner (the root's segment, which holds the
+        // counters) and its target peers; deleting leaf 4 reads its owner,
+        // the holders of the edges into it and their target peers; a move
+        // reads every segment.
+        let cases: [(reference::TreeEdit, &[u32]); 6] = [
+            (
+                reference::TreeEdit::SetField {
+                    node_id: 3,
+                    field: "f".to_owned(),
+                    value: panproto_reference::value::Value::Int(0),
+                },
+                &[1],
+            ),
+            (
+                reference::TreeEdit::RelabelNode {
+                    id: 4,
+                    new_anchor: "b".to_owned(),
+                },
+                &[0, 2, 3],
+            ),
+            (
+                reference::TreeEdit::DeleteFan {
+                    hyper_edge: "h".to_owned(),
+                },
+                &[1, 2, 3],
+            ),
+            (insert(3, 6), &[0, 1, 2]),
+            (reference::TreeEdit::DeleteNode { id: 4 }, &[0, 1, 2, 3]),
+            (
+                reference::TreeEdit::MoveSubtree {
+                    node_id: 4,
+                    new_parent: 1,
+                    edge: arc(),
+                },
+                &[0, 1, 2, 3],
+            ),
+        ];
+        for (edit, expected) in cases {
+            let production_edit = tree_edit_to_production(&edit);
+            assert_eq!(
+                family
+                    .read_set(&production_edit)
+                    .into_iter()
+                    .map(|segment| segment.0)
+                    .collect::<Vec<_>>(),
+                expected,
+                "{edit:?}"
+            );
+            assert_eq!(
+                check_run(
+                    &tree,
+                    &embedding,
+                    &partition,
+                    &edit,
+                    Budget::unlimited(),
+                    true
+                )
+                .0,
+                RunOutcome::Complete,
+                "{edit:?}"
+            );
+            assert_eq!(
+                check_case(&tree, &embedding, &partition, &edit),
+                Outcome::Applied
+            );
+            let mut store = MemoryStore::default();
+            let run = production_run(
+                &production_edit,
+                &input,
+                &input.bytes,
+                Budget::unlimited(),
+                &mut store,
+                None,
+            );
+            let read = u32::try_from(expected.len()).expect("a small count");
+            assert_eq!(run.report.progress.tasks_total, 4 * read + 2);
+            let sealed = run.manifest.expect("a manifest");
+            for record in &input.manifest.segments {
+                if !expected.contains(&record.id.0) {
+                    assert_eq!(
+                        sealed.segments[record.id.0 as usize], *record,
+                        "an unread record is kept"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_refused_tree_edit_fails_at_assemble_with_the_whole_state_refusal_and_seals_nothing() {
+        let (tree, embedding, partition) = witness();
+        let input = input(&tree, &embedding, &partition);
+        // Node 1 has the child 3, so deleting it is refused; the refusal is
+        // decided from the facts of the segments the edit reads.
+        let delete = reference::TreeEdit::DeleteNode { id: 1 };
+        let mut store = MemoryStore::default();
+        let run = production_run(
+            &tree_edit_to_production(&delete),
+            &input,
+            &input.bytes,
+            Budget::unlimited(),
+            &mut store,
+            None,
+        );
+        match &run.report.status {
+            RunStatus::Failed(error) => {
+                assert_eq!(
+                    production_refusal(error),
+                    Refusal::Edit(TreeObs::NotLeaf(1))
+                );
+            }
+            other => panic!("the edit is refused: {other:?}"),
+        }
+        assert_eq!(run.report.progress.phase, Phase::Summarize);
+        assert!(sealed_nothing(&store, run.run.expect("a run identity")));
+        assert_eq!(
+            check_run(
+                &tree,
+                &embedding,
+                &partition,
+                &delete,
+                Budget::unlimited(),
+                true
+            )
+            .0,
+            RunOutcome::Refused
+        );
+    }
+
+    #[test]
+    fn a_segmented_tree_apply_run_declines_each_exceeded_budget_like_the_reference() {
+        let (tree, embedding, partition) = witness();
+        let edit = insert(3, 6);
+        for (budget, resource) in [
+            (
+                Budget {
+                    affected_segments: 1,
+                    ..Budget::unlimited()
+                },
+                Resource::AffectedSegments,
+            ),
+            (
+                Budget {
+                    working_set: 0,
+                    ..Budget::unlimited()
+                },
+                Resource::WorkingSet,
+            ),
+            (
+                Budget {
+                    summary: 2,
+                    ..Budget::unlimited()
+                },
+                Resource::Summary,
+            ),
+        ] {
+            assert_eq!(
+                check_run(&tree, &embedding, &partition, &edit, budget, true).0,
+                RunOutcome::Declined
+            );
+            let input = input(&tree, &embedding, &partition);
+            let mut store = MemoryStore::default();
+            let run = production_run(
+                &tree_edit_to_production(&edit),
+                &input,
+                &input.bytes,
+                budget,
+                &mut store,
+                None,
+            );
+            match &run.report.status {
+                RunStatus::Residual(Residual::BudgetExceeded {
+                    resource: found, ..
+                }) => assert_eq!(*found, resource),
+                other => panic!("{resource:?} declines: {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn a_segmented_tree_apply_run_stopped_by_a_failed_commit_at_any_task_resumes_to_the_uninterrupted_run()
+     {
+        let (tree, embedding, partition) = witness();
+        let input = input(&tree, &embedding, &partition);
+        let edit = tree_edit_to_production(&insert(3, 6));
+        let mut baseline_store = MemoryStore::default();
+        let baseline = production_run(
+            &edit,
+            &input,
+            &input.bytes,
+            Budget::unlimited(),
+            &mut baseline_store,
+            None,
+        );
+        assert!(matches!(baseline.report.status, RunStatus::Complete { .. }));
+        let total = baseline.report.progress.tasks_total;
+        for fail_at in 1..=total {
+            let mut store = FailingStore {
+                inner: MemoryStore::default(),
+                commits: 0,
+                fail_at: Some(usize::try_from(fail_at).expect("a small count")),
+            };
+            let failed = production_run(
+                &edit,
+                &input,
+                &input.bytes,
+                Budget::unlimited(),
+                &mut store,
+                None,
+            );
+            assert!(
+                matches!(
+                    &failed.report.status,
+                    RunStatus::Incomplete {
+                        reason: RunIncompleteReason::Store { message }
+                    } if message == "commit failed"
+                ),
+                "{:?}",
+                failed.report.status
+            );
+            assert_eq!(failed.report.progress.tasks_done, fail_at - 1);
+            assert_eq!(failed.report.orphans.len(), 1, "the failed task's artifact");
+            store.fail_at = None;
+            let resumed = production_run(
+                &edit,
+                &input,
+                &input.bytes,
+                Budget::unlimited(),
+                &mut store,
+                None,
+            );
+            assert_eq!(resumed.report.tasks_reused, fail_at - 1);
+            assert_eq!(resumed.report.orphans, Vec::<ArtifactKey>::new());
+            assert_eq!(resumed.manifest, baseline.manifest);
+        }
+    }
+
+    /// The witness family in production, with the tree and embedding it
+    /// glues to after `edit` in whole-state application.
+    fn production_witness(
+        edit: &TreeEdit,
+    ) -> (
+        Vec<TreeSegment>,
+        Partition,
+        Result<(WInstance, TreeEmbedding), EditError>,
+    ) {
+        let (tree, embedding, partition) = witness();
+        let input = input(&tree, &embedding, &partition);
+        let (mut whole, mut followed) =
+            assemble_tree(input.held.clone(), &input.partition).expect("glues");
+        let applied = followed
+            .follow_edit(&mut whole, edit)
+            .map(|()| (whole, followed));
+        (input.held, input.partition, applied)
+    }
+
+    /// A node inserted under the id of a fan node relocates the fan node to
+    /// the node counter, keeping its edges: the fan moves to the segment
+    /// owning the counter's value, which the read set holds, and the output
+    /// glues to whole-state application.
+    #[test]
+    fn a_node_taking_a_fan_nodes_id_relocates_the_fan_into_the_counters_owner() {
+        let edit = TreeEdit::InsertNode {
+            parent: 0,
+            child_id: 5,
+            node: panproto_inst::Node::new(5, "a"),
+            edge: super::edge_to_production(&arc()),
+        };
+        let (held, partition, applied) = production_witness(&edit);
+        let any: Vec<AnySegment> = held.iter().cloned().map(AnySegment::Tree).collect();
+        let family = FamilyIndex::of_segments(&any, &partition).expect("an index");
+        assert_eq!(
+            family
+                .read_set(&edit)
+                .into_iter()
+                .map(|s| s.0)
+                .collect::<Vec<_>>(),
+            [0, 1, 2, 3]
+        );
+        let output = apply_segmented(&edit, &held, &partition).expect("applies");
+        let (whole, followed) = applied.expect("whole-state application accepts");
+        assert_eq!(
+            followed.fans[0].node, 6,
+            "the fan node moves to the counter"
+        );
+        assert_eq!(output[0].fans.len(), 1, "segment 0 owns node 6");
+        assert!(output[3].fans.is_empty() && output[3].nodes.contains_key(&5));
+        assert_eq!(
+            glued(output, &partition),
+            (tree_to_reference(&whole), production_embedding(&followed))
+        );
+    }
+
+    /// A fan inserted with an endpoint that is no tree node applies to the
+    /// whole tree, whose split then refuses it; the segmented apply returns
+    /// that refusal.
+    #[test]
+    fn a_fan_with_an_absent_endpoint_is_refused_as_the_split_refuses_it() {
+        let mut fan = panproto_inst::Fan::new("g", 3);
+        fan = fan.with_child("y", 8);
+        let edit = TreeEdit::InsertFan { fan };
+        let (held, partition, applied) = production_witness(&edit);
+        let (whole, followed) = applied.expect("whole-state application accepts");
+        let expected =
+            partition_tree(&whole, &followed, &partition).expect_err("the split refuses");
+        assert_eq!(
+            expected,
+            SegmentError::NotEmbedded {
+                elem: ViewRef::Node(6)
+            }
+        );
+        assert!(matches!(
+            apply_segmented(&edit, &held, &partition),
+            Err(SegmentedApplyError::Segment(error)) if error == expected
+        ));
+    }
+
+    /// The three partitions of the composition carrier: every id in one
+    /// segment, `0 | 1 2 | 3 4`, and `0 3 | 1 4 | 2`.
+    fn compose_partitions() -> Vec<segments::Partition> {
+        [[0_u32, 0, 0, 0, 0], [0, 1, 1, 2, 2], [0, 1, 2, 0, 1]]
+            .iter()
+            .map(|owners| {
+                let segments = owners.iter().max().map_or(0, |max| max + 1);
+                segments::Partition {
+                    shape: segments::InstanceShapeKind::Tree,
+                    specs: (0..segments)
+                        .map(|id| segments::SegmentSpec {
+                            id: segments::SegmentId(id),
+                            nodes: (0_u32..)
+                                .zip(owners)
+                                .filter(|(_, owner)| **owner == id)
+                                .map(|(node, _)| segments::IdRange { lo: node, hi: node })
+                                .collect(),
+                            alloc_nodes: None,
+                            alloc_edges: None,
+                        })
+                        .collect(),
+                }
+            })
+            .collect()
+    }
+
+    /// What one ordered pair of the composition carrier showed.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    enum PairOutcome {
+        /// Both edits applied in turn and their composite applied alike.
+        Composed,
+        /// The first edit is refused, and so is the composite.
+        FirstRefused,
+        /// The first applies and the second is refused on its result; so is
+        /// the composite.
+        SecondRefused,
+        /// Both applied in turn and their composite applied alike, and the
+        /// composite lies outside the reference's domain ([`diverges`]), so
+        /// the reference is not compared.
+        Diverging,
+    }
+
+    /// Whether a step of `edit`, applied in turn from `tree`, inserts a node
+    /// under the id of a fan node or inserts a fan with an endpoint that is
+    /// no tree node. On the first, production relocates the fan node alone,
+    /// keeping its edge ids, where the reference also gives fresh ids to its
+    /// edges and to every later fan; on the second, production's tree edit
+    /// applies and the split of the edited tree refuses it, where the
+    /// reference's tree edit refuses it. The reference differentials of
+    /// segmented tree edits leave these edits out, and two witnesses compare
+    /// them with production whole-state application.
+    fn diverges(
+        tree: &reference_model::Tree,
+        embedding: &panproto_reference::encode::TreeEmbedding,
+        edit: &reference::TreeEdit,
+    ) -> bool {
+        let (mut state, mut followed) = (tree.clone(), embedding.clone());
+        for step in edit.steps() {
+            match step {
+                reference::TreeEdit::InsertNode { child_id, .. }
+                    if followed.fans.iter().any(|(node, _, _)| node == child_id) =>
+                {
+                    return true;
+                }
+                reference::TreeEdit::InsertFan { fan }
+                    if std::iter::once(&fan.parent)
+                        .chain(fan.children.values())
+                        .any(|end| !state.nodes.contains_key(end)) =>
+                {
+                    return true;
+                }
+                _ => {}
+            }
+            match reference::apply_tree(step, &state, &mut followed) {
+                Ok(next) => state = next,
+                Err(_) => return false,
+            }
+        }
+        false
+    }
+
+    /// Composition over segments: for every ordered pair of carrier edits on
+    /// every carrier tree under three partitions, the composite applies to
+    /// the family exactly when the edits apply in turn, giving the same
+    /// segments byte for byte, which the reference composite gives too.
+    #[test]
+    fn a_composite_tree_edit_applies_to_a_segmented_family_as_its_factors_do_in_turn() {
+        let mut outcomes: BTreeMap<PairOutcome, u64> = BTreeMap::new();
+        for partition in compose_partitions() {
+            for (tree, embedding) in carrier::segmented_tree_apply_trees() {
+                let input = input(&tree, &embedding, &partition);
+                let n = u32::try_from(tree.nodes.len()).expect("a small tree");
+                let edits = carrier::segmented_tree_edits(n, embedding.next_node);
+                for first in &edits {
+                    let a = tree_edit_to_production(first);
+                    let after_first = apply_segmented(&a, &input.held, &input.partition);
+                    for second in &edits {
+                        let b = tree_edit_to_production(second);
+                        let composite = a.clone().compose(b.clone());
+                        let together = apply_segmented(&composite, &input.held, &input.partition);
+                        let reference_composite =
+                            reference::TreeEdit::Sequence(vec![first.clone(), second.clone()]);
+                        let reference_together = segments::apply_tree_segmented(
+                            &reference_composite,
+                            &input.reference,
+                            &partition,
+                        );
+                        let outcome = match &after_first {
+                            Err(_) => {
+                                assert!(together.is_err() && reference_together.is_err());
+                                PairOutcome::FirstRefused
+                            }
+                            Ok(middle) => match apply_segmented(&b, middle, &input.partition) {
+                                Err(_) => {
+                                    assert!(together.is_err() && reference_together.is_err());
+                                    PairOutcome::SecondRefused
+                                }
+                                Ok(last) => {
+                                    let expected: Vec<Vec<u8>> =
+                                        last.iter().map(|s| bytes(s, &input.partition)).collect();
+                                    let together = together.expect("the composite applies");
+                                    assert_eq!(
+                                        together
+                                            .iter()
+                                            .map(|s| bytes(s, &input.partition))
+                                            .collect::<Vec<_>>(),
+                                        expected,
+                                        "{first:?} then {second:?} on {tree:?}"
+                                    );
+                                    if diverges(&tree, &embedding, &reference_composite) {
+                                        *outcomes.entry(PairOutcome::Diverging).or_insert(0) += 1;
+                                        continue;
+                                    }
+                                    assert_eq!(
+                                        reference_together
+                                            .expect("the reference composite applies")
+                                            .iter()
+                                            .map(|s| reference_bytes(s, &partition))
+                                            .collect::<Vec<_>>(),
+                                        expected
+                                    );
+                                    PairOutcome::Composed
+                                }
+                            },
+                        };
+                        *outcomes.entry(outcome).or_insert(0) += 1;
+                    }
+                }
+            }
+        }
+        println!("{outcomes:?}");
+        assert_eq!(outcomes.values().sum::<u64>(), 3 * 6_206);
+        assert_eq!(
+            outcomes,
+            BTreeMap::from([
+                (PairOutcome::Composed, 6_081),
+                (PairOutcome::FirstRefused, 6_957),
+                (PairOutcome::SecondRefused, 5_496),
+                (PairOutcome::Diverging, 84)
+            ])
+        );
+    }
+
+    /// A generated tree over nodes `0 .. parents.len()`: node `i + 1` hangs
+    /// under node `parents[i] % (i + 1)`, every node anchored at `a`, with
+    /// the fan of `h` from its last node to the root when `fan`.
+    fn generated(
+        parents: &[u32],
+        fan: bool,
+    ) -> (
+        reference_model::Tree,
+        panproto_reference::encode::TreeEmbedding,
+    ) {
+        let n = u32::try_from(parents.len()).expect("a small tree") + 1;
+        let tree = reference_model::Tree {
+            nodes: (0..n)
+                .map(|id| (id, reference_model::Node::new(id, "a")))
+                .collect(),
+            arcs: (1..n)
+                .zip(parents)
+                .map(|(child, parent)| (parent % child, child, arc()))
+                .collect(),
+            fans: if fan {
+                vec![reference_model::Fan {
+                    parent: n - 1,
+                    hyper_edge: "h".to_owned(),
+                    children: BTreeMap::from([("x".to_owned(), 0)]),
+                }]
+            } else {
+                Vec::new()
+            },
+            root: 0,
+        };
+        let (_, embedding) = panproto_reference::encode::tree_to_graph(&tree, None)
+            .expect("a generated tree embeds");
+        (tree, embedding)
+    }
+
+    /// The tree partition assigning id `i` to segment `owners[i]`
+    /// (renumbered by first occurrence, `3` for no segment).
+    fn generated_partition(owners: &[u8]) -> segments::Partition {
+        let mut renamed: BTreeMap<u8, u32> = BTreeMap::new();
+        let mut owned = Vec::new();
+        for owner in owners {
+            if *owner == 3 {
+                owned.push(None);
+            } else {
+                let next = u32::try_from(renamed.len()).expect("a small count");
+                owned.push(Some(*renamed.entry(*owner).or_insert(next)));
+            }
+        }
+        let segments = u32::try_from(renamed.len()).expect("a small count");
+        segments::Partition {
+            shape: segments::InstanceShapeKind::Tree,
+            specs: (0..segments)
+                .map(|id| segments::SegmentSpec {
+                    id: segments::SegmentId(id),
+                    nodes: (0_u32..)
+                        .zip(&owned)
+                        .filter(|(_, owner)| **owner == Some(id))
+                        .map(|(node, _)| segments::IdRange { lo: node, hi: node })
+                        .collect(),
+                    alloc_nodes: None,
+                    alloc_edges: None,
+                })
+                .collect(),
+        }
+    }
+
+    /// The generated edit: the sequence of the carrier letters at `tree`
+    /// that `choices` pick.
+    fn generated_edit(
+        tree: &reference_model::Tree,
+        embedding: &panproto_reference::encode::TreeEmbedding,
+        choices: &[usize],
+    ) -> reference::TreeEdit {
+        let n = u32::try_from(tree.nodes.len()).expect("a small tree");
+        let letters = carrier::segmented_tree_edits(n, embedding.next_node);
+        reference::TreeEdit::Sequence(
+            choices
+                .iter()
+                .map(|choice| letters[choice % letters.len()].clone())
+                .collect(),
+        )
+    }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(256))]
+
+        /// The law on generated trees of up to six nodes and sequences of
+        /// up to three carrier letters, under partitions of the ids 0 to 6
+        /// in which every tree and fan node is owned and the fresh ids may
+        /// be owned by no segment.
+        #[test]
+        fn segmented_tree_apply_agrees_with_the_reference_on_generated_families(
+            parents in proptest::collection::vec(0_u32..6, 0..=5),
+            fan in proptest::bool::ANY,
+            owners in proptest::collection::vec(0_u8..3, 7),
+            spare in proptest::collection::vec(0_u8..4, 2),
+            choices in proptest::collection::vec(0_usize..200, 1..=3),
+        ) {
+            let (tree, embedding) = generated(&parents, fan);
+            let owners: Vec<u8> = owners.into_iter().chain(spare).collect();
+            let partition = generated_partition(&owners);
+            let edit = generated_edit(&tree, &embedding, &choices);
+            proptest::prop_assume!(!diverges(&tree, &embedding, &edit));
+            check_case(&tree, &embedding, &partition, &edit);
+        }
+    }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(32))]
+
+        /// The run law on generated trees and sequences, at every
+        /// cancellation point.
+        #[test]
+        fn segmented_tree_apply_run_matches_the_reference_runner_on_generated_families(
+            parents in proptest::collection::vec(0_u32..5, 0..=4),
+            fan in proptest::bool::ANY,
+            owners in proptest::collection::vec(0_u8..3, 6),
+            spare in 0_u8..4,
+            choices in proptest::collection::vec(0_usize..200, 1..=2),
+        ) {
+            let (tree, embedding) = generated(&parents, fan);
+            let owners: Vec<u8> = owners.into_iter().chain([spare]).collect();
+            let partition = generated_partition(&owners);
+            let edit = generated_edit(&tree, &embedding, &choices);
+            proptest::prop_assume!(!diverges(&tree, &embedding, &edit));
+            check_run(&tree, &embedding, &partition, &edit, Budget::unlimited(), true);
+        }
+    }
 }
