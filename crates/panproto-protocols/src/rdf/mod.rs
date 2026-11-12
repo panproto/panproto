@@ -25,6 +25,8 @@ use panproto_schema::{EdgeRule, Protocol, Schema, SchemaBuilder, SchemaError};
 
 /// The N-Triples protocol.
 pub mod ntriples;
+/// The Turtle protocol.
+pub mod turtle;
 
 /// The vertex of triple nodes.
 pub const TRIPLE: &str = "triple";

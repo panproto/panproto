@@ -6,6 +6,7 @@ use panproto_parse::registry::AstParser;
 use panproto_protocols::rdf::{RDF_LANG_STRING, XSD_STRING};
 use panproto_schema::Schema;
 
+use super::super::cst::{Cursor, Tree, checked_text};
 use super::super::{
     Literal, RdfReadError, RdfReadErrorKind, Term, Triple, from_graph, is_blank_label,
     is_language_tag, schema_holds_encoding, to_graph,
@@ -17,105 +18,6 @@ use crate::unified_codec::language_parser;
 
 /// The protocol name the codec registers under.
 const PROTOCOL: &str = "ntriples";
-
-/// A tree-sitter tree read out of the CST schema: each node's kind, byte
-/// span and children in source order.
-struct Tree<'a> {
-    cst: &'a Schema,
-}
-
-/// One node of the tree.
-#[derive(Clone, Copy)]
-struct Cursor<'a> {
-    name: &'a str,
-    kind: &'a str,
-    start: usize,
-    end: usize,
-}
-
-impl<'a> Tree<'a> {
-    fn byte(&self, name: &str, sort: &str) -> usize {
-        self.cst
-            .constraints
-            .get(name)
-            .and_then(|cs| cs.iter().find(|c| c.sort.as_ref() == sort))
-            .and_then(|c| c.value.parse().ok())
-            .unwrap_or(0)
-    }
-
-    fn cursor(&self, name: &'a str) -> Cursor<'a> {
-        Cursor {
-            name,
-            kind: self.cst.vertices.get(name).map_or("", |v| v.kind.as_ref()),
-            start: self.byte(name, "start-byte"),
-            end: self.byte(name, "end-byte"),
-        }
-    }
-
-    fn children(&self, parent: &Cursor<'a>) -> Vec<Cursor<'a>> {
-        let mut children: Vec<Cursor<'a>> = self
-            .cst
-            .outgoing_edges(parent.name)
-            .iter()
-            .map(|edge| self.cursor(edge.tgt.as_ref()))
-            .collect();
-        children.sort_by_key(|child| (child.start, child.end));
-        children
-    }
-
-    /// The only child of `parent`, or a refusal naming what is there instead.
-    fn only_child(&self, parent: &Cursor<'a>) -> Result<Cursor<'a>, RdfReadError> {
-        match self.children(parent).as_slice() {
-            [child] => Ok(*child),
-            [_, second, ..] => Err(not_in_format(second)),
-            [] => Err(RdfReadError::new(
-                parent.start,
-                RdfReadErrorKind::NotInFormat {
-                    construct: "the keyword `a`".into(),
-                },
-            )),
-        }
-    }
-
-    /// The first parser recovery marker, by offset: an `ERROR` node, a node
-    /// the parser inserted as missing, or an empty node other than the
-    /// document.
-    fn first_recovery(&self) -> Option<usize> {
-        let markers: Vec<(usize, usize)> = self
-            .cst
-            .vertices
-            .iter()
-            .filter(|(name, vertex)| {
-                let missing = self
-                    .cst
-                    .constraints
-                    .get(*name)
-                    .is_some_and(|cs| cs.iter().any(|c| c.sort.as_ref() == "missing"));
-                let cursor = self.cursor(name.as_ref());
-                vertex.kind.as_ref() == "ERROR"
-                    || missing
-                    || (cursor.start == cursor.end && vertex.kind.as_ref() != "document")
-            })
-            .map(|(name, _)| {
-                let cursor = self.cursor(name.as_ref());
-                (cursor.start, cursor.end)
-            })
-            .collect();
-        // The outermost marker spans the whole region the parser could not
-        // read; the innermost one nested in it is where reading failed.
-        let mut current = *markers
-            .iter()
-            .min_by_key(|(start, end)| (*start, std::cmp::Reverse(*end)))?;
-        while let Some(inner) = markers
-            .iter()
-            .filter(|&&m| m != current && m.0 >= current.0 && m.1 <= current.1)
-            .min_by_key(|(start, end)| (*start, std::cmp::Reverse(*end)))
-        {
-            current = *inner;
-        }
-        Some(current.0)
-    }
-}
 
 /// A refusal of the construct at `node`, which N-Triples does not have.
 fn not_in_format(node: &Cursor<'_>) -> RdfReadError {
@@ -136,6 +38,20 @@ fn not_in_format(node: &Cursor<'_>) -> RdfReadError {
             construct: construct.into(),
         },
     )
+}
+
+/// The only child of `parent`, or a refusal naming what is there instead.
+fn only_child<'a>(tree: &Tree<'a>, parent: &Cursor<'a>) -> Result<Cursor<'a>, RdfReadError> {
+    match tree.children(parent).as_slice() {
+        [child] => Ok(*child),
+        [_, second, ..] => Err(not_in_format(second)),
+        [] => Err(RdfReadError::new(
+            parent.start,
+            RdfReadErrorKind::NotInFormat {
+                construct: "the keyword `a`".into(),
+            },
+        )),
+    }
 }
 
 /// Refuse any byte of `text[from..to]` other than a space or a tab.
@@ -263,13 +179,13 @@ impl<'a> Reader<'a> {
         if subject.kind != "subject" {
             return Err(not_in_format(subject));
         }
-        let subject_term = self.tree.only_child(subject)?;
-        let property = self.tree.only_child(properties)?;
+        let subject_term = only_child(&self.tree, subject)?;
+        let property = only_child(&self.tree, properties)?;
         let [predicate, objects] = self.tree.children(&property)[..] else {
             return Err(RdfReadError::new(property.start, RdfReadErrorKind::Syntax));
         };
-        let predicate_term = self.tree.only_child(&predicate)?;
-        let object_term = self.tree.only_child(&objects)?;
+        let predicate_term = only_child(&self.tree, &predicate)?;
+        let object_term = only_child(&self.tree, &objects)?;
 
         blanks_only(self.text, subject_term.end, predicate_term.start)?;
         blanks_only(self.text, predicate_term.end, object_term.start)?;
@@ -363,29 +279,14 @@ impl NTriplesCodec {
     /// the grammar cannot read in a string), then the first fault in
     /// document order, a place the grammar cannot read included.
     pub fn read(&self, input: &[u8]) -> Result<Vec<Triple>, RdfReadError> {
-        let text = std::str::from_utf8(input)
-            .map_err(|e| RdfReadError::new(e.valid_up_to(), RdfReadErrorKind::NotUtf8))?;
-        if let Some((offset, character)) = text
-            .char_indices()
-            .find(|&(_, c)| matches!(c, '\u{0}' | '\u{7F}'))
-        {
-            return Err(RdfReadError::new(
-                offset,
-                RdfReadErrorKind::UnsupportedCharacter { character },
-            ));
-        }
+        let text = checked_text(input)?;
         let cst = self
             .parser
             .parse(input, "input.nt")
             .map_err(|_| RdfReadError::new(0, RdfReadErrorKind::Syntax))?;
         let tree = Tree { cst: &cst };
         let recovery = tree.first_recovery();
-        let root = cst
-            .vertices
-            .iter()
-            .find(|(_, v)| v.kind.as_ref() == "document")
-            .map(|(name, _)| tree.cursor(name.as_ref()));
-        let Some(root) = root else {
+        let Some(root) = tree.root() else {
             if let Some(offset) = recovery {
                 return Err(RdfReadError::new(offset, RdfReadErrorKind::Syntax));
             }

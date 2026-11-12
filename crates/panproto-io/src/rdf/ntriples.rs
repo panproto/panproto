@@ -48,7 +48,7 @@ use super::{Literal, RdfReadError, Term, Triple};
 pub use reader::NTriplesCodec;
 
 /// Append `text` as the body of an N-Triples string literal.
-fn push_string(out: &mut String, text: &str) {
+pub(super) fn push_string(out: &mut String, text: &str) {
     for c in text.chars() {
         match c {
             '\u{8}' => out.push_str("\\b"),
@@ -71,7 +71,7 @@ fn push_string(out: &mut String, text: &str) {
     }
 }
 
-fn push_term(out: &mut String, term: &Term) {
+pub(super) fn push_term(out: &mut String, term: &Term) {
     match term {
         Term::Iri(iri) => {
             out.push('<');
@@ -134,7 +134,7 @@ pub fn write(triples: &[Triple]) -> String {
 /// or a numeric escape naming no scalar value, and at a raw character a
 /// `STRING_LITERAL_QUOTE` excludes (`"`, `\`, line feed, carriage return).
 pub fn decode_string(body: &str, offset: usize) -> Result<String, RdfReadError> {
-    decode(body, offset, true)
+    decode(body, offset, true, &['"', '\n', '\r'])
 }
 
 /// Decode the escapes of an IRI's body (between its angle brackets), which
@@ -146,28 +146,55 @@ pub fn decode_string(body: &str, offset: usize) -> Result<String, RdfReadError> 
 /// numeric escape naming no scalar value, a character no IRI holds (raw or
 /// escaped), and an IRI that is not absolute.
 pub fn decode_iri(body: &str, offset: usize) -> Result<String, RdfReadError> {
-    use super::RdfReadErrorKind::{IriCharacter, RelativeIri};
-    let iri = decode(body, offset, false)?;
+    let iri = decode_iri_reference(body, offset)?;
+    if !super::is_absolute_iri(&iri) {
+        return Err(RdfReadError::new(
+            offset,
+            super::RdfReadErrorKind::RelativeIri,
+        ));
+    }
+    Ok(iri)
+}
+
+/// Decode the escapes of an IRI reference's body (between its angle
+/// brackets), which starts at byte `offset` of the document, without
+/// requiring it to be absolute.
+///
+/// # Errors
+///
+/// Returns [`RdfReadError`] for an escape other than a numeric one, a
+/// numeric escape naming no scalar value, and a character no IRI holds (raw
+/// or escaped).
+pub(super) fn decode_iri_reference(body: &str, offset: usize) -> Result<String, RdfReadError> {
+    let iri = decode(body, offset, false, &[])?;
     if let Some(character) = iri.chars().find(|&c| super::is_iri_excluded(c)) {
         let at = body
             .char_indices()
             .find(|&(_, c)| c == character || c == '\\')
             .map_or(offset, |(i, _)| offset + i);
-        return Err(RdfReadError::new(at, IriCharacter { character }));
-    }
-    if !super::is_absolute_iri(&iri) {
-        return Err(RdfReadError::new(offset, RelativeIri));
+        return Err(RdfReadError::new(
+            at,
+            super::RdfReadErrorKind::IriCharacter { character },
+        ));
     }
     Ok(iri)
 }
 
-fn decode(body: &str, offset: usize, string: bool) -> Result<String, RdfReadError> {
+/// Decode the escapes of `body`, which starts at byte `offset`: `UCHAR`
+/// always, and `ECHAR` when `string` is set; a raw character of `raw` is
+/// refused.
+pub(super) fn decode(
+    body: &str,
+    offset: usize,
+    string: bool,
+    raw: &[char],
+) -> Result<String, RdfReadError> {
     use super::RdfReadErrorKind::{InvalidEscape, NotAScalarValue, UnescapedCharacter};
     let mut out = String::with_capacity(body.len());
     let mut chars = body.char_indices();
     while let Some((i, c)) = chars.next() {
         if c != '\\' {
-            if string && matches!(c, '"' | '\n' | '\r') {
+            if raw.contains(&c) {
                 return Err(RdfReadError::new(
                     offset + i,
                     UnescapedCharacter { character: c },

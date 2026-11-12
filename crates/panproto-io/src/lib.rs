@@ -169,9 +169,9 @@ mod tests {
     fn default_registry_has_expected_protocols() {
         let registry = default_registry();
 
-        // 50 protocols in the default build, plus the three generic
-        // text-format protocols (yaml, toml, csv) when the tree-sitter
-        // feature enables their format-preserving codecs.
+        // 50 protocols in the default build, plus, under the tree-sitter
+        // feature, the four generic text formats, the PostgreSQL table codec
+        // and the N-Triples and Turtle graph codecs.
         let base: &[&str] = &[
             // API (4)
             "openapi",
@@ -236,11 +236,20 @@ mod tests {
             "edi_x12",
         ];
 
-        // The generic text-format codecs are format-preserving and the
-        // N-Triples codec reads through the Turtle grammar, so they are only
-        // registered under the tree-sitter feature.
+        // The generic text-format codecs are format-preserving, the
+        // PostgreSQL codec reads through the PostgreSQL grammar and the
+        // N-Triples and Turtle codecs through the Turtle grammar, so they are
+        // only registered under the tree-sitter feature.
         #[cfg(feature = "tree-sitter")]
-        let extra: &[&str] = &["yaml", "toml", "csv", "tsv", "ntriples"];
+        let extra: &[&str] = &[
+            "yaml",
+            "toml",
+            "csv",
+            "tsv",
+            "postgresql",
+            "ntriples",
+            "turtle",
+        ];
         #[cfg(not(feature = "tree-sitter"))]
         let extra: &[&str] = &[];
 

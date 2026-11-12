@@ -36,23 +36,34 @@ use panproto_protocols::rdf::{
 };
 use panproto_schema::{Edge, Schema};
 
+#[cfg(feature = "tree-sitter")]
+mod cst;
 pub mod ntriples;
+pub mod turtle;
 
-/// Register the RDF graph codecs (`ntriples`) with the registry's graph
-/// table.
+/// Register the RDF graph codecs (`ntriples`, `turtle`) with the registry's
+/// graph table.
 ///
 /// Each reads through a bundled tree-sitter grammar, so a codec whose
 /// grammar is not compiled in is left out, and one whose grammar fails to
 /// initialise is reported on stderr and left out.
 #[cfg(feature = "tree-sitter")]
 pub fn register_all(registry: &mut crate::ProtocolRegistry) {
+    fn report(err: &crate::error::UnifiedCodecError) {
+        if !matches!(err, crate::error::UnifiedCodecError::MissingGrammar { .. }) {
+            eprintln!(
+                "panproto-io: bundled grammar failed parser initialisation; \
+                 skipping registration: {err}"
+            );
+        }
+    }
     match ntriples::NTriplesCodec::new() {
         Ok(codec) => registry.register_graph(codec),
-        Err(crate::error::UnifiedCodecError::MissingGrammar { .. }) => {}
-        Err(err) => eprintln!(
-            "panproto-io: bundled grammar failed parser initialisation; \
-             skipping registration: {err}"
-        ),
+        Err(err) => report(&err),
+    }
+    match turtle::TurtleCodec::new() {
+        Ok(codec) => registry.register_graph(codec),
+        Err(err) => report(&err),
     }
 }
 
@@ -132,6 +143,11 @@ pub enum RdfReadErrorKind {
         /// The character.
         character: char,
     },
+    /// A prefixed name whose prefix no directive before it declares.
+    UndefinedPrefix {
+        /// The prefix, without its `:`.
+        prefix: String,
+    },
 }
 
 impl fmt::Display for RdfReadErrorKind {
@@ -167,6 +183,7 @@ impl fmt::Display for RdfReadErrorKind {
                 "the route cannot read the raw character U+{:04X}",
                 u32::from(*character)
             ),
+            Self::UndefinedPrefix { prefix } => write!(f, "the prefix {prefix:?} is not declared"),
         }
     }
 }
@@ -243,6 +260,18 @@ pub enum RdfWriteErrorKind {
     InvalidBlankLabel,
     /// The tag is not a language tag.
     InvalidLanguageTag,
+    /// The edited graph differs from the graph a preserved document was
+    /// read as in more than the values of its nodes.
+    StructuralEdit {
+        /// What differs.
+        detail: String,
+    },
+    /// The node's value changed, and the preserved document writes its term
+    /// with no token of its own in at least one place (a datatype the
+    /// literal's form implies, `rdf:first`, `rdf:rest` and `rdf:nil` of a
+    /// collection, or a blank node written without a label), so no token
+    /// can be rewritten in place.
+    ImplicitTerm,
 }
 
 impl fmt::Display for RdfWriteErrorKind {
@@ -281,6 +310,12 @@ impl fmt::Display for RdfWriteErrorKind {
             }
             Self::InvalidBlankLabel => f.write_str("the label is not a blank node label"),
             Self::InvalidLanguageTag => f.write_str("the tag is not a language tag"),
+            Self::StructuralEdit { detail } => {
+                write!(f, "a structural edit the preserved document cannot carry: {detail}")
+            }
+            Self::ImplicitTerm => f.write_str(
+                "the document writes this term without a token of its own, so its value cannot change in place",
+            ),
         }
     }
 }
@@ -296,7 +331,7 @@ pub struct RdfWriteError {
 }
 
 impl RdfWriteError {
-    const fn new(node: u32, kind: RdfWriteErrorKind) -> Self {
+    pub(crate) const fn new(node: u32, kind: RdfWriteErrorKind) -> Self {
         Self { node, kind }
     }
 }
@@ -504,6 +539,35 @@ pub fn to_graph<'a>(triples: impl IntoIterator<Item = &'a Triple>) -> Result<GIn
         builder.triple(triple)?;
     }
     Ok(builder.graph)
+}
+
+/// The node of each term of a graph [`to_graph_indexed`] built.
+#[cfg(feature = "tree-sitter")]
+pub(crate) struct TermIndex {
+    pub(crate) iris: HashMap<String, u32>,
+    pub(crate) blanks: HashMap<String, u32>,
+    pub(crate) literals: HashMap<Literal, u32>,
+    pub(crate) languages: HashMap<String, u32>,
+}
+
+/// [`to_graph`], with the node of each term.
+#[cfg(feature = "tree-sitter")]
+pub(crate) fn to_graph_indexed<'a>(
+    triples: impl IntoIterator<Item = &'a Triple>,
+) -> Result<(GInstance, TermIndex), InstError> {
+    let mut builder = GraphBuilder::new();
+    for triple in triples {
+        builder.triple(triple)?;
+    }
+    Ok((
+        builder.graph,
+        TermIndex {
+            iris: builder.iris,
+            blanks: builder.blanks,
+            literals: builder.literals,
+            languages: builder.languages,
+        },
+    ))
 }
 
 /// Whether `schema` holds the RDF graph encoding: each of its vertices with

@@ -1,3 +1,9 @@
 # W3C RDF test suite entries a route does not pass, each with the limit
 # the book's RDF formats page states for it.
 rdf11/rdf-n-triples/literal_ascii_boundaries raw-nul-or-delete
+rdf11/rdf-turtle/LITERAL1_all_controls raw-nul-or-delete
+rdf11/rdf-turtle/LITERAL1_ascii_boundaries raw-nul-or-delete
+rdf11/rdf-turtle/LITERAL2_ascii_boundaries raw-nul-or-delete
+rdf11/rdf-turtle/LITERAL_LONG1_ascii_boundaries raw-nul-or-delete
+rdf11/rdf-turtle/LITERAL_LONG2_ascii_boundaries raw-nul-or-delete
+rdf11/rdf-turtle/turtle-subm-02 grammar-syntax

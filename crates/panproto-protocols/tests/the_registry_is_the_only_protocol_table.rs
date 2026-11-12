@@ -233,7 +233,10 @@ fn a_protocol_without_schema_documents_is_refused_by_both_dispatches() {
         .filter(|d| matches!(d.parser, Parser::Programmatic))
         .map(|d| d.name)
         .collect();
-    assert_eq!(programmatic, ["csv", "ntriples", "toml", "tsv", "yaml"]);
+    assert_eq!(
+        programmatic,
+        ["csv", "ntriples", "toml", "tsv", "turtle", "yaml"]
+    );
     for name in programmatic {
         for refusal in [
             parse_schema_document(name, &serde_json::json!({})).err(),

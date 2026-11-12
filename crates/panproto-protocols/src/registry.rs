@@ -783,6 +783,18 @@ static DESCRIPTORS: &[ProtocolDescriptor] = &[
         bundle_project: false,
     },
     ProtocolDescriptor {
+        name: "turtle",
+        aliases: &["ttl"],
+        parser: Parser::Programmatic,
+        protocol: rdf::turtle::protocol,
+        register_theories: |r| {
+            rdf::turtle::register_theories(r);
+            Ok(())
+        },
+        bundle: false,
+        bundle_project: false,
+    },
+    ProtocolDescriptor {
         name: "ucca",
         aliases: &[],
         parser: Parser::Document(annotation::ucca::parse_ucca),

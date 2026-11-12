@@ -15,7 +15,17 @@ pub(super) const ROWS: &[ValueKindRow] = &[
         kind: ScalarKind::Str,
     },
     ValueKindRow {
+        protocol: "turtle",
+        vertex_kind: "iri",
+        kind: ScalarKind::Str,
+    },
+    ValueKindRow {
         protocol: "ntriples",
+        vertex_kind: "blank",
+        kind: ScalarKind::Str,
+    },
+    ValueKindRow {
+        protocol: "turtle",
         vertex_kind: "blank",
         kind: ScalarKind::Str,
     },
@@ -25,14 +35,30 @@ pub(super) const ROWS: &[ValueKindRow] = &[
         kind: ScalarKind::Str,
     },
     ValueKindRow {
+        protocol: "turtle",
+        vertex_kind: "literal",
+        kind: ScalarKind::Str,
+    },
+    ValueKindRow {
         protocol: "ntriples",
+        vertex_kind: "language",
+        kind: ScalarKind::Str,
+    },
+    ValueKindRow {
+        protocol: "turtle",
         vertex_kind: "language",
         kind: ScalarKind::Str,
     },
 ];
 
 /// The vertex kinds of this family that hold no scalar.
-pub(super) const NON_SCALAR: &[NonScalarRow] = &[NonScalarRow {
-    protocol: "ntriples",
-    vertex_kind: "triple",
-}];
+pub(super) const NON_SCALAR: &[NonScalarRow] = &[
+    NonScalarRow {
+        protocol: "ntriples",
+        vertex_kind: "triple",
+    },
+    NonScalarRow {
+        protocol: "turtle",
+        vertex_kind: "triple",
+    },
+];
