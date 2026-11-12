@@ -4944,6 +4944,7 @@
         "crates/panproto-reference/src/pages/lenses/constructions.rs",
         "crates/panproto-reference/src/pages/lenses/domain.rs",
         "crates/panproto-reference/src/pages/lenses/elementary.rs",
+        "crates/panproto-reference/src/pages/lenses/field_program.rs",
         "crates/panproto-reference/src/pages/lenses/graph.rs",
         "crates/panproto-reference/src/pages/lenses/laws.rs",
         "crates/panproto-reference/src/pages/lenses/lens.rs",
@@ -5680,6 +5681,48 @@
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_lenses",
               "test": "randomized_sort_coercion_differential"
+            }
+          ]
+        },
+        {
+          "id": "lenses.sort-merge-instances",
+          "anchor": "L-lenses-26",
+          "references": [
+            "panproto_reference::lens::ElementaryProtolens::target_and_migration"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "sort_merges_agree_with_the_reference_exhaustively"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "randomized_sort_merge_differential"
+            }
+          ]
+        },
+        {
+          "id": "lenses.value-level-step-instances",
+          "anchor": "L-lenses-27",
+          "references": [
+            "panproto_reference::lens::FieldProgram::output_fields"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "value_level_steps_agree_with_the_reference_exhaustively"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "randomized_value_level_step_differential"
             }
           ]
         }

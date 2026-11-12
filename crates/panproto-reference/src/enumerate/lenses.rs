@@ -6064,7 +6064,15 @@ pub struct ElementaryProtolensCountCertificate {
 /// reference's applicability verdicts, without materializing a state.
 #[must_use]
 pub fn elementary_protolens_count_certificate() -> ElementaryProtolensCountCertificate {
-    let alphabet = elementary_protolens_alphabet();
+    elementary_census(&elementary_protolens_alphabet())
+}
+
+/// Count an alphabet of elementary kinds over the elementary carrier's
+/// schemas from the closed-form state counts and the reference's
+/// applicability verdicts.
+fn elementary_census(
+    alphabet: &[crate::lens::ElementaryProtolens],
+) -> ElementaryProtolensCountCertificate {
     let schemas = elementary_protolens_schemas();
     let (source_nodes, source_edges) = ELEMENTARY_SOURCE_BOUND;
     let (view_nodes, view_edges) = ELEMENTARY_VIEW_BOUND;
@@ -6074,7 +6082,7 @@ pub fn elementary_protolens_count_certificate() -> ElementaryProtolensCountCerti
         .collect();
     let source_states: usize = source_counts.iter().sum();
     let (mut inapplicable, mut identifying, mut instantiated, mut put_cases) = (0, 0, 0, 0);
-    for kind in &alphabet {
+    for kind in alphabet {
         for (schema, sources) in schemas.iter().zip(&source_counts) {
             if !kind.precondition().holds(schema) {
                 inapplicable += 1;
@@ -6100,6 +6108,35 @@ pub fn elementary_protolens_count_certificate() -> ElementaryProtolensCountCerti
         instantiated,
         put_cases,
     }
+}
+
+/// The sort merge alphabet of the L-lenses-26 certificate.
+///
+/// In order: merge `s` and `t` into the fresh `m`; merge them into `s`
+/// itself; merge `s` with itself into `m`, which is a rename; and merge `s`
+/// with the absent `u`, which no carrier schema admits.
+#[must_use]
+pub fn merge_sorts_alphabet() -> Vec<crate::lens::ElementaryProtolens> {
+    let merge = |first: &str, second: &str, merged: &str| {
+        crate::lens::ElementaryProtolens::MergeSorts {
+            first: first.to_owned(),
+            second: second.to_owned(),
+            merged: merged.to_owned(),
+        }
+    };
+    vec![
+        merge("s", "t", "m"),
+        merge("s", "t", "s"),
+        merge("s", "s", "m"),
+        merge("s", "u", "m"),
+    ]
+}
+
+/// Count the L-lenses-26 carrier: the merge alphabet over the elementary
+/// carrier's schemas, sources and views.
+#[must_use]
+pub fn merge_sorts_count_certificate() -> ElementaryProtolensCountCertificate {
+    elementary_census(&merge_sorts_alphabet())
 }
 
 // ---------------------------------------------------------------------------
@@ -6670,6 +6707,331 @@ pub fn coercion_count_certificate() -> ProtolensCarrierCertificate {
                 match lens.get(&source) {
                     Ok((view, complement)) => {
                         certificate.put_cases += put_case_count(&view, &target, &complement);
+                    }
+                    Err(_) => certificate.get_refusals += 1,
+                }
+            }
+        }
+    }
+    certificate
+}
+
+// ---------------------------------------------------------------------------
+// Value-level steps
+// ---------------------------------------------------------------------------
+
+/// The vertex the value-level steps run at.
+pub const VALUE_STEP_PARENT: &str = "p";
+/// The fields of the value-level carrier: the read field and the written
+/// one.
+pub const VALUE_STEP_FIELDS: [&str; 2] = ["n", "d"];
+/// The values a source field takes.
+pub const VALUE_STEP_SOURCE_VALUES: [i64; 2] = [0, 1];
+/// The values an edit writes into a view field.
+pub const VALUE_STEP_EDIT_VALUES: [i64; 3] = [0, 1, 2];
+/// Most nodes in a value-level source state.
+pub const VALUE_STEP_SOURCE_NODES: u32 = 2;
+
+/// The schemas of the value-level carrier: `p` with its attribute `n`, and
+/// with its attributes `n` and `d`, each a `prop` edge to a leaf named by
+/// the field.
+#[must_use]
+pub fn value_step_schemas() -> Vec<Schema> {
+    let with = |schema: Schema, field: &str| {
+        let leaf = format!("{VALUE_STEP_PARENT}.{field}");
+        schema
+            .vertex(&leaf, "integer")
+            .edge(VALUE_STEP_PARENT, &leaf, "prop", Some(field))
+    };
+    let base = with(
+        Schema::default().vertex(VALUE_STEP_PARENT, "object"),
+        VALUE_STEP_FIELDS[0],
+    );
+    vec![base.clone(), with(base, VALUE_STEP_FIELDS[1])]
+}
+
+/// Every field map over [`VALUE_STEP_FIELDS`] with values in `values`, in
+/// order: each field absent or one of the values.
+fn value_step_field_maps(values: &[i64]) -> Vec<BTreeMap<String, Value>> {
+    let choices: Vec<Option<i64>> = std::iter::once(None)
+        .chain(values.iter().copied().map(Some))
+        .collect();
+    let mut out = vec![BTreeMap::new()];
+    for field in VALUE_STEP_FIELDS {
+        out = out
+            .into_iter()
+            .flat_map(|fields| {
+                choices.iter().map(move |choice| {
+                    let mut fields = fields.clone();
+                    if let Some(value) = choice {
+                        fields.insert(field.to_owned(), Value::Int(*value));
+                    }
+                    fields
+                })
+            })
+            .collect();
+    }
+    out
+}
+
+/// The source states of the value-level carrier: up to
+/// [`VALUE_STEP_SOURCE_NODES`] nodes `0, 1, ...` at the parent, each with
+/// one of the field maps over [`VALUE_STEP_SOURCE_VALUES`], and no edge.
+#[must_use]
+pub fn value_step_sources() -> Vec<Graph> {
+    let maps = value_step_field_maps(&VALUE_STEP_SOURCE_VALUES);
+    let mut out = vec![Graph::default()];
+    let mut layer = vec![Graph::default()];
+    for id in 0..VALUE_STEP_SOURCE_NODES {
+        layer = layer
+            .into_iter()
+            .flat_map(|graph| {
+                maps.iter().map(move |fields| {
+                    let mut graph = graph.clone();
+                    let mut node = Node::new(id, VALUE_STEP_PARENT);
+                    node.fields.clone_from(fields);
+                    graph.nodes.insert(id, node);
+                    graph
+                })
+            })
+            .collect();
+        out.extend(layer.iter().cloned());
+    }
+    out
+}
+
+/// The views a value-level put case puts back: the get view itself, then
+/// for each view node in id order each field set to each other choice
+/// (absent or a value of [`VALUE_STEP_EDIT_VALUES`]) and the node removed,
+/// then a fresh node at the parent.
+#[must_use]
+pub fn value_step_views(view: &Graph, complement: &crate::restrict::Complement) -> Vec<Graph> {
+    let choices: Vec<Option<Value>> = std::iter::once(None)
+        .chain(VALUE_STEP_EDIT_VALUES.iter().map(|value| Some(Value::Int(*value))))
+        .collect();
+    let mut out = vec![view.clone()];
+    for (id, node) in &view.nodes {
+        for field in VALUE_STEP_FIELDS {
+            for choice in &choices {
+                if node.fields.get(field) == choice.as_ref() {
+                    continue;
+                }
+                let mut edited = view.clone();
+                let fields = &mut edited
+                    .nodes
+                    .get_mut(id)
+                    .unwrap_or_else(|| unreachable!("the node is in the view"))
+                    .fields;
+                match choice {
+                    Some(value) => {
+                        fields.insert(field.to_owned(), value.clone());
+                    }
+                    None => {
+                        fields.remove(field);
+                    }
+                }
+                out.push(edited);
+            }
+        }
+        let mut removed = view.clone();
+        removed.nodes.remove(id);
+        removed.edges.retain(|_, edge| edge.src != *id && edge.tgt != *id);
+        out.push(removed);
+    }
+    let fresh = fresh_id(
+        view.nodes
+            .keys()
+            .chain(complement.dropped_nodes.keys())
+            .chain(complement.synthesized_nodes.keys()),
+        complement.floor.0,
+    );
+    let mut added = view.clone();
+    added
+        .nodes
+        .insert(fresh, Node::new(fresh, VALUE_STEP_PARENT));
+    out.push(added);
+    out
+}
+
+/// The number of views [`value_step_views`] lists for a view of `nodes`
+/// nodes: the view, three other choices for each of two fields and a
+/// removal per node, and the fresh node.
+#[must_use]
+pub const fn value_step_view_count(nodes: usize) -> usize {
+    2 + nodes * (VALUE_STEP_FIELDS.len() * VALUE_STEP_EDIT_VALUES.len() + 1)
+}
+
+/// A value-level step as the lens DSL compiles it, on the reference.
+#[derive(Clone, Debug)]
+pub struct ValueStepTerm {
+    /// The step, for diagnostics.
+    pub name: &'static str,
+    /// Whether the step is an `add_field` of `d` with default `0`, whose
+    /// structure is the fused addition of the field vertex and its edge and
+    /// whose default is written where it adds the field vertex.
+    pub adds_field: bool,
+    /// The field steps the step declares beyond that default.
+    pub steps: Vec<crate::lens::FieldStep>,
+}
+
+/// The field `add_field` adds, with its default.
+const VALUE_STEP_DEFAULT: (&str, Value) = ("d", Value::Int(0));
+
+impl ValueStepTerm {
+    /// The target, migration and field program of the step at a schema.
+    ///
+    /// An `add_field` step's structure is the fused chain of
+    /// [`crate::lens::ProtolensTerm`] that adds the field vertex `p.d` and
+    /// the edge `d` to it; its program writes the default first when the
+    /// schema lacks that vertex. Every other step is the identity on the
+    /// schema. The program runs at the parent.
+    #[must_use]
+    pub fn at(&self, schema: &Schema) -> (Schema, Migration, crate::lens::FieldProgram) {
+        let mut steps = Vec::new();
+        let (target, mut migration) = if self.adds_field {
+            use crate::lens::ElementaryProtolens as E;
+            use crate::lens::ProtolensTerm as T;
+            let (field, default) = VALUE_STEP_DEFAULT;
+            let leaf = format!("{VALUE_STEP_PARENT}.{field}");
+            if !schema.vertices.contains_key(&leaf) {
+                steps.push(crate::lens::FieldStep::Default {
+                    key: field,
+                    value: default,
+                });
+            }
+            let term = T::Fused(vec![
+                T::Elementary(E::AddSort {
+                    sort: leaf.clone(),
+                    kind: "integer".to_owned(),
+                }),
+                T::Elementary(E::AddEdge(SEdge::new(
+                    VALUE_STEP_PARENT,
+                    &leaf,
+                    "prop",
+                    Some(field),
+                ))),
+            ]);
+            let Ok(protolens) = term.at(schema) else {
+                unreachable!("an addition applies at every schema")
+            };
+            (protolens.target, protolens.migration)
+        } else {
+            (
+                schema.clone(),
+                Migration {
+                    surviving_verts: schema.vertices.keys().cloned().collect(),
+                    surviving_edges: schema.edges.clone(),
+                    ..Migration::default()
+                },
+            )
+        };
+        steps.extend(self.steps.iter().cloned());
+        let program = crate::lens::FieldProgram {
+            name: self.name,
+            vertices: vec![VALUE_STEP_PARENT.to_owned()],
+            steps,
+        };
+        if !program.steps.is_empty() {
+            migration.transformed.insert(VALUE_STEP_PARENT.to_owned());
+            migration
+                .output_fields
+                .insert(VALUE_STEP_PARENT.to_owned(), program.output_fields());
+        }
+        (target, migration, program)
+    }
+}
+
+/// The value-level alphabet of the L-lenses-27 certificate.
+///
+/// In order: `apply_expr` of `n` by successor with predecessor as inverse,
+/// and with no inverse; `compute_field` of `d` as the successor of `n`, with
+/// no inverse and with predecessor as inverse; `add_field` of `d` with
+/// default `0`, without and with the computation of `d` as the successor of
+/// `n`; and the directed equations `n(x) -> n(x)` implemented by successor,
+/// with predecessor as inverse and with none, and `x -> succ(x)`, whose left
+/// side names no field. The maps are written here on the reference's
+/// values, independently of the expression language.
+#[must_use]
+pub fn value_step_alphabet() -> Vec<ValueStepTerm> {
+    use crate::lens::{FieldStep, ValueMap};
+    let rewrite = |inverse: Option<ValueMap>| FieldStep::Rewrite {
+        key: "n",
+        forward: successor,
+        inverse,
+    };
+    let compute = |inverse: Option<ValueMap>| FieldStep::Compute {
+        target: "d",
+        source: "n",
+        forward: successor,
+        inverse,
+    };
+    let term = |name, adds_field, steps| ValueStepTerm {
+        name,
+        adds_field,
+        steps,
+    };
+    vec![
+        term(
+            "apply_expr with inverse",
+            false,
+            vec![rewrite(Some(predecessor))],
+        ),
+        term("apply_expr without inverse", false, vec![rewrite(None)]),
+        term("compute_field without inverse", false, vec![compute(None)]),
+        term(
+            "compute_field with inverse",
+            false,
+            vec![compute(Some(predecessor))],
+        ),
+        term("add_field", true, Vec::new()),
+        term("add_field with expr", true, vec![compute(None)]),
+        term(
+            "directed equation with inverse",
+            false,
+            vec![rewrite(Some(predecessor))],
+        ),
+        term("directed equation without inverse", false, vec![rewrite(None)]),
+        term("directed equation on a variable", false, Vec::new()),
+    ]
+}
+
+/// Count the value-level carrier: the sources, the reference's plan and get
+/// verdicts, and per source whose get succeeds the closed-form count of its
+/// put views.
+#[must_use]
+pub fn value_step_count_certificate() -> ProtolensCarrierCertificate {
+    let alphabet = value_step_alphabet();
+    let schemas = value_step_schemas();
+    let sources = value_step_sources();
+    let mut certificate = ProtolensCarrierCertificate {
+        kinds: alphabet.len(),
+        schemas: schemas.len(),
+        source_states: schemas.len() * sources.len(),
+        ..ProtolensCarrierCertificate::default()
+    };
+    certificate.get_cases = certificate.kinds * certificate.source_states;
+    for term in &alphabet {
+        for schema in &schemas {
+            let (target, migration, program) = term.at(schema);
+            let Ok(plan) = crate::restrict::compile(schema, &target, &migration) else {
+                certificate.inapplicable += 1;
+                continue;
+            };
+            certificate.instantiated += 1;
+            let Ok(lens) = crate::lens::GraphLens::new(
+                schema,
+                &target,
+                &migration,
+                &plan,
+                &BTreeMap::new(),
+                &program,
+            ) else {
+                unreachable!("a plan binds the schemas it was compiled for")
+            };
+            for source in &sources {
+                match lens.get(source) {
+                    Ok((view, _)) => {
+                        certificate.put_cases += value_step_view_count(view.nodes.len());
                     }
                     Err(_) => certificate.get_refusals += 1,
                 }

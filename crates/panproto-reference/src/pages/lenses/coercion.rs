@@ -99,7 +99,8 @@ impl ValueLayer for SortCoercion {
     }
 
     /// Definition: Get rewrites a present value by the forward map and
-    /// leaves an absent or null value as it is.
+    /// leaves an absent or null value as it is; a value outside the map's
+    /// domain is refused, naming the node's own value.
     ///
     /// Book anchors: `L-lenses-25`.
     fn transform(
@@ -114,7 +115,7 @@ impl ValueLayer for SortCoercion {
             .forward_presence(node.value.as_ref())
             .map_err(|()| LayerRefusal {
                 kind: "field_transform_failed".to_owned(),
-                detail: format!("{} is undefined at {:?}", self.name, node.value),
+                detail: VALUE_FIELD.to_owned(),
             })?;
         Ok((node.fields.clone(), value))
     }

@@ -548,49 +548,12 @@ fn compile_merge_sorts(
     chains: &mut Vec<ProtolensChain>,
 ) -> Result<(), LensDslError> {
     let merger_expr = parse_expr(&merge_sorts.expr).map_err(|e| e.within(&at("expr")))?;
-
-    let first_sort = Arc::from(&*merge_sorts.sort_a);
-    let second_sort = Arc::from(&*merge_sorts.sort_b);
-    let merged_arc = Arc::from(&*merge_sorts.merged);
-
-    let protolens = panproto_lens::Protolens {
-        name: Name::from(format!(
-            "merge_{}_{}_{}",
-            merge_sorts.sort_a, merge_sorts.sort_b, merge_sorts.merged
-        )),
-        source: TheoryEndofunctor {
-            name: Arc::from("id"),
-            precondition: TheoryConstraint::All(vec![
-                TheoryConstraint::HasSort(Arc::clone(&first_sort)),
-                TheoryConstraint::HasSort(Arc::clone(&second_sort)),
-            ]),
-            transform: TheoryTransform::Identity,
-        },
-        target: TheoryEndofunctor {
-            name: Arc::from(&*format!(
-                "merge_{}_{}",
-                merge_sorts.sort_a, merge_sorts.sort_b
-            )),
-            precondition: TheoryConstraint::All(vec![
-                TheoryConstraint::HasSort(first_sort.clone()),
-                TheoryConstraint::HasSort(second_sort.clone()),
-            ]),
-            transform: TheoryTransform::MergeSorts {
-                sort_a: first_sort,
-                sort_b: second_sort,
-                merged_name: merged_arc,
-                merger_expr,
-            },
-        },
-        complement_constructor: panproto_lens::ComplementConstructor::Composite(vec![
-            panproto_lens::ComplementConstructor::DroppedSortData {
-                sort: Name::from(merge_sorts.sort_a.clone()),
-            },
-            panproto_lens::ComplementConstructor::DroppedSortData {
-                sort: Name::from(merge_sorts.sort_b.clone()),
-            },
-        ]),
-    };
+    let protolens = elementary::merge_sorts(
+        &*merge_sorts.sort_a,
+        &*merge_sorts.sort_b,
+        &*merge_sorts.merged,
+        merger_expr,
+    );
     chains.push(ProtolensChain::new(vec![protolens]));
     Ok(())
 }

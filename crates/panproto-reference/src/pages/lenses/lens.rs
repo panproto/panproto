@@ -320,6 +320,7 @@ pub use super::alignment::{
     ViewAlignmentRefusal, ViewPosition, align_tree_view, tree_view_positions,
 };
 pub use super::coercion::{SortCoercion, ValueMap};
+pub use super::field_program::{FieldProgram, FieldStep};
 pub use super::composite::{
     CompositeInstantiationError, CompositeLens, CompositePutError, CompositeRefusal, EdgeImages,
     ProtolensTerm, TermRefusal, structural_migration,

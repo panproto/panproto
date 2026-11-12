@@ -96,6 +96,7 @@
 //! | Elementary protolens kinds | [`lens::ElementaryProtolens::target_and_migration`], [`lens::relabel`], [`lens::restrict`], [`lens::extend`] | `lenses.md` |
 //! | Fused chains and scoped protolenses | [`lens::ProtolensTerm::at`], [`lens::ProtolensTerm::target`], [`lens::ProtolensTerm::transform`], [`lens::ProtolensTerm::surviving_vertices`], [`lens::ProtolensTerm::edge_images`], [`lens::structural_migration`] | `lenses.md` |
 //! | Sort coercions | [`lens::SortCoercion::target_and_migration`] | `lenses.md` |
+//! | Value-level steps | [`lens::FieldProgram::output_fields`] | `lenses.md` |
 //! | Sequential protolens composites | [`lens::CompositeLens::instantiate`], [`lens::CompositeLens::get`], [`lens::CompositeLens::put`], [`lens::CompositeLens::check_put_domain`] | `lenses.md` |
 //! | Tree view alignment | [`lens::align_tree_view`] | `lenses.md` |
 //! | Graph and table observable squares | [`lens::graph_square`], [`lens::graph_put_square`], [`lens::table_square`], [`lens::table_put_square`], [`lens::relational_table_get`], [`lens::relational_table_put`] | `lenses.md` |
