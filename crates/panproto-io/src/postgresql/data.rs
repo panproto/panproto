@@ -666,14 +666,14 @@ fn decode_segments(raw: &str, escapes: bool) -> Option<Vec<u8>> {
 
 /// A column of a table: its name, its vertex and its type, in position
 /// order.
-pub(crate) struct Column {
+pub struct Column {
     pub name: String,
     pub ty: ColumnType,
     pub has_default: bool,
 }
 
 /// The columns of `table` in `schema`, in position order.
-pub(crate) fn columns(schema: &Schema, table: &str) -> Option<Vec<Column>> {
+pub fn columns(schema: &Schema, table: &str) -> Option<Vec<Column>> {
     if schema.vertices.get(table).is_none_or(|v| v.kind != "table") {
         return None;
     }
@@ -704,7 +704,7 @@ pub(crate) fn columns(schema: &Schema, table: &str) -> Option<Vec<Column>> {
 
 /// Number the rows of each table, tables in name order and rows in the
 /// order given, from zero.
-pub(crate) fn number_rows(by_table: BTreeMap<String, Vec<Row>>) -> FInstance {
+pub fn number_rows(by_table: BTreeMap<String, Vec<Row>>) -> FInstance {
     let mut instance = FInstance::new();
     let mut next = 0u32;
     for (table, table_rows) in by_table {
@@ -834,12 +834,15 @@ fn read_constant(
     }
 }
 
+/// A table's name, its columns and its rows.
+pub type TableRows<'i> = (String, Vec<Column>, Vec<&'i Row>);
+
 /// The rows of `instance` grouped by table in name order, each table's
 /// rows in id order, checked against `schema`.
-pub(crate) fn instance_rows<'i>(
+pub fn instance_rows<'i>(
     schema: &Schema,
     instance: &'i FInstance,
-) -> Result<Vec<(String, Vec<Column>, Vec<&'i Row>)>, SqlDataError> {
+) -> Result<Vec<TableRows<'i>>, SqlDataError> {
     let unwritable = |table: &str, column: Option<&str>, reason| SqlDataError::Unwritable {
         table: table.to_owned(),
         column: column.map(str::to_owned),
@@ -937,9 +940,9 @@ pub fn write_data(schema: &Schema, instance: &FInstance) -> Result<String, SqlDa
             .iter()
             .map(|c| quote_identifier(&c.name))
             .collect();
-        let _ = write!(
+        let _ = writeln!(
             out,
-            "INSERT INTO {} ({}) VALUES\n",
+            "INSERT INTO {} ({}) VALUES",
             quote_identifier(&table),
             names.join(", ")
         );
@@ -962,8 +965,9 @@ pub fn write_data(schema: &Schema, instance: &FInstance) -> Result<String, SqlDa
     Ok(out)
 }
 
-/// Write a schema and its rows as one canonical script: the schema's types
-/// and tables as [`emit_ddl`](panproto_protocols::database::postgresql::emit_ddl)
+/// Write a schema and its rows as one canonical script.
+///
+/// The script holds the schema's types and tables as [`emit_ddl`](panproto_protocols::database::postgresql::emit_ddl)
 /// writes them, then the rows as [`write_data`] writes them, then the
 /// foreign keys, so the script loads into `PostgreSQL` whatever order the
 /// tables reference each other in. Reading the script gives the schema
