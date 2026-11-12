@@ -116,6 +116,7 @@
   - [RDF formats](./correctness/rdf-formats.md)
   - [Edge lists](./correctness/edge-lists.md)
   - [Kubernetes CRDs](./correctness/kubernetes-crds.md)
+  - [CloudFormation](./correctness/cloudformation.md)
   - [Migration search](./correctness/migration-search.md)
   - [Schema merge](./correctness/schema-merge.md)
 

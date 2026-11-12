@@ -118,7 +118,7 @@ fn kubernetes_crd_corpus_cases_pass_or_are_declared_limits() {
         }
     }
     let cases = manifest();
-    assert!(!cases.is_empty());
+    assert_eq!(cases.len(), 18, "the MANIFEST lists 18 refusal cases");
     for (file, path, expected) in &cases {
         let bytes = std::fs::read(corpus().join("k8s-crd/invalid").join(file)).unwrap();
         match read_crd(&bytes) {

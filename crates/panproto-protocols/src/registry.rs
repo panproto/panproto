@@ -291,7 +291,9 @@ static DESCRIPTORS: &[ProtocolDescriptor] = &[
     ProtocolDescriptor {
         name: "cloudformation",
         aliases: &[],
-        parser: Parser::Document(config::cloudformation::parse_cfn_schema),
+        parser: Parser::Grammar {
+            reader: "panproto_io::config::cloudformation::read_template",
+        },
         protocol: config::cloudformation::protocol,
         register_theories: |r| {
             config::cloudformation::register_theories(r);

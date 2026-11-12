@@ -1,0 +1,5 @@
+# CloudFormation corpus cases the reader does not pass, with the limit's name.
+upstream/EC2_InstanceWithCfnInit.yaml	short-form tag on a mapping (the shared YAML route carries tags on scalars only)
+upstream/EC2_SingleENIwithMultipleEIPs.yaml	short-form tag on a sequence (the shared YAML route carries tags on scalars only)
+upstream/RDS_RDS_Snapshot_On_Delete.yaml	short-form tag on a sequence (the shared YAML route carries tags on scalars only)
+upstream/RDS_RDS_with_DBParameterGroup.yaml	short-form tag on a sequence (the shared YAML route carries tags on scalars only)
