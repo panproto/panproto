@@ -10,6 +10,7 @@
 //! checked to refuse with the bound they spent rather than answer empty.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
 use std::process::Command;
 
 use panproto_mig::hom_search::{
@@ -68,7 +69,7 @@ fn reference_edge(edge: &panproto_schema::Edge) -> Edge {
         edge.src.as_str(),
         edge.tgt.as_str(),
         edge.kind.as_str(),
-        edge.name.as_ref().map(|name| name.as_str()),
+        edge.name.as_ref().map(panproto_gat::Name::as_str),
     )
 }
 
@@ -238,10 +239,11 @@ fn render_total(morphisms: &[FoundMorphism], truncated: bool) -> String {
     for found in morphisms {
         let vertices = vertex_map(&found.vertex_map);
         let edges = edge_map(&found.edge_map);
-        text.push_str(&format!(
+        let _ = write!(
+            text,
             "[{vertices:?}|{edges:?}|{:016x}]",
             found.quality.to_bits()
-        ));
+        );
     }
     text
 }
@@ -592,22 +594,19 @@ fn assert_bounded_span(
                 Ok(()),
                 "{context}"
             );
-            match span.certificate.limit_hit {
-                Some(limit) => {
-                    assert!(!span.certificate.proven_optimal, "{context}");
-                    assert!(names_a_lowered_bound(budget, limit), "{context}: {limit:?}");
-                    *refusals.entry(format!("span {limit:?}")).or_insert(0) += 1;
-                }
-                None => {
-                    assert!(span.certificate.proven_optimal, "{context}");
-                    let optimum = reference::optimal_span(source, target, request)
-                        .map(|optimum| optimum.cost);
-                    assert_eq!(
-                        reference::cost(source, target, &span_assignment(source, &span)),
-                        optimum,
-                        "{context}: an unstopped span is optimal"
-                    );
-                }
+            if let Some(limit) = span.certificate.limit_hit {
+                assert!(!span.certificate.proven_optimal, "{context}");
+                assert!(names_a_lowered_bound(budget, limit), "{context}: {limit:?}");
+                *refusals.entry(format!("span {limit:?}")).or_insert(0) += 1;
+            } else {
+                assert!(span.certificate.proven_optimal, "{context}");
+                let optimum =
+                    reference::optimal_span(source, target, request).map(|optimum| optimum.cost);
+                assert_eq!(
+                    reference::cost(source, target, &span_assignment(source, &span)),
+                    optimum,
+                    "{context}: an unstopped span is optimal"
+                );
             }
         }
         Err(error) => {

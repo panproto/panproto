@@ -808,9 +808,8 @@ fn isomorphisms(
     // The incumbent of a stopped search may be a partial map that a longer
     // search would have extended to an isomorphism, so a stop that leaves no
     // isomorphism in hand is reported as the stop, never as an empty answer.
-    let stopped = |limit: Option<LimitKind>| match limit {
-        Some(limit) => Err(SpanError::Stopped { limit }),
-        None => Ok(Vec::new()),
+    let stopped = |limit: Option<LimitKind>| {
+        limit.map_or_else(|| Ok(Vec::new()), |limit| Err(SpanError::Stopped { limit }))
     };
     let Some(assignment) = outcome.best else {
         return stopped(outcome.limit_hit);
