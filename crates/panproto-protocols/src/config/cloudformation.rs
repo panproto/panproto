@@ -1,16 +1,72 @@
-//! AWS CloudFormation protocol definition.
+//! AWS `CloudFormation` template protocol definition.
 //!
 //! Uses Group A theory: constrained multigraph + W-type.
+//!
+//! A template (format version `2010-09-09`) is JSON or YAML, and this crate
+//! links no grammar for either: `panproto_io::config::cloudformation::read_template`
+//! reads it through the shared JSON or YAML route of `panproto-io` (feature
+//! `tree-sitter`) into a schema of this protocol, and both schema dispatches
+//! refuse the protocol with an error naming that reader.
+//!
+//! The schema has one `template` vertex joined by a `declares` edge, named
+//! by the logical ID, to a `parameter`, `mapping`, `condition`, `resource` or
+//! `output` vertex per declaration, and a `pseudo-parameter` vertex per
+//! pseudo parameter a reference names. The references a template declares
+//! are edges: `ref` (a `Ref`, or an `Fn::Sub` variable without a dot),
+//! `get-att` (an `Fn::GetAtt`, or an `Fn::Sub` variable with one, named by
+//! the attribute), `find-in-map`, `uses-condition` (an `Fn::If` or a
+//! `Condition` function), and the resource attributes `condition` and
+//! `depends-on`.
 
 use std::collections::HashMap;
 use std::hash::BuildHasher;
 
 use panproto_gat::Theory;
-use panproto_schema::{EdgeRule, Protocol, Schema, SchemaBuilder};
+use panproto_schema::{EdgeRule, Protocol};
 
-use crate::emit::{children_by_edge, find_roots, vertex_constraints};
-use crate::error::ProtocolError;
 use crate::theories;
+
+/// The fields the reader keeps as constraints.
+///
+/// Each holds the field's value as canonical JSON text: the template's `AWSTemplateFormatVersion`,
+/// `Description` and `Metadata`; a parameter's fields; a mapping's `Map`
+/// and a condition's `Definition`; a resource's `Type`, `Properties`,
+/// `Metadata` and policies; an output's `Value` and `Export`.
+pub const CONSTRAINT_SORTS: &[&str] = &[
+    "AWSTemplateFormatVersion",
+    "Description",
+    "Metadata",
+    "AllowedPattern",
+    "AllowedValues",
+    "ConstraintDescription",
+    "Default",
+    "MaxLength",
+    "MaxValue",
+    "MinLength",
+    "MinValue",
+    "NoEcho",
+    "Type",
+    "Map",
+    "Definition",
+    "Properties",
+    "CreationPolicy",
+    "DeletionPolicy",
+    "UpdatePolicy",
+    "UpdateReplacePolicy",
+    "Value",
+    "Export",
+];
+
+/// The vertex kinds of a template schema.
+const KINDS: &[&str] = &[
+    "template",
+    "parameter",
+    "mapping",
+    "condition",
+    "resource",
+    "output",
+    "pseudo-parameter",
+];
 
 /// Returns the `CloudFormation` protocol definition.
 #[must_use]
@@ -20,20 +76,12 @@ pub fn protocol() -> Protocol {
         schema_theory: "ThCfnSchema".into(),
         instance_theory: "ThCfnInstance".into(),
         edge_rules: edge_rules(),
-        obj_kinds: vec![
-            "resource-type".into(),
-            "property".into(),
-            "string".into(),
-            "integer".into(),
-            "number".into(),
-            "boolean".into(),
-            "array".into(),
-            "object".into(),
-            "timestamp".into(),
-        ],
-        constraint_sorts: vec!["required".into(), "default".into(), "allowed-values".into()],
+        obj_kinds: KINDS.iter().map(|kind| (*kind).into()).collect(),
+        constraint_sorts: CONSTRAINT_SORTS
+            .iter()
+            .map(|sort| (*sort).to_owned())
+            .collect(),
         has_order: true,
-        has_recursion: true,
         nominal_identity: true,
         ..Default::default()
     };
@@ -46,145 +94,56 @@ pub fn register_theories<S: BuildHasher>(registry: &mut HashMap<String, Theory, 
     theories::register_constrained_multigraph_wtype(registry, "ThCfnSchema", "ThCfnInstance");
 }
 
-/// Parse a JSON-based `CloudFormation` resource schema into a [`Schema`].
-///
-/// # Errors
-///
-/// Returns [`ProtocolError`] if parsing fails.
-pub fn parse_cfn_schema(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
-    let ordered = crate::key_order::in_key_order(json);
-    let json = ordered.as_ref();
-    let proto = protocol();
-    let mut builder = SchemaBuilder::new(&proto);
-
-    let resources = json
-        .get("resourceTypes")
-        .and_then(serde_json::Value::as_object)
-        .ok_or_else(|| ProtocolError::MissingField("resourceTypes".into()))?;
-
-    for (name, def) in resources {
-        builder = builder.vertex(name, "resource-type", None)?;
-
-        if let Some(props) = def.get("properties").and_then(serde_json::Value::as_object) {
-            for (prop_name, prop_def) in props {
-                let prop_id = format!("{name}.{prop_name}");
-                let kind = prop_def
-                    .get("type")
-                    .and_then(serde_json::Value::as_str)
-                    .map_or("string", cfn_type_to_kind);
-                builder = builder.vertex(&prop_id, kind, None)?;
-                builder = builder.edge(name, &prop_id, "prop", Some(prop_name))?;
-
-                if prop_def
-                    .get("required")
-                    .and_then(serde_json::Value::as_bool)
-                    == Some(true)
-                {
-                    builder = builder.constraint(&prop_id, "required", "true");
-                }
-            }
-        }
+fn rule(kind: &str, src: &[&str], tgt: &[&str]) -> EdgeRule {
+    let names = |kinds: &[&str]| kinds.iter().map(|k| (*k).to_owned()).collect();
+    EdgeRule {
+        edge_kind: kind.into(),
+        src_kinds: names(src),
+        tgt_kinds: names(tgt),
     }
-
-    let schema = builder.build()?;
-    Ok(schema)
-}
-
-/// Map `CloudFormation` type to vertex kind.
-fn cfn_type_to_kind(t: &str) -> &'static str {
-    match t {
-        "String" | "string" => "string",
-        "Integer" | "integer" => "integer",
-        "Number" | "number" | "Double" => "number",
-        "Boolean" | "boolean" => "boolean",
-        "List" | "array" => "array",
-        "Map" | "object" | "Json" => "object",
-        "Timestamp" | "timestamp" => "timestamp",
-        _ => "property",
-    }
-}
-
-/// Emit a [`Schema`] as a JSON `CloudFormation` schema.
-///
-/// # Errors
-///
-/// Returns [`ProtocolError`] if emission fails.
-pub fn emit_cfn_schema(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
-    let structural = &["prop"];
-    let roots = find_roots(schema, structural);
-
-    let mut resource_types = serde_json::Map::new();
-    for root in &roots {
-        if root.kind != "resource-type" {
-            continue;
-        }
-        let mut obj = serde_json::Map::new();
-        let props = children_by_edge(schema, &root.id, "prop");
-        if !props.is_empty() {
-            let mut props_obj = serde_json::Map::new();
-            for (edge, child) in &props {
-                let name = edge.name.as_deref().unwrap_or(&child.id);
-                let mut single_prop = serde_json::Map::new();
-                single_prop.insert("type".into(), serde_json::json!(child.kind));
-                for c in vertex_constraints(schema, &child.id) {
-                    if c.sort == "required" {
-                        single_prop.insert("required".into(), serde_json::json!(true));
-                    } else {
-                        single_prop.insert(c.sort.to_string(), serde_json::json!(c.value));
-                    }
-                }
-                props_obj.insert(name.to_string(), serde_json::Value::Object(single_prop));
-            }
-            obj.insert("properties".into(), serde_json::Value::Object(props_obj));
-        }
-        resource_types.insert(root.id.to_string(), serde_json::Value::Object(obj));
-    }
-
-    Ok(serde_json::json!({ "resourceTypes": resource_types }))
 }
 
 fn edge_rules() -> Vec<EdgeRule> {
-    vec![EdgeRule {
-        edge_kind: "prop".into(),
-        src_kinds: vec!["resource-type".into(), "object".into()],
-        tgt_kinds: vec![],
-    }]
+    let holders = &["condition", "resource", "output"][..];
+    vec![
+        rule(
+            "declares",
+            &["template"],
+            &["parameter", "mapping", "condition", "resource", "output"],
+        ),
+        rule(
+            "ref",
+            holders,
+            &["parameter", "resource", "pseudo-parameter"],
+        ),
+        rule("get-att", &["resource", "output"], &["resource"]),
+        rule("find-in-map", holders, &["mapping"]),
+        rule("uses-condition", holders, &["condition"]),
+        rule("condition", &["resource", "output"], &["condition"]),
+        rule("depends-on", &["resource"], &["resource"]),
+    ]
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
 
     #[test]
-    fn protocol_def() {
+    fn the_protocol_declares_every_kept_field_as_a_constraint_sort() {
         let p = protocol();
         assert_eq!(p.name, "cloudformation");
+        for sort in CONSTRAINT_SORTS {
+            assert!(
+                p.constraint_sorts.iter().any(|s| s == sort),
+                "{sort} is not declared"
+            );
+        }
     }
 
     #[test]
-    fn register_theories_works() {
+    fn register_theories_registers_the_schema_theory() {
         let mut registry = HashMap::new();
         register_theories(&mut registry);
         assert!(registry.contains_key("ThCfnSchema"));
-    }
-
-    #[test]
-    fn parse_and_emit() {
-        let json = serde_json::json!({
-            "resourceTypes": {
-                "AWS::EC2::Instance": {
-                    "properties": {
-                        "InstanceType": {"type": "String", "required": true},
-                        "ImageId": {"type": "String"}
-                    }
-                }
-            }
-        });
-        let schema = parse_cfn_schema(&json).expect("should parse");
-        assert!(schema.has_vertex("AWS::EC2::Instance"));
-        let emitted = emit_cfn_schema(&schema).expect("emit");
-        let s2 = parse_cfn_schema(&emitted).expect("re-parse");
-        assert_eq!(schema.vertex_count(), s2.vertex_count());
     }
 }

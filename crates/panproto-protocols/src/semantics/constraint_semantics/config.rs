@@ -4,8 +4,11 @@
 //! `required` is a presence flag of a parameter or property and `default` a
 //! default value; both describe. The flag is about the element that holds
 //! the parameter or property, which must have it (the schema's required
-//! edge), not about its own value. A `cloudformation` parameter's
-//! `AllowedValues` lists the permitted values. A CRD schema node's `format`
+//! edge), not about its own value. Every field the `cloudformation` reader
+//! keeps (a parameter's type, default, allowed values and bounds, a
+//! resource's properties and policies, a mapping, a condition's
+//! definition, an output's value) is kept as its JSON text and not
+//! evaluated by validation, so it describes. A CRD schema node's `format`
 //! is a value format of `OpenAPI` v3; every other keyword the CRD reader
 //! keeps (its value validations, CEL rules, list and map types, and the
 //! resource's and versions' fields) is kept as written and not evaluated by
@@ -32,14 +35,67 @@ const fn row(
 
 /// The rows of this family, one per declaration.
 pub(super) const ROWS: &[ConstraintRow] = &[
-    row("cloudformation", "required", || {
+    row("cloudformation", "AWSTemplateFormatVersion", || {
         ConstraintSemantics::Annotation
     }),
-    row("cloudformation", "default", || {
+    row("cloudformation", "Description", || {
         ConstraintSemantics::Annotation
     }),
-    row("cloudformation", "allowed-values", || {
-        ConstraintSemantics::Enum
+    row("cloudformation", "Metadata", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("cloudformation", "AllowedPattern", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("cloudformation", "AllowedValues", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("cloudformation", "ConstraintDescription", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("cloudformation", "Default", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("cloudformation", "MaxLength", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("cloudformation", "MaxValue", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("cloudformation", "MinLength", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("cloudformation", "MinValue", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("cloudformation", "NoEcho", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("cloudformation", "Type", || ConstraintSemantics::Annotation),
+    row("cloudformation", "Map", || ConstraintSemantics::Annotation),
+    row("cloudformation", "Definition", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("cloudformation", "Properties", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("cloudformation", "CreationPolicy", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("cloudformation", "DeletionPolicy", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("cloudformation", "UpdatePolicy", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("cloudformation", "UpdateReplacePolicy", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("cloudformation", "Value", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("cloudformation", "Export", || {
+        ConstraintSemantics::Annotation
     }),
     row("ansible", "required", || ConstraintSemantics::Annotation),
     row("ansible", "default", || ConstraintSemantics::Annotation),

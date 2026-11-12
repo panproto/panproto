@@ -5,6 +5,11 @@
 //! ones exact) and a fraction a float or exact decimal. An `int-or-string`
 //! vertex holds either, and an `any` vertex (a node that preserves unknown
 //! fields) holds any scalar.
+//!
+//! A `cloudformation` parameter holds a string: `CloudFormation` passes every
+//! parameter value, a number's and a list's among them, as text. The
+//! template, its declarations and the pseudo parameters (one of which,
+//! `AWS::NotificationARNs`, is a list) hold no scalar.
 
 use panproto_schema::ScalarKind;
 
@@ -12,6 +17,11 @@ use super::{NonScalarRow, ValueKindRow};
 
 /// The rows of this family, one per declaration.
 pub(super) const ROWS: &[ValueKindRow] = &[
+    ValueKindRow {
+        protocol: "cloudformation",
+        vertex_kind: "parameter",
+        kind: ScalarKind::Str,
+    },
     ValueKindRow {
         protocol: "k8s-crd",
         vertex_kind: "string",
@@ -46,6 +56,30 @@ pub(super) const ROWS: &[ValueKindRow] = &[
 
 /// The vertex kinds of this family that hold no scalar.
 pub(super) const NON_SCALAR: &[NonScalarRow] = &[
+    NonScalarRow {
+        protocol: "cloudformation",
+        vertex_kind: "template",
+    },
+    NonScalarRow {
+        protocol: "cloudformation",
+        vertex_kind: "mapping",
+    },
+    NonScalarRow {
+        protocol: "cloudformation",
+        vertex_kind: "condition",
+    },
+    NonScalarRow {
+        protocol: "cloudformation",
+        vertex_kind: "resource",
+    },
+    NonScalarRow {
+        protocol: "cloudformation",
+        vertex_kind: "output",
+    },
+    NonScalarRow {
+        protocol: "cloudformation",
+        vertex_kind: "pseudo-parameter",
+    },
     NonScalarRow {
         protocol: "k8s-crd",
         vertex_kind: "custom-resource",

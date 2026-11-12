@@ -1,12 +1,14 @@
-//! The tree a configuration document reads as through the shared YAML route.
+//! The tree a configuration document reads as through the shared YAML and
+//! JSON routes.
 //!
-//! A configuration format reads no YAML itself. [`read_yaml`] reads the
-//! document with the YAML route of [`UnifiedCodec`] (YAML 1.2.2, one
+//! A configuration format reads no YAML or JSON itself. [`read_yaml`] reads
+//! the document with the YAML route of [`UnifiedCodec`] (YAML 1.2.2, one
 //! document, the core schema, as the text-formats chapter of the book
 //! states), so every refusal of that route (a stream of several documents,
 //! an alias, a `%TAG` directive, a document that is not UTF-8) is the
-//! configuration reader's refusal too. This module gives the instance tree
-//! the route reads the shape a configuration reader walks: each mapping its
+//! configuration reader's refusal too; [`read_json`] reads it with the JSON
+//! route (RFC 8259) the same way. This module gives the instance tree a
+//! route reads the shape a configuration reader walks: each mapping its
 //! entries in source order, each sequence its items in order, each scalar
 //! its value, and each node the byte offset at which it starts.
 
@@ -22,6 +24,9 @@ use crate::unified_codec::UnifiedCodec;
 
 /// The protocol name the shared YAML route reads under.
 const YAML: &str = "yaml";
+
+/// The protocol name the shared JSON route reads under.
+const JSON: &str = "json";
 
 /// A node of a configuration document.
 #[derive(Clone, Debug, PartialEq)]
@@ -179,19 +184,19 @@ fn write_scalar(value: &Value, out: &mut String) -> Result<(), JsonTextError> {
     Ok(())
 }
 
-/// The open schema the YAML route reads any document under.
-fn open_schema() -> Result<Schema, ParseInstanceError> {
+/// The open schema a route reads any document under.
+fn open_schema(route: &str, theory: &str) -> Result<Schema, ParseInstanceError> {
     let protocol = Protocol {
-        name: YAML.into(),
-        schema_theory: "ThYamlSchema".into(),
-        instance_theory: "ThYamlInstance".into(),
+        name: route.into(),
+        schema_theory: format!("Th{theory}Schema"),
+        instance_theory: format!("Th{theory}Instance"),
         ..Default::default()
     };
     SchemaBuilder::new(&protocol)
         .vertex("root", "object", None)
         .and_then(SchemaBuilder::build)
         .map_err(|error| ParseInstanceError::Parse {
-            protocol: YAML.into(),
+            protocol: route.into(),
             message: error.to_string(),
         })
 }
@@ -208,8 +213,30 @@ pub fn read_yaml(source: &[u8]) -> Result<Node, ParseInstanceError> {
         protocol: YAML.into(),
         message: error.to_string(),
     })?;
-    let schema = open_schema()?;
-    let (instance, complement) = codec.parse_wtype_preserving(&schema, source)?;
+    read_through(&codec, &open_schema(YAML, "Yaml")?, source)
+}
+
+/// Read `source` through the shared JSON route into its tree.
+///
+/// # Errors
+///
+/// Returns the JSON route's [`ParseInstanceError`] for a document the route
+/// refuses, or [`ParseInstanceError::Parse`] if the JSON grammar is not
+/// compiled in.
+pub fn read_json(source: &[u8]) -> Result<Node, ParseInstanceError> {
+    let codec = UnifiedCodec::json(JSON).map_err(|error| ParseInstanceError::Parse {
+        protocol: JSON.into(),
+        message: error.to_string(),
+    })?;
+    read_through(&codec, &open_schema(JSON, "Json")?, source)
+}
+
+fn read_through(
+    codec: &UnifiedCodec,
+    schema: &Schema,
+    source: &[u8],
+) -> Result<Node, ParseInstanceError> {
+    let (instance, complement) = codec.parse_wtype_preserving(schema, source)?;
     let mut children: HashMap<u32, Vec<(u32, &Edge)>> = HashMap::new();
     for (parent, child, edge) in &instance.arcs {
         children.entry(*parent).or_default().push((*child, edge));

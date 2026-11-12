@@ -2,7 +2,7 @@
 
 /// Ansible playbook schema protocol definition and parser/emitter.
 pub mod ansible;
-/// AWS CloudFormation protocol definition and parser/emitter.
+/// AWS `CloudFormation` template protocol definition.
 pub mod cloudformation;
 /// Kubernetes CRD protocol definition and parser/emitter.
 pub mod k8s_crd;
