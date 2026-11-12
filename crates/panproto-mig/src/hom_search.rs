@@ -355,9 +355,11 @@ pub fn find_span_constrained(
 /// [`SpanError::Build`] when the network could not be posed, which the domain
 /// ceiling reaches on a target schema wide enough in one kind;
 /// [`SpanError::Iso`] when `opts.iso` is set and the maximum common sub-schema
-/// search refused the network; [`SpanError::Stopped`] when branch and bound
-/// spent a budget before reaching any complete assignment, or when the
-/// isomorphism search spent one before it held an isomorphism.
+/// search refused the network; [`SpanError::Stopped`] when a budget stopped
+/// the search before it proved an answer optimal. A stopped search that held a
+/// total morphism (on the isomorphism path, an isomorphism) carries it in the
+/// refusal's `incumbent`, so a caller can still use it knowing it is not proved
+/// optimal; `Ok` never holds an unproved answer.
 ///
 /// `Ok(vec![])` means no total morphism exists, which on the measured schema
 /// corpus is the common case, and it means **only** that: a search that could
@@ -379,8 +381,8 @@ pub fn find_morphisms(
 /// The single best total schema morphism from `src` to `tgt`.
 ///
 /// `Ok(None)` exactly when no total morphism exists. A search that stopped
-/// before it could tell reports [`SpanError::Stopped`] rather than `Ok(None)`,
-/// so this really is a statement about the pair.
+/// before it proved an answer optimal reports [`SpanError::Stopped`] rather than
+/// `Ok`, so both answers are statements about the pair.
 ///
 /// # Errors
 ///
@@ -427,9 +429,9 @@ pub fn find_morphisms_constrained(
 /// the figure to be an argument rather than a constant.
 ///
 /// The budget changes what is *reported*, never what is true. A search that
-/// spends it before any complete assignment reports [`SpanError::Stopped`]
-/// rather than an empty list, so shrinking the budget turns answers into
-/// refusals and never into wrong answers.
+/// spends it before proving an answer optimal reports [`SpanError::Stopped`]
+/// rather than an empty list or an unproved morphism, so shrinking the budget
+/// turns answers into refusals and never into wrong answers.
 ///
 /// # Errors
 ///
@@ -484,7 +486,7 @@ pub fn find_morphisms_budgeted(
     // The total-morphism search is the span search with `⊥` removed from every
     // domain, which is what makes the two one search rather than two.
     let total = without_bottom(&cfn, budget.mem_bytes);
-    let (assignments, truncated) = if opts.epic {
+    let answer = if opts.epic {
         // Surjectivity is enforced inside the search rather than filtered from
         // its answer, so this cannot take the exact-inference route: a leaf
         // predicate has no counterpart in a message table.
@@ -493,8 +495,14 @@ pub fn find_morphisms_budgeted(
         answered(solve_monic(&total, budget))
     } else {
         optimal_assignments(&total, budget, limit)
-    }
-    .map_err(|limit| SpanError::Stopped { limit })?;
+    };
+    let (assignments, truncated) = answer.map_err(|stop| SpanError::Stopped {
+        limit: stop.limit,
+        incumbent: stop
+            .incumbent
+            .and_then(|assignment| morphism_of(&total, src, tgt, &assignment, opts))
+            .map(Box::new),
+    })?;
 
     Ok(MorphismList {
         morphisms: assignments
@@ -723,7 +731,7 @@ fn optimal_assignments(
     cfn: &Cfn,
     budget: &SearchBudget,
     limit: usize,
-) -> Result<(Vec<Assignment>, bool), LimitKind> {
+) -> Result<(Vec<Assignment>, bool), Stop> {
     let plan = dispatch_plan(cfn, budget);
     if plan.exact {
         let buckets = eliminate(cfn, &plan.order);
@@ -739,22 +747,30 @@ fn optimal_assignments(
     answered(solve(cfn, budget))
 }
 
-/// What a solve is entitled to report, separating "none" from "unknown".
+/// A search a limit stopped, with the incumbent it held, if any.
+#[derive(Debug)]
+struct Stop {
+    limit: LimitKind,
+    incumbent: Option<Assignment>,
+}
+
+/// What a solve is entitled to report: an answer only when no limit stopped it.
 ///
-/// A search that reached no complete assignment *and* stopped on a limit has no
-/// answer: the empty vector its absent incumbent would collect into reads as
-/// "no total morphism exists", which is a claim it never established. One that
-/// reached a leaf does have an answer even when it could not prove optimality,
-/// because in the `⊥`-removed network feasibility is exactly totality, so the
-/// incumbent is a real total morphism. Refusing that one would discard a
-/// correct answer, which is why the predicate is the conjunction rather than
-/// `limit_hit.is_some()` alone.
-fn answered(outcome: SolveOutcome) -> Result<(Vec<Assignment>, bool), LimitKind> {
-    match (outcome.best, outcome.limit_hit) {
-        (None, Some(limit)) => Err(limit),
+/// A search that stopped has proved no optimum. With no incumbent, the empty
+/// vector its absent incumbent would collect into reads as "no total morphism
+/// exists", which it never established; with one, the incumbent is a real
+/// total morphism (in the `⊥`-removed network feasibility is exactly totality)
+/// but returning it as an answer would claim it optimal. Both are therefore a
+/// [`Stop`], which carries the incumbent so the caller can still use it.
+fn answered(outcome: SolveOutcome) -> Result<(Vec<Assignment>, bool), Stop> {
+    match outcome.limit_hit {
+        Some(limit) => Err(Stop {
+            limit,
+            incumbent: outcome.best,
+        }),
         // Branch and bound keeps one incumbent rather than enumerating the tie
         // it belongs to, so there is nothing for the cap to cut here.
-        (best, _) => Ok((best.into_iter().collect(), false)),
+        None => Ok((outcome.best.into_iter().collect(), false)),
     }
 }
 
@@ -805,30 +821,32 @@ fn isomorphisms(
 ) -> Result<Vec<FoundMorphism>, SpanError> {
     // A refused network is reported, not spelled "the two are not isomorphic".
     let outcome = solve_iso(cfn, src, tgt, budget)?;
-    // The incumbent of a stopped search may be a partial map that a longer
-    // search would have extended to an isomorphism, so a stop that leaves no
-    // isomorphism in hand is reported as the stop, never as an empty answer.
-    let stopped = |limit: Option<LimitKind>| {
-        limit.map_or_else(|| Ok(Vec::new()), |limit| Err(SpanError::Stopped { limit }))
-    };
-    let Some(assignment) = outcome.best else {
-        return stopped(outcome.limit_hit);
-    };
-    let vertex_map = image_map(cfn, &assignment);
-    if vertex_map.len() != src.vertices.len()
-        || src.vertices.len() != tgt.vertices.len()
-        || !is_surjective(&vertex_map, tgt)
-    {
-        return stopped(outcome.limit_hit);
+    let found = outcome.best.as_ref().and_then(|assignment| {
+        let vertex_map = image_map(cfn, assignment);
+        if vertex_map.len() != src.vertices.len()
+            || src.vertices.len() != tgt.vertices.len()
+            || !is_surjective(&vertex_map, tgt)
+        {
+            return None;
+        }
+        let edge_map = bijective_edge_map(src, tgt, &vertex_map)?;
+        Some(FoundMorphism {
+            vertex_map,
+            edge_map,
+            quality: cfn.quality_of(assignment),
+        })
+    });
+    // A stopped search has proved no optimum. Its incumbent may be a partial
+    // map that a longer search would have extended to an isomorphism, or an
+    // isomorphism a longer search would have improved on, so either way the
+    // stop is reported, with the isomorphism it held when it held one.
+    match outcome.limit_hit {
+        Some(limit) => Err(SpanError::Stopped {
+            limit,
+            incumbent: found.map(Box::new),
+        }),
+        None => Ok(found.into_iter().collect()),
     }
-    let Some(edge_map) = bijective_edge_map(src, tgt, &vertex_map) else {
-        return stopped(outcome.limit_hit);
-    };
-    Ok(vec![FoundMorphism {
-        vertex_map,
-        edge_map,
-        quality: cfn.quality_of(&assignment),
-    }])
 }
 
 /// Whether a vertex map covers every target vertex.

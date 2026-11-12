@@ -6945,7 +6945,8 @@
           "references": [
             "panproto_reference::pages::migration_search::optimal_total",
             "panproto_reference::pages::migration_search::check_total",
-            "panproto_reference::pages::migration_search::check_span"
+            "panproto_reference::pages::migration_search::check_span",
+            "panproto_reference::pages::migration_search::cost"
           ]
         }
       ],

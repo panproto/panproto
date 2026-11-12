@@ -72,24 +72,37 @@ pub enum SpanError {
         source: panproto_schema::SchemaError,
     },
 
-    /// The total-morphism search stopped before reaching any complete
-    /// assignment, so whether one exists is unknown.
+    /// A budget stopped the total-morphism search before it proved an answer
+    /// optimal.
     ///
+    /// Every morphism [`find_morphisms`](crate::find_morphisms) returns in `Ok`
+    /// attains the optimum, and a stopped search has proved no optimum, so it
+    /// reports this whether or not it held a total morphism when it stopped.
     /// Distinct from `Ok(vec![])`, which is the search finishing and finding
-    /// nothing. Branch and bound reaches complete assignments as it dives, so a
-    /// budget spent before the first leaf leaves it with no incumbent at all,
-    /// and the empty answer that would report is a claim the search never
-    /// established. A stop *after* a leaf is not reported here: that incumbent
-    /// is a genuine total morphism, only not a proven-optimal one. On the
-    /// isomorphism path the incumbent may be a partial map, so a stop there is
-    /// reported whenever the search does not hold an isomorphism.
+    /// nothing: with no incumbent, whether a total morphism exists at all is
+    /// unknown.
+    ///
+    /// Branch and bound reaches complete assignments as it dives, so a stop
+    /// after the first leaf holds a genuine total morphism (with `⊥` forbidden,
+    /// feasibility is exactly totality), only not a proven-optimal one. That
+    /// morphism is `incumbent`, which a caller may use knowing it is not proved
+    /// optimal. On the isomorphism path the incumbent is carried only when it
+    /// is an isomorphism; a partial map is not an answer.
     #[error(
-        "the total-morphism search stopped on {limit:?} before it held an answer, so \
-         whether a total morphism exists is unknown"
+        "the total-morphism search stopped on {limit:?} before it proved an answer optimal{}",
+        if incumbent.is_some() {
+            "; it holds a total morphism that may not be optimal"
+        } else {
+            ", so whether a total morphism exists is unknown"
+        }
     )]
     Stopped {
         /// Which budget ran out.
         limit: crate::solve::LimitKind,
+        /// The best total morphism the search held when it stopped: it passes
+        /// every check a returned morphism passes except optimality. `None`
+        /// when the search held none.
+        incumbent: Option<Box<crate::hom_search::FoundMorphism>>,
     },
 
     /// The maximum common sub-schema search refused the network.

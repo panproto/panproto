@@ -520,7 +520,16 @@ fn assert_bounded_total(
 ) {
     let (src, tgt) = (production(source, false), production(target, false));
     let context = format!("{source:?} -> {target:?} {request:?} {budget:?}");
-    let exists = reference::optimal_total(source, target, request).is_some();
+    let optimum = reference::optimal_total(source, target, request).map(|optimum| optimum.cost);
+    let passes = |found: &FoundMorphism| {
+        reference::check_total(
+            source,
+            target,
+            request,
+            &vertex_map(&found.vertex_map),
+            &edge_map(&found.edge_map),
+        )
+    };
     match find_morphisms_budgeted(
         &src,
         &tgt,
@@ -528,27 +537,36 @@ fn assert_bounded_total(
         &DomainConstraints::default(),
         budget,
     ) {
-        Ok(answer) if answer.morphisms.is_empty() => {
-            assert!(!exists, "{context}: an empty success");
-        }
         Ok(answer) => {
+            assert!(
+                answer.morphisms.is_empty() || optimum.is_some(),
+                "{context}: a morphism where none exists"
+            );
+            assert!(
+                !answer.morphisms.is_empty() || optimum.is_none(),
+                "{context}: an empty success"
+            );
             for found in &answer.morphisms {
+                assert_eq!(passes(found), Ok(()), "{context}");
                 assert_eq!(
-                    reference::check_total(
-                        source,
-                        target,
-                        request,
-                        &vertex_map(&found.vertex_map),
-                        &edge_map(&found.edge_map),
-                    ),
-                    Ok(()),
-                    "{context}"
+                    reference::cost(source, target, &total_assignment(found)),
+                    optimum,
+                    "{context}: an answer that is not optimal"
                 );
             }
         }
-        Err(SpanError::Stopped { limit }) => {
+        Err(SpanError::Stopped { limit, incumbent }) => {
             assert!(names_a_lowered_bound(budget, limit), "{context}: {limit:?}");
-            *refusals.entry(format!("total {limit:?}")).or_insert(0) += 1;
+            if let Some(found) = &incumbent {
+                assert_eq!(passes(found), Ok(()), "{context}: the incumbent");
+            }
+            let held = match incumbent {
+                Some(_) => "with an incumbent",
+                None => "without an incumbent",
+            };
+            *refusals
+                .entry(format!("total {limit:?} {held}"))
+                .or_insert(0) += 1;
         }
         Err(error) => {
             assert!(memory_refusal(budget, &error), "{context}: {error}");
@@ -682,8 +700,9 @@ impl Shard {
 const SEARCHES_PER_PAIR: usize = 12 * 8;
 
 /// Compare every bounded search of the pairs of the refusal scope in
-/// `shard`, returning how many searches were compared.
-fn compare_bounded_searches(shard: Shard) -> usize {
+/// `shard`, returning how many searches were compared and how many stops and
+/// refusals each bound produced.
+fn compare_bounded_searches(shard: Shard) -> (usize, BTreeMap<String, usize>) {
     let family = schemas(2, 1);
     assert_eq!(family.len(), 126);
     let mut compared = 0_usize;
@@ -711,16 +730,22 @@ fn compare_bounded_searches(shard: Shard) -> usize {
         shard.index, shard.count
     );
     println!("refusals and stops by bound: {refusals:?}");
-    compared
+    (compared, refusals)
 }
 
 #[test]
 fn a_bounded_search_answers_or_names_its_bound_on_every_bounded_pair() {
     let shard = Shard::from_environment();
-    let compared = compare_bounded_searches(shard);
+    let (compared, refusals) = compare_bounded_searches(shard);
     assert_eq!(compared, shard.size(126 * 126) * SEARCHES_PER_PAIR);
     if shard.count == 1 {
         assert_eq!(compared, 1_524_096);
+        // A stop after a complete assignment is reached on the scope, so the
+        // refusal that carries an incumbent is exercised and not only stated.
+        assert!(
+            refusals.contains_key("total Nodes with an incumbent"),
+            "{refusals:?}"
+        );
     }
 }
 
@@ -731,7 +756,7 @@ fn bounded_searches_on_one_sixteenth_of_the_refusal_scope_answer_or_name_their_b
         count: 16,
     };
     assert_eq!(shard.size(126 * 126), 993);
-    assert_eq!(compare_bounded_searches(shard), 993 * SEARCHES_PER_PAIR);
+    assert_eq!(compare_bounded_searches(shard).0, 993 * SEARCHES_PER_PAIR);
 }
 
 #[test]
