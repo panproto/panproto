@@ -1085,6 +1085,7 @@ pub fn extract_json_cst_with_protocol(
 ) -> Result<(WInstance, CstComplement), CstCodecError> {
     validate_cst_has_no_recovery_markers(cst, "JSON")?;
     validate_json_cst_string_tokens(cst)?;
+    validate_json_cst_number_tokens(cst)?;
     if !domain_schema.has_vertex(root_vertex) {
         return Err(CstCodecError::SchemaMismatch(format!(
             "root vertex '{root_vertex}' not found in domain schema"
@@ -2043,6 +2044,33 @@ fn validate_json_cst_is_one_value(cst: &Schema, doc_vertex: &str) -> Result<(), 
         )));
     }
     Ok(())
+}
+
+/// Refuse a number token with a decimal point that no digit follows (`1.`,
+/// `1.e5`), which the tree-sitter JSON grammar lexes as a number and RFC
+/// 8259 does not (its `frac` is a decimal point and at least one digit).
+fn validate_json_cst_number_tokens(cst: &Schema) -> Result<(), CstCodecError> {
+    let fault = cst
+        .vertices
+        .iter()
+        .filter(|(_, vertex)| vertex.kind.as_ref() == "number")
+        .filter(|(name, _)| {
+            let token = cst_source_text(cst, name);
+            token.find('.').is_some_and(|point| {
+                !token[point + 1..]
+                    .bytes()
+                    .next()
+                    .is_some_and(|byte| byte.is_ascii_digit())
+            })
+        })
+        .map(|(name, _)| cst_byte_offset(cst, name))
+        .min_by_key(|offset| offset.unwrap_or(u64::MAX));
+    fault.map_or(Ok(()), |offset| {
+        Err(CstCodecError::Structure(offset.map_or_else(
+            || "JSON number at an unrecorded byte has no digit after its decimal point; RFC 8259 requires one".to_owned(),
+            |start| format!("JSON number at byte {start} has no digit after its decimal point; RFC 8259 requires one"),
+        )))
+    })
 }
 
 fn validate_json_cst_string_tokens(cst: &Schema) -> Result<(), CstCodecError> {
