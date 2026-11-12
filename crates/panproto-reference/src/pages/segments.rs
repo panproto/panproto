@@ -11170,9 +11170,11 @@ pub mod segmented_edit_lens {
         GraphComplementSegment, GraphSegment, Partition, SegmentError, assemble_graph,
     };
     use super::segmented_apply::{SegmentedApplyRefusal, apply_graph_segmented};
+    use super::segmented_put::{SegmentedPutRefusal, put_graph_segmented};
     use super::segmented_restrict::{SegmentedRestrictRefusal, restrict_graph_segmented_held};
     use crate::edit::{GraphDelta, diff_keeping_replacements};
     use crate::migration::Migration;
+    use crate::pages::lenses::GraphLens;
     use crate::restrict::ValueLayer;
     use crate::schema::Schema;
 
@@ -11197,6 +11199,11 @@ pub mod segmented_edit_lens {
         Restrict(SegmentedRestrictRefusal),
         /// The held views do not glue.
         Segment(SegmentError),
+        /// Segmented put of the edited view refuses.
+        Put(SegmentedPutRefusal),
+        /// The forward translation of the source delta does not give back
+        /// the edited view.
+        PutGetMismatch,
     }
 
     /// The restriction a reference segmented edit lens runs: the schemas,
@@ -11271,6 +11278,44 @@ pub mod segmented_edit_lens {
                 complements,
             },
         ))
+    }
+
+    /// Definition: the reference segmented graph edit lens's translation
+    /// of a view edit.
+    ///
+    /// The edited view is segmented application of `e` to the held view
+    /// segments; put it back segment by segment against the held complement
+    /// segments ([`put_graph_segmented`]); the source delta is the
+    /// incidence-closed replacement differ from the glued held source to
+    /// the glued put source, keeping the replacements of `e`; and the next
+    /// state is the translation of that delta by [`segmented_edit_get`],
+    /// whose glued view must be the glued edited view.
+    ///
+    /// # Errors
+    ///
+    /// The refusal of applying `e`, of put, of the forward translation, or
+    /// `PutGetMismatch`.
+    pub fn segmented_edit_put(
+        r: EditRestriction<'_>,
+        lens: &GraphLens<'_>,
+        state: &SegmentedEditState,
+        p: &Partition,
+        e: &GraphDelta,
+    ) -> Result<(GraphDelta, SegmentedEditState), SegmentedEditRefusal> {
+        let views =
+            apply_graph_segmented(e, &state.views, p).map_err(SegmentedEditRefusal::Apply)?;
+        let source = put_graph_segmented(lens, &views, &state.complements, p)
+            .map_err(SegmentedEditRefusal::Put)?;
+        let before = assemble_graph(&state.source, p).map_err(SegmentedEditRefusal::Segment)?;
+        let after = assemble_graph(&source, p).map_err(SegmentedEditRefusal::Segment)?;
+        let d = diff_keeping_replacements(&before, &after, e);
+        let (_, next) = segmented_edit_get(r, state, p, &d)?;
+        let edited = assemble_graph(&views, p).map_err(SegmentedEditRefusal::Segment)?;
+        let forward = assemble_graph(&next.views, p).map_err(SegmentedEditRefusal::Segment)?;
+        if forward != edited {
+            return Err(SegmentedEditRefusal::PutGetMismatch);
+        }
+        Ok((d, next))
     }
 }
 

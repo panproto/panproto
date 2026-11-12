@@ -20230,6 +20230,13 @@ mod segmented_graph_edit_lens {
             reference::SegmentedEditRefusal::Apply(reference::SegmentedApplyRefusal::Edit(_)) => {
                 "apply".to_owned()
             }
+            reference::SegmentedEditRefusal::Put(reference::SegmentedPutRefusal::Put(_)) => {
+                "put".to_owned()
+            }
+            reference::SegmentedEditRefusal::PutGetMismatch => "put-get mismatch".to_owned(),
+            reference::SegmentedEditRefusal::Put(reference::SegmentedPutRefusal::Segment(_)) => {
+                "segment".to_owned()
+            }
             reference::SegmentedEditRefusal::Restrict(
                 reference::SegmentedRestrictRefusal::Restrict { .. }
                 | reference::SegmentedRestrictRefusal::Unlocated(_),
@@ -20735,6 +20742,319 @@ mod segmented_graph_edit_lens {
                     .staged_uncommitted(&run)
                     .expect("the journal reads"),
                 Vec::<ArtifactKey>::new()
+            );
+        }
+    }
+
+    /// What the put sweep showed.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub struct PutCounts {
+        /// Cases bound on both sides.
+        pub bound: u64,
+        /// View letters translated.
+        pub letters: u64,
+        /// Letters admitted on both sides.
+        pub admitted: u64,
+        /// Letters refused alike.
+        pub refused: u64,
+        /// Admitted letters compared with the whole-state lens through the
+        /// renaming before the edit.
+        pub whole: u64,
+    }
+
+    fn production_put_refusal(error: &ShapeEditError) -> String {
+        match error {
+            ShapeEditError::Put(_) => "put".to_owned(),
+            ShapeEditError::PutGetMismatch => "put-get mismatch".to_owned(),
+            other => production_refusal(other),
+        }
+    }
+
+    /// `letter` with every synthesized id the renaming `rho` gives back
+    /// renamed to its whole-state id, when no other id the letter names is
+    /// a whole-state synthesized id; `None` otherwise.
+    fn whole_letter(letter: &RefGraphDelta, rho: &Renaming) -> Option<RefGraphDelta> {
+        let invert = |map: &BTreeMap<u32, u32>| -> BTreeMap<u32, u32> {
+            map.iter().map(|(from, to)| (*to, *from)).collect()
+        };
+        let back = (invert(&rho.0), invert(&rho.1));
+        let named = |elem: &GElem| match elem {
+            GElem::Node(id) => rho.0.contains_key(id) && !back.0.contains_key(id),
+            GElem::Edge(id) => rho.1.contains_key(id) && !back.1.contains_key(id),
+        };
+        let clash = letter.del.keys().chain(letter.add.keys()).any(named)
+            || letter.attrs.keys().any(|key| match key {
+                ref_edit::AttrKey::EdgeLabel(e) | ref_edit::AttrKey::EdgePosition(e) => {
+                    rho.1.contains_key(e) && !back.1.contains_key(e)
+                }
+                ref_edit::AttrKey::Value(n)
+                | ref_edit::AttrKey::Field(n, _)
+                | ref_edit::AttrKey::Meta(n)
+                | ref_edit::AttrKey::Anchor(n) => rho.0.contains_key(n) && !back.0.contains_key(n),
+            });
+        (!clash).then(|| renamed_delta(letter, &back))
+    }
+
+    /// Translate one view letter through a clone of the bound lens and the
+    /// reference, and, when the letter names whole-state ids through the
+    /// renaming before the edit, through the whole-state lens.
+    fn step_put(
+        case: &Case<'_>,
+        reference_lens: &super::RefGraphLens<'_>,
+        (production, state, whole): (
+            &Bound,
+            &reference::SegmentedEditState,
+            &ref_edit::GraphEditState,
+        ),
+        letter: &RefGraphDelta,
+        counts: &mut PutCounts,
+    ) {
+        let view_schema = case.lens().identity(ComplementShape::Graph).target_schema;
+        counts.letters += 1;
+        let mut advanced = production.clone();
+        let edit = prod_delta(letter);
+        let produced = advanced.put_edit(&edit);
+        let expected = reference::segmented_edit_put(
+            case.restriction(),
+            reference_lens,
+            state,
+            case.partition,
+            letter,
+        );
+        match (produced, expected) {
+            (Ok(step), Ok((delta, next))) => {
+                counts.admitted += 1;
+                assert_eq!(
+                    ref_delta(&step.source_delta),
+                    delta,
+                    "source delta of {letter:?}"
+                );
+                assert_eq!(step.view_delta, edit, "the view delta is the input");
+                assert_eq!(
+                    production_state(&advanced, view_schema),
+                    reference_state(&next, case.partition, view_schema),
+                    "segments after {letter:?}"
+                );
+                let before = renaming(&whole.complement, &state.complements);
+                let Some(whole_edit) = whole_letter(letter, &before) else {
+                    return;
+                };
+                let get = |graph: &RefGraph| reference_lens.get(graph);
+                let put = |view: &RefGraph, complement: &RefComplement| {
+                    reference_lens.put(view, complement)
+                };
+                if let Ok((whole_delta, whole_next)) =
+                    ref_edit::graph_edit_put(&get, &put, whole, &whole_edit)
+                {
+                    counts.whole += 1;
+                    assert_eq!(whole_delta, delta, "whole-state source delta of {letter:?}");
+                    let after = renaming(&whole_next.complement, &next.complements);
+                    assert_eq!(
+                        renamed_graph(&whole_next.view, &after),
+                        reference::assemble_graph(&next.views, case.partition).expect("views glue"),
+                        "view after {letter:?}"
+                    );
+                }
+            }
+            (Err(error), Err(refusal)) => {
+                counts.refused += 1;
+                assert_eq!(
+                    production_put_refusal(&error),
+                    reference_refusal(&refusal),
+                    "{letter:?}"
+                );
+                assert_eq!(
+                    production_state(&advanced, view_schema),
+                    production_state(production, view_schema),
+                    "a refused put changed a segment"
+                );
+                assert_eq!(
+                    advanced.segmented_state().get_run(),
+                    production.segmented_state().get_run()
+                );
+                assert_eq!(advanced.sequence(), production.sequence());
+            }
+            (produced, expected) => panic!(
+                "segmented put disagrees on {letter:?}: {:?} / {expected:?}",
+                produced.map(|step| step.source_delta)
+            ),
+        }
+    }
+
+    /// Bind one case and put back every view letter of its glued view.
+    pub fn check_puts(case: &Case<'_>, graph: &RefGraph, counts: &mut PutCounts) {
+        let Some((production, state, _)) = bind(case, graph) else {
+            return;
+        };
+        counts.bound += 1;
+        let plan = panproto_reference::restrict::compile(case.schema, case.schema, case.migration)
+            .expect("the reference plan compiles");
+        let reference_lens = super::RefGraphLens::new(
+            case.schema,
+            case.schema,
+            case.migration,
+            &plan,
+            &BTreeMap::new(),
+            &NoValueLayer,
+        )
+        .expect("the reference lens");
+        let (view, complement) = reference_lens.get(graph).expect("whole-state get");
+        let whole = ref_edit::GraphEditState {
+            source: graph.clone(),
+            view,
+            complement,
+        };
+        let glued = reference::assemble_graph(&state.views, case.partition).expect("views glue");
+        for letter in
+            graph_edit_lens_letters(case.schema, &glued, BOUNDED_LENS_FIELD, &BOUNDED_LENS_VALUE)
+        {
+            step_put(
+                case,
+                &reference_lens,
+                (&production, &state, &whole),
+                &letter,
+                counts,
+            );
+        }
+    }
+
+    #[test]
+    fn segmented_graph_edit_lens_puts_view_edits_as_the_reference_on_every_97th_case() {
+        let mut counts = PutCounts::default();
+        for case in segmented_restrict_cases().step_by(97) {
+            let partition = with_spare(&case.partition, 3);
+            let edit_case = Case {
+                schema: &case.schema,
+                migration: &case.migration,
+                partition: &partition,
+            };
+            check_puts(&edit_case, &case.graph, &mut counts);
+        }
+        assert_eq!(
+            counts,
+            PutCounts {
+                bound: 1_163,
+                letters: 17_565,
+                admitted: 9_273,
+                refused: 8_292,
+                whole: 9_273,
+            }
+        );
+    }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(64))]
+
+        #[test]
+        fn segmented_graph_edit_lens_puts_view_edits_as_the_reference_on_generated_cases(
+            anchors in proptest::collection::vec(0_usize..3, 2..=8),
+            edges in proptest::collection::vec((0_usize..8, 0_usize..8), 0..=14),
+            owners in proptest::collection::vec(0_u32..4, 8),
+            segments in 2_u32..=4,
+            surviving in 0_u8..8,
+        ) {
+            let (schema, migration, graph, partition) =
+                super::segmented_graph_get::generated(&anchors, &edges, &owners, segments, surviving);
+            let from = u32::try_from(anchors.len()).expect("a small count");
+            let partition = with_spare(&partition, from);
+            let case = Case { schema: &schema, migration: &migration, partition: &partition };
+            let mut counts = PutCounts::default();
+            check_puts(&case, &graph, &mut counts);
+            proptest::prop_assert_eq!(counts.letters, counts.admitted + counts.refused);
+        }
+    }
+
+    /// An edit put back whose commit fails at each task of its four runs
+    /// leaves the lens and every segment as they were; putting the same
+    /// edit again resumes the runs and ends where the uninterrupted put
+    /// ends.
+    #[test]
+    fn a_put_stopped_by_a_failed_commit_at_each_task_resumes_to_the_uninterrupted_put() {
+        let (schema, migration, graph, partition) = super::segmented_graph_get::generated(
+            &[0, 2, 2, 2, 1],
+            &[(0, 1), (1, 2), (2, 3), (3, 1), (3, 4)],
+            &[0, 1, 2, 0, 1],
+            3,
+            0b011,
+        );
+        let partition = with_spare(&partition, 5);
+        let case = Case {
+            schema: &schema,
+            migration: &migration,
+            partition: &partition,
+        };
+        let Input {
+            manifest, bytes, ..
+        } = input(&graph, &partition);
+        let store = FailingStore::default();
+        let (commits, fail_at) = (store.commits.clone(), store.fail_at.clone());
+        let bound = SegmentedGraphEditLens::segmented(
+            case.lens(),
+            Budget::unlimited(),
+            SegmentedGraph {
+                input: manifest.digest(),
+                manifest,
+                segments: bytes,
+                store,
+            },
+        )
+        .expect("the case binds");
+        let view_schema = case.lens().identity(ComplementShape::Graph).target_schema;
+        let state = bound.segmented_state();
+        let view_partition = state.view_manifest().partition().expect("a partition");
+        let mut view = panproto_inst::GInstance::new();
+        let mut held_edges = BTreeMap::new();
+        for spec in view_partition.specs() {
+            let emitted = read_emitted(&*state.store(), state.get_run(), &view_partition, spec.id)
+                .expect("an emitted segment");
+            for node in emitted.view.nodes.into_values() {
+                view = view.with_node(node);
+            }
+            held_edges.extend(emitted.view.edges);
+        }
+        for (id, edge) in held_edges {
+            view.insert_edge(id, edge).expect("a view edge");
+        }
+        let edit = graph_edit_lens_letters(
+            &schema,
+            &super::ref_graph(&view),
+            BOUNDED_LENS_FIELD,
+            &BOUNDED_LENS_VALUE,
+        )
+        .iter()
+        .map(prod_delta)
+        .find(|edit| !edit.del_edges().is_empty())
+        .expect("a view edge deletion");
+        let mut baseline = bound.clone();
+        let before = commits.get();
+        let expected = baseline
+            .put_edit(&edit)
+            .expect("the view edge deletion is put back");
+        let total = commits.get() - before;
+        assert_eq!(
+            total, 52,
+            "the four runs of the put commit each of their tasks once"
+        );
+        for failing in 1..=total {
+            let mut lens = bound.clone();
+            fail_at.set(Some(commits.get() + failing));
+            let stopped = lens.put_edit(&edit);
+            assert!(
+                matches!(stopped, Err(ShapeEditError::Incomplete(_))),
+                "{:?}",
+                stopped.map(|step| step.source_delta)
+            );
+            assert_eq!(
+                production_state(&lens, view_schema),
+                production_state(&bound, view_schema)
+            );
+            assert_eq!(lens.sequence(), 0);
+            fail_at.set(None);
+            let resumed = lens.put_edit(&edit).expect("the retried put is admitted");
+            assert_eq!(resumed.source_delta, expected.source_delta);
+            assert_eq!(
+                production_state(&lens, view_schema),
+                production_state(&baseline, view_schema)
             );
         }
     }
