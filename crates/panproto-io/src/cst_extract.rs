@@ -1093,6 +1093,7 @@ pub fn extract_json_cst_with_protocol(
 
     let mut state = ExtractState::new();
     let doc_vertex = find_cst_root(cst)?;
+    validate_json_cst_is_one_value(cst, &doc_vertex)?;
 
     let top_value = cst_child_by_edge_kind(cst, &doc_vertex, "child_of")
         .ok_or_else(|| CstCodecError::Structure("document has no child".into()))?;
@@ -2019,6 +2020,30 @@ fn set_xml_text_run(cst: &mut Schema, run: &[Name], new_text: &str) {
 
 /// The CST kinds that spell a key.
 const TOML_KEY_KINDS: [&str; 3] = ["bare_key", "quoted_key", "dotted_key"];
+
+/// Refuse what RFC 8259 does not admit and the tree-sitter JSON grammar
+/// does: a comment anywhere, and a text holding more than one value.
+fn validate_json_cst_is_one_value(cst: &Schema, doc_vertex: &str) -> Result<(), CstCodecError> {
+    let comment = cst
+        .vertices
+        .iter()
+        .filter(|(_, vertex)| vertex.kind.as_ref() == "comment")
+        .map(|(name, _)| cst_byte_offset(cst, name))
+        .min_by_key(|offset| offset.unwrap_or(u64::MAX));
+    if let Some(offset) = comment {
+        return Err(CstCodecError::Structure(offset.map_or_else(
+            || "JSON comment at an unrecorded byte; RFC 8259 admits none".to_owned(),
+            |start| format!("JSON comment at byte {start}; RFC 8259 admits none"),
+        )));
+    }
+    let values = cst_children_by_edge_kind(cst, doc_vertex, "child_of").len();
+    if values > 1 {
+        return Err(CstCodecError::Structure(format!(
+            "JSON text holds {values} values; RFC 8259 admits exactly one"
+        )));
+    }
+    Ok(())
+}
 
 fn validate_json_cst_string_tokens(cst: &Schema) -> Result<(), CstCodecError> {
     for (name, vertex) in &cst.vertices {
