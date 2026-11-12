@@ -2,7 +2,11 @@
 
 Source: <https://github.com/w3c/json-ld-api>, commit
 `55514738d854e56bb8bad4c53cda2f0e23be4a50` (2026-10-07), licensed under the
-W3C Software and Document License (`LICENSE.md`).
+W3C Software and Document License and the dual licensing of W3C test
+suites, as the repository's `LICENSE.md` (kept here unchanged) states. That
+file only names the licence, which requires its full text and a copyright
+notice to accompany copies, so `LICENSE-W3C-SOFTWARE-AND-DOCUMENT.md` holds
+the notice and the text of the 2023 version the licence link resolves to.
 
 Vendored, unchanged:
 

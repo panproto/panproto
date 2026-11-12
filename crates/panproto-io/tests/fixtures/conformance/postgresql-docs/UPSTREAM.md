@@ -19,7 +19,9 @@ python3 -I extract.py create_table.sgml sql-createtable-examples cases create-ta
 ```
 
 Licence: the PostgreSQL Licence, in `COPYRIGHT` (the repository's
-`COPYRIGHT` file at the same commit).
+`COPYRIGHT` file at the same commit, unchanged), which grants permission to
+copy and distribute provided the copyright notice and its two paragraphs
+appear in all copies.
 
 ## Data cases
 
