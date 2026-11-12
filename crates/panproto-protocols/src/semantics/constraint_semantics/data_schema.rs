@@ -1,5 +1,6 @@
 //! Constraint-semantics rows for the data schema protocols (`json-schema`,
-//! `bson`, `cddl`).
+//! `cddl`). The `bson` protocol declares no constraint sorts: its schema is
+//! the BSON tree encoding, which constrains nothing.
 //!
 //! A `json-schema` constraint holds its keyword's value as canonical JSON
 //! text. JSON Schema 2020-12 counts a string's length in code points and
@@ -13,8 +14,6 @@
 //! `required` is a presence flag of a property, about the object that holds
 //! it (the schema's required edge of the object), not about the property's
 //! own value, which a record or list property does not have; it describes.
-//! MongoDB's `$jsonSchema` keywords, which the `bson` protocol reads, are
-//! JSON Schema's.
 //!
 //! CDDL's `.size` control bounds the byte length of a text or byte string,
 //! or the byte width of an unsigned integer, and is written as a number or a
@@ -139,15 +138,6 @@ pub(super) const ROWS: &[ConstraintRow] = &[
     row("json-schema", "dependentSchemas", || {
         ConstraintSemantics::Annotation
     }),
-    row("bson", "required", || ConstraintSemantics::Annotation),
-    row("bson", "minLength", || {
-        ConstraintSemantics::MinLength(LengthUnit::Chars)
-    }),
-    row("bson", "maxLength", || {
-        ConstraintSemantics::MaxLength(LengthUnit::Chars)
-    }),
-    row("bson", "minimum", || ConstraintSemantics::Minimum),
-    row("bson", "maximum", || ConstraintSemantics::Maximum),
     row("cddl", "size", || ConstraintSemantics::Annotation),
     row("cddl", "range", || ConstraintSemantics::Annotation),
     row("cddl", "default", || ConstraintSemantics::Annotation),

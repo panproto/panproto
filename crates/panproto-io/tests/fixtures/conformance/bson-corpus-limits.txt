@@ -1,0 +1,80 @@
+# Representations of BSON corpus cases the BSON codec does not pass, each
+# with the class of its refusal, which the book's BSON page states:
+# array-key and regex-options for degenerate BSON and Extended JSON the
+# codec refuses rather than normalize; non-canonical-decimal128 for
+# decimal128 bits IEEE 754 reads as zero; write-nan for NaNs Extended JSON
+# writes as the one NaN it has; decimal-representation for $numberDecimal
+# strings decimal128 holds only by clamping or rounding.
+# Columns: case (file#section#index#representation), class.
+array.json#valid#2#degenerate_bson	array-key
+array.json#valid#3#degenerate_bson	array-key
+array.json#valid#4#degenerate_bson	array-key
+decimal128-1.json#valid#1#canonical_bson	write-nan
+decimal128-1.json#valid#10#canonical_bson	non-canonical-decimal128
+decimal128-1.json#valid#2#canonical_bson	write-nan
+decimal128-1.json#valid#2#degenerate_extjson	write-nan
+decimal128-1.json#valid#3#canonical_bson	write-nan
+decimal128-1.json#valid#4#canonical_bson	write-nan
+decimal128-1.json#valid#5#canonical_bson	write-nan
+decimal128-1.json#valid#53#degenerate_extjson	decimal-representation
+decimal128-1.json#valid#54#degenerate_extjson	decimal-representation
+decimal128-1.json#valid#55#degenerate_extjson	decimal-representation
+decimal128-1.json#valid#56#degenerate_extjson	decimal-representation
+decimal128-1.json#valid#57#degenerate_extjson	decimal-representation
+decimal128-1.json#valid#58#degenerate_extjson	decimal-representation
+decimal128-1.json#valid#59#degenerate_extjson	decimal-representation
+decimal128-1.json#valid#8#canonical_bson	non-canonical-decimal128
+decimal128-1.json#valid#9#canonical_bson	non-canonical-decimal128
+decimal128-3.json#valid#8#degenerate_extjson	decimal-representation
+decimal128-4.json#valid#11#degenerate_extjson	decimal-representation
+decimal128-4.json#valid#12#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#0#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#1#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#12#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#13#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#24#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#25#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#26#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#27#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#28#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#29#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#30#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#31#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#32#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#33#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#34#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#35#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#36#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#37#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#38#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#39#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#40#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#41#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#42#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#43#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#44#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#45#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#46#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#47#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#48#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#49#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#50#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#51#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#52#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#53#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#54#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#55#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#56#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#57#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#58#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#59#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#60#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#61#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#62#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#63#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#64#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#65#degenerate_extjson	decimal-representation
+decimal128-5.json#valid#66#degenerate_extjson	decimal-representation
+double.json#valid#9#canonical_bson	write-nan
+regex.json#valid#5#degenerate_bson	regex-options
+regex.json#valid#5#degenerate_extjson	regex-options
