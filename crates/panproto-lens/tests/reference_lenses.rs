@@ -18675,15 +18675,7 @@ mod segmented_graph_put {
                 }
                 (Err(SegmentedPutError::Lens(error)), Err(whole)) => {
                     assert_ne!(at, 0, "GetPut refused on {graph:?}");
-                    check_refusal(
-                        error,
-                        whole,
-                        &expected,
-                        &reference_lens,
-                        &edited,
-                        partition,
-                        tally,
-                    );
+                    check_refusal(error, whole, &expected, &edited, partition, tally);
                 }
                 outcomes => panic!(
                     "segmented put disagrees with whole-state put on {edited:?} under {partition:?}: {outcomes:?}"
@@ -18718,14 +18710,12 @@ mod segmented_graph_put {
     }
 
     /// A refused segmented put: whole-state put refuses with the same
-    /// reason, and so does the reference definition, except where the two
-    /// whole-state definitions disagree on a view whose restored source get
-    /// refuses.
+    /// reason, and so does the reference definition, a view whose restored
+    /// source get refuses included.
     fn check_refusal(
         error: &LensError,
         whole: &LensError,
         expected: &Result<Vec<reference::GraphSegment>, reference::SegmentedPutRefusal>,
-        reference_lens: &RefGraphLens<'_>,
         edited: &RefGraph,
         partition: &reference::Partition,
         tally: &mut Tally,
@@ -18735,23 +18725,9 @@ mod segmented_graph_put {
             Err(reference::SegmentedPutRefusal::Put(expected)) => {
                 assert_eq!(lens_reason(error), ref_lens_reason(expected), "{edited:?}");
                 tally.refused += 1;
-            }
-            // Whole-state production put refuses a view whose restored
-            // source its own get refuses; the reference's put-domain clause
-            // (5) reads only survival predicates on that get and accepts it.
-            Ok(_)
-                if matches!(
-                    error,
-                    LensError::PutDomain(found) if matches!(
-                        **found,
-                        PutDomainError::SurvivalPredicateRefused {
-                            refusal: panproto_inst::PredicateRefusal::EvaluationFailed { .. },
-                            ..
-                        }
-                    )
-                ) && reference_get_refuses(reference_lens, expected) =>
-            {
-                tally.get_refused += 1;
+                if refused_by_the_next_get(error) {
+                    tally.get_refused += 1;
+                }
             }
             expected => panic!(
                 "the reference disagrees on {edited:?} under {partition:?}: {error:?} / {expected:?}"
@@ -18759,21 +18735,19 @@ mod segmented_graph_put {
         }
     }
 
-    /// Whether the reference's get refuses the glued restored source of an
-    /// accepted reference put.
-    pub fn reference_get_refuses(
-        lens: &RefGraphLens<'_>,
-        expected: &Result<Vec<reference::GraphSegment>, reference::SegmentedPutRefusal>,
-    ) -> bool {
-        let Ok(segments) = expected else {
-            return false;
-        };
-        let mut glued = RefGraph::default();
-        for segment in segments {
-            glued.nodes.extend(segment.nodes.clone());
-            glued.edges.extend(segment.edges.clone());
-        }
-        lens.get(&glued).is_err()
+    /// Whether a refusal is the clause (5) refusal of a view whose restored
+    /// source get refuses with something other than a predicate's verdict.
+    pub fn refused_by_the_next_get(error: &LensError) -> bool {
+        matches!(
+            error,
+            LensError::PutDomain(found) if matches!(
+                **found,
+                PutDomainError::SurvivalPredicateRefused {
+                    refusal: panproto_inst::PredicateRefusal::EvaluationFailed { .. },
+                    ..
+                }
+            )
+        )
     }
 
     /// `PutGet` over segments: the segmented get of a restored family
@@ -18830,7 +18804,7 @@ mod segmented_graph_put {
 
     fn assert_every_outcome(tally: &Tally) {
         assert!(
-            tally.restored > 0 && tally.refused > 0 && tally.crossing > 0,
+            tally.restored > 0 && tally.refused > 0 && tally.crossing > 0 && tally.get_refused > 0,
             "{} restored, {} refused, {} crossing, {} refused by the next get",
             tally.restored,
             tally.refused,
@@ -19101,6 +19075,7 @@ mod segmented_graph_put {
 mod segmented_graph_put_run {
     use std::collections::BTreeMap;
 
+    use panproto_inst::RestrictPlan;
     use panproto_inst::identity::{ComplementShape, Digest};
     use panproto_inst::segment::{
         AnySegment, ArtifactKey, Budget, EdgeIdRun, GraphSegment, ManifestHeader, ManifestRole,
@@ -19109,15 +19084,14 @@ mod segmented_graph_put_run {
         SegmentStore, TaskRecord, graph_restrict_segmented, partition_graph, read_emitted,
         seal_full,
     };
-    use panproto_inst::{PredicateRefusal, PutDomainError, RestrictPlan};
+    use panproto_lens::Lens;
     use panproto_lens::graph_lens::{self, GraphPutRun, HeldView, SegmentedPutError};
-    use panproto_lens::{Lens, LensError};
     use panproto_reference::enumerate::segments::segmented_restrict_cases;
     use panproto_reference::restrict::NoValueLayer;
     use panproto_reference::segment as reference;
 
     use super::segmented_graph_get::{generated, lens_of, prod_partition};
-    use super::segmented_graph_put::{edits, reference_get, reference_get_refuses};
+    use super::segmented_graph_put::{edits, reference_get, refused_by_the_next_get};
     use super::{
         RefGraph, RefGraphLens, RefMigration, RefSchema, lens_reason, prod_graph, ref_lens_reason,
     };
@@ -19411,39 +19385,13 @@ mod segmented_graph_put_run {
         }
     }
 
-    /// Whether a production refusal is the one the reference admits
-    /// differently: production put refuses a view whose restored source its
-    /// own get refuses with an evaluation failure, which the reference's
-    /// clause (5) accepts.
-    fn admitted_disagreement(
-        production: &GraphPutRun,
-        expected: &reference::PutRun,
-        reference_lens: &RefGraphLens<'_>,
-    ) -> bool {
-        let RunStatus::Failed(SegmentedPutError::Lens(LensError::PutDomain(found))) =
-            &production.report.status
-        else {
-            return false;
-        };
-        matches!(
-            **found,
-            PutDomainError::SurvivalPredicateRefused {
-                refusal: PredicateRefusal::EvaluationFailed { .. },
-                ..
-            }
-        ) && expected
-            .output
-            .as_ref()
-            .is_some_and(|segments| reference_get_refuses(reference_lens, &Ok(segments.clone())))
-    }
-
     /// What the run law showed.
     #[derive(Debug, Default)]
     struct Tally {
         complete: u64,
         refused: u64,
         declined: u64,
-        admitted: u64,
+        get_refused: u64,
         cancellations: u64,
     }
 
@@ -19467,10 +19415,6 @@ mod segmented_graph_put_run {
         let baseline = case.production(budget, &mut store, None);
         let mut reference_store = reference::MemoryStore::default();
         let expected = case.reference(budget, &mut reference_store, None);
-        if admitted_disagreement(&baseline, &expected, case.reference_lens) {
-            tally.admitted += 1;
-            return;
-        }
         assert_eq!(
             seen_production(&baseline.report),
             seen_reference(&expected.report),
@@ -19521,8 +19465,12 @@ mod segmented_graph_put_run {
                     );
                 }
             }
-            RunStatus::Failed(_) => {
+            RunStatus::Failed(error) => {
                 tally.refused += 1;
+                if matches!(error, SegmentedPutError::Lens(error) if refused_by_the_next_get(error))
+                {
+                    tally.get_refused += 1;
+                }
                 assert!(sealed_nothing(&store, run), "a refused put seals nothing");
             }
             RunStatus::Residual(_) => {
@@ -19683,7 +19631,10 @@ mod segmented_graph_put_run {
         assert_eq!(cases, 1_323);
         assert_eq!(selected, shard.map_or(cases, |shard| shard.share(cases)));
         assert!(
-            tally.complete > 0 && tally.refused > 0 && tally.cancellations > 0,
+            tally.complete > 0
+                && tally.refused > 0
+                && tally.get_refused > 0
+                && tally.cancellations > 0,
             "{tally:?}"
         );
     }
