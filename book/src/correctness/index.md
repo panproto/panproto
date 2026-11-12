@@ -57,5 +57,5 @@ The table lists each correctness page and the number of laws it proves for the t
 | [Reference resolution](resolution.md) | 16 |
 | [Text formats](text-formats.md) | 4 |
 | [PostgreSQL DDL](postgresql-ddl.md) | 3 |
-| [PostgreSQL data](postgresql-data.md) | 3 |
+| [PostgreSQL data](postgresql-data.md) | 4 |
 | [RDF formats](rdf-formats.md) | 3 |

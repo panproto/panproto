@@ -6738,6 +6738,28 @@
               "test": "the_scopes_have_their_closed_form_counts"
             }
           ]
+        },
+        {
+          "id": "postgresql-data.directory-fields",
+          "anchor": "L-postgresql-data-4",
+          "references": [
+            "panproto_reference::pages::postgresql_data::csv_field",
+            "panproto_reference::pages::postgresql_data::text_field"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_postgresql_data",
+              "test": "directory_fields_match_the_reference_on_every_bounded_field"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::postgresql_data",
+              "test": "directory_fields_are_written_as_copy_writes_them"
+            }
+          ]
         }
       ]
     },
