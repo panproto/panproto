@@ -246,7 +246,7 @@ impl Facts {
         }
         let mut parts = [BTreeSet::new(), BTreeSet::new()];
         for part in &mut parts {
-            let n = r.count(41)?;
+            let n = r.count(33)?;
             let mut last = None;
             for _ in 0..n {
                 let pair = r.pair_record()?;
