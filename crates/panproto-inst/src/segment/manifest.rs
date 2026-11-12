@@ -862,12 +862,12 @@ pub fn seal_full<'a>(
 pub(super) fn reseal(
     input: &SegmentManifest,
     role: ManifestRole,
-    records: Vec<SegmentRecord>,
+    records: &[SegmentRecord],
     runs: Vec<EdgeIdRun<'_>>,
 ) -> Result<SegmentManifest, SegmentError> {
     let mut all = input.segments.clone();
     let mut replaced = BTreeSet::new();
-    for record in &records {
+    for record in records {
         let held = input
             .record(record.id)
             .ok_or_else(|| manifest_error(format!("a rewritten record names {}", record.id)))?;
@@ -878,7 +878,7 @@ pub(super) fn reseal(
             )));
         }
     }
-    for record in &records {
+    for record in records {
         if let Some(slot) = all.get_mut(usize::try_from(record.id.0).unwrap_or(usize::MAX)) {
             slot.clone_from(record);
         }

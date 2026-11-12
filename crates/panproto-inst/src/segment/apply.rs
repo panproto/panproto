@@ -86,7 +86,9 @@ impl From<SegmentError> for SegmentedApplyError {
 }
 
 /// What the read set of a delta is computed from, for one family of graph
-/// segments: the owner of each node id, the seal floor rule of the edge ids,
+/// segments.
+///
+/// It holds the owner of each node id, the seal floor rule of the edge ids,
 /// each segment's largest edge id and the peers of each segment's crossing
 /// edges.
 ///
@@ -496,11 +498,9 @@ fn check<'f>(
         }));
     }
     for (id, edge) in delta.add_edges() {
-        let holder = family
-            .owner(edge.src)
-            .ok_or_else(|| SegmentError::Unowned {
-                elem: ViewRef::Edge(*id),
-            })?;
+        let holder = family.owner(edge.src).ok_or(SegmentError::Unowned {
+            elem: ViewRef::Edge(*id),
+        })?;
         family.floor.check(holder, id.0)?;
     }
     Ok(())
@@ -543,7 +543,7 @@ fn edit_segment(
     anchors: &BTreeMap<u32, Name>,
 ) -> Result<GraphSegment, SegmentError> {
     let here = held.segment;
-    let owned = |node: u32| family.owner(node) == Some(here);
+    let is_here = |node: u32| family.owner(node) == Some(here);
     let mut nodes = held.nodes.clone();
     let mut edges = held.edges.clone();
     for id in delta.del_nodes().keys() {
@@ -553,12 +553,12 @@ fn edit_segment(
         edges.remove(id);
     }
     for (id, node) in delta.add_nodes() {
-        if owned(*id) {
+        if is_here(*id) {
             nodes.insert(*id, node.clone());
         }
     }
     for (id, edge) in delta.add_edges() {
-        if owned(edge.src) {
+        if is_here(edge.src) {
             edges.insert(*id, edge.clone());
         }
     }
@@ -591,11 +591,11 @@ fn edit_segment(
             .cloned()
             .unwrap_or_default()
     };
-    let owner_of =
+    let owner_or_refuse =
         |node: u32, elem: ViewRef| family.owner(node).ok_or(SegmentError::Unowned { elem });
     let mut boundary = Boundary::default();
     for (id, edge) in &edges {
-        let owner = owner_of(edge.tgt, ViewRef::Edge(*id))?;
+        let owner = owner_or_refuse(edge.tgt, ViewRef::Edge(*id))?;
         if owner != here {
             boundary.ghosts.entry(edge.tgt).or_insert_with(|| Ghost {
                 node: edge.tgt,
@@ -621,8 +621,8 @@ fn edit_segment(
         boundary.in_stubs.insert(elem.clone(), stub);
     }
     for (id, edge) in delta.add_edges() {
-        let src_owner = owner_of(edge.src, ViewRef::Edge(*id))?;
-        if owned(edge.tgt) && src_owner != here {
+        let src_owner = owner_or_refuse(edge.src, ViewRef::Edge(*id))?;
+        if is_here(edge.tgt) && src_owner != here {
             boundary.in_stubs.insert(
                 ViewRef::Edge(*id),
                 InStub {

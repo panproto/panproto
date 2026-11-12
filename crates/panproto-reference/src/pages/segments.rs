@@ -8846,6 +8846,76 @@ pub mod segment {
         }
     }
 
+    /// What the facts of a segment name: the touched nodes, the deleted
+    /// nodes, the nodes an attribute changes, and the edges the delta
+    /// deletes, adds or changes.
+    struct FactNames {
+        touched: BTreeSet<u32>,
+        deleted: BTreeSet<u32>,
+        changed: BTreeSet<u32>,
+        edges_named: BTreeSet<u32>,
+    }
+
+    /// The names of [`apply_facts_bytes`] for `segment` and `delta`.
+    fn fact_names(segment: &GraphSegment, delta: &crate::edit::GraphDelta) -> FactNames {
+        use crate::edit::{AttrKey, GElem, GPayload};
+        let mut names = FactNames {
+            touched: BTreeSet::new(),
+            deleted: BTreeSet::new(),
+            changed: BTreeSet::new(),
+            edges_named: BTreeSet::new(),
+        };
+        for (element, payload) in &delta.del {
+            match (element, payload) {
+                (GElem::Node(node), _) => {
+                    names.deleted.insert(*node);
+                }
+                (GElem::Edge(edge), GPayload::Edge(payload)) => {
+                    names.edges_named.insert(*edge);
+                    names.touched.extend([payload.src, payload.tgt]);
+                }
+                (GElem::Edge(edge), GPayload::Node(_)) => {
+                    names.edges_named.insert(*edge);
+                }
+            }
+        }
+        for (element, payload) in &delta.add {
+            match (element, payload) {
+                (GElem::Node(node), _) => {
+                    names.touched.insert(*node);
+                }
+                (GElem::Edge(edge), GPayload::Edge(payload)) => {
+                    names.edges_named.insert(*edge);
+                    names.touched.extend([payload.src, payload.tgt]);
+                }
+                (GElem::Edge(edge), GPayload::Node(_)) => {
+                    names.edges_named.insert(*edge);
+                }
+            }
+        }
+        for key in delta.attrs.keys() {
+            match key {
+                AttrKey::Meta(node) => {
+                    names.touched.insert(*node);
+                    names.changed.insert(*node);
+                }
+                AttrKey::Value(node) | AttrKey::Field(node, _) | AttrKey::Anchor(node) => {
+                    names.changed.insert(*node);
+                }
+                AttrKey::EdgeLabel(edge) => {
+                    names.edges_named.insert(*edge);
+                    if let Some(own) = segment.edges.get(edge) {
+                        names.touched.insert(own.src);
+                    }
+                }
+                AttrKey::EdgePosition(edge) => {
+                    names.edges_named.insert(*edge);
+                }
+            }
+        }
+        names
+    }
+
     /// Definition: the Summarize artifact of a segmented apply, the facts
     /// of `segment` about `delta`.
     ///
@@ -8866,59 +8936,12 @@ pub mod segment {
         segment: &GraphSegment,
         delta: &crate::edit::GraphDelta,
     ) -> Result<Vec<u8>, SegmentError> {
-        use crate::edit::{AttrKey, GElem, GPayload};
-        let mut touched = BTreeSet::new();
-        let mut deleted = BTreeSet::new();
-        let mut changed = BTreeSet::new();
-        let mut edges_named = BTreeSet::new();
-        for (element, payload) in &delta.del {
-            match (element, payload) {
-                (GElem::Node(node), _) => {
-                    deleted.insert(*node);
-                }
-                (GElem::Edge(edge), GPayload::Edge(payload)) => {
-                    edges_named.insert(*edge);
-                    touched.extend([payload.src, payload.tgt]);
-                }
-                (GElem::Edge(edge), GPayload::Node(_)) => {
-                    edges_named.insert(*edge);
-                }
-            }
-        }
-        for (element, payload) in &delta.add {
-            match (element, payload) {
-                (GElem::Node(node), _) => {
-                    touched.insert(*node);
-                }
-                (GElem::Edge(edge), GPayload::Edge(payload)) => {
-                    edges_named.insert(*edge);
-                    touched.extend([payload.src, payload.tgt]);
-                }
-                (GElem::Edge(edge), GPayload::Node(_)) => {
-                    edges_named.insert(*edge);
-                }
-            }
-        }
-        for key in delta.attrs.keys() {
-            match key {
-                AttrKey::Meta(node) => {
-                    touched.insert(*node);
-                    changed.insert(*node);
-                }
-                AttrKey::Value(node) | AttrKey::Field(node, _) | AttrKey::Anchor(node) => {
-                    changed.insert(*node);
-                }
-                AttrKey::EdgeLabel(edge) => {
-                    edges_named.insert(*edge);
-                    if let Some(own) = segment.edges.get(edge) {
-                        touched.insert(own.src);
-                    }
-                }
-                AttrKey::EdgePosition(edge) => {
-                    edges_named.insert(*edge);
-                }
-            }
-        }
+        let FactNames {
+            touched,
+            deleted,
+            changed,
+            edges_named,
+        } = fact_names(segment, delta);
         let incident: BTreeSet<u32> = touched
             .union(&deleted)
             .copied()
@@ -9081,8 +9104,27 @@ pub mod segment {
         }
         let whole = super::segmented_apply::apply_graph_segmented(delta, segments, p);
         let outcome = state.apply_phases(&read_segments, delta, &whole);
+        let mut result = finish_apply_run(state, whole, outcome);
+        result.read = read;
+        result
+    }
+
+    /// The run a segmented apply's phases ended as.
+    fn finish_apply_run<S: SegmentStore>(
+        mut state: RunnerState<'_, '_, S>,
+        whole: ApplyOutcome,
+        outcome: Result<(Vec<u8>, SegmentManifest), ApplyStop>,
+    ) -> ApplyRun {
+        let run = state.run;
         state.report.peak_estimated_bytes = state.peak;
-        let mut result = match outcome {
+        let stopped = |report| ApplyRun {
+            run,
+            read: BTreeSet::new(),
+            output: None,
+            manifest: None,
+            report,
+        };
+        match outcome {
             Ok((bytes, manifest)) => match state.store.staged_uncommitted(&state.run) {
                 Ok(orphans) => {
                     state.report.orphans = orphans;
@@ -9103,20 +9145,18 @@ pub mod segment {
                             message: error.to_string(),
                         },
                     };
-                    stopped(run, apply_report(state.report))
+                    stopped(apply_report(state.report))
                 }
             },
             Err(ApplyStop::Pipeline(stop)) => {
-                stopped(run, apply_report(stop_run::<(), S>(state, stop).report))
+                stopped(apply_report(stop_run::<(), S>(state, stop).report))
             }
             Err(ApplyStop::Refused(refusal)) => {
                 let mut report = apply_report(state.report);
                 report.status = RunStatus::Failed(refusal);
-                stopped(run, report)
+                stopped(report)
             }
-        };
-        result.read = read;
-        result
+        }
     }
 
     enum ApplyStop {
@@ -9155,8 +9195,7 @@ pub mod segment {
                         Phase::Export => (ArtifactKind::Export, Vec::new()),
                         _ => (
                             ArtifactKind::Summary,
-                            apply_facts_bytes(segment, delta)
-                                .map_err(|error| PipelineStop::Failed(error))?,
+                            apply_facts_bytes(segment, delta).map_err(PipelineStop::Failed)?,
                         ),
                     };
                     let stored = self.task(phase, Some(segment.segment), kind, &input, || {
@@ -9201,6 +9240,16 @@ pub mod segment {
                 reuse_before,
                 self.peak,
             );
+            self.apply_emit_and_seal(read, outputs)
+        }
+
+        /// The Emit tasks of the read segments `read` and the Seal task of
+        /// the edited family `outputs`.
+        fn apply_emit_and_seal(
+            &mut self,
+            read: &[&GraphSegment],
+            outputs: &[GraphSegment],
+        ) -> Result<(Vec<u8>, SegmentManifest), ApplyStop> {
             let any: Vec<AnySegment> = outputs.iter().cloned().map(AnySegment::Graph).collect();
             let records =
                 manifest_records(&any, self.p, self.spec.schema).map_err(PipelineStop::Failed)?;
@@ -9961,10 +10010,12 @@ pub mod segmented_apply {
     }
 
     /// Definition: the segments that may hold edge id `edge` in the family
-    /// of `records`. With `floor` the least lower bound of the records'
-    /// edge allocation ranges, an id at or above it is held only by a record
-    /// whose edge allocation range contains it; any other id by a record
-    /// whose largest edge id is at least it.
+    /// of `records`.
+    ///
+    /// With `floor` the least lower bound of the records' edge allocation
+    /// ranges, an id at or above it is held only by a record whose edge
+    /// allocation range contains it; any other id by a record whose largest
+    /// edge id is at least it.
     #[must_use]
     pub fn holders(records: &[SegmentRecord], edge: u32) -> BTreeSet<SegmentId> {
         let floor = records

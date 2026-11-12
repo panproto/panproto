@@ -942,11 +942,12 @@ pub fn segmented_apply_partitions() -> Vec<Partition> {
     out
 }
 
-/// The deltas of the segmented graph edit carrier: every atomic delta and
-/// the identity ([`super::graph_deltas`]) over the node ids `0`, `2` and
-/// `3`, the anchors `a` and `b`, no value or field, the edge ids `1`, `2`
-/// and `10`, the labels `e` and `e` named `x`, and the positions none and
-/// `0`.
+/// The deltas of the segmented graph edit carrier.
+///
+/// Every atomic delta and the identity ([`super::graph_deltas`]) over the
+/// node ids `0`, `2` and `3`, the anchors `a` and `b`, no value or field,
+/// the edge ids `1`, `2` and `10`, the labels `e` and `e` named `x`, and the
+/// positions none and `0`.
 #[must_use]
 pub fn segmented_apply_deltas() -> Vec<crate::edit::GraphDelta> {
     let labels = [

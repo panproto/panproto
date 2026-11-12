@@ -3871,7 +3871,9 @@ mod segmented_apply {
                     kind: segments::IdKind::Edge,
                 },
             ) => Refusal::NoRange(segment.0),
-            other => panic!("a reference refusal outside the carrier: {other:?}"),
+            segments::SegmentedApplyRefusal::Segment(other) => {
+                panic!("a reference refusal outside the carrier: {other:?}")
+            }
         }
     }
 
@@ -3944,7 +3946,7 @@ mod segmented_apply {
         );
         let production = graph_apply_segmented(&production_delta, &held, &production_partition);
         let expected = segments::apply_graph_segmented(delta, &reference_held, partition);
-        let mut whole_state = whole.clone();
+        let mut whole_state = whole;
         let applied = production_delta.apply(&mut whole_state);
         match (production, expected) {
             (Ok(output), Ok(expected)) => {
@@ -4398,7 +4400,7 @@ mod segmented_apply {
                 for segment in &read {
                     let emitted = read_emitted(&store, run, &input.partition, *segment)
                         .expect("an emitted segment");
-                    assert!(emitted.complement.is_empty());
+                    assert_eq!(emitted.complement, Vec::<u8>::new());
                     assert_eq!(
                         bytes(&emitted.view, &input.partition),
                         reference_bytes(&output[segment.0 as usize], partition)
@@ -4417,60 +4419,73 @@ mod segmented_apply {
             RunStatus::Incomplete { reason } => panic!("an uninterrupted run stopped: {reason:?}"),
         };
         if every_point {
-            let (total, done) = (
-                baseline.report.progress.tasks_total,
-                baseline.report.progress.tasks_done,
-            );
-            for cancel in 0..=total {
-                let mut store = MemoryStore::default();
-                let stopped = production_run(
-                    &production_delta,
-                    &input,
-                    &input.bytes,
-                    budget,
-                    &mut store,
-                    Some(cancel),
-                );
-                let mut reference_store = segments::MemoryStore::default();
-                let expected_stop = reference_run(
-                    delta,
-                    &input,
-                    partition,
-                    budget,
-                    &mut reference_store,
-                    Some(cancel),
-                );
-                assert_eq!(
-                    seen_production(&stopped.report),
-                    seen_reference(&expected_stop.report),
-                    "run cancelled after {cancel} tasks"
-                );
-                let resumed = production_run(
-                    &production_delta,
-                    &input,
-                    &input.bytes,
-                    budget,
-                    &mut store,
-                    None,
-                );
-                let again =
-                    reference_run(delta, &input, partition, budget, &mut reference_store, None);
-                assert_eq!(
-                    seen_production(&resumed.report),
-                    seen_reference(&again.report),
-                    "run resumed after {cancel} tasks"
-                );
-                assert_eq!(resumed.report.tasks_reused, cancel.min(done));
-                assert_eq!(resumed.manifest, baseline.manifest);
-                assert_eq!(
-                    store
-                        .staged_uncommitted(&run)
-                        .unwrap_or_else(|never| match never {}),
-                    Vec::<ArtifactKey>::new()
-                );
-            }
+            check_cancellations(&input, partition, delta, budget, &baseline);
         }
         outcome
+    }
+
+    /// Stopping the run at every cancellation point and resuming it reports
+    /// what the reference runner reports, and ends as `baseline`.
+    fn check_cancellations(
+        input: &Input,
+        partition: &segments::Partition,
+        delta: &reference::GraphDelta,
+        budget: Budget,
+        baseline: &GraphApplyRun,
+    ) {
+        let production_delta = delta_to_production(delta);
+        let run = baseline.run.expect("a run identity");
+        let (total, done) = (
+            baseline.report.progress.tasks_total,
+            baseline.report.progress.tasks_done,
+        );
+        for cancel in 0..=total {
+            let mut store = MemoryStore::default();
+            let stopped = production_run(
+                &production_delta,
+                input,
+                &input.bytes,
+                budget,
+                &mut store,
+                Some(cancel),
+            );
+            let mut reference_store = segments::MemoryStore::default();
+            let expected_stop = reference_run(
+                delta,
+                input,
+                partition,
+                budget,
+                &mut reference_store,
+                Some(cancel),
+            );
+            assert_eq!(
+                seen_production(&stopped.report),
+                seen_reference(&expected_stop.report),
+                "run cancelled after {cancel} tasks"
+            );
+            let resumed = production_run(
+                &production_delta,
+                input,
+                &input.bytes,
+                budget,
+                &mut store,
+                None,
+            );
+            let again = reference_run(delta, input, partition, budget, &mut reference_store, None);
+            assert_eq!(
+                seen_production(&resumed.report),
+                seen_reference(&again.report),
+                "run resumed after {cancel} tasks"
+            );
+            assert_eq!(resumed.report.tasks_reused, cancel.min(done));
+            assert_eq!(resumed.manifest, baseline.manifest);
+            assert_eq!(
+                store
+                    .staged_uncommitted(&run)
+                    .unwrap_or_else(|never| match never {}),
+                Vec::<ArtifactKey>::new()
+            );
+        }
     }
 
     /// Every 331st case of the segmented graph edit carrier, run as a

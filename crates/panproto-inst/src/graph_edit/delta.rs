@@ -496,7 +496,7 @@ impl GraphDelta {
 
 /// A payload that attribution entries are read from and written into: a
 /// node or an edge.
-pub(crate) trait Payload: Clone {
+pub trait Payload: Clone {
     /// The entry `key` of this payload, `None` when the key belongs to the
     /// other element kind.
     fn get(&self, key: &AttrKey) -> Option<AttrVal>;

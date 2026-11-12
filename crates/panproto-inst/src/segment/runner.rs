@@ -1892,7 +1892,7 @@ impl<O: PhaseOperation, Src: SegmentSource, St: SegmentStore> Runner<'_, O, Src,
             .collect();
         let role = self.with_cx(|cx| self.op.output_role(cx));
         let sealed = if self.rewrites {
-            reseal(self.input, role, records, runs)
+            reseal(self.input, role, &records, runs)
         } else {
             let sources = sections
                 .iter()
@@ -2086,10 +2086,7 @@ fn preflight<O: PhaseOperation>(
         })
         .map_err(|error| Box::new((RunStatus::Failed(O::Error::from(error)), Some(run))))?;
     let rewrites = affected.is_some();
-    let ids: Vec<SegmentId> = match affected {
-        Some(set) => set.into_iter().collect(),
-        None => every,
-    };
+    let ids: Vec<SegmentId> = affected.map_or(every, |set| set.into_iter().collect());
     let count = u32::try_from(ids.len()).unwrap_or(u32::MAX);
     let total = count.saturating_mul(4).saturating_add(2);
     progress.tasks_total = total;
