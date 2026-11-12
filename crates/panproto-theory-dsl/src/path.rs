@@ -96,6 +96,9 @@ struct Scanner<'a> {
     at: usize,
 }
 
+/// A document the path reader cannot read.
+struct Unreadable;
+
 impl Scanner<'_> {
     fn whitespace(&mut self) {
         while matches!(self.bytes.get(self.at), Some(b' ' | b'\t' | b'\n' | b'\r')) {
@@ -113,8 +116,8 @@ impl Scanner<'_> {
     fn find(&mut self, path: &[PathSegment]) -> Option<(usize, usize)> {
         let start = self.at;
         let found = match (self.bytes.get(self.at)?, path.split_first()) {
-            (b'{', first) => self.object(first)?,
-            (b'[', first) => self.array(first)?,
+            (b'{', first) => self.object(first).ok()?,
+            (b'[', first) => self.array(first).ok()?,
             (_, Some(_)) => {
                 self.scalar()?;
                 None
@@ -133,44 +136,44 @@ impl Scanner<'_> {
     fn object(
         &mut self,
         first: Option<(&PathSegment, &[PathSegment])>,
-    ) -> Option<Option<(usize, usize)>> {
-        self.eat(b'{')?;
+    ) -> Result<Option<(usize, usize)>, Unreadable> {
+        self.eat(b'{').ok_or(Unreadable)?;
         self.whitespace();
         let mut found = None;
         if self.eat(b'}').is_some() {
-            return Some(found);
+            return Ok(found);
         }
         loop {
             self.whitespace();
-            let key = self.string()?;
+            let key = self.string().ok_or(Unreadable)?;
             self.whitespace();
-            self.eat(b':')?;
+            self.eat(b':').ok_or(Unreadable)?;
             self.whitespace();
             match first {
                 Some((PathSegment::Key(wanted), rest)) if *wanted == key => {
                     found = self.find(rest);
                 }
                 _ => {
-                    self.find(&[])?;
+                    self.find(&[]).ok_or(Unreadable)?;
                 }
             }
             self.whitespace();
             if self.eat(b'}').is_some() {
-                return Some(found);
+                return Ok(found);
             }
-            self.eat(b',')?;
+            self.eat(b',').ok_or(Unreadable)?;
         }
     }
 
     fn array(
         &mut self,
         first: Option<(&PathSegment, &[PathSegment])>,
-    ) -> Option<Option<(usize, usize)>> {
-        self.eat(b'[')?;
+    ) -> Result<Option<(usize, usize)>, Unreadable> {
+        self.eat(b'[').ok_or(Unreadable)?;
         self.whitespace();
         let mut found = None;
         if self.eat(b']').is_some() {
-            return Some(found);
+            return Ok(found);
         }
         let mut index = 0;
         loop {
@@ -180,15 +183,15 @@ impl Scanner<'_> {
                     found = self.find(rest);
                 }
                 _ => {
-                    self.find(&[])?;
+                    self.find(&[]).ok_or(Unreadable)?;
                 }
             }
             index += 1;
             self.whitespace();
             if self.eat(b']').is_some() {
-                return Some(found);
+                return Ok(found);
             }
-            self.eat(b',')?;
+            self.eat(b',').ok_or(Unreadable)?;
         }
     }
 

@@ -33,7 +33,7 @@ use crate::rdf::{
 
 /// A term as the occurrence table keys it.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub(crate) enum TermKey {
+pub enum TermKey {
     Iri(String),
     Blank(String),
     Literal(Literal),
@@ -42,7 +42,7 @@ pub(crate) enum TermKey {
 
 /// How a token writes a term.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Spelling {
+pub enum Spelling {
     /// A JSON string spelling an IRI or a blank node identifier.
     Reference,
     /// A JSON string holding a literal's lexical form.
@@ -54,11 +54,11 @@ pub(crate) enum Spelling {
 }
 
 /// The triples of a document and where each term is written.
-pub(crate) struct Reading {
-    pub(crate) triples: Vec<Triple>,
+pub struct Reading {
+    pub triples: Vec<Triple>,
     /// Each term's occurrences: the token that writes it, or `None` where
     /// the document writes it with no token of its own.
-    pub(crate) occurrences: Vec<(TermKey, Option<(usize, Spelling)>)>,
+    pub occurrences: Vec<(TermKey, Option<(usize, Spelling)>)>,
 }
 
 type Res<T> = Result<T, Fault>;
@@ -160,13 +160,12 @@ impl Walk {
                 );
                 return Ok(Term::Blank(label.to_owned()));
             }
-            let label = match self.renamed.get(label) {
-                Some(fresh) => fresh.clone(),
-                None => {
-                    let fresh = self.fresh();
-                    self.renamed.insert(label.to_owned(), fresh.clone());
-                    fresh
-                }
+            let label = if let Some(fresh) = self.renamed.get(label) {
+                fresh.clone()
+            } else {
+                let fresh = self.fresh();
+                self.renamed.insert(label.to_owned(), fresh.clone());
+                fresh
             };
             self.implicit(TermKey::Blank(label.clone()));
             return Ok(Term::Blank(label));
@@ -249,10 +248,9 @@ impl Walk {
             let object = self.object(item)?;
             let first = self.iri(RDF_FIRST);
             self.push(cells[i].clone(), first, object);
-            let rest = match cells.get(i + 1) {
-                Some(next) => next.clone(),
-                None => Term::Iri(self.iri(RDF_NIL)),
-            };
+            let rest = cells
+                .get(i + 1)
+                .map_or_else(|| Term::Iri(self.iri(RDF_NIL)), Clone::clone);
             let predicate = self.iri(RDF_REST);
             self.push(cells[i].clone(), predicate, rest);
         }
@@ -273,10 +271,12 @@ impl Walk {
                 Literal {
                     lexical: text.clone(),
                     datatype: datatype
-                        .unwrap_or(if value.language.is_some() {
-                            RDF_LANG_STRING
-                        } else {
-                            XSD_STRING
+                        .unwrap_or_else(|| {
+                            if value.language.is_some() {
+                                RDF_LANG_STRING
+                            } else {
+                                XSD_STRING
+                            }
                         })
                         .to_owned(),
                     language: None,
@@ -313,7 +313,7 @@ impl Walk {
 }
 
 /// The triples of the expanded default graph `items`.
-pub(crate) fn read_items(items: &[Item]) -> Res<Reading> {
+pub fn read_items(items: &[Item]) -> Res<Reading> {
     let mut kept = HashSet::new();
     kept_labels(items, &mut kept);
     let mut walk = Walk {
@@ -328,8 +328,11 @@ pub(crate) fn read_items(items: &[Item]) -> Res<Reading> {
             Item::Node(node) => {
                 walk.node(node)?;
             }
-            Item::Value(ValueObject { origin, .. }) | Item::List(ListObject { origin, .. }) => {
-                return Err(refuse(JsonLdRefusal::FreeFloating, origin));
+            Item::Value(value) => {
+                return Err(refuse(JsonLdRefusal::FreeFloating, &value.origin));
+            }
+            Item::List(list) => {
+                return Err(refuse(JsonLdRefusal::FreeFloating, &list.origin));
             }
         }
     }
