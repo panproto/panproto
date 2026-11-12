@@ -17,6 +17,7 @@
 //! syntax is refused at the first place the parser could not read.
 
 mod data;
+mod directory;
 mod resolution;
 mod values;
 
@@ -34,6 +35,10 @@ use tree_sitter::{Node, Parser, Tree};
 pub use data::{
     DumpReading, PostgresqlCodec, SqlDataError, WriteRefusal, read_data, read_dump, write_data,
     write_dump,
+};
+pub use directory::{
+    Dialect, MANIFEST, MANIFEST_VERSION, Manifest, TableDirectoryError, TableFile,
+    load_table_directory, read_table_directory, store_table_directory, write_table_directory,
 };
 pub use resolution::{ForeignKeyResolution, resolve_foreign_keys};
 pub use values::ValueRefusal;

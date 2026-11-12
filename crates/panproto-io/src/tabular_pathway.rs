@@ -75,6 +75,8 @@ fn tabular_data_lines(input: &[u8], comment_prefix: Option<u8>) -> Vec<&[u8]> {
 struct ParsedCell<'input> {
     bytes: Cow<'input, [u8]>,
     source_offset: Option<u64>,
+    /// Whether the cell was written in quotes (CSV only).
+    quoted: bool,
 }
 
 struct CsvRecord<'input> {
@@ -90,10 +92,16 @@ fn csv_parse_error(protocol: &str, message: &str) -> ParseInstanceError {
     }
 }
 
-fn finish_csv_cell(cells: &mut Vec<ParsedCell<'_>>, bytes: &mut Vec<u8>, source_start: usize) {
+fn finish_csv_cell(
+    cells: &mut Vec<ParsedCell<'_>>,
+    bytes: &mut Vec<u8>,
+    source_start: usize,
+    quoted: &mut bool,
+) {
     cells.push(ParsedCell {
         bytes: Cow::Owned(std::mem::take(bytes)),
         source_offset: u64::try_from(source_start).ok(),
+        quoted: std::mem::take(quoted),
     });
 }
 
@@ -112,6 +120,7 @@ fn parse_csv_records<'input>(
     let mut index = start;
     let mut in_quotes = false;
     let mut after_quote = false;
+    let mut quoted = false;
 
     while index < input.len() {
         let byte = input[index];
@@ -132,13 +141,13 @@ fn parse_csv_records<'input>(
 
         match byte {
             b',' => {
-                finish_csv_cell(&mut cells, &mut cell, cell_start);
+                finish_csv_cell(&mut cells, &mut cell, cell_start, &mut quoted);
                 index += 1;
                 cell_start = index;
                 after_quote = false;
             }
             b'\n' => {
-                finish_csv_cell(&mut cells, &mut cell, cell_start);
+                finish_csv_cell(&mut cells, &mut cell, cell_start, &mut quoted);
                 records.push(CsvRecord {
                     cells: std::mem::take(&mut cells),
                     source_start: record_start,
@@ -150,7 +159,7 @@ fn parse_csv_records<'input>(
                 after_quote = false;
             }
             b'\r' if input.get(index + 1) == Some(&b'\n') => {
-                finish_csv_cell(&mut cells, &mut cell, cell_start);
+                finish_csv_cell(&mut cells, &mut cell, cell_start, &mut quoted);
                 records.push(CsvRecord {
                     cells: std::mem::take(&mut cells),
                     source_start: record_start,
@@ -163,6 +172,7 @@ fn parse_csv_records<'input>(
             }
             b'"' if index == cell_start && cell.is_empty() && !after_quote => {
                 in_quotes = true;
+                quoted = true;
                 index += 1;
             }
             b'"' => return Err(csv_parse_error(protocol, "misplaced quote in CSV field")),
@@ -189,7 +199,7 @@ fn parse_csv_records<'input>(
         return Err(csv_parse_error(protocol, "unterminated quoted CSV field"));
     }
     if cell_start < input.len() || !cells.is_empty() || after_quote {
-        finish_csv_cell(&mut cells, &mut cell, cell_start);
+        finish_csv_cell(&mut cells, &mut cell, cell_start, &mut quoted);
         records.push(CsvRecord {
             cells,
             source_start: record_start,
@@ -197,6 +207,49 @@ fn parse_csv_records<'input>(
         });
     }
     Ok(records)
+}
+
+/// One cell of a CSV record: its bytes with quotes and doubled quotes
+/// read, whether it was written in quotes, and the byte offset it starts
+/// at.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CsvCell {
+    /// The cell's bytes.
+    pub bytes: Vec<u8>,
+    /// Whether the cell was written in quotes, which tells an empty
+    /// string from an empty field in a dialect that reads the second as
+    /// `NULL`.
+    pub quoted: bool,
+    /// The byte offset of the cell's first byte.
+    pub offset: usize,
+}
+
+/// The records of a CSV text read by the shared CSV reader, from byte 0
+/// (a byte-order mark is not skipped), each cell with whether it was
+/// quoted.
+///
+/// # Errors
+///
+/// The shared reader's refusal of a misplaced quote, bytes after a closing
+/// quote, a bare carriage return or an unterminated quoted field.
+pub fn csv_records(input: &[u8], protocol: &str) -> Result<Vec<Vec<CsvCell>>, ParseInstanceError> {
+    Ok(parse_csv_records(input, 0, protocol)?
+        .into_iter()
+        .map(|record| {
+            record
+                .cells
+                .into_iter()
+                .map(|cell| CsvCell {
+                    offset: cell
+                        .source_offset
+                        .and_then(|o| usize::try_from(o).ok())
+                        .unwrap_or_default(),
+                    quoted: cell.quoted,
+                    bytes: cell.bytes.into_owned(),
+                })
+                .collect()
+        })
+        .collect())
 }
 
 /// The UTF-8 encoding of U+FEFF. At the start of a delimited text it is an
@@ -243,6 +296,7 @@ fn tabular_rows<'input>(
                 .map(|field| ParsedCell {
                     bytes: Cow::Borrowed(field),
                     source_offset: byte_offset(input, field),
+                    quoted: false,
                 })
                 .collect()
         })
