@@ -89,7 +89,7 @@ mod reader;
 pub(crate) mod to_rdf;
 
 #[cfg(feature = "tree-sitter")]
-pub use reader::{JsonLdCodec, JsonLdComplement};
+pub use reader::{JsonLdCodec, JsonLdComplement, MAX_DEPTH};
 
 /// The processing mode the reader runs in.
 pub const PROCESSING_MODE: &str = "json-ld-1.1";

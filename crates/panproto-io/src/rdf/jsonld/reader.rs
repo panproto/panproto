@@ -303,7 +303,7 @@ impl JsonLdCodec {
     /// Returns [`RdfReadError`] at the first fault: invalid UTF-8, a place
     /// the JSON grammar cannot read, a comment, white space JSON does not
     /// have, a malformed string or number token, nesting deeper than
-    /// [`MAX_DEPTH`], and then the first JSON-LD refusal
+    /// [`MAX_DEPTH`](crate::rdf::jsonld::MAX_DEPTH), and then the first JSON-LD refusal
     /// ([`RdfReadErrorKind::JsonLd`]) in processing order.
     pub fn read(&self, input: &[u8]) -> Result<Vec<Triple>, RdfReadError> {
         self.read_document(input).map(|read| read.reading.triples)
