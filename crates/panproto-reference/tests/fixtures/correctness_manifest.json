@@ -6735,6 +6735,102 @@
           ]
         }
       ]
+    },
+    "edge-lists": {
+      "reference_files": [
+        "crates/panproto-reference/src/pages/edge_lists.rs",
+        "crates/panproto-reference/src/enumerate/edge_lists.rs"
+      ],
+      "laws": [
+        {
+          "id": "edge-lists.reading",
+          "anchor": "L-edge-lists-1",
+          "references": [
+            "panproto_reference::pages::edge_lists::read_document"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_edge_lists",
+              "test": "edge_list_documents_read_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_edge_lists",
+              "test": "randomized_edge_list_documents_read_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::edge_lists",
+              "test": "edge_lists_read_records_as_directed_edges_and_keep_parallel_edges_and_loops"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::edge_lists",
+              "test": "edge_list_refusals_follow_the_order_the_page_states"
+            }
+          ]
+        },
+        {
+          "id": "edge-lists.graph-encoding",
+          "anchor": "L-edge-lists-2",
+          "references": [
+            "panproto_reference::pages::edge_lists::encode"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_edge_lists",
+              "test": "the_edge_list_encoding_matches_the_reference_on_every_bounded_list"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::edge_lists",
+              "test": "the_encoding_numbers_nodes_by_record_and_keeps_every_record"
+            }
+          ]
+        },
+        {
+          "id": "edge-lists.canonical-writing",
+          "anchor": "L-edge-lists-3",
+          "references": [
+            "panproto_reference::pages::edge_lists::canonical_text",
+            "panproto_reference::pages::edge_lists::write_graph"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_edge_lists",
+              "test": "canonical_edge_lists_match_the_reference_on_every_bounded_graph"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::edge_lists",
+              "test": "canonical_edge_lists_quote_and_refuse_as_the_page_states"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::edge_lists",
+              "test": "the_writer_refuses_what_no_edge_list_reads_back_as"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::edge_lists",
+              "test": "the_edge_list_scopes_have_their_closed_form_counts"
+            }
+          ]
+        }
+      ]
     }
   }
 }
