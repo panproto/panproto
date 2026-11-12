@@ -476,22 +476,25 @@ fn is_natural(text: &str) -> bool {
 }
 
 fn check(value: &Value, g: &G, path: &Path) -> Shaped<()> {
-    match (g, value) {
-        (G::Any, _)
-        | (G::Str, Value::String(_))
-        | (G::Bool, Value::Bool(_))
-        | (G::Number, Value::Number(_))
-        | (G::Nullable(_), Value::Null)
-        | (G::StrOr(_), Value::String(_)) => Ok(()),
-        (G::Natural, Value::Number(text)) if is_natural(text) => Ok(()),
-        (G::Str, _) => wrong(path, Expected::String),
-        (G::Bool, _) => wrong(path, Expected::Boolean),
-        (G::Number, _) => wrong(path, Expected::Number),
-        (G::Natural, _) => wrong(path, Expected::Natural),
-        (G::Nullable(inner), _) => check(value, inner, path),
-        (G::List(element), _) => check_list(value, element, path),
-        (G::Steps, _) => check_list(value, &step_grammar(), path),
-        (G::Map(member), _) => {
+    let leaf = |ok: bool, expected: Expected| {
+        if ok { Ok(()) } else { wrong(path, expected) }
+    };
+    match g {
+        G::Any => Ok(()),
+        G::Str => leaf(matches!(value, Value::String(_)), Expected::String),
+        G::Bool => leaf(matches!(value, Value::Bool(_)), Expected::Boolean),
+        G::Number => leaf(matches!(value, Value::Number(_)), Expected::Number),
+        G::Natural => leaf(
+            matches!(value, Value::Number(text) if is_natural(text)),
+            Expected::Natural,
+        ),
+        G::Nullable(inner) => match value {
+            Value::Null => Ok(()),
+            _ => check(value, inner, path),
+        },
+        G::List(element) => check_list(value, element, path),
+        G::Steps => check_list(value, &step_grammar(), path),
+        G::Map(member) => {
             let Some(entries) = members(value) else {
                 return wrong(path, Expected::Object);
             };
@@ -500,16 +503,21 @@ fn check(value: &Value, g: &G, path: &Path) -> Shaped<()> {
             }
             Ok(())
         }
-        (G::Record(fields), _) => check_record(value, &[], fields, path),
-        (G::Tagged(tag, variants), _) => check_tagged(value, tag, variants, path),
-        (G::Keyed(variants), _) => check_keyed(value, variants, path),
-        (G::Choice(choices), Value::String(found)) if choices.contains(&found.as_str()) => Ok(()),
-        (G::Choice(_), Value::String(found)) => {
-            Err((path.clone(), ShapeProblem::UnknownVariant(found.clone())))
-        }
-        (G::Choice(_), _) => wrong(path, Expected::String),
-        (G::StrOr(inner), Value::Object(_)) => check(value, inner, path),
-        (G::StrOr(_), _) => wrong(path, Expected::StringOrObject),
+        G::Record(fields) => check_record(value, &[], fields, path),
+        G::Tagged(tag, variants) => check_tagged(value, tag, variants, path),
+        G::Keyed(variants) => check_keyed(value, variants, path),
+        G::Choice(choices) => match value {
+            Value::String(found) if choices.contains(&found.as_str()) => Ok(()),
+            Value::String(found) => {
+                Err((path.clone(), ShapeProblem::UnknownVariant(found.clone())))
+            }
+            _ => wrong(path, Expected::String),
+        },
+        G::StrOr(inner) => match value {
+            Value::String(_) => Ok(()),
+            Value::Object(_) => check(value, inner, path),
+            _ => wrong(path, Expected::StringOrObject),
+        },
     }
 }
 
@@ -726,10 +734,10 @@ pub fn number(text: &str) -> Number {
             _ => float(),
         };
     }
-    match text.parse::<u64>() {
-        Ok(m) => i64::try_from(m).map_or(Number::Wide, Number::Int),
-        Err(_) => float(),
-    }
+    text.parse::<u64>().map_or_else(
+        |_| float(),
+        |m| i64::try_from(m).map_or(Number::Wide, Number::Int),
+    )
 }
 
 /// A default value carried into the instance algebra.
@@ -1477,7 +1485,7 @@ fn nest_field(spec: &Value) -> Stage {
             kind: edge_kind.clone(),
         },
         Elementary::AddEdge {
-            src: intermediate.clone(),
+            src: intermediate,
             tgt: child.clone(),
             name: nonempty("intermediate_to_child", child.clone()),
             kind: edge_kind,
@@ -1627,6 +1635,7 @@ fn scoped(spec: &Value, oracles: &Oracles<'_>) -> Step<Vec<Stage>> {
 /// step's refusal at `inner/k`.
 ///
 /// Book anchor: `L-lens-dsl-2`.
+#[must_use]
 pub fn step_stages(step: &Value, body: &str, oracles: &Oracles<'_>) -> Outcome<Vec<Stage>> {
     outcome(compile_step(step, body, oracles))
 }
@@ -1822,6 +1831,7 @@ fn rule_stages(rule: &Value, body: &str) -> Step<Vec<Stage>> {
 /// rule list.
 ///
 /// Book anchor: `L-lens-dsl-3`.
+#[must_use]
 pub fn rules_stages(rules: &[Value], drop: bool, body: &str) -> Outcome<Vec<Stage>> {
     outcome(compile_rules(rules, drop, body))
 }
@@ -2091,6 +2101,7 @@ fn compile_lens(document: &Value, context: &Context<'_>, open: &[String]) -> Ste
 ///
 /// Book anchors: `L-lens-dsl-2`, `L-lens-dsl-4`, `L-lens-dsl-5`,
 /// `L-lens-dsl-6`.
+#[must_use]
 pub fn compile_document(document: &Value, context: &Context<'_>) -> Outcome<CompiledLens> {
     if let Err(refused) = check_document(document) {
         return outcome(Err(refused.into()));

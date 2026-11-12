@@ -210,7 +210,7 @@ fn same_refusal(production: &LensDslError, reference: &rd::Refusal) -> bool {
 
 // ─── Stages ─────────────────────────────────────────────────────────────
 
-fn literal(operand: rd::Operand) -> Literal {
+const fn literal(operand: rd::Operand) -> Literal {
     match operand {
         rd::Operand::Int(i) => Literal::Int(i),
         rd::Operand::Float(bits) => Literal::Float(f64::from_bits(bits)),
@@ -338,7 +338,7 @@ fn same_transform(production: &FieldTransform, reference: &rd::FieldTransform) -
 /// one with its own leaves.
 enum Leaf<'a> {
     Transform(&'a TheoryTransform),
-    Scoped(&'a str, Vec<Leaf<'a>>),
+    Scoped(&'a str, Vec<Self>),
 }
 
 fn leaves<'a>(transform: &'a TheoryTransform, out: &mut Vec<Leaf<'a>>) {
@@ -382,7 +382,7 @@ fn atoms<'a>(complement: &'a ComplementConstructor, out: &mut Vec<&'a Complement
 /// ones with their focus.
 enum Flat<'a> {
     Elementary(&'a rd::Elementary),
-    Scoped(&'a str, Vec<Flat<'a>>),
+    Scoped(&'a str, Vec<Self>),
 }
 
 fn flatten<'a>(proto: &'a rd::Proto, out: &mut Vec<Flat<'a>>) {
@@ -420,8 +420,9 @@ fn residue(elementary: &rd::Elementary) -> Vec<ComplementConstructor> {
             kind,
             default,
         } => added(sort, kind, default.as_ref().map(datum_value)),
-        rd::Elementary::AddEdge { name, kind, .. } => added(name, kind, None),
-        rd::Elementary::AddOp { name, kind, .. } => added(name, kind, None),
+        rd::Elementary::AddEdge { name, kind, .. } | rd::Elementary::AddOp { name, kind, .. } => {
+            added(name, kind, None)
+        }
         rd::Elementary::DropEdge { src, tgt, name } => vec![ComplementConstructor::DroppedEdge {
             src: src.as_str().into(),
             tgt: tgt.as_str().into(),
@@ -550,6 +551,16 @@ fn same_elementary(production: &TheoryTransform, reference: &rd::Elementary) -> 
         (T::AddEquation(eq), E::AddEquation { name: n, lhs, rhs }) => {
             *eq.name == **n && eq.lhs == term(lhs) && eq.rhs == term(rhs)
         }
+        _ => same_valued_elementary(production, reference),
+    }
+}
+
+/// Whether a production pullback, coercion, merge or directed equation is
+/// the reference's.
+fn same_valued_elementary(production: &TheoryTransform, reference: &rd::Elementary) -> bool {
+    use TheoryTransform as T;
+    use rd::Elementary as E;
+    match (production, reference) {
         (
             T::Pullback(m),
             E::Pullback {
@@ -814,7 +825,7 @@ fn production_library() -> HashMap<String, LensDocument> {
         .collect()
 }
 
-fn span(error: &LensDslError) -> Option<(usize, usize)> {
+const fn span(error: &LensDslError) -> Option<(usize, usize)> {
     match error {
         LensDslError::Spanned { span, .. } => Some((span.offset(), span.len())),
         _ => None,
@@ -1066,7 +1077,10 @@ fn with_composition(
 
 /// The observable structure of a compiled lens: each stage's protolenses
 /// as JSON, and its transforms by anchor.
-fn structure(lens: &CompiledLens) -> Vec<(Vec<String>, Vec<(String, String)>)> {
+/// One stage's protolenses as JSON and its transforms by anchor.
+type StageStructure = (Vec<String>, Vec<(String, String)>);
+
+fn structure(lens: &CompiledLens) -> Vec<StageStructure> {
     lens.stages
         .iter()
         .map(|stage| {

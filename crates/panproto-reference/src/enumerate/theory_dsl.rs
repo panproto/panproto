@@ -374,10 +374,12 @@ pub fn shape_documents() -> (Vec<String>, Vec<String>, Vec<String>) {
     mutations(SHAPE_BASES, REPLACEMENTS)
 }
 
-/// The grammar mutations of `bases`: for each base document and each
-/// position in it, every replacement of `replacements` (JSON text in which
-/// `@` stands for the value replaced), then the removal of each object
-/// member and the addition of an unknown member `zz` to each object.
+/// The grammar mutations of `bases`.
+///
+/// For each base document and each position in it, every replacement of
+/// `replacements` (JSON text in which `@` stands for the value replaced),
+/// then the removal of each object member and the addition of an unknown
+/// member `zz` to each object.
 ///
 /// Returns `(replacements, removals, additions)`, the three families in that
 /// order. A base that is not JSON text contributes nothing.
