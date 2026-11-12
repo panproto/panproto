@@ -1747,16 +1747,16 @@ impl Repository {
         let merged_identity = crate::hash::hash_schema(merged_schema)?;
         let merged_tree =
             crate::tree::store_schema_as_tree(&mut self.store, merged_schema.clone())?;
-        let ours_side = self.merge_side(
+        let ours_side = crate::data_mig::merge_side(
+            &mut self.store,
             (parents.ours_id, parents.ours),
-            parents.ours_schema,
-            parents.from_ours,
+            (parents.ours_schema, parents.from_ours),
             merged_schema,
         )?;
-        let theirs_side = self.merge_side(
+        let theirs_side = crate::data_mig::merge_side(
+            &mut self.store,
             (parents.theirs_id, parents.theirs),
-            parents.theirs_schema,
-            parents.from_theirs,
+            (parents.theirs_schema, parents.from_theirs),
             merged_schema,
         )?;
         let merge = {
@@ -1909,33 +1909,6 @@ impl Repository {
             complement_ids,
             cst_complement_ids,
             untracked,
-        })
-    }
-
-    /// One side of a merge as its merge migration reads it: the side's
-    /// commit, the stored migration from its schema to `merged` (none when
-    /// the two have one identity), and the protocol object it records.
-    fn merge_side(
-        &mut self,
-        (commit_id, commit): (ObjectId, &CommitObject),
-        schema: &Schema,
-        mapping: &panproto_mig::Migration,
-        merged: &Schema,
-    ) -> Result<crate::data_mig::MergeSide, VcsError> {
-        let migration = if crate::hash::hash_schema(schema)? == crate::hash::hash_schema(merged)? {
-            None
-        } else {
-            Some(crate::data_mig::store_migration(
-                &mut self.store,
-                schema,
-                merged,
-                mapping.clone(),
-            )?)
-        };
-        Ok(crate::data_mig::MergeSide {
-            commit: commit_id,
-            migration,
-            protocol: crate::data_mig::commit_protocol(&self.store, commit)?,
         })
     }
 

@@ -377,8 +377,11 @@ pub fn merge_tracked(
     combine_tracked(Combine::Merge, [base, ours, theirs], load, validate, None)
 }
 
-/// Merge as [`merge_tracked`] does, except that a key whose three versions
-/// are recorded against different schemas is not
+/// Merge as [`merge_tracked`] does, migrating versions to the merged
+/// schema.
+///
+/// A key whose three versions are recorded against different schemas is
+/// not
 /// [`TrackingConflict::SchemaDiffers`]: each version is migrated to the
 /// merged schema by `to.migrate`, in the order base, ours, theirs, and the
 /// migrated instances merge as three instances of the merged schema do. A
@@ -1050,6 +1053,31 @@ pub struct ReplayTarget<'a> {
     pub from_commit: &'a panproto_mig::Migration,
 }
 
+impl ReplayTarget<'_> {
+    /// The tip's and the replayed commit's sides of the replay's merge
+    /// migration ([`merge_side`](crate::data_mig::merge_side)).
+    fn sides(
+        &self,
+        store: &mut dyn crate::store::Store,
+        [tip, commit]: [&crate::object::CommitObject; 2],
+    ) -> Result<[crate::data_mig::MergeSide; 2], VcsError> {
+        Ok([
+            crate::data_mig::merge_side(
+                store,
+                (self.tip, tip),
+                (self.tip_schema, self.from_tip),
+                self.merged,
+            )?,
+            crate::data_mig::merge_side(
+                store,
+                (self.commit, commit),
+                (self.commit_schema, self.from_commit),
+                self.merged,
+            )?,
+        ])
+    }
+}
+
 /// Replay onto `tip` the instances `commit` changes from its first parent
 /// `parent` ([`replay_tracked_to`]), and store what the replayed commit
 /// records.
@@ -1084,36 +1112,7 @@ pub fn replay_commit_data<S: std::hash::BuildHasher>(
     let stored = crate::data_mig::commit_protocol(store, commit)?;
     let merged_identity = crate::hash::hash_schema(target.merged)?;
     let merged_tree = crate::tree::store_schema_as_tree(store, target.merged.clone())?;
-    let mut side = |id: ObjectId,
-                    side_commit: &crate::object::CommitObject,
-                    schema: &Schema,
-                    mapping: &panproto_mig::Migration|
-     -> Result<crate::data_mig::MergeSide, VcsError> {
-        let migration = if crate::hash::hash_schema(schema)? == merged_identity {
-            None
-        } else {
-            Some(crate::data_mig::store_migration(
-                store,
-                schema,
-                target.merged,
-                mapping.clone(),
-            )?)
-        };
-        Ok(crate::data_mig::MergeSide {
-            commit: id,
-            migration,
-            protocol: crate::data_mig::commit_protocol(store, side_commit)?,
-        })
-    };
-    let sides = [
-        side(target.tip, tip, target.tip_schema, target.from_tip)?,
-        side(
-            target.commit,
-            commit,
-            target.commit_schema,
-            target.from_commit,
-        )?,
-    ];
+    let sides = target.sides(store, [tip, commit])?;
     let replay = {
         let view: &dyn crate::store::Store = &*store;
         let migration = crate::data_mig::MergeMigration {

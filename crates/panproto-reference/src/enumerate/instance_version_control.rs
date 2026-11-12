@@ -488,9 +488,10 @@ impl Link {
     pub const ALL: [Self; 3] = [Self::Missing, Self::Forward, Self::Reverse];
 }
 
-/// Every first-parent chain of the path scope with `commits` commits,
-/// oldest first: each commit's schema (an index below `schemas`) and, for
-/// each commit but the root, its link. There are
+/// Every first-parent chain of the path scope with `commits` commits.
+///
+/// A chain lists its commits oldest first: each commit's schema (an index
+/// below `schemas`) and, for each commit but the root, its link. There are
 /// `schemas * (3 * schemas)^(commits - 1)` of them.
 #[must_use]
 pub fn path_chains(commits: usize, schemas: usize) -> Vec<Vec<(usize, Link)>> {
@@ -520,7 +521,7 @@ pub fn path_chains(commits: usize, schemas: usize) -> Vec<Vec<(usize, Link)>> {
 
 /// The count of [`path_chains`], by its closed formula.
 #[must_use]
-pub fn path_chains_count(commits: u32, schemas: u64) -> u64 {
+pub const fn path_chains_count(commits: u32, schemas: u64) -> u64 {
     if commits == 0 {
         return 0;
     }

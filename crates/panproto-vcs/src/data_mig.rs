@@ -381,10 +381,11 @@ fn conforms(
     }
 }
 
-/// The get of `instance` along `lens`: each tree of a sequence of trees
-/// through the tree lens, a table through the table lens under `protocol` at
-/// both boundaries, and a graph through the graph lens, with the complements
-/// get produced.
+/// The get of `instance` along `lens`, with the complements get produced.
+///
+/// Each tree of a sequence of trees goes through the tree lens, a table
+/// through the table lens under `protocol` at both boundaries, and a graph
+/// through the graph lens.
 ///
 /// # Errors
 ///
@@ -751,6 +752,34 @@ pub struct MergeSide {
     /// The protocol object the side's commit records, which resolves a
     /// table lens's protocol before `registered`.
     pub protocol: Option<Protocol>,
+}
+
+/// One side of a merge as its merge migration reads it.
+///
+/// It is the side's commit `commit_id`, the stored migration `mapping` from
+/// the side's `schema` to `merged` (stored here, and none when the two
+/// schemas have one identity), and the protocol object `commit` records.
+///
+/// # Errors
+///
+/// The store's errors, and [`VcsError::WrongObjectType`] when the
+/// commit's protocol object is another kind of object.
+pub fn merge_side(
+    store: &mut dyn Store,
+    (commit_id, commit): (ObjectId, &CommitObject),
+    (schema, mapping): (&Schema, &Migration),
+    merged: &Schema,
+) -> Result<MergeSide, VcsError> {
+    let migration = if crate::hash::hash_schema(schema)? == crate::hash::hash_schema(merged)? {
+        None
+    } else {
+        Some(store_migration(store, schema, merged, mapping.clone())?)
+    };
+    Ok(MergeSide {
+        commit: commit_id,
+        migration,
+        protocol: commit_protocol(store, commit)?,
+    })
 }
 
 /// The migration of the instances a merge (or replay) combines to its

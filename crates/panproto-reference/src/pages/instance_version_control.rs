@@ -820,8 +820,10 @@ pub type ToMerged<'a> = (
     &'a mut dyn FnMut(Version, &Entry) -> Result<Instance, MigrationRefusal>,
 );
 
-/// The three-way merge of [`merge_tracked`], except that three versions of
-/// a key under schemas that are not all one are not
+/// The three-way merge of [`merge_tracked`], migrating versions to the
+/// merged schema.
+///
+/// Three versions of a key under schemas that are not all one are not
 /// [`TrackingConflict::SchemaDiffers`]: they combine by
 /// [`migrate_and_combine`] into an instance of the merged schema.
 ///
@@ -837,8 +839,9 @@ pub fn merge_tracked_to(
     merge_tracked_with(base, ours, theirs, Some(to))
 }
 
-/// Combine three versions of a key recorded against different schemas:
-/// each migrates to the merged schema by `migrate`, base first, then ours,
+/// Combine three versions of a key recorded against different schemas.
+///
+/// Each migrates to the merged schema by `migrate`, base first, then ours,
 /// then theirs; every version that does not is one [`Conflict::Migration`],
 /// and otherwise the migrated instances merge by [`merge_instances`] (by
 /// [`rebase_instances`] when `rebase`).
@@ -1204,9 +1207,11 @@ pub fn migration_path(
     Ok(path)
 }
 
-/// One side of a merge as its migration path reads it: the first-parent
-/// chain of the side's commit, and the side's migration to the merged
-/// schema by name (none when the side's schema is the merged schema).
+/// One side of a merge as its migration path reads it.
+///
+/// It is the first-parent chain of the side's commit, and the side's
+/// migration to the merged schema by name (none when the side's schema is
+/// the merged schema).
 #[derive(Clone, Copy, Debug)]
 pub struct PathSide<'a> {
     /// The side commit's first-parent chain, the commit first.
