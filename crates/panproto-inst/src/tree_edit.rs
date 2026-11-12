@@ -933,6 +933,30 @@ fn follow_step(
     Ok(())
 }
 
+impl TreeEmbedding {
+    /// Apply a tree edit to `tree`, which this embedding embeds, and follow
+    /// it as [`GraphDelta::from_tree_edit`] does: step by step as
+    /// [`Self::apply_edit`], except that each `MoveSubtree` gives its arc a
+    /// fresh edge id, also when the node stays under the parent it has.
+    ///
+    /// # Errors
+    ///
+    /// The error of the first step that does not apply, as
+    /// [`Self::apply_edit`] reports it, with [`EditError::ApplyFailed`] when
+    /// the embedding runs out of ids. On error `tree` and the embedding are
+    /// unchanged.
+    pub fn follow_edit(&mut self, tree: &mut WInstance, edit: &TreeEdit) -> Result<(), EditError> {
+        let saved = (tree.clone(), self.clone());
+        for step in edit.steps() {
+            if let Err(error) = follow_step(self, tree, step) {
+                (*tree, *self) = saved;
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+}
+
 impl GraphDelta {
     /// The graph delta of a tree edit: with `W` the tree `graph` is when
     /// read through `embedding`, applying the result to `graph` gives the

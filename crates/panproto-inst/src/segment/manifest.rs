@@ -63,6 +63,13 @@ pub struct SegmentRecord {
     pub max_node: Option<u32>,
     /// Its largest owned edge id.
     pub max_edge: Option<u32>,
+    /// The tree embedding's node counter, in the record of the tree segment
+    /// holding it ([`TreeSegment::next_node`]), `None` in every other record.
+    ///
+    /// [`TreeSegment::next_node`]: super::TreeSegment::next_node
+    pub next_node: Option<u32>,
+    /// The tree embedding's edge counter, beside [`Self::next_node`].
+    pub next_edge: Option<u32>,
     /// The digest of its owned edge ids, ascending ([`edge_ids_digest`] of
     /// [`AnySegment::edge_id_run`]), fan edges of a tree included: what
     /// binds the edge id run `seal` merges to the segment.
@@ -214,6 +221,8 @@ impl SegmentRecord {
             stats: segment.stats(),
             max_node: segment.max_node(),
             max_edge: segment.max_edge(),
+            next_node: segment.counters().map(|(node, _)| node),
+            next_edge: segment.counters().map(|(_, edge)| edge),
             edge_ids: edge_ids_digest(segment.edge_id_run()),
             content: segment.digest_with(schema, spec),
             cross_out: segment.cross_out(),
@@ -240,8 +249,8 @@ impl SegmentRecord {
         write_opt_range(sink, self.alloc_nodes);
         write_opt_range(sink, self.alloc_edges);
         write_stats(sink, &self.stats);
-        for max in [self.max_node, self.max_edge] {
-            match max {
+        for value in [self.max_node, self.max_edge, self.next_node, self.next_edge] {
+            match value {
                 None => sink.bool(false),
                 Some(id) => {
                     sink.bool(true);
@@ -288,6 +297,8 @@ impl SegmentRecord {
         };
         let max_node = r.opt_u32()?;
         let max_edge = r.opt_u32()?;
+        let next_node = r.opt_u32()?;
+        let next_edge = r.opt_u32()?;
         let edge_ids = r.digest()?;
         let content = r.digest()?;
         let cross_out = read_digest_map(&mut r)?;
@@ -301,6 +312,8 @@ impl SegmentRecord {
             stats,
             max_node,
             max_edge,
+            next_node,
+            next_edge,
             edge_ids,
             content,
             cross_out,

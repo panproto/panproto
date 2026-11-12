@@ -1588,7 +1588,7 @@ fn release_carrier_has_no_unstated_scope_expansion() {
         })
     );
     assert_eq!(reference::SEGMENT_FORMAT_VERSION, 1);
-    assert_eq!(reference::SEGMENT_MANIFEST_VERSION, 1);
+    assert_eq!(reference::SEGMENT_MANIFEST_VERSION, 2);
 }
 
 fn manifests_for_schema_header_regression() -> Vec<(

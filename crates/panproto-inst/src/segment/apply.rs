@@ -16,13 +16,14 @@
 //! after the delta, which the facts carry for every element a new ghost or
 //! in-stub names.
 //!
-//! Graph deltas ([`GraphDelta`]) and table deltas ([`TableDelta`]) are
-//! segment deltas. [`apply_segmented`] applies one in memory, and
-//! [`apply_run`] as a checkpointed run of the phase operation
+//! Graph deltas ([`GraphDelta`]), table deltas ([`TableDelta`]) and tree
+//! edits ([`TreeEdit`]) are segment deltas. [`apply_segmented`] applies one
+//! in memory, and [`apply_run`] as a checkpointed run of the phase operation
 //! [`SegmentApply`].
 //!
 //! [`GraphDelta`]: crate::graph_edit::GraphDelta
 //! [`TableDelta`]: crate::table_delta::TableDelta
+//! [`TreeEdit`]: crate::tree_edit::TreeEdit
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -67,8 +68,10 @@ impl From<SegmentError> for SegmentedApplyError {
 /// segments.
 ///
 /// It holds the owner of each node or row id, the seal floor rule of the
-/// edge ids, each segment's largest edge id and the peers of each segment's
-/// crossing edges (or crossing pairs).
+/// edge ids, each segment's largest edge id, the peers of each segment's
+/// crossing edges (or crossing pairs), and, for a tree, the segment holding
+/// the embedding's counters with their values and the segments holding a
+/// fan.
 ///
 /// It is read off a manifest's records ([`FamilyIndex::of_manifest`]) or off
 /// the segments themselves ([`FamilyIndex::of_segments`]), which give the
@@ -77,10 +80,13 @@ impl From<SegmentError> for SegmentedApplyError {
 pub struct FamilyIndex {
     index: OwnerIndex,
     pub(super) floor: EdgeFloor,
+    ranges: Vec<(IdRange, SegmentId)>,
     alloc_edges: Vec<(IdRange, SegmentId)>,
     max_edge: BTreeMap<SegmentId, u32>,
     cross_out: BTreeMap<SegmentId, BTreeSet<SegmentId>>,
     cross_in: BTreeMap<SegmentId, BTreeSet<SegmentId>>,
+    counters: Option<(SegmentId, u32, u32)>,
+    fan_holders: BTreeSet<SegmentId>,
 }
 
 impl FamilyIndex {
@@ -92,13 +98,21 @@ impl FamilyIndex {
             .iter()
             .filter_map(|s| s.alloc_edges.map(|range| (range, s.id)))
             .collect();
+        let ranges = partition
+            .specs()
+            .iter()
+            .flat_map(|s| s.nodes.iter().map(|range| (*range, s.id)))
+            .collect();
         Ok(Self {
             index,
             floor,
+            ranges,
             alloc_edges,
             max_edge: BTreeMap::new(),
             cross_out: BTreeMap::new(),
             cross_in: BTreeMap::new(),
+            counters: None,
+            fan_holders: BTreeSet::new(),
         })
     }
 
@@ -112,6 +126,12 @@ impl FamilyIndex {
         for record in &manifest.segments {
             if let Some(max) = record.max_edge {
                 family.max_edge.insert(record.id, max);
+            }
+            if let (Some(node), Some(edge)) = (record.next_node, record.next_edge) {
+                family.counters.get_or_insert((record.id, node, edge));
+            }
+            if record.stats.fans > 0 {
+                family.fan_holders.insert(record.id);
             }
             family
                 .cross_out
@@ -137,6 +157,14 @@ impl FamilyIndex {
             let id = segment.segment();
             if let Some(max) = segment.max_edge() {
                 family.max_edge.insert(id, max);
+            }
+            if let Some((node, edge)) = segment.counters() {
+                family.counters.get_or_insert((id, node, edge));
+            }
+            if let AnySegment::Tree(tree) = segment
+                && !tree.fans.is_empty()
+            {
+                family.fan_holders.insert(id);
             }
             let boundary = segment.boundary();
             family
@@ -179,6 +207,31 @@ impl FamilyIndex {
         }
     }
 
+    /// Every segment the index describes, in id order.
+    pub(super) fn segments(&self) -> BTreeSet<SegmentId> {
+        self.cross_out.keys().copied().collect()
+    }
+
+    /// The segments whose node ranges meet the ids `lo` to `hi`, inclusive.
+    pub(super) fn owners_between(&self, lo: u32, hi: u32) -> BTreeSet<SegmentId> {
+        self.ranges
+            .iter()
+            .filter(|(range, _)| range.lo <= hi && lo <= range.hi)
+            .map(|(_, segment)| *segment)
+            .collect()
+    }
+
+    /// The tree segment holding the embedding's counters, with the node and
+    /// edge counters it holds.
+    pub(super) const fn counters(&self) -> Option<(SegmentId, u32, u32)> {
+        self.counters
+    }
+
+    /// The tree segments holding at least one fan.
+    pub(super) const fn fan_holders(&self) -> &BTreeSet<SegmentId> {
+        &self.fan_holders
+    }
+
     /// The segments the crossing edges (or pairs) of `segment` enter: the
     /// owners of its ghosts.
     pub(super) fn peers_out(&self, segment: SegmentId) -> impl Iterator<Item = SegmentId> + '_ {
@@ -203,6 +256,7 @@ mod sealed {
     pub trait Sealed {}
     impl Sealed for crate::graph_edit::GraphDelta {}
     impl Sealed for crate::table_delta::TableDelta {}
+    impl Sealed for crate::tree_edit::TreeEdit {}
 }
 
 /// A delta that a family of segments applies segment by segment, reading
@@ -211,11 +265,12 @@ mod sealed {
 /// The facts a segment reports, and the refusal and rewriting computed from
 /// them, are exchanged as canonical bytes, the form a checkpointed run
 /// commits them in. The trait is sealed: it is implemented by
-/// [`GraphDelta`] and [`TableDelta`], whose implementations carry the proofs
-/// of the segmented edit laws.
+/// [`GraphDelta`], [`TableDelta`] and [`TreeEdit`], whose implementations
+/// carry the proofs of the segmented edit laws.
 ///
 /// [`GraphDelta`]: crate::graph_edit::GraphDelta
 /// [`TableDelta`]: crate::table_delta::TableDelta
+/// [`TreeEdit`]: crate::tree_edit::TreeEdit
 pub trait SegmentDelta: sealed::Sealed {
     /// The segments of the instances the delta applies to.
     type Segment: Clone;
@@ -284,25 +339,30 @@ pub trait SegmentDelta: sealed::Sealed {
 /// coordinator runs the whole-state checks on them, and each of those
 /// segments is rewritten; every other segment is returned unchanged.
 /// Gluing the output under `partition` gives whole-state application
-/// ([`GraphDelta::apply`], [`TableDelta::apply`]) of the glued input, and
-/// the output is the split of that instance under `partition`
-/// ([`partition_graph`], [`partition_table`]).
+/// ([`GraphDelta::apply`], [`TableDelta::apply`],
+/// [`TreeEmbedding::follow_edit`]) of the glued input, and the output is the
+/// split of that instance under `partition` ([`partition_graph`],
+/// [`partition_table`], [`partition_tree`]).
 ///
 /// [`verify_partition`]: super::verify_partition
 /// [`GraphDelta::apply`]: crate::graph_edit::GraphDelta::apply
 /// [`TableDelta::apply`]: crate::table_delta::TableDelta::apply
+/// [`TreeEmbedding::follow_edit`]: crate::ginstance::TreeEmbedding::follow_edit
 /// [`partition_graph`]: super::partition_graph
 /// [`partition_table`]: super::partition_table
+/// [`partition_tree`]: super::partition_tree
 ///
 /// # Errors
 ///
 /// [`SegmentedApplyError::Segment`] with the error of `verify_partition`;
 /// then the refusal of [`SegmentDelta::check_facts`]: the whole-state refusal as
 /// [`SegmentedApplyError::Edit`], then [`SegmentedApplyError::Segment`] with
-/// [`SegmentError::Unowned`] for the least added node or row no range owns,
-/// and, for a graph, with the seal floor rule's refusal
-/// ([`EdgeFloor::check`]) for the least added edge id it refuses for the
-/// owner of the edge's source.
+/// the refusal of laying the edited instance out: for a tree, the
+/// [`SegmentError::NotEmbedded`] the split returns; [`SegmentError::Unowned`]
+/// for the least added node or row no range owns (for a tree, then for the
+/// first fan in fan order whose fan node no range owns); and, for a graph
+/// or a tree, the seal floor rule's refusal ([`EdgeFloor::check`]) for the
+/// least edge id it refuses for the segment holding it.
 pub fn apply_segmented<D: SegmentDelta>(
     delta: &D,
     segments: &[D::Segment],

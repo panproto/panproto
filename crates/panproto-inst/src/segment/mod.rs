@@ -27,9 +27,10 @@
 //!   graph extend engine segment by segment under the source's partition,
 //!   and its checkpointed run ([`graph_extend_run`]);
 //! - segmented edits ([`apply_segmented`]), which apply a
-//!   [`GraphDelta`](crate::graph_edit::GraphDelta) or a
-//!   [`TableDelta`](crate::table_delta::TableDelta) reading only the
-//!   segments it can change ([`FamilyIndex::read_set`]), and their
+//!   [`GraphDelta`](crate::graph_edit::GraphDelta), a
+//!   [`TableDelta`](crate::table_delta::TableDelta) or a
+//!   [`TreeEdit`](crate::tree_edit::TreeEdit) reading only the segments it
+//!   can change ([`FamilyIndex::read_set`]), and their
 //!   checkpointed run ([`apply_run`]), with [`FreshIds`] for the ids a delta
 //!   adds;
 //! - the typed failure [`SegmentError`] and the [`Residual`] of an operation
@@ -56,6 +57,7 @@ mod stream;
 mod table_apply;
 #[cfg(test)]
 mod tests;
+mod tree_apply;
 mod tree_bytes;
 mod validate;
 
@@ -104,6 +106,7 @@ pub use stream::{
     record_stream,
 };
 pub use table_apply::TABLE_APPLY_OP;
+pub use tree_apply::TREE_APPLY_OP;
 pub use tree_bytes::{
     FanRecord, canonical_winstance_bytes, winstance_digest, write_arc_record, write_winstance,
     write_winstance_header,

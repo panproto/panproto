@@ -35,7 +35,7 @@ pub mod segment {
     /// Table-complement segment version carrying source-cell absence.
     pub const TABLE_COMPLEMENT_SEGMENT_FORMAT_VERSION: u16 = 2;
     /// Manifest wire-format version.
-    pub const SEGMENT_MANIFEST_VERSION: u16 = 1;
+    pub const SEGMENT_MANIFEST_VERSION: u16 = 2;
     /// The number of edge ids in the complete `u32` domain.
     pub const VALIDATION_VIEW_EDGE_CAPACITY: u64 = u32::MAX as u64 + 1;
 
@@ -4491,6 +4491,15 @@ pub mod segment {
         Ok(u64::try_from(bytes.bytes.len()).unwrap_or(u64::MAX))
     }
 
+    /// The tree embedding's counters a segment holds: those of the tree
+    /// segment owning the root.
+    fn segment_counters(segment: &AnySegment) -> Option<(u32, u32)> {
+        match segment {
+            AnySegment::Tree(tree) => tree.next_node.zip(tree.next_edge),
+            AnySegment::Graph(_) | AnySegment::Table(_) => None,
+        }
+    }
+
     fn segment_summary(
         segment: &AnySegment,
         p: &Partition,
@@ -4534,6 +4543,11 @@ pub mod segment {
         pub max_node: Option<u32>,
         /// Largest edge id.
         pub max_edge: Option<u32>,
+        /// The tree embedding's node counter, in the record of the tree
+        /// segment holding it.
+        pub next_node: Option<u32>,
+        /// The tree embedding's edge counter, beside `next_node`.
+        pub next_edge: Option<u32>,
         /// Sorted edge-id-run digest.
         pub edge_ids: Digest,
         /// Content digest.
@@ -4623,6 +4637,8 @@ pub mod segment {
         write_stats(&mut w, record.stats);
         write_opt_u32(&mut w, record.max_node);
         write_opt_u32(&mut w, record.max_edge);
+        write_opt_u32(&mut w, record.next_node);
+        write_opt_u32(&mut w, record.next_edge);
         w.digest(record.edge_ids);
         w.digest(record.content);
         write_digest_map(&mut w, &record.cross_out);
@@ -4718,6 +4734,8 @@ pub mod segment {
             stats: read_stats(reader)?,
             max_node: read_opt_u32(reader).ok()?,
             max_edge: read_opt_u32(reader).ok()?,
+            next_node: read_opt_u32(reader).ok()?,
+            next_edge: read_opt_u32(reader).ok()?,
             edge_ids: read_digest(reader)?,
             content: read_digest(reader)?,
             cross_out: read_digest_map(reader)?,
@@ -5380,6 +5398,8 @@ pub mod segment {
                 stats: summary.stats,
                 max_node: summary.max_node,
                 max_edge: summary.max_edge,
+                next_node: segment_counters(segment).map(|(node, _)| node),
+                next_edge: segment_counters(segment).map(|(_, edge)| edge),
                 edge_ids: Digest::derive(SEGMENT_EDGE_IDS_CONTEXT, &id_bytes.0),
                 content: Digest::derive(SEGMENT_CONTEXT, &bytes),
                 cross_out: cross_out[index(segment.segment())].clone(),
@@ -5534,6 +5554,7 @@ pub mod segment {
         if summary.stats != record.stats
             || summary.max_node != record.max_node
             || summary.max_edge != record.max_edge
+            || segment_counters(segment).unzip() != (record.next_node, record.next_edge)
         {
             return Err(SegmentError::DigestMismatch {
                 segment: Some(segment.segment()),
@@ -8803,6 +8824,9 @@ pub mod segment {
     /// Operation bytes of table delta application in a run identity.
     pub const TABLE_APPLY_OP: &[u8] = b"table apply";
 
+    /// Operation bytes of tree edit application in a run identity.
+    pub const TREE_APPLY_OP: &[u8] = b"tree apply";
+
     /// Inputs naming a reference run of segmented delta application.
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub struct ApplyRunSpec {
@@ -9165,6 +9189,167 @@ pub mod segment {
         Ok(w.0)
     }
 
+    /// Definition: the Summarize artifact of a segmented tree apply, the
+    /// facts of `segment` about `edit`.
+    ///
+    /// The named nodes are the nodes the edit's steps name (an insertion's
+    /// parent and child, a fan's endpoints, the node a step deletes,
+    /// contracts, relabels or sets a field of), or every node when a step
+    /// moves a subtree or joins features; the deleted hyper-edges are those
+    /// of its `DeleteFan` steps. The artifact lists, each part counted and
+    /// ascending: as node records, the segment's tree nodes (not fan nodes)
+    /// that are named; as edge id, parent, child and label, its tree arcs
+    /// with a named endpoint; as fan node, hyper-edge, parent edge id,
+    /// parent and the children (label, edge id, target, in label order), its
+    /// fans whose fan node, parent or a child is named or whose hyper-edge
+    /// is deleted; as node id and anchor, the anchor the segment holds (its
+    /// own node's or its ghost's) of every endpoint of those arcs and fans
+    /// that is not a listed node. Then the root, the node counter and the
+    /// edge counter the segment holds, each with a presence byte.
+    ///
+    /// # Errors
+    ///
+    /// A decode error for a node outside the canonical value domain.
+    pub fn tree_apply_facts_bytes(
+        segment: &TreeSegment,
+        edit: &crate::edit::TreeEdit,
+    ) -> Result<Vec<u8>, SegmentError> {
+        use crate::edit::TreeEdit;
+        let mut named: BTreeSet<u32> = BTreeSet::new();
+        let mut hypers: BTreeSet<&str> = BTreeSet::new();
+        let mut every = false;
+        for step in edit.steps() {
+            match step {
+                TreeEdit::InsertNode {
+                    parent, child_id, ..
+                } => {
+                    named.insert(*parent);
+                    named.insert(*child_id);
+                }
+                TreeEdit::DeleteNode { id }
+                | TreeEdit::ContractNode { id }
+                | TreeEdit::RelabelNode { id, .. } => {
+                    named.insert(*id);
+                }
+                TreeEdit::SetField { node_id, .. } | TreeEdit::RemoveField { node_id, .. } => {
+                    named.insert(*node_id);
+                }
+                TreeEdit::InsertFan { fan } => {
+                    named.insert(fan.parent);
+                    named.extend(fan.children.values().copied());
+                }
+                TreeEdit::DeleteFan { hyper_edge } => {
+                    hypers.insert(hyper_edge.as_str());
+                }
+                TreeEdit::MoveSubtree { .. } | TreeEdit::JoinFeatures { .. } => every = true,
+                TreeEdit::Identity | TreeEdit::Sequence(_) => {}
+            }
+        }
+        let is_named = |node: u32| every || named.contains(&node);
+        let fan_nodes: BTreeSet<u32> = segment.fans.iter().map(|fan| fan.node).collect();
+        let fan_edges: BTreeSet<u32> = segment
+            .fans
+            .iter()
+            .flat_map(|fan| {
+                std::iter::once(fan.parent_edge).chain(fan.child_edges.values().copied())
+            })
+            .collect();
+        let target = |edge: u32| segment.arcs.get(&edge).map(|(_, tgt, _)| *tgt);
+        let mut w = Canonical::default();
+        let nodes: Vec<&Node> = segment
+            .nodes
+            .values()
+            .filter(|node| !fan_nodes.contains(&node.id) && is_named(node.id))
+            .collect();
+        w.len(nodes.len());
+        for node in &nodes {
+            let mut body = Writer::default();
+            write_node(&mut body, node)
+                .ok_or_else(|| decode_error(ArtifactKind::Summary, "noncanonical tree node"))?;
+            w.0.extend(body.bytes);
+        }
+        let listed: BTreeSet<u32> = nodes.iter().map(|node| node.id).collect();
+        let mut ends: BTreeSet<u32> = BTreeSet::new();
+        let arcs: Vec<(&u32, &(u32, u32, SEdge))> = segment
+            .arcs
+            .iter()
+            .filter(|(id, (parent, child, _))| {
+                !fan_edges.contains(*id) && (is_named(*parent) || is_named(*child))
+            })
+            .collect();
+        w.len(arcs.len());
+        for (id, (parent, child, label)) in arcs {
+            w.u32(*id);
+            w.u32(*parent);
+            w.u32(*child);
+            write_edge(&mut w, label);
+            ends.extend([*parent, *child]);
+        }
+        let mut fans = Canonical::default();
+        let mut count = 0;
+        for fan in &segment.fans {
+            let hyper = segment
+                .nodes
+                .get(&fan.node)
+                .map(|node| node.anchor.clone())
+                .unwrap_or_default();
+            let Some(parent) = target(fan.parent_edge) else {
+                continue;
+            };
+            let children: Vec<(&Name, u32, u32)> = fan
+                .child_edges
+                .iter()
+                .filter_map(|(label, edge)| target(*edge).map(|child| (label, *edge, child)))
+                .collect();
+            let meets = is_named(fan.node)
+                || is_named(parent)
+                || children.iter().any(|(_, _, child)| is_named(*child))
+                || hypers.contains(hyper.as_str());
+            if !meets {
+                continue;
+            }
+            count += 1;
+            fans.u32(fan.node);
+            fans.string(&hyper);
+            fans.u32(fan.parent_edge);
+            fans.u32(parent);
+            fans.len(children.len());
+            ends.insert(parent);
+            for (label, edge, child) in children {
+                fans.string(label);
+                fans.u32(edge);
+                fans.u32(child);
+                ends.insert(child);
+            }
+        }
+        w.len(count);
+        w.0.extend(fans.0);
+        let anchors: Vec<(u32, &Name)> = ends
+            .into_iter()
+            .filter(|end| !listed.contains(end))
+            .filter_map(|end| {
+                segment
+                    .nodes
+                    .get(&end)
+                    .map(|node| &node.anchor)
+                    .or_else(|| segment.boundary.ghosts.get(&end).map(|ghost| &ghost.anchor))
+                    .map(|anchor| (end, anchor))
+            })
+            .collect();
+        w.len(anchors.len());
+        for (end, anchor) in anchors {
+            w.u32(end);
+            w.string(anchor);
+        }
+        for value in [segment.root, segment.next_node, segment.next_edge] {
+            w.bool(value.is_some());
+            if let Some(value) = value {
+                w.u32(value);
+            }
+        }
+        Ok(w.0)
+    }
+
     /// The shape-independent parts of a reference apply run: the input
     /// family, the read set from the sealed records, the delta's digest and
     /// operation bytes, each read segment's facts, and the in-memory
@@ -9284,6 +9469,56 @@ pub mod segment {
                     .into_iter()
                     .filter_map(|segment| match segment {
                         AnySegment::Table(segment) => Some(segment),
+                        _ => None,
+                    })
+                    .collect()
+            }),
+            manifest: run.manifest,
+            report: run.report,
+        }
+    }
+
+    /// Definition: the checkpointed run of segmented tree edit
+    /// application.
+    ///
+    /// It is the run of [`segmented_apply_with_progress`] with the tree
+    /// definitions in place of the graph ones: the read set of
+    /// [`super::segmented_apply::tree_read_set`], the edit's digest
+    /// ([`crate::edit::tree_edit_digest`]) and [`TREE_APPLY_OP`] in the run
+    /// identity, the facts of [`tree_apply_facts_bytes`] at Summarize, and
+    /// the refusal and output of
+    /// [`super::segmented_apply::apply_tree_segmented`].
+    pub fn segmented_tree_apply_with_progress<S: SegmentStore>(
+        edit: &crate::edit::TreeEdit,
+        segments: &[TreeSegment],
+        p: &Partition,
+        spec: &ApplyRunSpec,
+        budget: Budget,
+        store: &mut S,
+        progress: &mut dyn FnMut(&Progress),
+    ) -> ApplyRun<TreeSegment, crate::edit::TreeApplyError> {
+        let whole = super::segmented_apply::apply_tree_segmented(edit, segments, p)
+            .map(|output| output.into_iter().map(AnySegment::Tree).collect());
+        let parts = ApplyRunParts {
+            segments: segments.iter().cloned().map(AnySegment::Tree).collect(),
+            read_set: &|records| super::segmented_apply::tree_read_set(edit, records, p),
+            lens: Digest(crate::edit::tree_edit_digest(edit).unwrap_or_default()),
+            op: TREE_APPLY_OP,
+            facts: &|segment| match segment {
+                AnySegment::Tree(segment) => tree_apply_facts_bytes(segment, edit),
+                _ => Err(decode_error(ArtifactKind::Segment, "not a tree segment")),
+            },
+            whole,
+        };
+        let run = apply_with_progress(parts, p, spec, budget, store, progress);
+        ApplyRun {
+            run: run.run,
+            read: run.read,
+            output: run.output.map(|output| {
+                output
+                    .into_iter()
+                    .filter_map(|segment| match segment {
+                        AnySegment::Tree(segment) => Some(segment),
                         _ => None,
                     })
                     .collect()
@@ -10248,12 +10483,12 @@ pub mod segmented_apply {
 
     use super::segment::{
         AnySegment, Digest, GraphSegment, ManifestRole, Partition, SegmentError, SegmentId,
-        SegmentRecord, TableSegment, assemble_graph, assemble_table, partition_graph,
-        partition_table, seal_manifest,
+        SegmentRecord, TableSegment, TreeSegment, assemble_graph, assemble_table, assemble_tree,
+        partition_graph, partition_table, partition_tree, seal_manifest,
     };
     use crate::edit::{
         ApplyError, AttrKey, GElem, GPayload, GraphDelta, TElem, TKey, TableApplyError, TableDelta,
-        apply, apply_table,
+        TreeApplyError, TreeEdit, apply, apply_table, apply_tree,
     };
 
     /// Why a segmented delta application returns no output, with `E` the
@@ -10316,6 +10551,169 @@ pub mod segmented_apply {
         seal_manifest(&any, p, Digest::default(), ManifestRole::Source, None)
             .map_err(SegmentedApplyRefusal::Segment)?;
         Ok(split)
+    }
+
+    /// Definition: segmented tree edit application.
+    ///
+    /// Glue `segments` under `p` into a tree and its embedding and refuse an
+    /// invalid family with the glue refusal; apply `edit` to the glued tree
+    /// from that embedding with [`apply_tree`] and refuse with its refusal;
+    /// split the edited tree under the embedding the edit reaches with
+    /// [`partition_tree`] and refuse with its refusal; seal the split as a
+    /// source and refuse with the seal's refusal; otherwise return the
+    /// split.
+    ///
+    /// # Errors
+    ///
+    /// As stated above.
+    pub fn apply_tree_segmented(
+        edit: &TreeEdit,
+        segments: &[TreeSegment],
+        p: &Partition,
+    ) -> Result<Vec<TreeSegment>, SegmentedApplyRefusal<TreeApplyError>> {
+        let (tree, mut embedding) =
+            assemble_tree(segments, p).map_err(SegmentedApplyRefusal::Segment)?;
+        let edited =
+            apply_tree(edit, &tree, &mut embedding).map_err(SegmentedApplyRefusal::Edit)?;
+        let split =
+            partition_tree(&edited, &embedding, p).map_err(SegmentedApplyRefusal::Segment)?;
+        let any: Vec<AnySegment> = split.iter().cloned().map(AnySegment::Tree).collect();
+        seal_manifest(&any, p, Digest::default(), ManifestRole::Source, None)
+            .map_err(SegmentedApplyRefusal::Segment)?;
+        Ok(split)
+    }
+
+    /// Definition: the segments a segmented apply of the tree edit `edit`
+    /// reads, from the records of the family's manifest under `p`.
+    ///
+    /// Every record when a step moves a subtree or joins features. Otherwise,
+    /// with the peers of a record the segments its cross maps list (in
+    /// either direction) and its target peers those its outgoing cross map
+    /// lists, the union over the steps of: for `SetField` and `RemoveField`,
+    /// the node's owner; for `RelabelNode`, the owner and its peers; for
+    /// `DeleteNode` and `ContractNode`, the owner, its peers and the target
+    /// peers of the owner and of every record listing it as a target peer;
+    /// for `InsertNode`, the parent's owner, the child's owner and its target
+    /// peers; for `InsertFan`, the owners of the fan's endpoints; for
+    /// `DeleteFan`, every record counting a fan and its target peers; for
+    /// `ContractNode`, `InsertNode` and `InsertFan`, also the record holding
+    /// the embedding's counters. Then the owners of every node id the
+    /// counter may hand out: the node counter, starting at the counters'
+    /// record's, is tracked as an interval; an insertion of child `c` raises
+    /// both ends to at least `c + 1` and, when `c` lies below the upper end,
+    /// may hand out an id of the interval (a relocated fan node) and widens
+    /// it by one; a fan insertion hands out an id of the interval and shifts
+    /// it by one. A node no range owns adds nothing.
+    #[must_use]
+    pub fn tree_read_set(
+        edit: &TreeEdit,
+        records: &[SegmentRecord],
+        p: &Partition,
+    ) -> BTreeSet<SegmentId> {
+        let every = edit.steps().into_iter().any(|step| {
+            matches!(
+                step,
+                TreeEdit::MoveSubtree { .. } | TreeEdit::JoinFeatures { .. }
+            )
+        });
+        if every {
+            return records.iter().map(|record| record.id).collect();
+        }
+        let record = |id: SegmentId| records.iter().find(|record| record.id == id);
+        let targets = |id: SegmentId| -> Vec<SegmentId> {
+            record(id).map_or_else(Vec::new, |r| r.cross_out.keys().copied().collect())
+        };
+        let sources = |id: SegmentId| -> Vec<SegmentId> {
+            record(id).map_or_else(Vec::new, |r| r.cross_in.keys().copied().collect())
+        };
+        let counters = records
+            .iter()
+            .find_map(|r| r.next_node.zip(r.next_edge).map(|(node, _)| (r.id, node)));
+        let mut read = BTreeSet::new();
+        let mut low_high: Option<(u64, u64)> =
+            counters.map(|(_, node)| (u64::from(node), u64::from(node)));
+        let mut handed: Vec<(u64, u64)> = Vec::new();
+        for step in edit.steps() {
+            match step {
+                TreeEdit::SetField { node_id, .. } | TreeEdit::RemoveField { node_id, .. } => {
+                    read.extend(p.owner_of_node(*node_id));
+                }
+                TreeEdit::RelabelNode { id, .. } => {
+                    if let Some(owner) = p.owner_of_node(*id) {
+                        read.insert(owner);
+                        read.extend(targets(owner));
+                        read.extend(sources(owner));
+                    }
+                }
+                TreeEdit::DeleteNode { id } | TreeEdit::ContractNode { id } => {
+                    if let Some(owner) = p.owner_of_node(*id) {
+                        let mut holders = sources(owner);
+                        holders.push(owner);
+                        for holder in holders {
+                            read.insert(holder);
+                            read.extend(targets(holder));
+                        }
+                    }
+                    if matches!(step, TreeEdit::ContractNode { .. }) {
+                        read.extend(counters.map(|(segment, _)| segment));
+                    }
+                }
+                TreeEdit::InsertNode {
+                    parent, child_id, ..
+                } => {
+                    read.extend(p.owner_of_node(*parent));
+                    if let Some(owner) = p.owner_of_node(*child_id) {
+                        read.insert(owner);
+                        read.extend(targets(owner));
+                    }
+                    read.extend(counters.map(|(segment, _)| segment));
+                    if let Some((low, high)) = low_high {
+                        let floor = (u64::from(*child_id) + 1).min(u64::from(u32::MAX));
+                        let (low, high) = (low.max(floor), high.max(floor));
+                        if u64::from(*child_id) < high {
+                            handed.push((low, high));
+                            low_high = Some((low, (high + 1).min(u64::from(u32::MAX))));
+                        } else {
+                            low_high = Some((low, high));
+                        }
+                    }
+                }
+                TreeEdit::InsertFan { fan } => {
+                    read.extend(p.owner_of_node(fan.parent));
+                    for child in fan.children.values() {
+                        read.extend(p.owner_of_node(*child));
+                    }
+                    read.extend(counters.map(|(segment, _)| segment));
+                    if let Some((low, high)) = low_high {
+                        handed.push((low, high));
+                        let cap = u64::from(u32::MAX);
+                        low_high = Some(((low + 1).min(cap), (high + 1).min(cap)));
+                    }
+                }
+                TreeEdit::DeleteFan { .. } => {
+                    for r in records.iter().filter(|r| r.stats.fans > 0) {
+                        read.insert(r.id);
+                        read.extend(r.cross_out.keys().copied());
+                    }
+                }
+                TreeEdit::MoveSubtree { .. }
+                | TreeEdit::JoinFeatures { .. }
+                | TreeEdit::Identity
+                | TreeEdit::Sequence(_) => {}
+            }
+        }
+        for (low, high) in handed {
+            for spec in &p.specs {
+                if spec
+                    .nodes
+                    .iter()
+                    .any(|range| u64::from(range.lo) <= high && low <= u64::from(range.hi))
+                {
+                    read.insert(spec.id);
+                }
+            }
+        }
+        read
     }
 
     /// Definition: the segments a segmented apply of the table delta
