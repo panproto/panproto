@@ -6346,6 +6346,84 @@
         }
       ]
     },
+    "postgresql-data": {
+      "reference_files": [
+        "crates/panproto-reference/src/pages/postgresql_data.rs",
+        "crates/panproto-reference/src/enumerate/postgresql_data.rs"
+      ],
+      "laws": [
+        {
+          "id": "postgresql-data.values",
+          "anchor": "L-postgresql-data-1",
+          "references": [
+            "panproto_reference::pages::postgresql_data::input_value"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_postgresql_data",
+              "test": "input_texts_read_as_the_reference_on_every_bounded_case"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::postgresql_data",
+              "test": "input_forms_read_as_the_type_documentation_gives_them"
+            }
+          ]
+        },
+        {
+          "id": "postgresql-data.rows",
+          "anchor": "L-postgresql-data-2",
+          "references": [
+            "panproto_reference::pages::postgresql_data::render",
+            "panproto_reference::pages::postgresql_data::read_script"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_postgresql_data",
+              "test": "rows_match_the_reference_on_every_bounded_script"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_postgresql_data",
+              "test": "randomized_scripts_read_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::postgresql_data",
+              "test": "an_insert_adds_rows_as_the_insert_page_defines_them"
+            }
+          ]
+        },
+        {
+          "id": "postgresql-data.canonical-text",
+          "anchor": "L-postgresql-data-3",
+          "references": [
+            "panproto_reference::pages::postgresql_data::canonical_text"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_postgresql_data",
+              "test": "canonical_text_matches_the_reference_on_every_bounded_script"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::postgresql_data",
+              "test": "the_scopes_have_their_closed_form_counts"
+            }
+          ]
+        }
+      ]
+    },
     "postgresql-ddl": {
       "reference_files": [
         "crates/panproto-reference/src/pages/postgresql_ddl.rs",

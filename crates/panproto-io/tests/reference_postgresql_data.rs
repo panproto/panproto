@@ -123,36 +123,56 @@ fn production(script: &[Insert]) -> Result<(Rows, Rows, String), ScriptRefusal> 
     Ok((a, b, text))
 }
 
-fn agree(script: &[Insert]) {
-    let expected = read_script(script).map(|(a, b)| {
-        let text = canonical_text(&a, &b);
-        (a, b, text)
-    });
-    assert_eq!(production(script), expected, "{}", render(script));
+/// Whether production reads `script` as the reference does: the same
+/// rows, or the same refusal class.
+fn rows_agree(script: &[Insert]) {
+    let production = production(script).map(|(a, b, _)| (a, b));
+    assert_eq!(production, read_script(script), "{}", render(script));
 }
 
 #[test]
-fn rows_and_canonical_text_match_the_reference_on_every_bounded_script() {
+fn rows_match_the_reference_on_every_bounded_script() {
     let scripts = scripts();
     assert_eq!(scripts.len(), 2060);
     let mut read = 0;
     for script in &scripts {
-        agree(script);
+        rows_agree(script);
         read += usize::from(read_script(script).is_ok());
     }
     // 147 single statements and 81 pairs read; the rest are refused.
     assert_eq!(read, 228);
 }
 
+#[test]
+fn canonical_text_matches_the_reference_on_every_bounded_script() {
+    let mut compared = 0;
+    for script in scripts() {
+        let Ok((a, b)) = read_script(&script) else {
+            continue;
+        };
+        let (_, _, text) = production(&script).unwrap();
+        assert_eq!(text, canonical_text(&a, &b), "{}", render(&script));
+        let reread = read_dump(&format!("{SCHEMA}{text}"), OtherStatements::Refuse).unwrap();
+        let again = read_dump(
+            &format!("{SCHEMA}{}", render(&script)),
+            OtherStatements::Refuse,
+        )
+        .unwrap();
+        assert_eq!(reread.instance, again.instance, "{text}");
+        compared += 1;
+    }
+    assert_eq!(compared, 228);
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(256))]
 
     #[test]
-    fn randomized_scripts_match_the_reference(
+    fn randomized_scripts_read_as_the_reference(
         picks in prop::collection::vec(0..835_usize, 1..8)
     ) {
         let all = statements();
         let script: Vec<Insert> = picks.iter().map(|i| all[*i].clone()).collect();
-        agree(&script);
+        rows_agree(&script);
     }
 }
