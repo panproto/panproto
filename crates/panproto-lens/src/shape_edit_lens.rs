@@ -81,8 +81,7 @@ pub enum ShapeEditError {
     #[error("segment refusal: {0}")]
     Segment(#[source] SegmentError),
     /// A segmented run is declined within its budget or locality; a lens
-    /// whose restriction carries an expression is
-    /// [`Residual::Global`](panproto_inst::segment::Residual::Global).
+    /// whose restriction carries an expression is [`Residual::Global`].
     #[error("declined: {0}")]
     Residual(Residual),
     /// A segmented run stopped before it sealed, by a store or source

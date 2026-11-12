@@ -73,6 +73,7 @@
 //! | Allocation within a range | [`segment::fresh`] | `segments.md` |
 //! | Segmented graph restriction, by whole-state restriction of the glued graph | [`segment::restrict_graph_segmented`] | `segments.md` |
 //! | Segmented graph restriction numbering stably against held complements | [`segment::restrict_graph_segmented_held`] | `segments.md` |
+//! | The segmented graph edit lens, by application to the glued source, stable segmented restriction and the differ of the glued views | [`segment::bind_segmented_edit`], [`segment::segmented_edit_get`], [`segment::segmented_edit_put`] | `segments.md` |
 //! | The checkpointed run of segmented graph restriction, resumed or carrying tasks over from an earlier run | [`segment::segmented_restrict_with_progress`] | `segments.md` |
 //! | Record streams of segments, by frames of the canonical instance records | [`segment::segment_record_stream`] | `segments.md` |
 //! | Manifest record bytes | [`segment::canonical_record_bytes`] | `segments.md` |

@@ -5569,6 +5569,41 @@
               "test": "segmented_randomized::a_checkpointed_restriction_holding_complements_matches_the_reference_runner_on_generated_graph_pairs"
             }
           ]
+        },
+        {
+          "id": "segments.segmented-graph-edit-lens",
+          "anchor": "L-segments-31",
+          "references": [
+            "panproto_reference::segment::bind_segmented_edit",
+            "panproto_reference::segment::segmented_edit_get",
+            "panproto_reference::segment::segmented_edit_put"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "segmented_graph_edit_lens::segmented_graph_edit_lens_agrees_with_the_reference_and_the_whole_state_lens_on_every_97th_case"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "segmented_graph_edit_lens::segmented_graph_edit_lens_puts_view_edits_as_the_reference_on_every_97th_case"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "segmented_graph_edit_lens::segmented_graph_edit_lens_agrees_with_the_reference_on_generated_words"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "segmented_graph_edit_lens::segmented_graph_edit_lens_puts_view_edits_as_the_reference_on_generated_cases"
+            }
+          ]
         }
       ]
     },
