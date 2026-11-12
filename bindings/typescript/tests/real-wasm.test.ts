@@ -970,11 +970,11 @@ describe('protocol resolution', () => {
     expect(atp.hasCausal).toBe(false);
     expect(atp.nominalIdentity).toBe(false);
 
-    // SQL sets `nominal_identity` but no coproducts: a spec that copied
+    // PostgreSQL sets `nominal_identity` but no coproducts: a spec that copied
     // ATProto's flags, or dropped them all, fails here.
-    const sql = pp.protocol('sql').spec;
-    expect(sql.nominalIdentity).toBe(true);
-    expect(sql.hasCoproducts).toBe(false);
+    const postgresql = pp.protocol('postgresql').spec;
+    expect(postgresql.nominalIdentity).toBe(true);
+    expect(postgresql.hasCoproducts).toBe(false);
   });
 
   it('resolves every built-in protocol to exactly what the registry holds', () => {
@@ -1016,7 +1016,7 @@ describe('protocol resolution', () => {
   });
 
   it('agrees with the standalone registry accessor', () => {
-    for (const name of ['atproto', 'sql', 'protobuf', 'graphql', 'json-schema']) {
+    for (const name of ['atproto', 'postgresql', 'protobuf', 'graphql', 'json-schema']) {
       expect(pp.protocol(name).spec).toEqual(getBuiltinProtocol(name, pp._wasm));
     }
   });
