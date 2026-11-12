@@ -5,6 +5,7 @@
 //! beside it a closed formula for its count, computed independently of the
 //! enumeration, so a test can check the enumeration's size against it.
 
+pub mod ansible;
 pub mod cloudformation;
 pub mod edge_lists;
 pub mod edits;

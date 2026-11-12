@@ -6,10 +6,13 @@
 //! (`tree::read_yaml`) or the shared JSON route (`tree::read_json`). The
 //! `k8s_crd` codec reads custom resources through the YAML route,
 //! `k8s_crd::read_crd` reads a `CustomResourceDefinition` into a schema,
-//! and `cloudformation::read_template` reads a `CloudFormation` template
-//! into one. Without the feature the codecs read the JSON form of a
+//! `cloudformation::read_template` reads a `CloudFormation` template into
+//! one, and `ansible::read_ansible` reads an Ansible playbook, task file or
+//! variables file into one. Without the feature the codecs read the JSON form of a
 //! document only.
 
+#[cfg(feature = "tree-sitter")]
+pub mod ansible;
 #[cfg(feature = "tree-sitter")]
 pub mod cloudformation;
 #[cfg(feature = "tree-sitter")]
@@ -26,7 +29,7 @@ pub fn register_all(registry: &mut ProtocolRegistry) {
     {
         use crate::unified_codec::UnifiedCodec;
         registry.register_optional(UnifiedCodec::json("cloudformation"));
-        registry.register_optional(UnifiedCodec::json("ansible"));
+        registry.register_optional(UnifiedCodec::yaml("ansible"));
         registry.register_optional(UnifiedCodec::yaml("k8s_crd"));
     }
     #[cfg(not(feature = "tree-sitter"))]

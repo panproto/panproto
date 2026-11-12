@@ -8,7 +8,9 @@
 //! keeps (a parameter's type, default, allowed values and bounds, a
 //! resource's properties and policies, a mapping, a condition's
 //! definition, an output's value) is kept as its JSON text and not
-//! evaluated by validation, so it describes. A CRD schema node's `format`
+//! evaluated by validation, so it describes. So is every keyword the
+//! `ansible` reader keeps: a module's arguments, a condition, a loop and a
+//! variable's value are kept as written, and no template is evaluated. A CRD schema node's `format`
 //! is a value format of `OpenAPI` v3; every other keyword the CRD reader
 //! keeps (its value validations, CEL rules, list and map types, and the
 //! resource's and versions' fields) is kept as written and not evaluated by
@@ -97,8 +99,97 @@ pub(super) const ROWS: &[ConstraintRow] = &[
     row("cloudformation", "Export", || {
         ConstraintSemantics::Annotation
     }),
-    row("ansible", "required", || ConstraintSemantics::Annotation),
-    row("ansible", "default", || ConstraintSemantics::Annotation),
+    row("ansible", "name", || ConstraintSemantics::Annotation),
+    row("ansible", "connection", || ConstraintSemantics::Annotation),
+    row("ansible", "port", || ConstraintSemantics::Annotation),
+    row("ansible", "remote_user", || ConstraintSemantics::Annotation),
+    row("ansible", "module_defaults", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("ansible", "environment", || ConstraintSemantics::Annotation),
+    row("ansible", "no_log", || ConstraintSemantics::Annotation),
+    row("ansible", "run_once", || ConstraintSemantics::Annotation),
+    row("ansible", "ignore_errors", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("ansible", "ignore_unreachable", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("ansible", "check_mode", || ConstraintSemantics::Annotation),
+    row("ansible", "diff", || ConstraintSemantics::Annotation),
+    row("ansible", "any_errors_fatal", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("ansible", "throttle", || ConstraintSemantics::Annotation),
+    row("ansible", "timeout", || ConstraintSemantics::Annotation),
+    row("ansible", "debugger", || ConstraintSemantics::Annotation),
+    row("ansible", "become", || ConstraintSemantics::Annotation),
+    row("ansible", "become_method", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("ansible", "become_user", || ConstraintSemantics::Annotation),
+    row("ansible", "become_flags", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("ansible", "become_exe", || ConstraintSemantics::Annotation),
+    row("ansible", "tags", || ConstraintSemantics::Annotation),
+    row("ansible", "collections", || ConstraintSemantics::Annotation),
+    row("ansible", "hosts", || ConstraintSemantics::Annotation),
+    row("ansible", "gather_facts", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("ansible", "gather_subset", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("ansible", "gather_timeout", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("ansible", "fact_path", || ConstraintSemantics::Annotation),
+    row("ansible", "vars_files", || ConstraintSemantics::Annotation),
+    row("ansible", "vars_prompt", || ConstraintSemantics::Annotation),
+    row("ansible", "validate_argspec", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("ansible", "force_handlers", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("ansible", "max_fail_percentage", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("ansible", "serial", || ConstraintSemantics::Annotation),
+    row("ansible", "strategy", || ConstraintSemantics::Annotation),
+    row("ansible", "order", || ConstraintSemantics::Annotation),
+    row("ansible", "when", || ConstraintSemantics::Annotation),
+    row("ansible", "notify", || ConstraintSemantics::Annotation),
+    row("ansible", "delegate_to", || ConstraintSemantics::Annotation),
+    row("ansible", "delegate_facts", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("ansible", "args", || ConstraintSemantics::Annotation),
+    row("ansible", "async", || ConstraintSemantics::Annotation),
+    row("ansible", "changed_when", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("ansible", "delay", || ConstraintSemantics::Annotation),
+    row("ansible", "failed_when", || ConstraintSemantics::Annotation),
+    row("ansible", "loop", || ConstraintSemantics::Annotation),
+    row("ansible", "loop_control", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("ansible", "poll", || ConstraintSemantics::Annotation),
+    row("ansible", "register", || ConstraintSemantics::Annotation),
+    row("ansible", "retries", || ConstraintSemantics::Annotation),
+    row("ansible", "until", || ConstraintSemantics::Annotation),
+    row("ansible", "listen", || ConstraintSemantics::Annotation),
+    row("ansible", "module", || ConstraintSemantics::Annotation),
+    row("ansible", "arguments", || ConstraintSemantics::Annotation),
+    row("ansible", "with", || ConstraintSemantics::Annotation),
+    row("ansible", "with_terms", || ConstraintSemantics::Annotation),
+    row("ansible", "role", || ConstraintSemantics::Annotation),
+    row("ansible", "import_playbook", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("ansible", "value", || ConstraintSemantics::Annotation),
     row("k8s-crd", "description", || ConstraintSemantics::Annotation),
     row("k8s-crd", "title", || ConstraintSemantics::Annotation),
     row("k8s-crd", "format", || {
