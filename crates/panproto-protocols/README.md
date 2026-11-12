@@ -26,11 +26,11 @@ let schema = atproto::parse_lexicon(&document)?;
 
 ## Coverage
 
-The crate contains 54 format-specific schema parsers exposed through two generic
+The crate contains 53 format-specific schema parsers exposed through two generic
 dispatch functions. `parse_schema_document` accepts the 43 JSON-document protocols.
-`parse_schema_source` accepts the 11 text-source protocols. The latter group includes
-SQL DDL, GraphQL SDL, Protobuf, CDDL, CQL, Cypher, Redis schema text, ASN.1, Bond,
-FlatBuffers, and CoNLL-U. The `raw_file` module is a separate fallback for project
+`parse_schema_source` accepts the 10 text-source protocols. The latter group includes
+GraphQL SDL, Protobuf, CDDL, CQL, Cypher, Redis schema text, ASN.1, Bond,
+FlatBuffers, and CoNLL-U. PostgreSQL DDL is read by `panproto_io::postgresql::read_ddl`, which parses through the tree-sitter PostgreSQL grammar, and resolved here by `database::postgresql::read_statements`. The `raw_file` module is a separate fallback for project
 assembly.
 
 The protocol modules cover annotation formats, API descriptions, configuration,

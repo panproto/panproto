@@ -13,7 +13,7 @@ The protocol registry lists 59 semantic protocols. Names in this table are the c
 | `config` | `ansible`, `cloudformation`, `k8s-crd` |
 | `data_schema` | `bson`, `cddl`, `json-schema` |
 | `data_science` | `arrow`, `dataframe`, `parquet` |
-| `database` | `cassandra`, `dynamodb`, `mongodb`, `neo4j`, `redis`, `sql` |
+| `database` | `cassandra`, `dynamodb`, `mongodb`, `neo4j`, `redis`, `postgresql` |
 | `domain` | `edi-x12`, `fhir`, `geojson`, `rss-atom`, `swift-mt`, `vcard-ical` |
 | `rdf` | `ntriples` |
 | `serialization` | `asn1`, `avro`, `bond`, `flatbuffers`, `msgpack-schema`, `protobuf` |

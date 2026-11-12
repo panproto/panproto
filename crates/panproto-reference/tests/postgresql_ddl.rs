@@ -1,14 +1,14 @@
-//! Direct witnesses for the sql-ddl reference: column types on the names
+//! Direct witnesses for the postgresql-ddl reference: column types on the names
 //! of `PostgreSQL` 17 Table 8.1, keys and foreign keys on the examples of
 //! the `CREATE TABLE` reference page, and the bounded scopes' closed-form
 //! counts.
 
 #![allow(clippy::expect_used)]
 
-use panproto_reference::enumerate::sql_ddl::{
+use panproto_reference::enumerate::postgresql_ddl::{
     TYPE_BASES, TYPE_SUFFIXES, ddl_scripts, ddl_scripts_count, type_spellings,
 };
-use panproto_reference::pages::sql_ddl::{
+use panproto_reference::pages::postgresql_ddl::{
     Column, ColumnConstraint, ScriptRefusal, Table, TableForeignKey, TableKey, TypeRefusal,
     canonical_text, column_type, read_script, render,
 };

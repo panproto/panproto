@@ -10,7 +10,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use panproto_inst::{RelSchema, RelSchemaError};
-use panproto_protocols::database::sql::Scalar;
+use panproto_protocols::database::postgresql::Scalar;
 use panproto_protocols::registry::descriptor;
 use panproto_protocols::{parse_schema_document, parse_schema_source};
 use panproto_schema::{Edge, Schema};
@@ -172,7 +172,7 @@ fn an_sql_array_column_is_an_attribute() {
             ("tags", Scalar::Text, 1, false),
         ],
     );
-    let rel = classify("sql", &schema).unwrap();
+    let rel = classify("postgresql", &schema).unwrap();
     assert_eq!(tables(&rel), ["post"]);
     assert_eq!(columns(&rel, "post"), ["id", "tags"]);
     assert!(!rel.inner_edges().is_empty(), "{schema:?}");
@@ -320,9 +320,14 @@ fn each_table_protocol_sample_builds_a_rel_schema() {
 /// type with its array dimensions.
 fn sql_table(
     table: &str,
-    columns: &[(&str, panproto_protocols::database::sql::Scalar, usize, bool)],
+    columns: &[(
+        &str,
+        panproto_protocols::database::postgresql::Scalar,
+        usize,
+        bool,
+    )],
 ) -> Schema {
-    use panproto_protocols::database::sql::{
+    use panproto_protocols::database::postgresql::{
         BaseType, ColumnConstraint, ColumnConstraintKind, ColumnDef, Name, OtherStatements,
         Statement, TableElement, TypeSpec, read_statements,
     };

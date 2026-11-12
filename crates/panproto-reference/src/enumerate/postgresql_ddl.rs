@@ -1,6 +1,8 @@
-//! Complete finite scopes for the sql-ddl page.
+//! Complete finite scopes for the postgresql-ddl page.
 
-use crate::pages::sql_ddl::{Column, ColumnConstraint, Script, Table, TableForeignKey, TableKey};
+use crate::pages::postgresql_ddl::{
+    Column, ColumnConstraint, Script, Table, TableForeignKey, TableKey,
+};
 
 /// The type names of the bounded scope: every name and alias of the
 /// types the route reads, with and without modifiers, modifiers out of

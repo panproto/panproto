@@ -1,4 +1,4 @@
-//! Value-kind rows for the `sql` protocol.
+//! Value-kind rows for the `postgresql` protocol.
 //!
 //! The DDL reader gives each `PostgreSQL` type family one vertex kind:
 //! every integer type is `integer`, at the widest width, narrowed by the
@@ -18,7 +18,7 @@ use super::{NonScalarRow, ValueKindRow};
 /// The rows of this family, one per declaration.
 pub(super) const ROWS: &[ValueKindRow] = &[
     ValueKindRow {
-        protocol: "sql",
+        protocol: "postgresql",
         vertex_kind: "integer",
         kind: ScalarKind::Int {
             bits: 64,
@@ -26,72 +26,72 @@ pub(super) const ROWS: &[ValueKindRow] = &[
         },
     },
     ValueKindRow {
-        protocol: "sql",
+        protocol: "postgresql",
         vertex_kind: "number",
         kind: ScalarKind::Decimal,
     },
     ValueKindRow {
-        protocol: "sql",
+        protocol: "postgresql",
         vertex_kind: "real",
         kind: ScalarKind::Float { bits: 32 },
     },
     ValueKindRow {
-        protocol: "sql",
+        protocol: "postgresql",
         vertex_kind: "double",
         kind: ScalarKind::Float { bits: 64 },
     },
     ValueKindRow {
-        protocol: "sql",
+        protocol: "postgresql",
         vertex_kind: "string",
         kind: ScalarKind::Str,
     },
     ValueKindRow {
-        protocol: "sql",
+        protocol: "postgresql",
         vertex_kind: "character",
         kind: ScalarKind::Str,
     },
     ValueKindRow {
-        protocol: "sql",
+        protocol: "postgresql",
         vertex_kind: "boolean",
         kind: ScalarKind::Bool,
     },
     ValueKindRow {
-        protocol: "sql",
+        protocol: "postgresql",
         vertex_kind: "bytes",
         kind: ScalarKind::Bytes(BytesText::Hex),
     },
     ValueKindRow {
-        protocol: "sql",
+        protocol: "postgresql",
         vertex_kind: "date",
         kind: ScalarKind::Date,
     },
     ValueKindRow {
-        protocol: "sql",
+        protocol: "postgresql",
         vertex_kind: "time",
         kind: ScalarKind::Time,
     },
     ValueKindRow {
-        protocol: "sql",
+        protocol: "postgresql",
         vertex_kind: "timestamp",
         kind: ScalarKind::DateTime,
     },
     ValueKindRow {
-        protocol: "sql",
+        protocol: "postgresql",
         vertex_kind: "uuid",
         kind: ScalarKind::Str,
     },
     ValueKindRow {
-        protocol: "sql",
+        protocol: "postgresql",
         vertex_kind: "json",
         kind: ScalarKind::Any,
     },
     ValueKindRow {
-        protocol: "sql",
+        protocol: "postgresql",
         vertex_kind: "jsonb",
         kind: ScalarKind::Any,
     },
     ValueKindRow {
-        protocol: "sql",
+        protocol: "postgresql",
         vertex_kind: "array",
         kind: ScalarKind::Any,
     },
@@ -99,6 +99,6 @@ pub(super) const ROWS: &[ValueKindRow] = &[
 
 /// The vertex kinds of this family that hold no scalar.
 pub(super) const NON_SCALAR: &[NonScalarRow] = &[NonScalarRow {
-    protocol: "sql",
+    protocol: "postgresql",
     vertex_kind: "table",
 }];

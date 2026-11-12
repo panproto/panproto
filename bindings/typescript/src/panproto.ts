@@ -221,7 +221,7 @@ export class Panproto implements Disposable {
    * source is a JSON document (JSON Schema, ATProto lexicons, OpenAPI,
    * Avro `.avsc`, and the rest) can be turned into a {@link BuiltSchema}
    * usable as a lens or migration endpoint. Protocols whose source is a
-   * language rather than a JSON document (SQL, GraphQL, Protobuf, CDDL,
+   * language rather than a JSON document (GraphQL, Protobuf, CDDL,
    * …) are parsed with {@link parseSchemaSource}.
    *
    * Both the canonical hyphenated protocol name and its underscore
@@ -263,12 +263,11 @@ export class Panproto implements Disposable {
    * dispatching on protocol name.
    *
    * The text counterpart to {@link parseSchemaDocument}, for protocols
-   * whose source is a language rather than a JSON document: SQL DDL,
-   * GraphQL SDL, Protocol Buffers `.proto`, CDDL, Cassandra CQL, Cypher,
+   * whose source is a language rather than a JSON document: GraphQL SDL, Protocol Buffers `.proto`, CDDL, Cassandra CQL, Cypher,
    * ASN.1, Bond, FlatBuffers, and CoNLL-U.
    *
    * @param protocol - The protocol the source is written in (e.g.
-   *   `'sql'`, `'graphql'`, `'protobuf'`)
+   *   `'graphql'`, `'protobuf'`)
    * @param source - The schema source text
    * @returns A built schema
    * @throws {@link PanprotoError} if no source parser is registered for

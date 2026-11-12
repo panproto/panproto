@@ -22,7 +22,7 @@ Payloads are CBOR (`ciborium`) except where the file name says `.json`.
 
 | Fixture | Entry point | Bytes | Captured from |
 | --- | --- | --- | --- |
-| `builtin-protocols.cbor` | `Raw.registryListBuiltin()` | 428 | the whole built-in catalogue |
+| `builtin-protocols.cbor` | `Raw.registryListBuiltin()` | 435 | the whole built-in catalogue |
 | `protocol-amr.cbor` | `Raw.registryGetBuiltin(name:)` | 5553 | name `amr` |
 | `protocol-ansible.cbor` | `Raw.registryGetBuiltin(name:)` | 1431 | name `ansible` |
 | `protocol-arrow.cbor` | `Raw.registryGetBuiltin(name:)` | 1980 | name `arrow` |
@@ -71,7 +71,7 @@ Payloads are CBOR (`ciborium`) except where the file name says `.json`.
 | `protocol-raml.cbor` | `Raw.registryGetBuiltin(name:)` | 1631 | name `raml` |
 | `protocol-redis.cbor` | `Raw.registryGetBuiltin(name:)` | 1106 | name `redis` |
 | `protocol-rss-atom.cbor` | `Raw.registryGetBuiltin(name:)` | 1484 | name `rss-atom` |
-| `protocol-sql.cbor` | `Raw.registryGetBuiltin(name:)` | 1762 | name `sql` |
+| `protocol-postgresql.cbor` | `Raw.registryGetBuiltin(name:)` | 1797 | name `postgresql` |
 | `protocol-swift-mt.cbor` | `Raw.registryGetBuiltin(name:)` | 1241 | name `swift-mt` |
 | `protocol-tei.cbor` | `Raw.registryGetBuiltin(name:)` | 2519 | name `tei` |
 | `protocol-timeml.cbor` | `Raw.registryGetBuiltin(name:)` | 2181 | name `timeml` |

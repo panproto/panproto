@@ -99,7 +99,7 @@ const ZERO_74: &[(&str, Group)] = &[
     ("raml", Group::A),
     ("redis", Group::C),
     ("rss-atom", Group::A),
-    ("sql", Group::B),
+    ("postgresql", Group::B),
     ("swift-mt", Group::B),
     ("tei", Group::E),
     ("timeml", Group::A),
@@ -392,7 +392,7 @@ fn a_protocol_carries_its_recipes_without_earlier_registration() {
         return;
     }
     assert!(
-        registered_recipe("ThSQLSchema").is_none(),
+        registered_recipe("ThPostgreSQLSchema").is_none(),
         "the process registered theories before building a protocol"
     );
     // Build every protocol before registering anything explicitly.
@@ -419,8 +419,12 @@ fn a_protocol_carries_its_recipes_without_earlier_registration() {
             descriptor.name
         );
     }
-    let sql = &built.iter().find(|(d, _)| d.name == "sql").unwrap().1;
-    let (schema, instance) = hypergraph_functor_specs("ThSQLSchema", "ThSQLInstance");
+    let sql = &built
+        .iter()
+        .find(|(d, _)| d.name == "postgresql")
+        .unwrap()
+        .1;
+    let (schema, instance) = hypergraph_functor_specs("ThPostgreSQLSchema", "ThPostgreSQLInstance");
     assert_eq!(sql.schema_composition, Some(schema));
     assert_eq!(sql.instance_composition, Some(instance));
 }
@@ -940,7 +944,10 @@ fn theory_composition_fixtures_recompose_to_their_bytes_and_digests() {
 fn a_built_in_protocol_whose_recipe_is_not_recorded_panics() {
     // A built-in protocol whose schema theory registration never records:
     // leaving its recipes unset would hide the mismatch.
-    let sql = descriptors().iter().find(|d| d.name == "sql").unwrap();
+    let sql = descriptors()
+        .iter()
+        .find(|d| d.name == "postgresql")
+        .unwrap();
     let mut protocol = (sql.protocol)();
     protocol.schema_theory = "ThNeverRegistered".into();
     protocol.schema_composition = None;
@@ -952,7 +959,10 @@ fn a_built_in_protocol_whose_recipe_is_not_recorded_panics() {
 fn a_protocol_that_is_not_built_in_keeps_its_recipes() {
     // The custom protocol reuses sql's theory names, and sql's recipes are
     // recorded by the time it is attached: its own recipes still stand.
-    let sql = descriptors().iter().find(|d| d.name == "sql").unwrap();
+    let sql = descriptors()
+        .iter()
+        .find(|d| d.name == "postgresql")
+        .unwrap();
     let mut registry = HashMap::new();
     (sql.register_theories)(&mut registry).unwrap();
     let mut protocol = (sql.protocol)();
@@ -1318,8 +1328,20 @@ struct Frozen074 {
     instance: Theory,
 }
 
+/// Protocols renamed since 0.74.4: the frozen name, the current name, and
+/// the current names of its schema and instance theories. The frozen
+/// entry is read under the current names; its theories are otherwise
+/// compared unchanged.
+const RENAMED_SINCE_0_74_4: &[(&str, &str, &str, &str)] = &[(
+    "sql",
+    "postgresql",
+    "ThPostgreSQLSchema",
+    "ThPostgreSQLInstance",
+)];
+
 /// The theories panproto-protocols 0.74.4, built from crates.io, registered
-/// for every protocol, as that build serialized them.
+/// for every protocol, as that build serialized them, under the current
+/// names of the protocols renamed since.
 fn frozen_0_74_4() -> std::collections::BTreeMap<String, Frozen074> {
     #[derive(serde::Deserialize)]
     struct Document {
@@ -1328,7 +1350,22 @@ fn frozen_0_74_4() -> std::collections::BTreeMap<String, Frozen074> {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/registration-0.74.4.json");
     let text = std::fs::read_to_string(&path).unwrap();
-    serde_json::from_str::<Document>(&text).unwrap().protocols
+    let frozen = serde_json::from_str::<Document>(&text).unwrap().protocols;
+    frozen
+        .into_iter()
+        .map(|(name, mut old)| {
+            if let Some((_, current, schema, instance)) =
+                RENAMED_SINCE_0_74_4.iter().find(|(was, ..)| *was == name)
+            {
+                old.schema_theory = (*schema).to_owned();
+                old.instance_theory = (*instance).to_owned();
+                old.schema.name = (*schema).into();
+                old.instance.name = (*instance).into();
+                return ((*current).to_owned(), old);
+            }
+            (name, old)
+        })
+        .collect()
 }
 
 #[test]

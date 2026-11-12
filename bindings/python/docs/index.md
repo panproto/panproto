@@ -20,7 +20,7 @@ maturin develop --manifest-path crates/panproto-py/Cargo.toml
 ```python
 import panproto
 
-sql = panproto.get_builtin_protocol("sql")
+sql = panproto.get_builtin_protocol("postgresql")
 
 # Build source schema
 src = sql.schema()

@@ -435,7 +435,7 @@ mod dispatch_tests {
         assert_eq!(source_parser_protocols().len(), 10);
         assert!(document_parser_protocols().contains(&"json-schema"));
         assert!(source_parser_protocols().contains(&"graphql"));
-        assert!(!source_parser_protocols().contains(&"sql"));
+        assert!(!source_parser_protocols().contains(&"postgresql"));
         assert!(source_parser_protocols().contains(&"protobuf"));
     }
 }

@@ -4,8 +4,8 @@
 //! generated from `PostgreSQL`'s own `gram.y`, so the script is parsed as
 //! `PostgreSQL` parses it, tokens included. This module walks the syntax
 //! tree of each statement into the statement model of
-//! [`panproto_protocols::database::sql`], and
-//! [`read_statements`](panproto_protocols::database::sql::read_statements)
+//! [`panproto_protocols::database::postgresql`], and
+//! [`read_statements`]
 //! resolves the statements into table schemas.
 //!
 //! The tree mirrors `gram.y` and names no fields, so the walk identifies
@@ -16,9 +16,13 @@
 //! byte offset of the token it is about; a script that is not `PostgreSQL`
 //! syntax is refused at the first place the parser could not read.
 
+mod data;
+mod resolution;
+mod values;
+
 use std::cell::RefCell;
 
-use panproto_protocols::database::sql::{
+use panproto_protocols::database::postgresql::{
     AlterAction, BaseType, ColumnConstraint, ColumnConstraintKind, ColumnDef, DdlReading,
     DomainConstraints, MAX_IDENTIFIER_BYTES, Name, OtherStatements, References, ReferentialAction,
     Scalar, SqlDdlError, Statement, StatementNotRead, TableConstraint, TableConstraintKind,
@@ -26,6 +30,13 @@ use panproto_protocols::database::sql::{
 };
 use panproto_schema::Schema;
 use tree_sitter::{Node, Parser, Tree};
+
+pub use data::{
+    DumpReading, PostgresqlCodec, SqlDataError, WriteRefusal, read_data, read_dump, write_data,
+    write_dump,
+};
+pub use resolution::{ForeignKeyResolution, resolve_foreign_keys};
+pub use values::ValueRefusal;
 
 /// The name the grammar is bundled under.
 const GRAMMAR: &str = "postgresql";
@@ -98,17 +109,17 @@ fn statements(src: &str, tree: &Tree) -> Vec<Result<Statement, SqlDdlError>> {
     let error = first_error(root).map(|node| w.syntax_error(node));
     let error_at = error.as_ref().map_or(usize::MAX, SqlDdlError::offset);
     let mut out = Vec::new();
-    for top in w.children(root) {
+    for top in children(root) {
         if top.kind() != "toplevel_stmt" {
             continue;
         }
         if top.end_byte() > error_at || top.has_error() {
             break;
         }
-        let Some(stmt) = w.children(top).into_iter().find(|n| n.kind() == "stmt") else {
+        let Some(stmt) = children(top).into_iter().find(|n| n.kind() == "stmt") else {
             continue;
         };
-        let Some(body) = w.children(stmt).into_iter().next() else {
+        let Some(body) = children(stmt).into_iter().next() else {
             continue;
         };
         let statement = w.statement(body);
@@ -304,70 +315,11 @@ impl<'s> Walk<'s> {
         &self.src[node.start_byte()..node.end_byte()]
     }
 
-    /// The children of `node` in order, comments left out.
-    fn children<'t>(&self, node: Node<'t>) -> Vec<Node<'t>> {
-        let mut cursor = node.walk();
-        node.children(&mut cursor)
-            .filter(|c| c.kind() != "comment")
-            .collect()
-    }
-
-    /// The named children of `node` in order, comments left out.
-    fn named<'t>(&self, node: Node<'t>) -> Vec<Node<'t>> {
-        self.children(node)
-            .into_iter()
-            .filter(Node::is_named)
-            .collect()
-    }
-
-    /// The first child of `node` of kind `kind`.
-    fn child<'t>(&self, node: Node<'t>, kind: &str) -> Option<Node<'t>> {
-        self.children(node).into_iter().find(|c| c.kind() == kind)
-    }
-
-    /// Whether `node` has a child of kind `kind`.
-    fn has(&self, node: Node<'_>, kind: &str) -> bool {
-        self.child(node, kind).is_some()
-    }
-
-    /// The keyword children of `node`, lowercase, in order.
-    fn keywords(&self, node: Node<'_>) -> Vec<String> {
-        self.children(node)
-            .into_iter()
-            .filter_map(|c| c.kind().strip_prefix("kw_").map(str::to_owned))
-            .collect()
-    }
-
-    /// The elements of a left-recursive list `node` of kind `list`: its
-    /// named children other than the nested lists, in order.
-    fn flatten<'t>(&self, node: Node<'t>) -> Vec<Node<'t>> {
-        let list = node.kind();
-        let mut out = Vec::new();
-        for c in self.named(node) {
-            if c.kind() == list {
-                out.extend(self.flatten(c));
-            } else {
-                out.push(c);
-            }
-        }
-        out
-    }
-
-    /// The leaves under `node`, in order.
-    fn leaves<'t>(&self, node: Node<'t>) -> Vec<Node<'t>> {
-        let children = self.children(node);
-        if children.is_empty() {
-            return vec![node];
-        }
-        children.into_iter().flat_map(|c| self.leaves(c)).collect()
-    }
-
     /// The refusal of text the grammar does not read, at `node`.
     fn syntax_error(&self, node: Node<'_>) -> SqlDdlError {
         // The place is the first token the node covers or, for a token the
         // parser found missing, the token that follows it.
-        let offset = self
-            .leaves(node)
+        let offset = leaves(node)
             .into_iter()
             .find(|leaf| leaf.start_byte() < leaf.end_byte())
             .map_or_else(
@@ -418,7 +370,7 @@ impl<'s> Walk<'s> {
     /// like, one token): an unquoted one folded to lowercase, a quoted one
     /// kept whole.
     fn identifier(&self, node: Node<'_>) -> Result<Name, SqlDdlError> {
-        let leaves = self.leaves(node);
+        let leaves = leaves(node);
         let [leaf] = leaves.as_slice() else {
             return Err(self.syntax(node, "a name"));
         };
@@ -445,7 +397,7 @@ impl<'s> Walk<'s> {
     /// `GenericType`'s name with its `attrs`.
     fn name_parts(&self, node: Node<'_>) -> Result<Vec<Name>, SqlDdlError> {
         let mut parts = Vec::new();
-        for c in self.named(node) {
+        for c in named(node) {
             match c.kind() {
                 "ColId" | "type_function_name" | "ColLabel" | "attr_name" => {
                     parts.push(self.identifier(c)?);
@@ -483,8 +435,7 @@ impl<'s> Walk<'s> {
             if current.kind() == "qualified_name" {
                 return self.object_name(current);
             }
-            let next = self
-                .named(current)
+            let next = named(current)
                 .into_iter()
                 .find(|c| matches!(c.kind(), "qualified_name" | "extended_relation_expr"));
             match next {
@@ -500,13 +451,12 @@ impl<'s> Walk<'s> {
         let list = if node.kind() == "columnList" {
             node
         } else {
-            self.child(node, "columnList")
-                .ok_or_else(|| self.syntax(node, "a column list"))?
+            child(node, "columnList").ok_or_else(|| self.syntax(node, "a column list"))?
         };
-        self.flatten(list)
+        flatten(list)
             .into_iter()
-            .map(|elem| match self.child(elem, "ColId") {
-                Some(col) if self.named(elem).len() == 1 => self.identifier(col),
+            .map(|elem| match child(elem, "ColId") {
+                Some(col) if named(elem).len() == 1 => self.identifier(col),
                 _ => Err(unsupported(elem.start_byte(), "PERIOD")),
             })
             .collect()
@@ -516,7 +466,7 @@ impl<'s> Walk<'s> {
     /// are decoded; `None` for a form whose value is not read.
     fn string(&self, node: Node<'_>) -> Option<String> {
         let mut value = Vec::new();
-        for leaf in self.leaves(node) {
+        for leaf in leaves(node) {
             let raw = self.text(leaf).as_bytes();
             let (body, escapes) = match leaf.kind() {
                 "string_literal" => (raw, false),
@@ -544,17 +494,8 @@ impl<'s> Walk<'s> {
 
     // ── Statements ──────────────────────────────────────────────────────
 
-    /// The leading keywords of a statement, lowercase.
-    fn leading_words(&self, node: Node<'_>) -> Vec<String> {
-        self.leaves(node)
-            .into_iter()
-            .take(6)
-            .map_while(|leaf| leaf.kind().strip_prefix("kw_").map(str::to_owned))
-            .collect()
-    }
-
     fn statement(&self, node: Node<'_>) -> Result<Statement, SqlDdlError> {
-        let words = self.leading_words(node);
+        let words = leading_words(node);
         let at = |w: &[&str]| words.len() >= w.len() && words.iter().zip(w).all(|(a, b)| a == b);
         let offset = node.start_byte();
         if at(&["create", "table"]) {
@@ -566,7 +507,7 @@ impl<'s> Walk<'s> {
         if at(&["create", "domain"]) && node.kind() == "CreateDomainStmt" {
             return self.create_domain(node);
         }
-        if at(&["create", "type"]) && node.kind() == "DefineStmt" && self.has(node, "kw_enum") {
+        if at(&["create", "type"]) && node.kind() == "DefineStmt" && has(node, "kw_enum") {
             return self.create_enum(node);
         }
         if at(&["alter", "table"]) && node.kind() == "AlterTableStmt" {
@@ -601,8 +542,7 @@ impl<'s> Walk<'s> {
             }
             return Ok(not_read(class, offset));
         }
-        let words: Vec<String> = self
-            .leaves(node)
+        let words: Vec<String> = leaves(node)
             .into_iter()
             .take(3)
             .take_while(|l| l.kind().starts_with("kw_") || l.kind() == "identifier")
@@ -629,7 +569,7 @@ impl<'s> Walk<'s> {
             "session",
             "local",
         ];
-        let leaves = self.leaves(node);
+        let leaves = leaves(node);
         let word = |leaf: Node<'_>| -> Option<String> {
             match leaf.kind() {
                 "identifier" => Some(self.text(leaf).to_ascii_lowercase()),
@@ -665,33 +605,31 @@ impl<'s> Walk<'s> {
 
     fn create_table(&self, node: Node<'_>) -> Result<Statement, SqlDdlError> {
         if node.kind() == "CreateAsStmt" {
-            let at = self.child(node, "kw_as").unwrap_or(node);
+            let at = child(node, "kw_as").unwrap_or(node);
             return Err(unsupported(at.start_byte(), "CREATE TABLE AS"));
         }
         if node.kind() != "CreateStmt" {
             return Err(self.syntax(node, "CREATE TABLE"));
         }
-        let if_not_exists = self.has(node, "kw_exists");
-        let name_node = self
-            .child(node, "qualified_name")
-            .ok_or_else(|| self.syntax(node, "a table name"))?;
+        let if_not_exists = has(node, "kw_exists");
+        let name_node =
+            child(node, "qualified_name").ok_or_else(|| self.syntax(node, "a table name"))?;
         let name = self.object_name(name_node)?;
-        if let Some(of) = self.child(node, "kw_of") {
+        if let Some(of) = child(node, "kw_of") {
             return Err(unsupported(of.start_byte(), "typed table (OF type)"));
         }
-        if let Some(partition) = self.child(node, "kw_partition") {
+        if let Some(partition) = child(node, "kw_partition") {
             return Err(unsupported(partition.start_byte(), "PARTITION OF"));
         }
         let mut elements = Vec::new();
-        if let Some(list) = self
-            .child(node, "OptTableElementList")
-            .and_then(|l| self.child(l, "TableElementList"))
+        if let Some(list) =
+            child(node, "OptTableElementList").and_then(|l| child(l, "TableElementList"))
         {
-            for element in self.flatten(list) {
+            for element in flatten(list) {
                 elements.push(self.table_element(element)?);
             }
         }
-        for clause in self.named(node) {
+        for clause in named(node) {
             if clause.start_byte() == clause.end_byte() {
                 continue;
             }
@@ -714,8 +652,7 @@ impl<'s> Walk<'s> {
     }
 
     fn table_element(&self, node: Node<'_>) -> Result<TableElement, SqlDdlError> {
-        let inner = self
-            .named(node)
+        let inner = named(node)
             .into_iter()
             .next()
             .ok_or_else(|| self.syntax(node, "a table element"))?;
@@ -728,18 +665,14 @@ impl<'s> Walk<'s> {
     }
 
     fn column_def(&self, node: Node<'_>) -> Result<ColumnDef, SqlDdlError> {
-        let name_node = self
-            .child(node, "ColId")
-            .ok_or_else(|| self.syntax(node, "a column name"))?;
+        let name_node = child(node, "ColId").ok_or_else(|| self.syntax(node, "a column name"))?;
         let name = self.identifier(name_node)?;
-        let typename = self
-            .child(node, "Typename")
-            .ok_or_else(|| self.syntax(node, "a column type"))?;
+        let typename = child(node, "Typename").ok_or_else(|| self.syntax(node, "a column type"))?;
         let ty = self.type_spec(typename)?;
         if matches!(ty.base, BaseType::Serial(_)) && ty.dims > 0 {
             return Err(unsupported(ty.offset, "an array of a serial type"));
         }
-        for c in self.named(node) {
+        for c in named(node) {
             if matches!(c.kind(), "opt_column_storage" | "opt_column_compression")
                 && c.start_byte() < c.end_byte()
             {
@@ -749,7 +682,7 @@ impl<'s> Walk<'s> {
                 return Err(unsupported(c.start_byte(), "column options"));
             }
         }
-        let constraints = match self.child(node, "ColQualList") {
+        let constraints = match child(node, "ColQualList") {
             Some(list) => self.column_constraints(list, &name, &ty)?,
             None => Vec::new(),
         };
@@ -772,10 +705,10 @@ impl<'s> Walk<'s> {
         let mut null_declared = false;
         let mut default_declared = matches!(ty.base, BaseType::Serial(_));
         let mut deferrals: Vec<Deferral> = Vec::new();
-        for item in self.flatten(list) {
-            let children = self.named(item);
+        for item in flatten(list) {
+            let children = named(item);
             if let Some(attr) = children.iter().find(|c| c.kind() == "ConstraintAttr") {
-                let deferral = self.deferral(*attr)?;
+                let deferral = deferral(*attr)?;
                 let takes_attrs = out.last().is_some_and(|c| {
                     matches!(
                         c.kind,
@@ -794,19 +727,17 @@ impl<'s> Walk<'s> {
                 continue;
             }
             deferrals.clear();
-            if self.has(item, "kw_collate") {
-                let collation = self
-                    .child(item, "any_name")
-                    .ok_or_else(|| self.syntax(item, "a collation"))?;
+            if has(item, "kw_collate") {
+                let collation =
+                    child(item, "any_name").ok_or_else(|| self.syntax(item, "a collation"))?;
                 self.collation(collation)?;
                 continue;
             }
-            let constraint_name = match self.child(item, "name") {
-                Some(n) if self.has(item, "kw_constraint") => Some(self.identifier(n)?),
+            let constraint_name = match child(item, "name") {
+                Some(n) if has(item, "kw_constraint") => Some(self.identifier(n)?),
                 _ => None,
             };
-            let elem = self
-                .child(item, "ColConstraintElem")
+            let elem = child(item, "ColConstraintElem")
                 .ok_or_else(|| self.syntax(item, "a column constraint"))?;
             let at = elem.start_byte();
             let kind = self.column_constraint(elem)?;
@@ -837,11 +768,11 @@ impl<'s> Walk<'s> {
     /// One `ColConstraintElem`.
     fn column_constraint(&self, elem: Node<'_>) -> Result<ColumnConstraintKind, SqlDdlError> {
         let at = elem.start_byte();
-        let words = self.keywords(elem);
+        let words = keywords(elem);
         let first = words.first().map_or("", String::as_str);
         match first {
             "not" if words.get(1).is_some_and(|w| w == "null") => {
-                if let Some(rest) = self.child(elem, "opt_no_inherit")
+                if let Some(rest) = child(elem, "opt_no_inherit")
                     && rest.start_byte() < rest.end_byte()
                 {
                     return Err(unsupported(rest.start_byte(), "NO INHERIT"));
@@ -850,16 +781,14 @@ impl<'s> Walk<'s> {
             }
             "null" => Ok(ColumnConstraintKind::Null),
             "default" => {
-                let expr = self
-                    .child(elem, "b_expr")
+                let expr = child(elem, "b_expr")
                     .ok_or_else(|| self.syntax(elem, "a DEFAULT expression"))?;
                 Ok(ColumnConstraintKind::Default(self.text(expr).to_owned()))
             }
             "check" => {
-                let expr = self
-                    .child(elem, "a_expr")
-                    .ok_or_else(|| self.syntax(elem, "a CHECK expression"))?;
-                if let Some(rest) = self.child(elem, "opt_no_inherit")
+                let expr =
+                    child(elem, "a_expr").ok_or_else(|| self.syntax(elem, "a CHECK expression"))?;
+                if let Some(rest) = child(elem, "opt_no_inherit")
                     && rest.start_byte() < rest.end_byte()
                 {
                     return Err(unsupported(rest.start_byte(), "NO INHERIT"));
@@ -867,17 +796,17 @@ impl<'s> Walk<'s> {
                 Ok(ColumnConstraintKind::Check(self.text(expr).to_owned()))
             }
             "unique" => {
-                self.key_options(elem)?;
+                key_options(elem)?;
                 Ok(ColumnConstraintKind::Unique)
             }
             "primary" => {
-                self.key_options(elem)?;
+                key_options(elem)?;
                 Ok(ColumnConstraintKind::PrimaryKey)
             }
             "references" => Ok(ColumnConstraintKind::References(self.references(elem)?)),
             "generated" => Err(unsupported(
                 at,
-                if self.has(elem, "kw_identity") {
+                if has(elem, "kw_identity") {
                     "identity column"
                 } else {
                     "generated column"
@@ -890,58 +819,11 @@ impl<'s> Walk<'s> {
         }
     }
 
-    /// Refuse the options of a key the reader does not carry: `NULLS NOT
-    /// DISTINCT`, `INCLUDE`, `WITH (...)`, `USING INDEX ...` and `WITHOUT
-    /// OVERLAPS`.
-    fn key_options(&self, node: Node<'_>) -> Result<(), SqlDdlError> {
-        for c in self.children(node) {
-            if c.start_byte() == c.end_byte() {
-                continue;
-            }
-            match c.kind() {
-                "opt_unique_null_treatment" => {
-                    if self.has(c, "kw_not") {
-                        return Err(unsupported(c.start_byte(), "UNIQUE NULLS NOT DISTINCT"));
-                    }
-                }
-                "opt_c_include" | "opt_definition" | "OptConsTableSpace" | "ExistingIndex" => {
-                    return Err(unsupported(c.start_byte(), "index parameters"));
-                }
-                "opt_without_overlaps" | "kw_without" => {
-                    return Err(unsupported(c.start_byte(), "WITHOUT OVERLAPS"));
-                }
-                _ => {}
-            }
-        }
-        Ok(())
-    }
-
-    /// A `NOT DEFERRABLE` or `INITIALLY IMMEDIATE` clause; the others are
-    /// refused.
-    fn deferral(&self, node: Node<'_>) -> Result<Deferral, SqlDdlError> {
-        let words = self.keywords(node);
-        let words: Vec<&str> = words.iter().map(String::as_str).collect();
-        match words.as_slice() {
-            ["not", "deferrable"] => Ok(Deferral::NotDeferrable),
-            ["initially", "immediate"] => Ok(Deferral::InitiallyImmediate),
-            ["deferrable"] | ["initially", "deferred"] => {
-                Err(unsupported(node.start_byte(), "a deferrable constraint"))
-            }
-            ["not", "valid"] => Err(unsupported(node.start_byte(), "NOT VALID")),
-            ["no", "inherit"] => Err(unsupported(node.start_byte(), "NO INHERIT")),
-            ["enforced"] => Ok(Deferral::Enforced),
-            _ => Err(unsupported(
-                node.start_byte(),
-                format!("constraint attribute {}", words.join(" ").to_uppercase()),
-            )),
-        }
-    }
-
     /// The clauses of a table constraint's `ConstraintAttributeSpec`.
     fn constraint_attributes(&self, spec: Node<'_>) -> Result<(), SqlDdlError> {
         let mut seen: Vec<Deferral> = Vec::new();
-        for elem in self.flatten(spec) {
-            let deferral = self.deferral(elem)?;
+        for elem in flatten(spec) {
+            let deferral = deferral(elem)?;
             if seen.contains(&deferral) {
                 return Err(self.syntax(elem, "one clause of each kind"));
             }
@@ -970,22 +852,20 @@ impl<'s> Walk<'s> {
     /// The `REFERENCES` clause in `node` (a column constraint or a table
     /// `FOREIGN KEY`).
     fn references(&self, node: Node<'_>) -> Result<References, SqlDdlError> {
-        let target_node = self
-            .child(node, "qualified_name")
-            .ok_or_else(|| self.syntax(node, "a referenced table"))?;
+        let target_node =
+            child(node, "qualified_name").ok_or_else(|| self.syntax(node, "a referenced table"))?;
         let target = self.object_name(target_node)?;
-        let target_columns = match self
-            .child(node, "opt_column_list")
-            .or_else(|| self.child(node, "opt_column_and_period_list"))
+        let target_columns = match child(node, "opt_column_list")
+            .or_else(|| child(node, "opt_column_and_period_list"))
         {
             Some(list) if list.start_byte() < list.end_byte() => Some(self.column_list(list)?),
             _ => None,
         };
         let mut match_full = false;
-        if let Some(m) = self.child(node, "key_match")
+        if let Some(m) = child(node, "key_match")
             && m.start_byte() < m.end_byte()
         {
-            let words = self.keywords(m);
+            let words = keywords(m);
             match words.get(1).map(String::as_str) {
                 Some("full") => match_full = true,
                 Some("simple") => {}
@@ -994,20 +874,19 @@ impl<'s> Walk<'s> {
         }
         let mut on_delete = ReferentialAction::NoAction;
         let mut on_update = ReferentialAction::NoAction;
-        if let Some(actions) = self.child(node, "key_actions") {
-            for clause in self.named(actions) {
-                let action = self
-                    .child(clause, "key_action")
+        if let Some(actions) = child(node, "key_actions") {
+            for clause in named(actions) {
+                let action = child(clause, "key_action")
                     .ok_or_else(|| self.syntax(clause, "a referential action"))?;
                 let value = self.referential_action(action)?;
-                if self.has(clause, "kw_delete") {
+                if has(clause, "kw_delete") {
                     on_delete = value;
                 } else {
                     on_update = value;
                 }
             }
         }
-        if let Some(spec) = self.child(node, "ConstraintAttributeSpec") {
+        if let Some(spec) = child(node, "ConstraintAttributeSpec") {
             self.constraint_attributes(spec)?;
         }
         Ok(References {
@@ -1020,7 +899,7 @@ impl<'s> Walk<'s> {
     }
 
     fn referential_action(&self, node: Node<'_>) -> Result<ReferentialAction, SqlDdlError> {
-        if let Some(list) = self.child(node, "opt_column_list")
+        if let Some(list) = child(node, "opt_column_list")
             && list.start_byte() < list.end_byte()
         {
             return Err(unsupported(
@@ -1028,7 +907,7 @@ impl<'s> Walk<'s> {
                 "a column list on SET NULL or SET DEFAULT",
             ));
         }
-        let words = self.keywords(node);
+        let words = keywords(node);
         let words: Vec<&str> = words.iter().map(String::as_str).collect();
         match words.as_slice() {
             ["no", "action"] => Ok(ReferentialAction::NoAction),
@@ -1041,32 +920,29 @@ impl<'s> Walk<'s> {
     }
 
     fn table_constraint(&self, node: Node<'_>) -> Result<TableConstraint, SqlDdlError> {
-        let name = match self.child(node, "name") {
+        let name = match child(node, "name") {
             Some(n) => Some(self.identifier(n)?),
             None => None,
         };
-        let elem = self
-            .child(node, "ConstraintElem")
-            .ok_or_else(|| self.syntax(node, "a table constraint"))?;
+        let elem =
+            child(node, "ConstraintElem").ok_or_else(|| self.syntax(node, "a table constraint"))?;
         let offset = elem.start_byte();
-        let words = self.keywords(elem);
+        let words = keywords(elem);
         let kind = match words.first().map(String::as_str) {
             Some("check") => {
-                let expr = self
-                    .child(elem, "a_expr")
-                    .ok_or_else(|| self.syntax(elem, "a CHECK expression"))?;
-                if let Some(spec) = self.child(elem, "ConstraintAttributeSpec") {
+                let expr =
+                    child(elem, "a_expr").ok_or_else(|| self.syntax(elem, "a CHECK expression"))?;
+                if let Some(spec) = child(elem, "ConstraintAttributeSpec") {
                     self.constraint_attributes(spec)?;
                 }
                 TableConstraintKind::Check(self.text(expr).to_owned())
             }
             Some(word @ ("unique" | "primary")) => {
-                self.key_options(elem)?;
-                let list = self
-                    .child(elem, "columnList")
+                key_options(elem)?;
+                let list = child(elem, "columnList")
                     .ok_or_else(|| unsupported(offset, "index parameters"))?;
                 let columns = self.column_list(list)?;
-                if let Some(spec) = self.child(elem, "ConstraintAttributeSpec") {
+                if let Some(spec) = child(elem, "ConstraintAttributeSpec") {
                     self.constraint_attributes(spec)?;
                 }
                 if word == "unique" {
@@ -1076,9 +952,8 @@ impl<'s> Walk<'s> {
                 }
             }
             Some("foreign") => {
-                let list = self
-                    .child(elem, "columnList")
-                    .ok_or_else(|| self.syntax(elem, "a column list"))?;
+                let list =
+                    child(elem, "columnList").ok_or_else(|| self.syntax(elem, "a column list"))?;
                 let columns = self.column_list(list)?;
                 TableConstraintKind::ForeignKey(columns, self.references(elem)?)
             }
@@ -1090,28 +965,23 @@ impl<'s> Walk<'s> {
     }
 
     fn create_unique_index(&self, node: Node<'_>) -> Result<Statement, SqlDdlError> {
-        let if_not_exists = self.has(node, "kw_exists");
-        let name = match self
-            .child(node, "name")
-            .or_else(|| self.child(node, "opt_single_name"))
-        {
+        let if_not_exists = has(node, "kw_exists");
+        let name = match child(node, "name").or_else(|| child(node, "opt_single_name")) {
             Some(n) if n.start_byte() < n.end_byte() => Some(self.identifier(n)?),
             _ => None,
         };
-        let relation = self
-            .child(node, "relation_expr")
-            .ok_or_else(|| self.syntax(node, "the indexed table"))?;
+        let relation =
+            child(node, "relation_expr").ok_or_else(|| self.syntax(node, "the indexed table"))?;
         let table = self.relation(relation)?;
         let mut columns = Vec::new();
-        for c in self.named(node) {
+        for c in named(node) {
             if c.start_byte() == c.end_byte() {
                 continue;
             }
             match c.kind() {
                 "access_method_clause" => {
-                    let method = self
-                        .child(c, "name")
-                        .ok_or_else(|| self.syntax(c, "an index method"))?;
+                    let method =
+                        child(c, "name").ok_or_else(|| self.syntax(c, "an index method"))?;
                     let method_name = self.identifier(method)?;
                     if method_name.text != "btree" {
                         return Err(unsupported(
@@ -1121,8 +991,8 @@ impl<'s> Walk<'s> {
                     }
                 }
                 "index_params" => {
-                    for elem in self.flatten(c) {
-                        let parts = self.named(elem);
+                    for elem in flatten(c) {
+                        let parts = named(elem);
                         match parts.as_slice() {
                             [col] if col.kind() == "ColId" => columns.push(self.identifier(*col)?),
                             [col, next, ..] if col.kind() == "ColId" => {
@@ -1141,7 +1011,7 @@ impl<'s> Walk<'s> {
                     }
                 }
                 "opt_unique_null_treatment" => {
-                    if self.has(c, "kw_not") {
+                    if has(c, "kw_not") {
                         return Err(unsupported(c.start_byte(), "UNIQUE NULLS NOT DISTINCT"));
                     }
                 }
@@ -1162,13 +1032,11 @@ impl<'s> Walk<'s> {
     }
 
     fn create_domain(&self, node: Node<'_>) -> Result<Statement, SqlDdlError> {
-        let name_node = self
-            .child(node, "any_name")
-            .ok_or_else(|| self.syntax(node, "a domain name"))?;
+        let name_node =
+            child(node, "any_name").ok_or_else(|| self.syntax(node, "a domain name"))?;
         let name = self.object_name(name_node)?;
-        let typename = self
-            .child(node, "Typename")
-            .ok_or_else(|| self.syntax(node, "the domain's type"))?;
+        let typename =
+            child(node, "Typename").ok_or_else(|| self.syntax(node, "the domain's type"))?;
         let ty = self.type_spec(typename)?;
         let mut constraints = DomainConstraints {
             not_null: false,
@@ -1176,17 +1044,17 @@ impl<'s> Walk<'s> {
             checks: Vec::new(),
         };
         let mut null_declared = false;
-        if let Some(list) = self.child(node, "ColQualList") {
-            for item in self.flatten(list) {
+        if let Some(list) = child(node, "ColQualList") {
+            for item in flatten(list) {
                 let at = item.start_byte();
-                if self.has(item, "kw_collate") {
+                if has(item, "kw_collate") {
                     return Err(unsupported(at, "COLLATE"));
                 }
-                let constraint_name = match self.child(item, "name") {
+                let constraint_name = match child(item, "name") {
                     Some(n) => Some(self.identifier(n)?),
                     None => None,
                 };
-                let Some(elem) = self.child(item, "ColConstraintElem") else {
+                let Some(elem) = child(item, "ColConstraintElem") else {
                     return Err(self.syntax(item, "a domain constraint"));
                 };
                 let at = elem.start_byte();
@@ -1197,7 +1065,7 @@ impl<'s> Walk<'s> {
                         }
                         null_declared = true;
                         constraints.not_null =
-                            self.keywords(elem).first().map(String::as_str) == Some("not");
+                            keywords(elem).first().map(String::as_str) == Some("not");
                     }
                     ColumnConstraintKind::Check(expr) => {
                         constraints.checks.push((constraint_name, expr));
@@ -1220,16 +1088,12 @@ impl<'s> Walk<'s> {
     }
 
     fn create_enum(&self, node: Node<'_>) -> Result<Statement, SqlDdlError> {
-        let name_node = self
-            .child(node, "any_name")
-            .ok_or_else(|| self.syntax(node, "a type name"))?;
+        let name_node = child(node, "any_name").ok_or_else(|| self.syntax(node, "a type name"))?;
         let name = self.object_name(name_node)?;
         let mut labels: Vec<String> = Vec::new();
-        let list = self
-            .child(node, "opt_enum_val_list")
-            .and_then(|l| self.child(l, "enum_val_list"));
+        let list = child(node, "opt_enum_val_list").and_then(|l| child(l, "enum_val_list"));
         if let Some(list) = list {
-            for label in self.flatten(list) {
+            for label in flatten(list) {
                 let at = label.start_byte();
                 let value = self
                     .string(label)
@@ -1248,29 +1112,35 @@ impl<'s> Walk<'s> {
 
     fn alter_table(&self, node: Node<'_>) -> Result<Statement, SqlDdlError> {
         let offset = node.start_byte();
-        let if_exists = self.has(node, "kw_exists");
-        let relation = self
-            .child(node, "relation_expr")
+        let if_exists = has(node, "kw_exists");
+        let relation = child(node, "relation_expr")
             .ok_or_else(|| unsupported(offset, "ALTER TABLE of more than one table"))?;
         let table = self.relation(relation)?;
-        let commands = self
-            .child(node, "alter_table_cmds")
-            .map(|c| self.flatten(c))
+        let commands = child(node, "alter_table_cmds")
+            .map(|c| flatten(c))
             .ok_or_else(|| unsupported(offset, "ALTER TABLE without an action"))?;
         if let [command] = commands.as_slice()
-            && self
-                .keywords(*command)
-                .first()
-                .is_some_and(|w| w == "owner")
+            && keywords(*command).first().is_some_and(|w| w == "owner")
         {
             return Ok(not_read("ALTER TABLE OWNER TO", offset));
         }
+        // Switching triggers off or on, as a data-only dump does around its
+        // rows, declares nothing a table schema holds.
+        let trigger_switches = commands.iter().all(|c| {
+            let words = keywords(*c);
+            matches!(
+                words.first().map(String::as_str),
+                Some("enable" | "disable")
+            ) && words.iter().any(|w| w == "trigger")
+        });
+        if trigger_switches {
+            return Ok(not_read("ALTER TABLE ENABLE or DISABLE TRIGGER", offset));
+        }
         let mut actions = Vec::new();
         for command in commands {
-            let words = self.keywords(command);
+            let words = keywords(command);
             if words.first().is_none_or(|w| w != "add") {
-                let named: Vec<String> = self
-                    .leaves(command)
+                let named: Vec<String> = leaves(command)
                     .into_iter()
                     .take(2)
                     .take_while(|l| l.kind().starts_with("kw_"))
@@ -1281,13 +1151,13 @@ impl<'s> Walk<'s> {
                     format!("ALTER TABLE {}", named.join(" ")),
                 ));
             }
-            if let Some(constraint) = self.child(command, "TableConstraint") {
+            if let Some(constraint) = child(command, "TableConstraint") {
                 actions.push(AlterAction::AddConstraint(
                     self.table_constraint(constraint)?,
                 ));
-            } else if let Some(column) = self.child(command, "columnDef") {
+            } else if let Some(column) = child(command, "columnDef") {
                 actions.push(AlterAction::AddColumn {
-                    if_not_exists: self.has(command, "kw_exists"),
+                    if_not_exists: has(command, "kw_exists"),
                     column: self.column_def(column)?,
                 });
             } else {
@@ -1302,17 +1172,15 @@ impl<'s> Walk<'s> {
     }
 
     fn drop_table(&self, node: Node<'_>) -> Result<Statement, SqlDdlError> {
-        let if_exists = self.has(node, "kw_exists");
-        let list = self
-            .child(node, "any_name_list")
-            .ok_or_else(|| self.syntax(node, "the tables to drop"))?;
-        let names = self
-            .flatten(list)
+        let if_exists = has(node, "kw_exists");
+        let list =
+            child(node, "any_name_list").ok_or_else(|| self.syntax(node, "the tables to drop"))?;
+        let names = flatten(list)
             .into_iter()
             .map(|n| self.object_name(n))
             .collect::<Result<Vec<_>, _>>()?;
-        if let Some(behavior) = self.child(node, "opt_drop_behavior")
-            && self.has(behavior, "kw_cascade")
+        if let Some(behavior) = child(node, "opt_drop_behavior")
+            && has(behavior, "kw_cascade")
         {
             return Err(unsupported(behavior.start_byte(), "DROP TABLE CASCADE"));
         }
@@ -1324,18 +1192,16 @@ impl<'s> Walk<'s> {
     /// A `Typename`: its element type and array dimensions.
     fn type_spec(&self, node: Node<'_>) -> Result<TypeSpec, SqlDdlError> {
         let offset = node.start_byte();
-        if self.has(node, "kw_setof") {
+        if has(node, "kw_setof") {
             return Err(unsupported(offset, "SETOF"));
         }
-        let simple = self
-            .child(node, "SimpleTypename")
-            .ok_or_else(|| self.syntax(node, "a type"))?;
+        let simple = child(node, "SimpleTypename").ok_or_else(|| self.syntax(node, "a type"))?;
         let base = self.simple_type(simple)?;
-        let dims = if self.has(node, "kw_array") {
+        let dims = if has(node, "kw_array") {
             1
         } else {
-            self.child(node, "opt_array_bounds").map_or(0, |bounds| {
-                self.leaves(bounds)
+            child(node, "opt_array_bounds").map_or(0, |bounds| {
+                leaves(bounds)
                     .into_iter()
                     .filter(|l| self.text(*l) == "[")
                     .count()
@@ -1346,15 +1212,14 @@ impl<'s> Walk<'s> {
 
     fn simple_type(&self, node: Node<'_>) -> Result<BaseType, SqlDdlError> {
         let at = node.start_byte();
-        let inner = self
-            .named(node)
+        let inner = named(node)
             .into_iter()
             .next()
             .ok_or_else(|| self.syntax(node, "a type"))?;
         let plain = |s: Scalar| Ok(BaseType::Builtin(s));
         match inner.kind() {
             "Numeric" => {
-                let words = self.keywords(inner);
+                let words = keywords(inner);
                 let modifiers = self.modifiers(inner);
                 match words.first().map(String::as_str) {
                     Some("int" | "integer") => plain(Scalar::Int(32)),
@@ -1372,14 +1237,12 @@ impl<'s> Walk<'s> {
             }
             "Character" => self.character(inner),
             "ConstDatetime" => {
-                let words = self.keywords(inner);
-                let zone = self
-                    .child(inner, "opt_timezone")
-                    .map(|z| self.keywords(z))
+                let words = keywords(inner);
+                let zone = child(inner, "opt_timezone")
+                    .map(|z| keywords(z))
                     .unwrap_or_default();
-                if self.has(inner, "Iconst") {
-                    let paren = self
-                        .children(inner)
+                if has(inner, "Iconst") {
+                    let paren = children(inner)
                         .into_iter()
                         .find(|c| self.text(*c) == "(")
                         .map_or(at, |c| c.start_byte());
@@ -1403,13 +1266,13 @@ impl<'s> Walk<'s> {
 
     /// The modifiers of a type: each an integer constant, or refused.
     fn modifiers(&self, node: Node<'_>) -> Result<Vec<Modifier>, SqlDdlError> {
-        let Some(mods) = self.child(node, "opt_type_modifiers") else {
+        let Some(mods) = child(node, "opt_type_modifiers") else {
             return Ok(Vec::new());
         };
-        let Some(list) = self.child(mods, "expr_list") else {
+        let Some(list) = child(mods, "expr_list") else {
             return Ok(Vec::new());
         };
-        self.flatten(list)
+        flatten(list)
             .into_iter()
             .map(|expr| {
                 let text = self.text(expr).trim();
@@ -1426,7 +1289,7 @@ impl<'s> Walk<'s> {
     /// The parenthesis opening a type's modifiers, which a type with none
     /// is refused at.
     fn no_modifier(&self, node: Node<'_>) -> Result<(), SqlDdlError> {
-        match self.child(node, "opt_type_modifiers") {
+        match child(node, "opt_type_modifiers") {
             Some(m) if m.start_byte() < m.end_byte() => Err(self.syntax(m, "no type modifier")),
             _ => Ok(()),
         }
@@ -1481,10 +1344,7 @@ impl<'s> Walk<'s> {
     /// `float` with an optional precision: up to 24 bits is `real`, up to
     /// 53 is `double precision`.
     fn float(&self, node: Node<'_>) -> Result<BaseType, SqlDdlError> {
-        let Some(precision) = self
-            .child(node, "opt_float")
-            .and_then(|f| self.child(f, "Iconst"))
-        else {
+        let Some(precision) = child(node, "opt_float").and_then(|f| child(f, "Iconst")) else {
             return Ok(BaseType::Builtin(Scalar::Double));
         };
         match self.text(precision).parse::<u32>() {
@@ -1509,20 +1369,16 @@ impl<'s> Walk<'s> {
 
     /// `CHARACTER [VARYING] [(n)]` and its other spellings.
     fn character(&self, node: Node<'_>) -> Result<BaseType, SqlDdlError> {
-        let inner = self
-            .named(node)
+        let inner = named(node)
             .into_iter()
             .next()
             .ok_or_else(|| self.syntax(node, "a character type"))?;
-        let spelling = self
-            .child(inner, "character")
-            .ok_or_else(|| self.syntax(inner, "a character type"))?;
-        let words = self.keywords(spelling);
+        let spelling =
+            child(inner, "character").ok_or_else(|| self.syntax(inner, "a character type"))?;
+        let words = keywords(spelling);
         let varying = words.iter().any(|w| w == "varchar" || w == "varying")
-            || self
-                .child(spelling, "opt_varying")
-                .is_some_and(|v| self.has(v, "kw_varying"));
-        let length = match self.child(inner, "Iconst") {
+            || child(spelling, "opt_varying").is_some_and(|v| has(v, "kw_varying"));
+        let length = match child(inner, "Iconst") {
             Some(n) => self.length(Some((self.text(n).parse().ok(), n.start_byte())))?,
             None => None,
         };
@@ -1538,11 +1394,9 @@ impl<'s> Walk<'s> {
     fn generic_type(&self, node: Node<'_>) -> Result<BaseType, SqlDdlError> {
         let at = node.start_byte();
         let parts = self.name_parts(node)?;
-        let quoted = self.leaves(node).iter().any(|l| {
+        let quoted = leaves(node).iter().any(|l| {
             l.kind() == "quoted_identifier"
-                && self
-                    .child(node, "opt_type_modifiers")
-                    .is_none_or(|m| l.start_byte() < m.start_byte())
+                && child(node, "opt_type_modifiers").is_none_or(|m| l.start_byte() < m.start_byte())
         });
         let name = match parts.as_slice() {
             [name] => name.clone(),
@@ -1578,21 +1432,20 @@ impl<'s> Walk<'s> {
             }
             "bpchar" => {
                 let modifiers = self.modifiers(node)?;
-                match self.length(modifiers.first().copied())? {
-                    Some(n) => Ok(BaseType::Builtin(Scalar::Character(n))),
-                    None => Err(unsupported(at, "type bpchar without a length")),
-                }
+                self.length(modifiers.first().copied())?
+                    .map(|n| BaseType::Builtin(Scalar::Character(n)))
+                    .ok_or_else(|| unsupported(at, "type bpchar without a length"))
             }
             "boolean" | "bool" => plain(Scalar::Boolean),
             "bytea" => plain(Scalar::Bytea),
             "date" => plain(Scalar::Date),
-            "time" => match self.child(node, "opt_type_modifiers") {
+            "time" => match child(node, "opt_type_modifiers") {
                 Some(m) if m.start_byte() < m.end_byte() => {
                     Err(unsupported(m.start_byte(), "fractional-second precision"))
                 }
                 _ => Ok(BaseType::Builtin(Scalar::Time)),
             },
-            "timestamp" | "timestamptz" => match self.child(node, "opt_type_modifiers") {
+            "timestamp" | "timestamptz" => match child(node, "opt_type_modifiers") {
                 Some(m) if m.start_byte() < m.end_byte() => {
                     Err(unsupported(m.start_byte(), "fractional-second precision"))
                 }
@@ -1611,7 +1464,118 @@ impl<'s> Walk<'s> {
     }
 }
 
-fn not_read(statement: &'static str, offset: usize) -> Statement {
+/// The children of `node` in order, comments left out.
+fn children(node: Node<'_>) -> Vec<Node<'_>> {
+    let mut cursor = node.walk();
+    node.children(&mut cursor)
+        .filter(|c| c.kind() != "comment")
+        .collect()
+}
+
+/// The named children of `node` in order, comments left out.
+fn named(node: Node<'_>) -> Vec<Node<'_>> {
+    children(node).into_iter().filter(Node::is_named).collect()
+}
+
+/// The first child of `node` of kind `kind`.
+fn child<'t>(node: Node<'t>, kind: &str) -> Option<Node<'t>> {
+    children(node).into_iter().find(|c| c.kind() == kind)
+}
+
+/// Whether `node` has a child of kind `kind`.
+fn has(node: Node<'_>, kind: &str) -> bool {
+    child(node, kind).is_some()
+}
+
+/// The keyword children of `node`, lowercase, in order.
+fn keywords(node: Node<'_>) -> Vec<String> {
+    children(node)
+        .into_iter()
+        .filter_map(|c| c.kind().strip_prefix("kw_").map(str::to_owned))
+        .collect()
+}
+
+/// The elements of a left-recursive list `node` of kind `list`: its
+/// named children other than the nested lists, in order.
+fn flatten(node: Node<'_>) -> Vec<Node<'_>> {
+    let list = node.kind();
+    let mut out = Vec::new();
+    for c in named(node) {
+        if c.kind() == list {
+            out.extend(flatten(c));
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// The leaves under `node`, in order.
+fn leaves(node: Node<'_>) -> Vec<Node<'_>> {
+    let children = children(node);
+    if children.is_empty() {
+        return vec![node];
+    }
+    children.into_iter().flat_map(|c| leaves(c)).collect()
+}
+
+/// The leading keywords of a statement, lowercase.
+fn leading_words(node: Node<'_>) -> Vec<String> {
+    leaves(node)
+        .into_iter()
+        .take(6)
+        .map_while(|leaf| leaf.kind().strip_prefix("kw_").map(str::to_owned))
+        .collect()
+}
+
+/// Refuse the options of a key the reader does not carry: `NULLS NOT
+/// DISTINCT`, `INCLUDE`, `WITH (...)`, `USING INDEX ...` and `WITHOUT
+/// OVERLAPS`.
+fn key_options(node: Node<'_>) -> Result<(), SqlDdlError> {
+    for c in children(node) {
+        if c.start_byte() == c.end_byte() {
+            continue;
+        }
+        match c.kind() {
+            "opt_unique_null_treatment" => {
+                if has(c, "kw_not") {
+                    return Err(unsupported(c.start_byte(), "UNIQUE NULLS NOT DISTINCT"));
+                }
+            }
+            "opt_c_include" | "opt_definition" | "OptConsTableSpace" | "ExistingIndex" => {
+                return Err(unsupported(c.start_byte(), "index parameters"));
+            }
+            "opt_without_overlaps" | "kw_without" => {
+                return Err(unsupported(c.start_byte(), "WITHOUT OVERLAPS"));
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// A `NOT DEFERRABLE` or `INITIALLY IMMEDIATE` clause; the others are
+/// refused.
+fn deferral(node: Node<'_>) -> Result<Deferral, SqlDdlError> {
+    let words = keywords(node);
+    let words: Vec<&str> = words.iter().map(String::as_str).collect();
+    match words.as_slice() {
+        ["not", "deferrable"] => Ok(Deferral::NotDeferrable),
+        ["initially", "immediate"] => Ok(Deferral::InitiallyImmediate),
+        ["deferrable"] | ["initially", "deferred"] => {
+            Err(unsupported(node.start_byte(), "a deferrable constraint"))
+        }
+        ["not", "valid"] => Err(unsupported(node.start_byte(), "NOT VALID")),
+        ["no", "inherit"] => Err(unsupported(node.start_byte(), "NO INHERIT")),
+        ["enforced"] => Ok(Deferral::Enforced),
+        _ => Err(unsupported(
+            node.start_byte(),
+            format!("constraint attribute {}", words.join(" ").to_uppercase()),
+        )),
+    }
+}
+
+const fn not_read(statement: &'static str, offset: usize) -> Statement {
     Statement::NotRead(StatementNotRead { statement, offset })
 }
 

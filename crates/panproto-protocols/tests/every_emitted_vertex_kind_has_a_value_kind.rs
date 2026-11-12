@@ -165,7 +165,7 @@ const TABLE_PROTOCOLS: &[&str] = &[
     "edi-x12",
     "parquet",
     "redis",
-    "sql",
+    "postgresql",
     "swift-mt",
     "tsv",
 ];

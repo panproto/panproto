@@ -111,7 +111,7 @@
   - [Lenses](./correctness/lenses.md)
   - [Reference resolution](./correctness/resolution.md)
   - [Text formats](./correctness/text-formats.md)
-  - [SQL DDL](./correctness/sql-ddl.md)
+  - [PostgreSQL DDL](./correctness/postgresql-ddl.md)
   - [RDF formats](./correctness/rdf-formats.md)
 
 ---
