@@ -6,8 +6,8 @@
 //! protocol is read through a tree-sitter grammar by the reader of this
 //! crate whose path the descriptor names, which that crate cannot link.
 //!
-//! [`parse_schema_document`], [`parse_schema_source`] and
-//! [`parse_schema_bundle`] take a protocol name and answer for every
+//! [`parse_schema_document`], [`parse_schema_document_text`],
+//! [`parse_schema_source`] and [`parse_schema_bundle`] take a protocol name and answer for every
 //! protocol: they hand a document or source protocol to the dispatch of
 //! `panproto-protocols`, and a grammar protocol to its reader here, keyed by
 //! the reader path the descriptor records, so the registry stays the one
@@ -230,15 +230,55 @@ pub fn parse_schema_document(
     let Parser::Grammar { reader } = descriptor.parser else {
         return Ok(panproto_protocols::parse_schema_document(protocol, doc)?);
     };
-    let arm = grammar_reader(descriptor.name, reader)?;
-    if !arm.json {
-        return Err(ProtocolError::Parse(format!(
+    let arm = json_grammar_reader(protocol, descriptor.name, reader)?;
+    (arm.read)(&doc.to_string(), options)
+}
+
+/// Read one schema document, given as its JSON text, under `protocol`.
+///
+/// A grammar protocol whose documents are JSON or YAML reads the text as
+/// written, so its reader sees the document's key order and any repeated
+/// key; every other protocol parses the text as JSON and goes to
+/// [`panproto_protocols::parse_schema_document`].
+///
+/// # Errors
+///
+/// Returns the reader's refusal, [`SchemaReadError::GrammarNotBuilt`] for a
+/// grammar protocol this build cannot read, or a [`ProtocolError`] for text
+/// that is not JSON, an unknown protocol, or one read from source text.
+pub fn parse_schema_document_text(
+    protocol: &str,
+    text: &str,
+    options: &ReadOptions,
+) -> Result<Schema, SchemaReadError> {
+    if let Some(descriptor) = registry::descriptor(protocol)
+        && let Parser::Grammar { reader } = descriptor.parser
+    {
+        let arm = json_grammar_reader(protocol, descriptor.name, reader)?;
+        return (arm.read)(text, options);
+    }
+    let doc: serde_json::Value = serde_json::from_str(text)
+        .map_err(|e| ProtocolError::Parse(format!("document is not valid JSON: {e}")))?;
+    Ok(panproto_protocols::parse_schema_document(protocol, &doc)?)
+}
+
+/// The reader of a grammar protocol whose documents are JSON or YAML, or
+/// the refusal of a protocol read from text in its own syntax.
+fn json_grammar_reader(
+    protocol: &str,
+    name: &'static str,
+    reader: &'static str,
+) -> Result<&'static GrammarReader, SchemaReadError> {
+    let arm = grammar_reader(name, reader)?;
+    if arm.json {
+        Ok(arm)
+    } else {
+        Err(ProtocolError::Parse(format!(
             "protocol {protocol:?} is read from source text, not a JSON document; \
              use parse_schema_source"
         ))
-        .into());
+        .into())
     }
-    (arm.read)(&doc.to_string(), options)
 }
 
 /// Read one schema document, given as text, under `protocol`.
@@ -445,6 +485,18 @@ mod tests {
     }
 
     #[test]
+    fn document_text_of_a_document_protocol_is_parsed_as_json() {
+        let options = ReadOptions::default();
+        let text = r#"{"type": "record", "name": "User", "fields": []}"#;
+        let schema = parse_schema_document_text("avro", text, &options).unwrap();
+        let value: serde_json::Value = serde_json::from_str(text).unwrap();
+        let direct = panproto_protocols::parse_schema_document("avro", &value).unwrap();
+        assert_eq!(schema.vertex_count(), direct.vertex_count());
+        let err = parse_schema_document_text("avro", "{", &options).unwrap_err();
+        assert!(matches!(err, SchemaReadError::Protocol(_)), "{err}");
+    }
+
+    #[test]
     fn an_unknown_protocol_is_refused_by_the_protocols_dispatch() {
         let err = parse_schema_source("no-such-protocol", "", &ReadOptions::default())
             .expect_err("no protocol has the name");
@@ -478,6 +530,19 @@ mod tests {
         let err = parse_schema_document("postgresql", &value, &options)
             .expect_err("DDL is not a JSON document");
         assert!(matches!(err, SchemaReadError::Protocol(_)), "{err}");
+        let err = parse_schema_document_text("postgresql", api, &options)
+            .expect_err("DDL is not a JSON document");
+        assert!(matches!(err, SchemaReadError::Protocol(_)), "{err}");
+
+        // A repeated key is the reader's to refuse, which it can only do
+        // when it reads the text as written.
+        let repeated = r#"{"openapi": "3.1.0", "openapi": "3.1.0"}"#;
+        let err = parse_schema_document_text("openapi", repeated, &options).unwrap_err();
+        let direct = openapi::read_openapi(repeated.as_bytes()).unwrap_err();
+        assert!(
+            matches!(err, SchemaReadError::OpenApi(ref e) if *e == direct),
+            "{err}"
+        );
     }
 
     #[cfg(feature = "tree-sitter")]

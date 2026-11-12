@@ -916,17 +916,34 @@ describe('parseSchemaBundle', () => {
     schema[Symbol.dispose]();
   });
 
-  it('refuses JSON Schema and names the panproto-io reader', () => {
+  it('refuses the grammar protocols and names the reader and the feature', () => {
+    // The published module leaves the tree-sitter grammars out, so every
+    // protocol read through one is refused with an error that names its
+    // panproto-io reader and the build feature that provides it.
     const doc = { $id: 'https://example.com/user.json', type: 'object' };
-    // JSON Schema documents are read by panproto-io's JSON Schema reader
-    // through the tree-sitter JSON grammar, which the generic dispatch
-    // does not link.
     expect(() => pp.parseSchemaDocument('json-schema', doc)).toThrow(
-      /panproto_io::data_schema::json_schema::read_schema/,
+      /panproto_io::data_schema::json_schema::read_schema.*format-preserving/,
     );
     expect(() => pp.parseSchemaBundle('json-schema', [doc])).toThrow(
-      /no bundle parser registered/i,
+      /panproto_io::data_schema::json_schema::read_schema.*format-preserving/,
     );
+    expect(pp.listBundleParserProtocols()).toContain('json-schema');
+    const readers: Array<[string, string, RegExp]> = [
+      ['openapi', '{"openapi": "3.1.0"}', /panproto_io::api::openapi::read_openapi/],
+      ['asyncapi', 'asyncapi: 3.0.0', /panproto_io::api::asyncapi::read_asyncapi/],
+      ['k8s-crd', 'kind: CustomResourceDefinition', /panproto_io::config::k8s_crd::read_crd/],
+      [
+        'cloudformation',
+        '{"Resources": {}}',
+        /panproto_io::config::cloudformation::read_template/,
+      ],
+      ['ansible', '- hosts: all', /panproto_io::config::ansible::read_ansible/],
+      ['postgresql', 'CREATE TABLE t (id integer);', /panproto_io::postgresql::read_ddl/],
+    ];
+    for (const [protocol, source, reader] of readers) {
+      expect(() => pp.parseSchemaSource(protocol, source)).toThrow(reader);
+      expect(() => pp.parseSchemaSource(protocol, source)).toThrow(/format-preserving/);
+    }
   });
 });
 
