@@ -32,7 +32,7 @@
 //! - **Domain**: `GeoJSON`, FHIR, RSS/Atom, vCard/iCal, EDI X12, SWIFT MT
 //! - **Config**: K8s CRD, Docker Compose, `CloudFormation`, Ansible
 //! - **Text**: YAML, TOML, CSV, TSV
-//! - **RDF**: N-Triples
+//! - **RDF**: N-Triples, Turtle
 
 /// Linguistic annotation format protocol definitions.
 pub mod annotation;
@@ -60,7 +60,7 @@ pub mod raw_file;
 /// The canonical record of what each protocol supports.
 pub mod registry;
 
-/// RDF graph format protocols (N-Triples).
+/// RDF graph format protocols (N-Triples, Turtle).
 pub mod rdf;
 
 /// Per-protocol semantic declarations attached by every `protocol()`.
