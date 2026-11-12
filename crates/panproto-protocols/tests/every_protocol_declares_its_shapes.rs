@@ -74,7 +74,7 @@ const DECLARED: &[(&str, InstanceShapeKind, InstanceShapeKind)] = &[
     ("raml", Tree, Tree),
     ("redis", Table, Table),
     ("rss-atom", Tree, Tree),
-    ("postgresql", Table, Table),
+    ("postgresql", Table, Graph),
     ("swift-mt", Table, Tree),
     ("tei", Tree, Graph),
     ("timeml", Tree, Graph),
