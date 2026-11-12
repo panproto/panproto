@@ -11,7 +11,7 @@ use crate::store::{HeadState, ReflogEntry, Store};
 ///
 /// Useful for unit tests and WASM environments where filesystem access
 /// is unavailable.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct MemStore {
     objects: HashMap<ObjectId, Object>,
     refs: HashMap<String, ObjectId>,

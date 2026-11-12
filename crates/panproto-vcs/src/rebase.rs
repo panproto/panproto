@@ -345,6 +345,7 @@ mod tests {
             data: rmp_serde::to_vec(&vec![inst])?,
             record_count: 1,
             key: Some(key.to_owned()),
+            encoding: crate::object::PayloadEncoding::TREE,
         };
         store.put(&Object::DataSet(ds))
     }
@@ -447,6 +448,7 @@ mod tests {
             data: rmp_serde::to_vec(&vec![inst])?,
             record_count: 1,
             key: None,
+            encoding: crate::object::PayloadEncoding::TREE,
         }))?;
         let err = crate::square::verify_square(
             &mut store, other, replayed, complement, &src, &tgt, &protocol,

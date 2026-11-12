@@ -141,6 +141,7 @@ fn store_edit_log(
             .copied()
             .unwrap_or(vcs::ObjectId::ZERO),
         complement: complement_bytes,
+        encoding: vcs::PayloadEncoding::TREE,
     });
     let complement_id = repo
         .store_mut()
@@ -158,6 +159,7 @@ fn store_edit_log(
         edits: encoded,
         edit_count: u64::try_from(all_edits.len()).unwrap_or(0),
         final_complement: complement_id,
+        encoding: vcs::PayloadEncoding::TREE,
     };
     let obj = vcs::Object::EditLog(edit_log);
     let edit_id = repo

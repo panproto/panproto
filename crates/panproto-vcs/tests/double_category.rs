@@ -81,6 +81,7 @@ fn root_dataset(store: &mut MemStore, schema: &Schema) -> ObjectId {
         data: rmp_serde::to_vec(&vec![inst]).unwrap(),
         record_count: 1,
         key: Some("rec".to_owned()),
+        encoding: panproto_vcs::object::PayloadEncoding::TREE,
     };
     store.put(&Object::DataSet(ds)).unwrap()
 }

@@ -84,6 +84,25 @@ impl Index {
         self.staged.is_some() || !self.staged_data.is_empty() || self.staged_protocol.is_some()
     }
 
+    /// Every object the staging area names: the staged schema and its
+    /// migration, each staged data set with its schema, and the staged
+    /// protocol. Garbage collection keeps these, since the next commit
+    /// refers to them.
+    #[must_use]
+    pub fn object_ids(&self) -> Vec<ObjectId> {
+        let mut ids = Vec::new();
+        if let Some(staged) = &self.staged {
+            ids.push(staged.schema_id);
+            ids.extend(staged.migration_id);
+        }
+        for data in &self.staged_data {
+            ids.push(data.data_id);
+            ids.push(data.schema_id);
+        }
+        ids.extend(self.staged_protocol);
+        ids
+    }
+
     /// Clear the staging area.
     pub fn clear(&mut self) {
         self.staged = None;

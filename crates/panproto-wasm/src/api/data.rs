@@ -76,6 +76,7 @@ pub fn store_dataset(schema_handle: u32, data_json: &[u8]) -> Result<u32, JsErro
         record_count: instances.len() as u64,
         // This FFI stages raw bytes with no caller path or key.
         key: None,
+        encoding: vcs::PayloadEncoding::TREE,
     };
 
     Ok(slab::alloc(Resource::DataSet(Box::new(ds))))
@@ -198,6 +199,7 @@ fn migrate_dataset_forward_inner(
         record_count: migrated.len() as u64,
         // The key identifies the record, so it survives migration.
         key: ds.key.clone(),
+        encoding: vcs::PayloadEncoding::TREE,
     };
 
     // The complement carrier rides in a DataSet resource whose `data`
@@ -212,6 +214,7 @@ fn migrate_dataset_forward_inner(
         record_count: complements.len() as u64,
         // A complement carrier holds no record, so it carries no key.
         key: None,
+        encoding: vcs::PayloadEncoding::TREE,
     };
 
     let data_handle = slab::alloc(Resource::DataSet(Box::new(new_ds)));
@@ -333,6 +336,7 @@ fn migrate_dataset_backward_inner(
         })?,
         record_count: restored.len() as u64,
         key: ds.key,
+        encoding: vcs::PayloadEncoding::TREE,
     };
 
     Ok(slab::alloc(Resource::DataSet(Box::new(restored_ds))))

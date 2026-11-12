@@ -9,7 +9,8 @@
 //!
 //! ## Architecture
 //!
-//! - **Object store**: [`hash`], [`object`], [`store`], [`fs_store`], [`mem_store`]
+//! - **Object store**: [`hash`], [`object`], [`payload`], [`store`], [`fs_store`],
+//!   [`mem_store`]
 //! - **Refs + DAG**: [`refs`], [`dag`], [`blame`], [`bisect`]
 //! - **Staging + commit**: [`index`], [`auto_mig`], [`status`]
 //! - **Merge + rewrite**: [`merge`], [`rebase`], [`cherry_pick`], [`reset`], [`stash`]
@@ -41,6 +42,7 @@ pub mod index;
 pub mod mem_store;
 pub mod merge;
 pub mod object;
+pub mod payload;
 pub mod rebase;
 pub mod refs;
 pub mod rename_detect;
@@ -65,8 +67,10 @@ pub use index::Index;
 pub use mem_store::MemStore;
 pub use object::{
     CommitObject, CommitObjectBuilder, ComplementObject, DataSetObject, EditLogObject,
-    FileSchemaObject, Object, SchemaTreeEntry, SchemaTreeObject, TagObject,
+    FileSchemaObject, InstanceShape, Object, PayloadEncoding, SchemaTreeEntry, SchemaTreeObject,
+    TagObject,
 };
+pub use payload::{ComplementPayload, EditLogPayload, Instance};
 pub use repo::{AddDataOptions, AddOptions, CommitOptions, DecodedDataSet, Repository};
 pub use store::{HeadState, ReflogEntry, Store};
 pub use tree::{

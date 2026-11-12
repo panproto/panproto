@@ -935,13 +935,27 @@ impl Repository {
         Ok(outcome)
     }
 
-    /// Run garbage collection: delete unreachable objects.
+    /// Run garbage collection: delete every object that is reachable
+    /// neither from a root of [`gc::collect_roots`] nor from the staging
+    /// index.
     ///
     /// # Errors
     ///
-    /// Returns an error on I/O failure.
+    /// Returns an error on I/O failure, or when the index or a reachable
+    /// object cannot be read; nothing is deleted then.
     pub fn gc(&mut self) -> Result<gc::GcReport, VcsError> {
-        gc::gc(&mut self.store)
+        self.gc_with_options(&gc::GcOptions::default())
+    }
+
+    /// [`gc`](Self::gc) with options; a dry run reports what would be
+    /// deleted and deletes nothing.
+    ///
+    /// # Errors
+    ///
+    /// As [`gc`](Self::gc).
+    pub fn gc_with_options(&mut self, options: &gc::GcOptions) -> Result<gc::GcReport, VcsError> {
+        let staged = self.read_index()?.object_ids();
+        gc::gc_with_roots(&mut self.store, &staged, options)
     }
 
     /// Get a reference to the underlying store.
@@ -1046,6 +1060,7 @@ impl Repository {
             data,
             record_count,
             key: Some(key),
+            encoding: crate::object::PayloadEncoding::TREE,
         };
         let data_id = self.store.put(&Object::DataSet(dataset))?;
 
@@ -2093,6 +2108,7 @@ mod tests {
             data: br#"[{"a": 1}]"#.to_vec(),
             record_count: 1,
             key: Some("legacy-key".to_owned()),
+            encoding: crate::object::PayloadEncoding::TREE,
         };
         let dataset_id = repo.store_mut().put(&Object::DataSet(dataset))?;
         let commit = CommitObject::builder(schema_id, "test", "alice", "legacy")
@@ -2147,6 +2163,7 @@ mod tests {
             data: vec![0x91],
             record_count: 1,
             key: Some("broken".to_owned()),
+            encoding: crate::object::PayloadEncoding::TREE,
         };
 
         let Err(error) = repo.decode_data_set(dataset) else {
@@ -2359,6 +2376,7 @@ mod tests {
             data: rmp_serde::to_vec(&vec![inst])?,
             record_count: 1,
             key: Some(key.to_owned()),
+            encoding: crate::object::PayloadEncoding::TREE,
         };
         store.put(&Object::DataSet(ds))
     }

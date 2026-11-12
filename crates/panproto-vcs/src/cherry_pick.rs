@@ -486,6 +486,7 @@ mod tests {
             data: rmp_serde::to_vec(&vec![inst])?,
             record_count: 1,
             key: Some(key.to_owned()),
+            encoding: crate::object::PayloadEncoding::TREE,
         };
         store.put(&Object::DataSet(ds))
     }

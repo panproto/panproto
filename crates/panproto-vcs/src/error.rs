@@ -311,6 +311,39 @@ pub enum VcsError {
     #[error("{0}")]
     Other(String),
 
+    /// A data set, complement or edit log records a payload encoding this
+    /// build does not read: a version other than 1 of its shape.
+    #[error("{kind} payload encoding {encoding} is not supported; this build reads version 1")]
+    UnsupportedPayloadEncoding {
+        /// The object kind: `dataset`, `complement` or `editlog`.
+        kind: &'static str,
+        /// The encoding the object records.
+        encoding: crate::object::PayloadEncoding,
+    },
+
+    /// A payload does not decode as the encoding its object records, or
+    /// decodes to something that contradicts the object's other fields.
+    #[error("{kind} payload ({encoding}) does not decode: {reason}")]
+    UndecodablePayload {
+        /// The object kind: `dataset`, `complement` or `editlog`.
+        kind: &'static str,
+        /// The encoding the object records.
+        encoding: crate::object::PayloadEncoding,
+        /// Why it does not decode.
+        reason: String,
+    },
+
+    /// A payload decodes, but its bytes are not the canonical encoding of
+    /// the value they decode to, so its object would not have the
+    /// identifier that value is stored under.
+    #[error("{kind} payload ({encoding}) is not the canonical encoding of its value")]
+    NonCanonicalPayload {
+        /// The object kind: `dataset`, `complement` or `editlog`.
+        kind: &'static str,
+        /// The encoding the object records.
+        encoding: crate::object::PayloadEncoding,
+    },
+
     /// A schema names a protocol that resolves neither to the staged or
     /// committed protocol object, nor to a protocol registered with
     /// [`Repository::set_protocol`](crate::Repository::set_protocol), nor

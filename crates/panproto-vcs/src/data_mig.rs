@@ -99,6 +99,7 @@ pub fn migrate_forward(
         // The key identifies the record, not its schema version, so it
         // survives migration unchanged.
         key: data_obj.key,
+        encoding: crate::object::PayloadEncoding::TREE,
     };
     let new_data_id = store.put(&Object::DataSet(new_data))?;
 
@@ -111,6 +112,7 @@ pub fn migrate_forward(
                 reason: format!("serialize complement: {e}"),
             }
         })?,
+        encoding: crate::object::PayloadEncoding::TREE,
     };
     let complement_id = store.put(&Object::Complement(comp))?;
 
@@ -207,6 +209,7 @@ pub fn migrate_backward(
         })?,
         record_count: restored.len() as u64,
         key: data_obj.key,
+        encoding: crate::object::PayloadEncoding::TREE,
     };
     let restored_id = store.put(&Object::DataSet(restored_data))?;
 
@@ -314,6 +317,7 @@ pub fn migrate_data_directory(
             // The source file path is this set's natural key, matching
             // how `Repository::add_data` keys a staged file by default.
             key: Some(path.to_string_lossy().into_owned()),
+            encoding: crate::object::PayloadEncoding::TREE,
         };
         store.put(&Object::DataSet(migrated_data))?;
 
@@ -637,6 +641,7 @@ mod tests {
             data: vec![],
             record_count: 0,
             key: None,
+            encoding: crate::object::PayloadEncoding::TREE,
         };
         let data_id = store.put(&Object::DataSet(ds))?;
 
@@ -663,6 +668,7 @@ mod tests {
             data: vec![],
             record_count: 0,
             key: None,
+            encoding: crate::object::PayloadEncoding::TREE,
         };
         let data_id = store.put(&Object::DataSet(ds))?;
 
@@ -790,6 +796,7 @@ mod tests {
             data: rmp_serde::to_vec(&vec![inst])?,
             record_count: 1,
             key: None,
+            encoding: crate::object::PayloadEncoding::TREE,
         }))?;
         let commit = make_commit(crate::hash::hash_schema(&src)?, vec![ds_id]);
         match lift_commit_data(&mut store, &commit, &src, &tgt, &HashMap::new()) {
@@ -814,6 +821,7 @@ mod tests {
             data: rmp_serde::to_vec(&vec![inst])?,
             record_count: 1,
             key: None,
+            encoding: crate::object::PayloadEncoding::TREE,
         }))?;
         // The commit records the protocol object, so it resolves the name
         // with nothing registered.
@@ -853,6 +861,7 @@ mod tests {
             data: rmp_serde::to_vec(&vec![inst])?,
             record_count: 1,
             key: Some("rec-key".to_owned()),
+            encoding: crate::object::PayloadEncoding::TREE,
         };
         let ds_id = store.put(&Object::DataSet(ds))?;
         let commit = make_commit(crate::hash::hash_schema(&src)?, vec![ds_id]);
@@ -891,6 +900,7 @@ mod tests {
             data: rmp_serde::to_vec(&vec![inst])?,
             record_count: 1,
             key: None,
+            encoding: crate::object::PayloadEncoding::TREE,
         }))?;
 
         let (view_id, comp_id) = migrate_forward(&mut store, ds_id, &src, &tgt, &protocol)?;
@@ -921,6 +931,7 @@ mod tests {
             data: vec![],
             record_count: 0,
             key: None,
+            encoding: crate::object::PayloadEncoding::TREE,
         };
         let ds_id = store.put(&Object::DataSet(ds))?;
         let commit = make_commit(crate::hash::hash_schema(&src)?, vec![ds_id]);

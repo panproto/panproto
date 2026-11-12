@@ -571,6 +571,7 @@ mod tests {
             data: vec![1],
             record_count: 0,
             key: None,
+            encoding: crate::object::PayloadEncoding::TREE,
         }))?;
         let prefix = &id.to_string()[..12];
 
