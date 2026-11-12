@@ -197,6 +197,14 @@ jobs:
             shard: 3/4
           - package: panproto-inst
             binary: reference_edits
+            test: segmented_apply::segmented_apply_agrees_with_the_reference_on_every_case_of_the_carrier
+            shard: 0/2
+          - package: panproto-inst
+            binary: reference_edits
+            test: segmented_apply::segmented_apply_agrees_with_the_reference_on_every_case_of_the_carrier
+            shard: 1/2
+          - package: panproto-inst
+            binary: reference_edits
             test: graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope
             shard: 0/4
             shard_env: PANPROTO_EDIT_COVERAGE_SHARD
