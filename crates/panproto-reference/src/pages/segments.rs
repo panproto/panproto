@@ -11156,4 +11156,122 @@ pub mod segmented_apply {
     }
 }
 
+pub mod segmented_edit_lens {
+    //! The graph edit lens over a graph held as segments.
+    //!
+    //! It is defined by whole-state application of each delta to the glued
+    //! source, segmented restriction holding the previous complements, and
+    //! the whole-state differ of the glued views.
+    //!
+    //! This is the executable definition of L-segments-31. It never runs
+    //! segment by segment: every step glues what it reads.
+
+    use super::segment::{
+        GraphComplementSegment, GraphSegment, Partition, SegmentError, assemble_graph,
+    };
+    use super::segmented_apply::{SegmentedApplyRefusal, apply_graph_segmented};
+    use super::segmented_restrict::{SegmentedRestrictRefusal, restrict_graph_segmented_held};
+    use crate::edit::{GraphDelta, diff_keeping_replacements};
+    use crate::migration::Migration;
+    use crate::restrict::ValueLayer;
+    use crate::schema::Schema;
+
+    /// The state a segmented graph edit lens holds: the source segments and
+    /// the view and complement segments of their restriction.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct SegmentedEditState {
+        /// The source segments.
+        pub source: Vec<GraphSegment>,
+        /// The view segments.
+        pub views: Vec<GraphSegment>,
+        /// The complement segments.
+        pub complements: Vec<GraphComplementSegment>,
+    }
+
+    /// Why the reference segmented graph edit lens refuses an edit.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum SegmentedEditRefusal {
+        /// Segmented application of the delta to the source refuses.
+        Apply(SegmentedApplyRefusal),
+        /// Segmented restriction of the edited source refuses.
+        Restrict(SegmentedRestrictRefusal),
+        /// The held views do not glue.
+        Segment(SegmentError),
+    }
+
+    /// The restriction a reference segmented edit lens runs: the schemas,
+    /// the migration and the value layer.
+    #[derive(Clone, Copy)]
+    pub struct EditRestriction<'a> {
+        /// Source schema.
+        pub src: &'a Schema,
+        /// Target schema.
+        pub tgt: &'a Schema,
+        /// Migration.
+        pub m: &'a Migration,
+        /// Value layer.
+        pub vl: &'a dyn ValueLayer,
+    }
+
+    /// Definition: binding the segmented graph edit lens to `source`: the
+    /// source with the view and complement segments of segmented
+    /// restriction numbered afresh.
+    ///
+    /// # Errors
+    ///
+    /// The refusal of segmented restriction.
+    pub fn bind_segmented_edit(
+        r: EditRestriction<'_>,
+        source: &[GraphSegment],
+        p: &Partition,
+    ) -> Result<SegmentedEditState, SegmentedRestrictRefusal> {
+        let outputs = restrict_graph_segmented_held(r.src, r.tgt, r.m, r.vl, source, p, &[])?;
+        let (views, complements) = outputs.into_iter().unzip();
+        Ok(SegmentedEditState {
+            source: source.to_vec(),
+            views,
+            complements,
+        })
+    }
+
+    /// Definition: the reference segmented graph edit lens's translation
+    /// of a source edit.
+    ///
+    /// The edited source is segmented application of `d` to the held
+    /// source ([`apply_graph_segmented`]); its view and complement segments
+    /// are segmented restriction of it holding the held complements
+    /// ([`restrict_graph_segmented_held`]); and the translated delta is the
+    /// incidence-closed replacement differ from the glued held view to the
+    /// glued new view, keeping the replacements of `d`
+    /// ([`diff_keeping_replacements`]).
+    ///
+    /// # Errors
+    ///
+    /// The refusal of application, of restriction, or of gluing the views.
+    pub fn segmented_edit_get(
+        r: EditRestriction<'_>,
+        state: &SegmentedEditState,
+        p: &Partition,
+        d: &GraphDelta,
+    ) -> Result<(GraphDelta, SegmentedEditState), SegmentedEditRefusal> {
+        let source =
+            apply_graph_segmented(d, &state.source, p).map_err(SegmentedEditRefusal::Apply)?;
+        let outputs =
+            restrict_graph_segmented_held(r.src, r.tgt, r.m, r.vl, &source, p, &state.complements)
+                .map_err(SegmentedEditRefusal::Restrict)?;
+        let (views, complements): (Vec<GraphSegment>, Vec<GraphComplementSegment>) =
+            outputs.into_iter().unzip();
+        let before = assemble_graph(&state.views, p).map_err(SegmentedEditRefusal::Segment)?;
+        let after = assemble_graph(&views, p).map_err(SegmentedEditRefusal::Segment)?;
+        Ok((
+            diff_keeping_replacements(&before, &after, d),
+            SegmentedEditState {
+                source,
+                views,
+                complements,
+            },
+        ))
+    }
+}
+
 pub use self::segment::{fresh, glue, partition, segmented};

@@ -14,15 +14,17 @@
 //! partial, so a translation may refuse. Both directions are atomic: a
 //! refusal leaves the lens as it was.
 //!
-//! The two translations are the same for every shape. A forward translation
-//! is the incidence-closed replacement differ between the held view and the
-//! view of the edited source, keeping the replacements of the input
+//! A shape ([`EditShape`]) supplies its delta algebra and its two staged
+//! steps. For a shape held in memory ([`WholeStateShape`]) the translations
+//! are the same: a forward translation is the incidence-closed replacement
+//! differ between the held view and the view of the edited source, keeping
+//! the replacements of the input
 //! ([`GraphDelta::diff_keeping_replacements`],
 //! [`TableDelta::diff_keeping_replacements`]); a backward translation puts
 //! the edited view, takes the same differ from the held source to the put
 //! source, translates that delta forward, and requires the result to be the
-//! edited view. A shape ([`EditShape`]) supplies its delta algebra, its
-//! whole-state put and its forward step: [`GraphEditLens`] runs the graph
+//! edited view. A whole-state shape supplies its whole-state put and its
+//! forward step: [`GraphEditLens`] runs the graph
 //! restrict engine on the region an edit reaches and keeps synthesized ids
 //! stable, and [`TableEditLens`] runs table get on the edited source, whose
 //! rows and pairs carry no synthesized id.
@@ -37,7 +39,7 @@ use std::fmt::Debug;
 use panproto_inst::EditError;
 use panproto_inst::graph_edit::ComposeError;
 use panproto_inst::identity::Digest;
-use panproto_inst::segment::IdKind;
+use panproto_inst::segment::{IdKind, Residual, RunIncompleteReason, SegmentError};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
@@ -73,6 +75,20 @@ pub enum ShapeEditError {
     /// The get of the put source does not give back the edited view.
     #[error("the source put returns does not get back the edited view")]
     PutGetMismatch,
+    /// A segmented run refuses the family: a segment, manifest or artifact
+    /// is malformed, or an edited family cannot be laid out under its
+    /// partition.
+    #[error("segment refusal: {0}")]
+    Segment(#[source] SegmentError),
+    /// A segmented run is declined within its budget or locality; a lens
+    /// whose restriction carries an expression is
+    /// [`Residual::Global`](panproto_inst::segment::Residual::Global).
+    #[error("declined: {0}")]
+    Residual(Residual),
+    /// A segmented run stopped before it sealed, by a store or source
+    /// failure; translating the same edit again resumes it.
+    #[error("a run stopped before it sealed: {0:?}")]
+    Incomplete(RunIncompleteReason),
     /// The held state broke an invariant of the construction; this names a
     /// defect, never a property of the edit.
     #[error("edit lens invariant broken: {0}")]
@@ -119,21 +135,23 @@ pub struct ShapeEditStep<D> {
     pub view_delta: D,
 }
 
-/// An instance shape with a delta algebra, a whole-state put and a forward
-/// edit step: what [`ShapeEditLens`] needs of a shape.
+/// What [`ShapeEditLens`] needs of a shape: a delta algebra and the two
+/// staged steps, forward and backward, each committed or aborted.
+///
+/// The held state may live anywhere: in memory ([`WholeStateShape`]), or in
+/// a segment store, as the segmented graph shape holds it.
 pub trait EditShape: Sized {
-    /// The instances of the shape.
-    type Instance: Clone + Debug;
-    /// The complement get returns.
-    type Complement: Clone + Debug;
+    /// What binding reads: the source instance, or the manifest and segments
+    /// of a source held as segments.
+    type Source;
     /// The deltas of the shape.
     type Delta: Clone + Debug + Eq + Serialize + DeserializeOwned;
     /// What get and put read besides the lens: the boundary protocols of a
-    /// table, nothing for a graph.
+    /// table, nothing for a graph, the run budget of a segmented graph.
     type Context: Clone + Debug;
     /// The held source, view and complement, with the shape's indexes.
-    type Held: Clone + Debug;
-    /// A forward step whose source change is made but not committed.
+    type Held;
+    /// A step whose translation is computed but not committed.
     type Staged;
 
     /// Run get on `source` and hold it with its view and complement.
@@ -144,19 +162,12 @@ pub trait EditShape: Sized {
     fn bind(
         lens: &Lens,
         context: &Self::Context,
-        source: Self::Instance,
+        source: Self::Source,
     ) -> Result<Self::Held, ShapeEditError>;
 
-    /// The held source.
-    fn source(held: &Self::Held) -> &Self::Instance;
-    /// The held view.
-    fn view(held: &Self::Held) -> &Self::Instance;
-    /// The held complement.
-    fn complement(held: &Self::Held) -> &Self::Complement;
-
-    /// Apply `delta` to the held source and translate it forward, leaving
-    /// the view and complement as they are; on a refusal the source is
-    /// restored.
+    /// Translate the source delta `delta` forward, leaving the held view
+    /// and complement as they are; on a refusal the held state is as it
+    /// was.
     ///
     /// # Errors
     ///
@@ -168,10 +179,26 @@ pub trait EditShape: Sized {
         delta: &Self::Delta,
     ) -> Result<Self::Staged, ShapeEditError>;
 
+    /// Translate the view delta `delta` backward: the staged forward step
+    /// of the source delta it translates to, with that source delta. On a
+    /// refusal the held state is as it was.
+    ///
+    /// # Errors
+    ///
+    /// The refusal of applying `delta` to the view, of put, or of the
+    /// forward step, and [`ShapeEditError::PutGetMismatch`] when the forward
+    /// step does not give back the edited view.
+    fn stage_put(
+        lens: &Lens,
+        context: &Self::Context,
+        held: &mut Self::Held,
+        delta: &Self::Delta,
+    ) -> Result<(Self::Staged, Self::Delta), ShapeEditError>;
+
     /// The view delta of a staged step.
     fn staged_view_delta(staged: &Self::Staged) -> &Self::Delta;
 
-    /// Restore the source of a staged step that is not committed.
+    /// Restore the held state of a staged step that is not committed.
     ///
     /// # Errors
     ///
@@ -179,19 +206,12 @@ pub trait EditShape: Sized {
     fn abort(held: &mut Self::Held, staged: &Self::Staged) -> Result<(), ShapeEditError>;
 
     /// Advance the view, the complement and the indexes to a staged step;
-    /// on a refusal the source is restored and nothing else changes.
+    /// on a refusal the held state is as it was before the step.
     ///
     /// # Errors
     ///
     /// [`ShapeEditError::Incoherent`] when the view delta does not apply.
     fn commit(held: &mut Self::Held, staged: Self::Staged) -> Result<(), ShapeEditError>;
-
-    /// Apply `delta` to `instance`, atomically.
-    ///
-    /// # Errors
-    ///
-    /// The refusal of the delta algebra.
-    fn apply(delta: &Self::Delta, instance: &mut Self::Instance) -> Result<(), EditError>;
 
     /// The empty delta.
     fn identity() -> Self::Delta;
@@ -205,9 +225,30 @@ pub trait EditShape: Sized {
 
     /// The digest of a delta's canonical bytes.
     fn digest(delta: &Self::Delta) -> Digest;
+}
+
+/// A shape whose held source, view and complement are in-memory instances,
+/// with a whole-state put and the incidence-closed replacement differ.
+pub trait WholeStateShape: EditShape {
+    /// The complement get returns.
+    type Complement: Clone + Debug;
+
+    /// The held source.
+    fn source(held: &Self::Held) -> &Self::Source;
+    /// The held view.
+    fn view(held: &Self::Held) -> &Self::Source;
+    /// The held complement.
+    fn complement(held: &Self::Held) -> &Self::Complement;
+
+    /// Apply `delta` to `instance`, atomically.
+    ///
+    /// # Errors
+    ///
+    /// The refusal of the delta algebra.
+    fn apply(delta: &Self::Delta, instance: &mut Self::Source) -> Result<(), EditError>;
 
     /// Whether two instances are identical.
-    fn identical(a: &Self::Instance, b: &Self::Instance) -> bool;
+    fn identical(a: &Self::Source, b: &Self::Source) -> bool;
 
     /// The incidence-closed replacement differ from `before` to `after`
     /// keeping the replacements of `input`.
@@ -216,8 +257,8 @@ pub trait EditShape: Sized {
     ///
     /// [`ShapeEditError::Incoherent`] when the closed parts are malformed.
     fn closed_diff(
-        before: &Self::Instance,
-        after: &Self::Instance,
+        before: &Self::Source,
+        after: &Self::Source,
         input: &Self::Delta,
     ) -> Result<Self::Delta, ShapeEditError>;
 
@@ -229,9 +270,43 @@ pub trait EditShape: Sized {
     fn put(
         lens: &Lens,
         context: &Self::Context,
-        view: &Self::Instance,
+        view: &Self::Source,
         complement: &Self::Complement,
-    ) -> Result<Self::Instance, LensError>;
+    ) -> Result<Self::Source, LensError>;
+}
+
+/// The backward step of a whole-state shape: put the edited view against
+/// the held complement, take the incidence-closed replacement differ from
+/// the held source to the put source keeping the replacements of `edit`,
+/// stage its forward translation, and require it to give back the edited
+/// view exactly, aborting the staged step otherwise.
+///
+/// # Errors
+///
+/// As [`EditShape::stage_put`].
+pub(crate) fn stage_whole_state_put<S: WholeStateShape>(
+    lens: &Lens,
+    context: &S::Context,
+    held: &mut S::Held,
+    edit: &S::Delta,
+) -> Result<(S::Staged, S::Delta), ShapeEditError>
+where
+    S::Source: Clone,
+{
+    let mut edited_view = S::view(held).clone();
+    S::apply(edit, &mut edited_view).map_err(ShapeEditError::Apply)?;
+    let put = S::put(lens, context, &edited_view, S::complement(held))
+        .map_err(|error| ShapeEditError::Put(Box::new(error)))?;
+    let source_delta = S::closed_diff(S::source(held), &put, edit)?;
+    let staged = S::stage(lens, context, held, &source_delta)?;
+    let mut probe = S::view(held).clone();
+    let agrees = S::apply(S::staged_view_delta(&staged), &mut probe).is_ok()
+        && S::identical(&probe, &edited_view);
+    if !agrees {
+        S::abort(held, &staged)?;
+        return Err(ShapeEditError::PutGetMismatch);
+    }
+    Ok((staged, source_delta))
 }
 
 /// A lens bound to a source of shape `S`, translating deltas in both
@@ -243,7 +318,10 @@ pub struct ShapeEditLens<S: EditShape> {
     sequence: u64,
 }
 
-impl<S: EditShape> Clone for ShapeEditLens<S> {
+impl<S: EditShape> Clone for ShapeEditLens<S>
+where
+    S::Held: Clone,
+{
     fn clone(&self) -> Self {
         Self {
             lens: Lens {
@@ -258,7 +336,10 @@ impl<S: EditShape> Clone for ShapeEditLens<S> {
     }
 }
 
-impl<S: EditShape> Debug for ShapeEditLens<S> {
+impl<S: EditShape> Debug for ShapeEditLens<S>
+where
+    S::Held: Debug,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ShapeEditLens")
             .field("lens", &self.lens)
@@ -286,7 +367,7 @@ impl<S: EditShape> ShapeEditLens<S> {
     pub fn bind(
         lens: Lens,
         context: S::Context,
-        source: S::Instance,
+        source: S::Source,
     ) -> Result<Self, ShapeEditError> {
         let held = S::bind(&lens, &context, source)?;
         Ok(Self {
@@ -309,22 +390,10 @@ impl<S: EditShape> ShapeEditLens<S> {
         &self.context
     }
 
-    /// The held source.
+    /// The held state.
     #[must_use]
-    pub fn source(&self) -> &S::Instance {
-        S::source(&self.held)
-    }
-
-    /// The held view.
-    #[must_use]
-    pub fn view(&self) -> &S::Instance {
-        S::view(&self.held)
-    }
-
-    /// The held complement, stamped with the identity of the lens.
-    #[must_use]
-    pub fn complement(&self) -> &S::Complement {
-        S::complement(&self.held)
+    pub(crate) const fn held(&self) -> &S::Held {
+        &self.held
     }
 
     /// How many edits the lens has admitted.
@@ -352,10 +421,12 @@ impl<S: EditShape> ShapeEditLens<S> {
     /// Translate the view delta `edit` to the source, and advance the held
     /// source, view and complement.
     ///
-    /// The edited view is put against the held complement; the source delta
-    /// is the incidence-closed replacement differ from the held source to
-    /// the put source, keeping the replacements of `edit`. Its forward
-    /// translation must give back the edited view exactly.
+    /// The shape's backward step ([`EditShape::stage_put`]) puts the edited
+    /// view against the held complement and gives the source delta, whose
+    /// forward translation must give back the edited view exactly; for a
+    /// whole-state shape the source delta is the incidence-closed
+    /// replacement differ from the held source to the put source, keeping
+    /// the replacements of `edit`.
     ///
     /// # Errors
     ///
@@ -366,19 +437,7 @@ impl<S: EditShape> ShapeEditLens<S> {
     /// [`ShapeEditError::PutGetMismatch`] when it does not give back the
     /// edited view. The lens is then unchanged.
     pub fn put_edit(&mut self, edit: &S::Delta) -> Result<ShapeEditStep<S::Delta>, ShapeEditError> {
-        let mut edited_view = self.view().clone();
-        S::apply(edit, &mut edited_view).map_err(ShapeEditError::Apply)?;
-        let put = S::put(&self.lens, &self.context, &edited_view, self.complement())
-            .map_err(|error| ShapeEditError::Put(Box::new(error)))?;
-        let source_delta = S::closed_diff(self.source(), &put, edit)?;
-        let staged = S::stage(&self.lens, &self.context, &mut self.held, &source_delta)?;
-        let mut probe = self.view().clone();
-        let agrees = S::apply(S::staged_view_delta(&staged), &mut probe).is_ok()
-            && S::identical(&probe, &edited_view);
-        if !agrees {
-            S::abort(&mut self.held, &staged)?;
-            return Err(ShapeEditError::PutGetMismatch);
-        }
+        let (staged, source_delta) = S::stage_put(&self.lens, &self.context, &mut self.held, edit)?;
         S::commit(&mut self.held, staged)?;
         Ok(self.record(EditDirection::Put, edit, source_delta, edit.clone()))
     }
@@ -428,5 +487,25 @@ impl<S: EditShape> ShapeEditLens<S> {
             source_delta,
             view_delta,
         }
+    }
+}
+
+impl<S: WholeStateShape> ShapeEditLens<S> {
+    /// The held source.
+    #[must_use]
+    pub fn source(&self) -> &S::Source {
+        S::source(&self.held)
+    }
+
+    /// The held view.
+    #[must_use]
+    pub fn view(&self) -> &S::Source {
+        S::view(&self.held)
+    }
+
+    /// The held complement, stamped with the identity of the lens.
+    #[must_use]
+    pub fn complement(&self) -> &S::Complement {
+        S::complement(&self.held)
     }
 }

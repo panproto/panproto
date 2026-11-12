@@ -46,7 +46,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 
 use crate::lens_shape::GraphShape;
 use crate::shape_edit_lens::{
-    EditShape, ShapeEditError, ShapeEditLens, ShapeEditStep, get_refusal, incoherent,
+    EditShape, ShapeEditError, ShapeEditLens, ShapeEditStep, WholeStateShape, get_refusal,
+    incoherent, stage_whole_state_put,
 };
 use crate::{Lens, LensError, graph_lens};
 use panproto_inst::graph_edit::{ComposeError, ElemRef};
@@ -203,8 +204,7 @@ impl ShapeEditLens<GraphShape> {
 }
 
 impl EditShape for GraphShape {
-    type Instance = GInstance;
-    type Complement = GraphComplement;
+    type Source = GInstance;
     type Delta = GraphDelta;
     type Context = ();
     type Held = GraphHeld;
@@ -242,18 +242,6 @@ impl EditShape for GraphShape {
         Ok(held)
     }
 
-    fn source(held: &GraphHeld) -> &GInstance {
-        &held.source
-    }
-
-    fn view(held: &GraphHeld) -> &GInstance {
-        &held.view
-    }
-
-    fn complement(held: &GraphHeld) -> &GraphComplement {
-        &held.complement
-    }
-
     fn stage(
         _lens: &Lens,
         (): &(),
@@ -261,6 +249,15 @@ impl EditShape for GraphShape {
         delta: &GraphDelta,
     ) -> Result<GraphStaged, ShapeEditError> {
         held.stage(delta)
+    }
+
+    fn stage_put(
+        lens: &Lens,
+        context: &(),
+        held: &mut GraphHeld,
+        delta: &GraphDelta,
+    ) -> Result<(GraphStaged, GraphDelta), ShapeEditError> {
+        stage_whole_state_put::<Self>(lens, context, held, delta)
     }
 
     fn staged_view_delta(staged: &GraphStaged) -> &GraphDelta {
@@ -275,10 +272,6 @@ impl EditShape for GraphShape {
         held.commit(staged)
     }
 
-    fn apply(delta: &GraphDelta, instance: &mut GInstance) -> Result<(), EditError> {
-        delta.apply(instance)
-    }
-
     fn identity() -> GraphDelta {
         GraphDelta::identity()
     }
@@ -289,6 +282,26 @@ impl EditShape for GraphShape {
 
     fn digest(delta: &GraphDelta) -> Digest {
         delta.digest()
+    }
+}
+
+impl WholeStateShape for GraphShape {
+    type Complement = GraphComplement;
+
+    fn source(held: &GraphHeld) -> &GInstance {
+        &held.source
+    }
+
+    fn view(held: &GraphHeld) -> &GInstance {
+        &held.view
+    }
+
+    fn complement(held: &GraphHeld) -> &GraphComplement {
+        &held.complement
+    }
+
+    fn apply(delta: &GraphDelta, instance: &mut GInstance) -> Result<(), EditError> {
+        delta.apply(instance)
     }
 
     fn identical(a: &GInstance, b: &GInstance) -> bool {

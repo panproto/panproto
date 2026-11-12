@@ -60,6 +60,7 @@ pub mod lens_shape;
 pub mod optic;
 pub mod protolens;
 pub mod protolens_nat;
+pub mod segmented_edit_lens;
 pub mod shape_edit_lens;
 pub mod symbolic;
 pub mod symmetric;
@@ -131,7 +132,13 @@ pub use protolens::{
 pub use protolens_nat::{
     ProtolensNaturalitySquare, check_protolens_naturality, protolens_naturality_square,
 };
-pub use shape_edit_lens::{EditDirection, EditShape, ShapeEditError, ShapeEditLens, ShapeEditStep};
+pub use segmented_edit_lens::{
+    FamilyReadError, SegmentedGraph, SegmentedGraphEditLens, SegmentedGraphHeld,
+    SegmentedGraphShape, SegmentedGraphStaged,
+};
+pub use shape_edit_lens::{
+    EditDirection, EditShape, ShapeEditError, ShapeEditLens, ShapeEditStep, WholeStateShape,
+};
 pub use symbolic::{
     SymbolicStep, cancels_to_identity, elementary_get_steps, proves_get_put, proves_put_get,
     simplify_steps,

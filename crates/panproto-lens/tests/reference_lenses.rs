@@ -17479,7 +17479,7 @@ mod graph_edit_lens_differential {
         }
     }
 
-    fn prod_delta(delta: &RefGraphDelta) -> GraphDelta {
+    pub fn prod_delta(delta: &RefGraphDelta) -> GraphDelta {
         let mut parts = GraphDeltaParts::default();
         for (element, payload) in &delta.del {
             match (element, payload) {
@@ -17519,7 +17519,7 @@ mod graph_edit_lens_differential {
         GraphDelta::normalize(parts).expect("a carrier letter is normal")
     }
 
-    fn ref_delta(delta: &GraphDelta) -> RefGraphDelta {
+    pub fn ref_delta(delta: &GraphDelta) -> RefGraphDelta {
         let mut out = RefGraphDelta::identity();
         for (id, node) in delta.del_nodes() {
             out.del.insert(
@@ -17983,7 +17983,8 @@ mod segmented_graph_get {
         ref_graph,
     };
 
-    const SOURCE_SCHEMA: [u8; 32] = [7; 32];
+    /// The schema digest of a sealed source family.
+    pub const SOURCE_SCHEMA: [u8; 32] = [7; 32];
 
     pub fn prod_partition(partition: &reference::Partition) -> Partition {
         let range = |r: &reference::IdRange| IdRange { lo: r.lo, hi: r.hi };
@@ -18004,13 +18005,17 @@ mod segmented_graph_get {
 
     /// A sealed source family: its manifest, the segments' canonical bytes
     /// and the production partition.
-    struct Input {
-        manifest: SegmentManifest,
-        bytes: BTreeMap<SegmentId, Vec<u8>>,
-        partition: Partition,
+    pub struct Input {
+        /// The source manifest.
+        pub manifest: SegmentManifest,
+        /// The segments' canonical bytes.
+        pub bytes: BTreeMap<SegmentId, Vec<u8>>,
+        /// The production partition.
+        pub partition: Partition,
     }
 
-    fn input(graph: &RefGraph, partition: &reference::Partition) -> Input {
+    /// Seal the production segments of `graph` under `partition`.
+    pub fn input(graph: &RefGraph, partition: &reference::Partition) -> Input {
         let partition = prod_partition(partition);
         let segments: Vec<AnySegment> = partition_graph(&prod_graph(graph), &partition)
             .expect("production split")
@@ -19520,9 +19525,7 @@ mod segmented_graph_put_run {
             );
             assert_eq!(resumed.manifest, baseline.manifest);
             assert_eq!(
-                store
-                    .staged_uncommitted(&run)
-                    .unwrap_or_else(|never| match never {}),
+                store.staged_uncommitted(&run).expect("the journal reads"),
                 Vec::<ArtifactKey>::new()
             );
         }
@@ -19914,5 +19917,825 @@ mod segmented_graph_put_run {
             }
         });
         assert!(tally.cancellations >= 14, "{tally:?}");
+    }
+}
+
+/// The segmented graph edit lens against its reference definition and
+/// against the whole-state graph edit lens, by renaming synthesized ids by
+/// synthesis key.
+mod segmented_graph_edit_lens {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use panproto_inst::identity::ComplementShape;
+    use panproto_inst::identity::Digest;
+    use panproto_inst::segment::{
+        AnySegment, ArtifactKey, Budget, FamilyIndex, GRAPH_APPLY_OP, MemoryStore, MissingSegment,
+        Phase, Residual, RunJournal, SegmentId, SegmentStore, TaskKey, TaskRecord, read_emitted,
+    };
+    use panproto_lens::{Lens, SegmentedGraph, SegmentedGraphEditLens, ShapeEditError};
+    use panproto_reference::edit::{
+        self as ref_edit, GElem, GPayload, GraphDelta as RefGraphDelta,
+    };
+    use panproto_reference::enumerate::edits::{
+        graph_edit_lens_letter_count, graph_edit_lens_letters,
+    };
+    use panproto_reference::enumerate::segments::segmented_restrict_cases;
+    use panproto_reference::restrict::NoValueLayer;
+    use panproto_reference::segment as reference;
+
+    use super::graph_edit_lens_differential::{prod_delta, ref_delta};
+    use super::segmented_graph_get::{Input, SOURCE_SCHEMA, input, lens_of};
+    use super::{
+        BOUNDED_LENS_FIELD, BOUNDED_LENS_VALUE, RefComplement, RefGraph, RefMigration,
+        RefRestrictError, RefSchema,
+    };
+
+    /// The bound lenses of a case.
+    type Bound = SegmentedGraphEditLens<BTreeMap<SegmentId, Vec<u8>>, MemoryStore>;
+
+    /// `partition` with the ids from `from` to 99 given to its last segment,
+    /// so a node an edit adds has an owner.
+    pub fn with_spare(partition: &reference::Partition, from: u32) -> reference::Partition {
+        let mut spared = partition.clone();
+        if let Some(last) = spared.specs.last_mut() {
+            last.nodes.push(reference::IdRange { lo: from, hi: 99 });
+            last.nodes.sort_by_key(|range| range.lo);
+        }
+        spared
+    }
+
+    /// The lens, the restriction and the partition of one case.
+    pub struct Case<'a> {
+        /// The schema, source and target alike.
+        pub schema: &'a RefSchema,
+        /// The migration.
+        pub migration: &'a RefMigration,
+        /// The partition, with spare ids.
+        pub partition: &'a reference::Partition,
+    }
+
+    impl Case<'_> {
+        fn restriction(&self) -> reference::EditRestriction<'_> {
+            reference::EditRestriction {
+                src: self.schema,
+                tgt: self.schema,
+                m: self.migration,
+                vl: &NoValueLayer,
+            }
+        }
+
+        fn lens(&self) -> Lens {
+            lens_of(self.schema, self.migration)
+        }
+
+        fn whole_get(
+            &self,
+            graph: &RefGraph,
+        ) -> Result<(RefGraph, RefComplement), RefRestrictError> {
+            panproto_reference::restrict::get(
+                self.schema,
+                self.schema,
+                self.migration,
+                &NoValueLayer,
+                graph,
+            )
+        }
+    }
+
+    /// Every segment's canonical bytes in the production lens: source
+    /// segments under the source schema, view segments under the view
+    /// schema, and complement segments.
+    pub fn production_state<St: SegmentStore>(
+        lens: &SegmentedGraphEditLens<BTreeMap<SegmentId, Vec<u8>>, St>,
+        view_schema: Digest,
+    ) -> Vec<(Vec<u8>, Vec<u8>, Vec<u8>)> {
+        let state = lens.segmented_state();
+        let partition = state.view_manifest().partition().expect("a partition");
+        partition
+            .specs()
+            .iter()
+            .map(|spec| {
+                let source = state.source_segment(spec.id).expect("a source segment");
+                let emitted = read_emitted(&*state.store(), state.get_run(), &partition, spec.id)
+                    .expect("an emitted segment");
+                let view = AnySegment::Graph(emitted.view)
+                    .canonical_bytes(&view_schema, &partition)
+                    .expect("view bytes");
+                (source, view, emitted.complement)
+            })
+            .collect()
+    }
+
+    /// The same bytes of a reference state.
+    pub fn reference_state(
+        state: &reference::SegmentedEditState,
+        partition: &reference::Partition,
+        view_schema: panproto_inst::identity::Digest,
+    ) -> Vec<(Vec<u8>, Vec<u8>, Vec<u8>)> {
+        let bytes = |segment: &reference::GraphSegment, schema: [u8; 32]| {
+            reference::canonical_segment_bytes(
+                &reference::AnySegment::Graph(segment.clone()),
+                reference::Digest(schema),
+                partition,
+            )
+            .expect("reference segment bytes")
+        };
+        state
+            .source
+            .iter()
+            .zip(&state.views)
+            .zip(&state.complements)
+            .map(|((source, view), complement)| {
+                (
+                    bytes(source, SOURCE_SCHEMA),
+                    bytes(view, view_schema.0),
+                    reference::canonical_complement_segment_bytes(
+                        &reference::AnyComplementSegment::Graph(complement.clone()),
+                    )
+                    .expect("reference complement bytes"),
+                )
+            })
+            .collect()
+    }
+
+    /// The renaming of synthesized ids by synthesis key from a whole-state
+    /// complement to segmented complement segments, nodes then edges.
+    type Renaming = (BTreeMap<u32, u32>, BTreeMap<u32, u32>);
+
+    fn renaming(whole: &RefComplement, segments: &[reference::GraphComplementSegment]) -> Renaming {
+        let by_key = |pick: &dyn Fn(
+            &reference::GraphComplementSegment,
+        )
+            -> &BTreeMap<u32, panproto_reference::restrict::SynthKey>| {
+            segments
+                .iter()
+                .flat_map(|segment| pick(segment).iter().map(|(id, key)| (key.clone(), *id)))
+                .collect::<BTreeMap<_, _>>()
+        };
+        let nodes = by_key(&|segment| &segment.synthesized_nodes);
+        let edges = by_key(&|segment| &segment.synthesized_edges);
+        (
+            whole
+                .synthesized_nodes
+                .iter()
+                .map(|(id, key)| (*id, nodes[key]))
+                .collect(),
+            whole
+                .synthesized_edges
+                .iter()
+                .map(|(id, key)| (*id, edges[key]))
+                .collect(),
+        )
+    }
+
+    fn renamed_graph(graph: &RefGraph, (nodes, edges): &Renaming) -> RefGraph {
+        let node = |id: u32| nodes.get(&id).copied().unwrap_or(id);
+        let mut out = RefGraph::default();
+        for (id, held) in &graph.nodes {
+            let mut held = held.clone();
+            held.id = node(*id);
+            out.nodes.insert(held.id, held);
+        }
+        for (id, edge) in &graph.edges {
+            let mut edge = edge.clone();
+            edge.src = node(edge.src);
+            edge.tgt = node(edge.tgt);
+            out.edges
+                .insert(edges.get(id).copied().unwrap_or(*id), edge);
+        }
+        out
+    }
+
+    fn renamed_delta(delta: &RefGraphDelta, (nodes, edges): &Renaming) -> RefGraphDelta {
+        let node = |id: u32| nodes.get(&id).copied().unwrap_or(id);
+        let edge = |id: u32| edges.get(&id).copied().unwrap_or(id);
+        let element = |elem: &GElem, payload: &GPayload| match (elem, payload) {
+            (GElem::Node(id), GPayload::Node(held)) => {
+                let mut held = held.clone();
+                held.id = node(*id);
+                (GElem::Node(node(*id)), GPayload::Node(held))
+            }
+            (GElem::Edge(id), GPayload::Edge(held)) => {
+                let mut held = held.clone();
+                held.src = node(held.src);
+                held.tgt = node(held.tgt);
+                (GElem::Edge(edge(*id)), GPayload::Edge(held))
+            }
+            other => panic!("a cross-sort element: {other:?}"),
+        };
+        let mut out = RefGraphDelta::identity();
+        out.del = delta.del.iter().map(|(x, p)| element(x, p)).collect();
+        out.add = delta.add.iter().map(|(x, p)| element(x, p)).collect();
+        out.attrs = delta
+            .attrs
+            .iter()
+            .map(|(key, change)| {
+                let key = match key {
+                    ref_edit::AttrKey::Value(n) => ref_edit::AttrKey::Value(node(*n)),
+                    ref_edit::AttrKey::Field(n, f) => ref_edit::AttrKey::Field(node(*n), f.clone()),
+                    ref_edit::AttrKey::Meta(n) => ref_edit::AttrKey::Meta(node(*n)),
+                    ref_edit::AttrKey::Anchor(n) => ref_edit::AttrKey::Anchor(node(*n)),
+                    ref_edit::AttrKey::EdgeLabel(e) => ref_edit::AttrKey::EdgeLabel(edge(*e)),
+                    ref_edit::AttrKey::EdgePosition(e) => ref_edit::AttrKey::EdgePosition(edge(*e)),
+                };
+                (key, change.clone())
+            })
+            .collect();
+        out
+    }
+
+    /// The entries of a complement other than its synthesized elements and
+    /// floors: dropped nodes and edges and recorded originals.
+    type Entries = (
+        BTreeMap<u32, super::RefNode>,
+        BTreeMap<u32, super::RefGEdge>,
+        BTreeMap<u32, super::RefGEdge>,
+        BTreeMap<u32, String>,
+        BTreeMap<u32, BTreeMap<String, super::RefValue>>,
+        BTreeMap<u32, Option<super::RefPresence>>,
+    );
+
+    fn whole_entries(complement: &RefComplement) -> Entries {
+        (
+            complement.dropped_nodes.clone(),
+            complement.dropped_edges.clone(),
+            complement.original_edges.clone(),
+            complement.original_anchors.clone(),
+            complement.original_fields.clone(),
+            complement.original_values.clone(),
+        )
+    }
+
+    fn joined_entries(segments: &[reference::GraphComplementSegment]) -> Entries {
+        let mut out = Entries::default();
+        for segment in segments {
+            out.0.extend(segment.dropped_nodes.clone());
+            out.1.extend(segment.dropped_edges.clone());
+            out.2.extend(segment.original_edges.clone());
+            out.3.extend(segment.original_anchors.clone());
+            out.4.extend(segment.original_fields.clone());
+            out.5.extend(segment.original_values.clone());
+        }
+        out
+    }
+
+    /// Whether the union of two renamings of one kind is a bijection: a
+    /// function that is injective.
+    fn bijective(a: &BTreeMap<u32, u32>, b: &BTreeMap<u32, u32>) -> bool {
+        let mut union = a.clone();
+        for (id, to) in b {
+            if union.get(id).is_some_and(|held| held != to) {
+                return false;
+            }
+            union.insert(*id, *to);
+        }
+        let images: BTreeSet<u32> = union.values().copied().collect();
+        images.len() == union.len()
+    }
+
+    /// What a sweep showed.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub struct Counts {
+        /// Cases bound on both sides.
+        pub bound: u64,
+        /// Cases whose segmented get refuses on both sides.
+        pub unbound: u64,
+        /// Letters translated.
+        pub letters: u64,
+        /// Letters admitted on both sides.
+        pub admitted: u64,
+        /// Letters refused alike.
+        pub refused: u64,
+        /// Admitted letters whose renamings before and after form one
+        /// bijection, with the segmented delta the whole-state delta renamed.
+        pub single_renaming: u64,
+        /// Admitted letters whose renamings do not.
+        pub two_renamings: u64,
+        /// Letters the segmented lens refuses for its layout while the
+        /// whole-state lens admits them.
+        pub layout_refused: u64,
+    }
+
+    fn production_refusal(error: &ShapeEditError) -> String {
+        match error {
+            ShapeEditError::Apply(_) => "apply".to_owned(),
+            ShapeEditError::Get(_) => "get".to_owned(),
+            ShapeEditError::Segment(_) => "segment".to_owned(),
+            other => format!("outside the carrier: {other:?}"),
+        }
+    }
+
+    fn reference_refusal(error: &reference::SegmentedEditRefusal) -> String {
+        match error {
+            reference::SegmentedEditRefusal::Apply(reference::SegmentedApplyRefusal::Edit(_)) => {
+                "apply".to_owned()
+            }
+            reference::SegmentedEditRefusal::Restrict(
+                reference::SegmentedRestrictRefusal::Restrict { .. }
+                | reference::SegmentedRestrictRefusal::Unlocated(_),
+            ) => "get".to_owned(),
+            reference::SegmentedEditRefusal::Apply(reference::SegmentedApplyRefusal::Segment(
+                _,
+            ))
+            | reference::SegmentedEditRefusal::Restrict(
+                reference::SegmentedRestrictRefusal::Segment(_),
+            )
+            | reference::SegmentedEditRefusal::Segment(_) => "segment".to_owned(),
+        }
+    }
+
+    /// The segments the runs of an admitted edit read, given the lens
+    /// `before` it and `after` it: the edit run's read set in segment order,
+    /// then every segment whose source record changed, each but those whose
+    /// Validate task the store already journaled under the same run, which
+    /// the run reuses rather than reads.
+    fn expected_reads(
+        before: &Bound,
+        after: &Bound,
+        delta: &panproto_inst::GraphDelta,
+    ) -> Vec<SegmentId> {
+        let (old, new) = (before.segmented_state(), after.segmented_state());
+        let (source, edited) = (old.source_manifest(), new.source_manifest());
+        let partition = source.partition().expect("a partition");
+        let journaled = |run: Digest, segment: SegmentId| {
+            old.store()
+                .journal(&run)
+                .expect("a journal")
+                .tasks
+                .contains_key(&TaskKey {
+                    phase: Phase::Validate,
+                    segment: Some(segment),
+                })
+        };
+        let apply = RunJournal::run_digest(
+            &delta.digest(),
+            &source.digest(),
+            &partition,
+            GRAPH_APPLY_OP,
+        );
+        let mut reads: Vec<SegmentId> = FamilyIndex::of_manifest(source)
+            .expect("an index")
+            .read_set(delta)
+            .into_iter()
+            .filter(|segment| !journaled(apply, *segment))
+            .collect();
+        reads.extend(
+            edited
+                .segments
+                .iter()
+                .filter(|record| source.record(record.id) != Some(*record))
+                .map(|record| record.id)
+                .filter(|segment| !journaled(new.get_run(), *segment)),
+        );
+        reads
+    }
+
+    /// Translate one source letter through a clone of the bound lens and the
+    /// reference, check the outcome and the law against the whole-state
+    /// lens, and return the advanced lens and states when admitted.
+    pub fn step(
+        case: &Case<'_>,
+        (production, state, whole): (
+            &Bound,
+            &reference::SegmentedEditState,
+            &ref_edit::GraphEditState,
+        ),
+        letter: &RefGraphDelta,
+        counts: &mut Counts,
+    ) -> Option<(
+        Bound,
+        reference::SegmentedEditState,
+        ref_edit::GraphEditState,
+    )> {
+        let view_schema = case.lens().identity(ComplementShape::Graph).target_schema;
+        counts.letters += 1;
+        let mut advanced = production.clone();
+        let edit = prod_delta(letter);
+        let produced = advanced.get_edit(&edit);
+        let expected =
+            reference::segmented_edit_get(case.restriction(), state, case.partition, letter);
+        let whole_get = |graph: &RefGraph| case.whole_get(graph);
+        let whole_next =
+            ref_edit::graph_edit_get::<RefRestrictError, ()>(&whole_get, whole, letter);
+        match (produced, expected) {
+            (Ok(step), Ok((delta, next))) => {
+                counts.admitted += 1;
+                assert_eq!(
+                    ref_delta(&step.view_delta),
+                    delta,
+                    "view delta of {letter:?}"
+                );
+                assert_eq!(
+                    production_state(&advanced, view_schema),
+                    reference_state(&next, case.partition, view_schema),
+                    "segments after {letter:?}"
+                );
+                assert_eq!(
+                    advanced.segmented_state().reads(),
+                    expected_reads(production, &advanced, &edit),
+                    "segments read by {letter:?}"
+                );
+                let (whole_delta, whole_after) =
+                    whole_next.expect("the whole-state lens admits it");
+                let before = renaming(&whole.complement, &state.complements);
+                let after = renaming(&whole_after.complement, &next.complements);
+                let glued =
+                    reference::assemble_graph(&next.views, case.partition).expect("views glue");
+                assert_eq!(
+                    renamed_graph(&whole_after.view, &after),
+                    glued,
+                    "view after {letter:?}"
+                );
+                assert_eq!(
+                    joined_entries(&next.complements),
+                    whole_entries(&whole_after.complement),
+                    "complement after {letter:?}"
+                );
+                assert_eq!(step.source_delta, edit, "the source delta is the input");
+                if bijective(&before.0, &after.0) && bijective(&before.1, &after.1) {
+                    counts.single_renaming += 1;
+                    let mut union = before;
+                    union.0.extend(after.0.clone());
+                    union.1.extend(after.1);
+                    assert_eq!(
+                        renamed_delta(&whole_delta, &union),
+                        delta,
+                        "renamed delta of {letter:?}"
+                    );
+                } else {
+                    counts.two_renamings += 1;
+                }
+                Some((advanced, next, whole_after))
+            }
+            (Err(error), Err(refusal)) => {
+                counts.refused += 1;
+                assert_eq!(
+                    production_refusal(&error),
+                    reference_refusal(&refusal),
+                    "{letter:?}"
+                );
+                assert_eq!(
+                    production_state(&advanced, view_schema),
+                    production_state(production, view_schema),
+                    "a refused edit changed a segment"
+                );
+                assert_eq!(
+                    advanced.segmented_state().source_manifest(),
+                    production.segmented_state().source_manifest()
+                );
+                assert_eq!(
+                    advanced.segmented_state().get_run(),
+                    production.segmented_state().get_run()
+                );
+                assert_eq!(advanced.sequence(), production.sequence());
+                if matches!(error, ShapeEditError::Segment(_)) && whole_next.is_ok() {
+                    counts.layout_refused += 1;
+                } else {
+                    assert!(
+                        whole_next.is_err(),
+                        "the whole-state lens refuses {letter:?}"
+                    );
+                }
+                None
+            }
+            (produced, expected) => panic!(
+                "segmented edit lens disagrees on {letter:?}: {:?} / {expected:?}",
+                produced.map(|step| step.view_delta)
+            ),
+        }
+    }
+
+    /// Bind both sides and the whole-state lens to `graph`, or `None` when
+    /// segmented get refuses it (on both sides alike).
+    pub fn bind(
+        case: &Case<'_>,
+        graph: &RefGraph,
+    ) -> Option<(
+        Bound,
+        reference::SegmentedEditState,
+        ref_edit::GraphEditState,
+    )> {
+        let Input {
+            manifest, bytes, ..
+        } = input(graph, case.partition);
+        let segments = reference::partition_graph(graph, case.partition).expect("reference split");
+        let production = Bound::segmented(
+            case.lens(),
+            Budget::unlimited(),
+            SegmentedGraph {
+                input: manifest.digest(),
+                manifest,
+                segments: bytes,
+                store: MemoryStore::default(),
+            },
+        );
+        let expected =
+            reference::bind_segmented_edit(case.restriction(), &segments, case.partition);
+        let (production, state) = match (production, expected) {
+            (Ok(production), Ok(state)) => (production, state),
+            (Err(ShapeEditError::Get(_)), Err(_)) => return None,
+            (production, expected) => panic!(
+                "segmented bind disagrees on {graph:?}: {:?} / {expected:?}",
+                production.map(|_| ())
+            ),
+        };
+        let view_schema = case.lens().identity(ComplementShape::Graph).target_schema;
+        assert_eq!(
+            production_state(&production, view_schema),
+            reference_state(&state, case.partition, view_schema)
+        );
+        let (view, complement) = case.whole_get(graph).expect("whole-state get accepts");
+        Some((
+            production,
+            state,
+            ref_edit::GraphEditState {
+                source: graph.clone(),
+                view,
+                complement,
+            },
+        ))
+    }
+
+    /// Bind one case and translate every source letter of its graph, and
+    /// the inverse of each admitted one after it.
+    pub fn check_case(case: &Case<'_>, graph: &RefGraph, counts: &mut Counts) {
+        let Some((production, state, whole)) = bind(case, graph) else {
+            counts.unbound += 1;
+            return;
+        };
+        counts.bound += 1;
+        let letters =
+            graph_edit_lens_letters(case.schema, graph, BOUNDED_LENS_FIELD, &BOUNDED_LENS_VALUE);
+        assert_eq!(
+            letters.len(),
+            graph_edit_lens_letter_count(case.schema, graph)
+        );
+        for letter in &letters {
+            if let Some((advanced, next, whole_next)) =
+                step(case, (&production, &state, &whole), letter, counts)
+            {
+                step(
+                    case,
+                    (&advanced, &next, &whole_next),
+                    &letter.invert(),
+                    counts,
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn segmented_graph_edit_lens_agrees_with_the_reference_and_the_whole_state_lens_on_every_97th_case()
+     {
+        let mut counts = Counts::default();
+        let mut cases = 0_u64;
+        for case in segmented_restrict_cases().step_by(97) {
+            cases += 1;
+            let partition = with_spare(&case.partition, 3);
+            check_case(
+                &Case {
+                    schema: &case.schema,
+                    migration: &case.migration,
+                    partition: &partition,
+                },
+                &case.graph,
+                &mut counts,
+            );
+        }
+        assert_eq!(cases, 128_240_u64.div_ceil(97));
+        assert_eq!(
+            counts,
+            Counts {
+                bound: 1_163,
+                unbound: 160,
+                letters: 59_115,
+                admitted: 53_782,
+                refused: 5_333,
+                single_renaming: 53_734,
+                two_renamings: 48,
+                layout_refused: 0,
+            }
+        );
+    }
+
+    #[test]
+    fn a_lens_with_an_expression_is_declined_when_bound() {
+        let case = segmented_restrict_cases().next().expect("a case");
+        let partition = with_spare(&case.partition, 3);
+        let mut lens = lens_of(&case.schema, &case.migration);
+        let vertex = lens
+            .src_schema
+            .vertices
+            .keys()
+            .next()
+            .cloned()
+            .expect("a vertex");
+        lens.compiled.conditional_survival.insert(
+            vertex,
+            panproto_expr::Expr::Lit(panproto_expr::Literal::Bool(true)),
+        );
+        let Input {
+            manifest, bytes, ..
+        } = input(&case.graph, &partition);
+        let bound = Bound::segmented(
+            lens,
+            Budget::unlimited(),
+            SegmentedGraph {
+                input: manifest.digest(),
+                manifest,
+                segments: bytes,
+                store: MemoryStore::default(),
+            },
+        );
+        assert!(
+            matches!(
+                bound,
+                Err(ShapeEditError::Residual(Residual::Global { .. }))
+            ),
+            "{:?}",
+            bound.map(|_| ())
+        );
+    }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(64))]
+
+        #[test]
+        fn segmented_graph_edit_lens_agrees_with_the_reference_on_generated_words(
+            anchors in proptest::collection::vec(0_usize..3, 2..=8),
+            edges in proptest::collection::vec((0_usize..8, 0_usize..8), 0..=14),
+            owners in proptest::collection::vec(0_u32..4, 8),
+            segments in 2_u32..=4,
+            surviving in 0_u8..8,
+            word in proptest::collection::vec(proptest::prelude::any::<usize>(), 1..6),
+        ) {
+            let (schema, migration, graph, partition) =
+                super::segmented_graph_get::generated(&anchors, &edges, &owners, segments, surviving);
+            let from = u32::try_from(anchors.len()).expect("a small count");
+            let partition = with_spare(&partition, from);
+            let case = Case { schema: &schema, migration: &migration, partition: &partition };
+            let Some((mut production, mut state, mut whole)) = bind(&case, &graph) else {
+                return Ok(());
+            };
+            let mut counts = Counts::default();
+            for choice in &word {
+                let source = reference::assemble_graph(&state.source, &partition).expect("the source glues");
+                let letters = graph_edit_lens_letters(&schema, &source, BOUNDED_LENS_FIELD, &BOUNDED_LENS_VALUE);
+                let letter = &letters[choice % letters.len()];
+                if let Some(next) = step(&case, (&production, &state, &whole), letter, &mut counts) {
+                    (production, state, whole) = next;
+                }
+            }
+            proptest::prop_assert_eq!(counts.letters, u64::try_from(word.len()).expect("a count"));
+        }
+    }
+
+    /// A store whose `fail_at`th commit, counted by `commits`, fails.
+    #[derive(Clone, Default)]
+    struct FailingStore {
+        inner: MemoryStore,
+        commits: std::rc::Rc<std::cell::Cell<usize>>,
+        fail_at: std::rc::Rc<std::cell::Cell<Option<usize>>>,
+    }
+
+    impl SegmentStore for FailingStore {
+        type Error = MissingSegment;
+
+        fn read(&self, key: &ArtifactKey) -> Result<Option<Vec<u8>>, MissingSegment> {
+            Ok(self.inner.read(key).unwrap_or_else(|never| match never {}))
+        }
+
+        fn read_at(
+            &self,
+            key: &ArtifactKey,
+            offset: u64,
+            len: u64,
+        ) -> Result<Option<Vec<u8>>, MissingSegment> {
+            Ok(self
+                .inner
+                .read_at(key, offset, len)
+                .unwrap_or_else(|never| match never {}))
+        }
+
+        fn stage(&mut self, key: &ArtifactKey, bytes: Vec<u8>) -> Result<(), MissingSegment> {
+            self.inner
+                .stage(key, bytes)
+                .unwrap_or_else(|never| match never {});
+            Ok(())
+        }
+
+        fn commit(&mut self, key: &ArtifactKey, record: &TaskRecord) -> Result<(), MissingSegment> {
+            let count = self.commits.get() + 1;
+            self.commits.set(count);
+            if self.fail_at.get() == Some(count) {
+                return Err(MissingSegment(SegmentId(u32::MAX)));
+            }
+            self.inner
+                .commit(key, record)
+                .unwrap_or_else(|never| match never {});
+            Ok(())
+        }
+
+        fn journal(&self, run: &Digest) -> Result<RunJournal, MissingSegment> {
+            Ok(self
+                .inner
+                .journal(run)
+                .unwrap_or_else(|never| match never {}))
+        }
+
+        fn staged_uncommitted(&self, run: &Digest) -> Result<Vec<ArtifactKey>, MissingSegment> {
+            Ok(self
+                .inner
+                .staged_uncommitted(run)
+                .unwrap_or_else(|never| match never {}))
+        }
+    }
+
+    /// An edit whose commit fails at each of its tasks leaves the lens and
+    /// every segment as they were and reports the stopped run; translating
+    /// the same edit again resumes it and ends where the uninterrupted edit
+    /// ends, with nothing left staged.
+    #[test]
+    fn an_edit_stopped_by_a_failed_commit_at_each_task_resumes_to_the_uninterrupted_edit() {
+        let (schema, migration, graph, partition) = super::segmented_graph_get::generated(
+            &[0, 2, 2, 2, 1],
+            &[(0, 1), (1, 2), (2, 3), (3, 1), (3, 4)],
+            &[0, 1, 2, 0, 1],
+            3,
+            0b011,
+        );
+        let partition = with_spare(&partition, 5);
+        let case = Case {
+            schema: &schema,
+            migration: &migration,
+            partition: &partition,
+        };
+        let Input {
+            manifest, bytes, ..
+        } = input(&graph, &partition);
+        let store = FailingStore::default();
+        let (commits, fail_at) = (store.commits.clone(), store.fail_at.clone());
+        let bound = SegmentedGraphEditLens::segmented(
+            case.lens(),
+            Budget::unlimited(),
+            SegmentedGraph {
+                input: manifest.digest(),
+                manifest,
+                segments: bytes,
+                store,
+            },
+        )
+        .expect("the case binds");
+        let edit =
+            graph_edit_lens_letters(&schema, &graph, BOUNDED_LENS_FIELD, &BOUNDED_LENS_VALUE)
+                .iter()
+                .map(prod_delta)
+                .find(|edit| !edit.del_edges().is_empty())
+                .expect("an edge deletion");
+        let mut baseline = bound.clone();
+        let before = commits.get();
+        let expected = baseline
+            .get_edit(&edit)
+            .expect("the edge deletion is admitted");
+        let total = commits.get() - before;
+        assert_eq!(
+            total, 28,
+            "the edit run commits 4k + 2 tasks for its read set of k = 3 segments, and the restriction 4n + 2 for its n = 3"
+        );
+        let view_schema = case.lens().identity(ComplementShape::Graph).target_schema;
+        for failing in 1..=total {
+            let mut lens = bound.clone();
+            fail_at.set(Some(commits.get() + failing));
+            let stopped = lens.get_edit(&edit);
+            assert!(
+                matches!(stopped, Err(ShapeEditError::Incomplete(_))),
+                "{:?}",
+                stopped.map(|step| step.view_delta)
+            );
+            assert_eq!(
+                production_state(&lens, view_schema),
+                production_state(&bound, view_schema)
+            );
+            assert_eq!(
+                lens.segmented_state().get_run(),
+                bound.segmented_state().get_run()
+            );
+            assert_eq!(lens.sequence(), 0);
+            fail_at.set(None);
+            let resumed = lens.get_edit(&edit).expect("the retried edit is admitted");
+            assert_eq!(resumed.view_delta, expected.view_delta);
+            assert_eq!(
+                production_state(&lens, view_schema),
+                production_state(&baseline, view_schema)
+            );
+            let run = lens.segmented_state().get_run();
+            assert_eq!(
+                lens.segmented_state()
+                    .store()
+                    .staged_uncommitted(&run)
+                    .expect("the journal reads"),
+                Vec::<ArtifactKey>::new()
+            );
+        }
     }
 }

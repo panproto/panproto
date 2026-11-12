@@ -25,7 +25,8 @@ use panproto_inst::{
 };
 
 use crate::shape_edit_lens::{
-    EditShape, ShapeEditError, ShapeEditLens, ShapeEditStep, get_refusal, incoherent,
+    EditShape, ShapeEditError, ShapeEditLens, ShapeEditStep, WholeStateShape, get_refusal,
+    incoherent, stage_whole_state_put,
 };
 use crate::table_shape::{TableContext, TableShape};
 use crate::{Lens, LensError, table_lens};
@@ -118,8 +119,7 @@ fn table_get(
 }
 
 impl EditShape for TableShape {
-    type Instance = FInstance;
-    type Complement = TableComplement;
+    type Source = FInstance;
     type Delta = TableDelta;
     type Context = TableContext;
     type Held = TableHeld;
@@ -146,18 +146,6 @@ impl EditShape for TableShape {
         })
     }
 
-    fn source(held: &TableHeld) -> &FInstance {
-        &held.source
-    }
-
-    fn view(held: &TableHeld) -> &FInstance {
-        &held.view
-    }
-
-    fn complement(held: &TableHeld) -> &TableComplement {
-        &held.complement
-    }
-
     fn stage(
         lens: &Lens,
         _context: &TableContext,
@@ -182,6 +170,15 @@ impl EditShape for TableShape {
         }
     }
 
+    fn stage_put(
+        lens: &Lens,
+        context: &TableContext,
+        held: &mut TableHeld,
+        delta: &TableDelta,
+    ) -> Result<(TableStaged, TableDelta), ShapeEditError> {
+        stage_whole_state_put::<Self>(lens, context, held, delta)
+    }
+
     fn staged_view_delta(staged: &TableStaged) -> &TableDelta {
         &staged.view_delta
     }
@@ -204,10 +201,6 @@ impl EditShape for TableShape {
         Ok(())
     }
 
-    fn apply(delta: &TableDelta, instance: &mut FInstance) -> Result<(), EditError> {
-        delta.apply(instance)
-    }
-
     fn identity() -> TableDelta {
         TableDelta::identity()
     }
@@ -218,6 +211,26 @@ impl EditShape for TableShape {
 
     fn digest(delta: &TableDelta) -> Digest {
         delta.digest()
+    }
+}
+
+impl WholeStateShape for TableShape {
+    type Complement = TableComplement;
+
+    fn source(held: &TableHeld) -> &FInstance {
+        &held.source
+    }
+
+    fn view(held: &TableHeld) -> &FInstance {
+        &held.view
+    }
+
+    fn complement(held: &TableHeld) -> &TableComplement {
+        &held.complement
+    }
+
+    fn apply(delta: &TableDelta, instance: &mut FInstance) -> Result<(), EditError> {
+        delta.apply(instance)
     }
 
     fn identical(a: &FInstance, b: &FInstance) -> bool {
