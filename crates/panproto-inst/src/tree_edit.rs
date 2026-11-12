@@ -231,10 +231,7 @@ impl TreeEdit {
                 edge,
             } => apply_move_subtree(instance, *node_id, *new_parent, edge),
 
-            Self::InsertFan { fan } => {
-                instance.fans.push(fan.clone());
-                Ok(())
-            }
+            Self::InsertFan { fan } => apply_insert_fan(instance, fan),
 
             Self::DeleteFan { hyper_edge_id } => {
                 let id_str = hyper_edge_id.as_ref();
@@ -307,6 +304,23 @@ fn apply_insert_node(
         .entry(parent)
         .or_default()
         .push(child_id);
+    Ok(())
+}
+
+/// Append `fan` to the tree's fans. A fan names its parent and children by
+/// node id, so each must be a tree node: the parent is checked first, then
+/// the children in ascending label order, and the first that is absent is
+/// refused as [`EditError::NodeNotFound`].
+fn apply_insert_fan(instance: &mut WInstance, fan: &Fan) -> Result<(), EditError> {
+    let mut children: Vec<(&String, &u32)> = fan.children.iter().collect();
+    children.sort_unstable();
+    let absent = std::iter::once(&fan.parent)
+        .chain(children.into_iter().map(|(_, child)| child))
+        .find(|end| !instance.nodes.contains_key(end));
+    if let Some(end) = absent {
+        return Err(EditError::NodeNotFound(*end));
+    }
+    instance.fans.push(fan.clone());
     Ok(())
 }
 

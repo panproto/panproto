@@ -7611,27 +7611,21 @@ mod segmented_tree_apply {
         );
     }
 
-    /// A fan inserted with an endpoint that is no tree node applies to the
-    /// whole tree, whose split then refuses it; the segmented apply returns
-    /// that refusal.
+    /// A fan inserted with an endpoint that is no tree node is refused by
+    /// the edit, naming the absent node, both whole and over segments.
     #[test]
-    fn a_fan_with_an_absent_endpoint_is_refused_as_the_split_refuses_it() {
+    fn a_fan_with_an_absent_endpoint_is_refused_naming_the_absent_node() {
         let mut fan = panproto_inst::Fan::new("g", 3);
         fan = fan.with_child("y", 8);
         let edit = TreeEdit::InsertFan { fan };
         let (held, partition, applied) = production_witness(&edit);
-        let (whole, followed) = applied.expect("whole-state application accepts");
-        let expected =
-            partition_tree(&whole, &followed, &partition).expect_err("the split refuses");
-        assert_eq!(
-            expected,
-            SegmentError::NotEmbedded {
-                elem: ViewRef::Node(6)
-            }
+        assert!(
+            matches!(applied, Err(EditError::NodeNotFound(8))),
+            "{applied:?}"
         );
         assert!(matches!(
             apply_segmented(&edit, &held, &partition),
-            Err(SegmentedApplyError::Segment(error)) if error == expected
+            Err(SegmentedApplyError::Edit(EditError::NodeNotFound(8)))
         ));
     }
 
@@ -7678,13 +7672,10 @@ mod segmented_tree_apply {
     }
 
     /// Whether a step of `edit`, applied in turn from `tree`, inserts a node
-    /// under the id of a fan node or inserts a fan with an endpoint that is
-    /// no tree node. On the first, production relocates the fan node alone,
+    /// under the id of a fan node: production relocates the fan node alone,
     /// keeping its edge ids, where the reference also gives fresh ids to its
-    /// edges and to every later fan; on the second, production's tree edit
-    /// applies and the split of the edited tree refuses it, where the
-    /// reference's tree edit refuses it. The reference differentials of
-    /// segmented tree edits leave these edits out, and two witnesses compare
+    /// edges and to every later fan. The reference differentials of
+    /// segmented tree edits leave these edits out, and a witness compares
     /// them with production whole-state application.
     fn diverges(
         tree: &reference_model::Tree,
@@ -7696,13 +7687,6 @@ mod segmented_tree_apply {
             match step {
                 reference::TreeEdit::InsertNode { child_id, .. }
                     if followed.fans.iter().any(|(node, _, _)| node == child_id) =>
-                {
-                    return true;
-                }
-                reference::TreeEdit::InsertFan { fan }
-                    if std::iter::once(&fan.parent)
-                        .chain(fan.children.values())
-                        .any(|end| !state.nodes.contains_key(end)) =>
                 {
                     return true;
                 }
