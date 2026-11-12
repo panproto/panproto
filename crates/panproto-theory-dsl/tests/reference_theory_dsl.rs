@@ -276,6 +276,44 @@ mod convert {
         }
     }
 
+    /// A production composition recipe in the reference model; a step the
+    /// reference does not record (a base or a diagram) becomes a base step
+    /// naming its kind, which no reference recipe holds.
+    pub fn recipe(spec: &p::CompositionSpec) -> r::CompositionSpec {
+        r::CompositionSpec {
+            result_name: spec.result_name.clone(),
+            steps: spec
+                .steps
+                .iter()
+                .map(|step| match step {
+                    p::CompositionStep::Colimit {
+                        left,
+                        right,
+                        shared_sorts,
+                        shared_ops,
+                        mode,
+                    } => r::CompositionStep::Colimit {
+                        left: left.clone(),
+                        right: right.clone(),
+                        shared_sorts: shared_sorts.clone(),
+                        shared_ops: shared_ops.clone(),
+                        mode: match mode {
+                            p::CompositionMode::Amalgamate => r::CompositionMode::Amalgamate,
+                            p::CompositionMode::ExplicitIdentity => {
+                                r::CompositionMode::ExplicitIdentity
+                            }
+                        },
+                    },
+                    p::CompositionStep::Base(_) => r::CompositionStep::Base("<base>".to_owned()),
+                    p::CompositionStep::Diagram { .. } => {
+                        r::CompositionStep::Base("<diagram>".to_owned())
+                    }
+                })
+                .collect(),
+            version: spec.version,
+        }
+    }
+
     /// The variant of a morphism refusal, by name, in either model.
     pub fn morphism_error(e: &p::GatError) -> String {
         let text = format!("{e:?}");
@@ -331,7 +369,8 @@ fn same_refusal(production: &TheoryDslError, reference: &rd::Refusal) -> bool {
         (TheoryDslError::Shape { problem, .. }, rd::Refusal::Shape(expected)) => {
             shape_problem(problem).as_ref() == Some(expected)
         }
-        (TheoryDslError::TermParse { .. }, rd::Refusal::TermParse)
+        (TheoryDslError::ColimitFailed { .. }, rd::Refusal::ColimitFailed)
+        | (TheoryDslError::TermParse { .. }, rd::Refusal::TermParse)
         | (TheoryDslError::AmbiguousOpInputs { .. }, rd::Refusal::AmbiguousOpInputs) => true,
         (TheoryDslError::TheoryNotFound { name, .. }, rd::Refusal::TheoryNotFound(expected))
         | (TheoryDslError::UnknownExposed { name, .. }, rd::Refusal::UnknownExposed(expected))
@@ -404,9 +443,26 @@ fn disagreement(text: &str, outside: &mut usize) -> Option<String> {
                 .iter()
                 .map(|(k, p)| (k.clone(), convert::protocol(p)))
                 .collect();
-            (theories != expected.theories
+            let compositions: BTreeMap<String, r::CompositionSpec> = compiled
+                .composition_specs
+                .iter()
+                .map(|(k, spec)| (k.clone(), convert::recipe(spec)))
+                .collect();
+            let same_theories = theories.len() == expected.theories.len()
+                && theories.iter().all(|(name, theory)| {
+                    expected.theories.get(name).is_some_and(|reference| {
+                        if expected.compositions.contains_key(name) {
+                            r::canonical_theory_bytes(theory)
+                                == r::canonical_theory_bytes(reference)
+                        } else {
+                            theory == reference
+                        }
+                    })
+                });
+            (!same_theories
                 || morphisms != expected.morphisms
-                || protocols != expected_protocols)
+                || protocols != expected_protocols
+                || compositions != expected.compositions)
                 .then(|| {
                     format!(
                         "{text}\n  reference {:?} {:?} {expected_protocols:?}\n  production {theories:?} {morphisms:?} {protocols:?}",
@@ -549,6 +605,25 @@ fn morphism_documents_compile_as_the_reference_on_every_bounded_document() {
 #[test]
 fn bundles_compile_their_theories_in_listed_order_as_the_reference() {
     assert_agreement(scope::bundle_documents(), 1 + 4 + 16 + 64, 0);
+}
+
+#[test]
+fn composition_documents_compile_as_the_reference_on_every_bounded_document() {
+    assert_agreement(
+        scope::composition_documents(),
+        scope::COMPOSITION_SIDES.len()
+            * scope::COMPOSITION_SHARED_SORTS.len()
+            * scope::COMPOSITION_SHARED_OPS.len()
+            * scope::COMPOSITION_MODES.len()
+            * scope::COMPOSITION_BASES.len()
+            * scope::COMPOSITION_SECOND_STEPS.len(),
+        0,
+    );
+}
+
+#[test]
+fn bundled_compositions_compile_in_listed_order_as_the_reference() {
+    assert_agreement(scope::composition_bundle_documents(), 1 + 4 + 16 + 64, 0);
 }
 
 #[test]
