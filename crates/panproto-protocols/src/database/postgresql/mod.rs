@@ -480,9 +480,11 @@ pub fn emit_ddl(schema: &Schema) -> Result<String, ProtocolError> {
     Ok(output)
 }
 
-/// The canonical DDL of [`emit_ddl`] in its two parts: the types and
-/// tables, and then the `ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY`
-/// statements. A data script places its rows between them, so the rows
+/// The canonical DDL of [`emit_ddl`] in its two parts.
+///
+/// The first part declares the types and tables, the second holds the
+/// `ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY` statements. A data
+/// script places its rows between them, so the rows
 /// load before any foreign key is checked.
 ///
 /// # Errors
