@@ -197,6 +197,9 @@ impl TreeEdit {
                     .get_mut(id)
                     .ok_or(EditError::NodeNotFound(*id))?;
                 n.anchor = new_anchor.clone();
+                if *id == instance.root {
+                    instance.schema_root.clone_from(new_anchor);
+                }
                 Ok(())
             }
 
@@ -545,8 +548,12 @@ fn apply_join_features(
         }
     }
 
-    // Replace the primary node with the merged produce.
+    // Replace the primary node with the merged produce; the schema root is
+    // the root's anchor.
     instance.nodes.insert(primary, produce.clone());
+    if primary == instance.root {
+        instance.schema_root.clone_from(&produce.anchor);
+    }
 
     for &jid in joined {
         // The joined node's child arcs, in arc order, become arcs of the

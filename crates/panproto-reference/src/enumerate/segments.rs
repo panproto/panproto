@@ -1312,3 +1312,232 @@ pub const fn segmented_table_compose_counts() -> (u64, u64, u64) {
     let deltas = 1 + 8 + 8 + 4 + 4;
     (families, deltas, families * deltas * deltas)
 }
+
+/// One case of the segmented tree edit carrier: a tree with its embedding,
+/// a partition of its node ids, and a tree edit.
+#[derive(Clone, Debug)]
+pub struct SegmentedTreeApplyCase {
+    /// The tree the segments hold.
+    pub tree: Tree,
+    /// The tree's embedding: its graph encoding's
+    /// ([`crate::encode::tree_to_graph`]).
+    pub embedding: TreeEmbedding,
+    /// The partition.
+    pub partition: Partition,
+    /// The edit applied to the segments.
+    pub edit: crate::edit::TreeEdit,
+}
+
+/// The label of every arc of the segmented tree edit carrier.
+fn tree_arc_label() -> SEdge {
+    SEdge::new("a", "a", "e", None)
+}
+
+/// The trees of the segmented tree edit carrier, with their embeddings.
+///
+/// Four shapes over nodes `0 .. n-1` rooted at `0`, every node anchored at
+/// `a` and every arc labelled `a -e-> a`: the root alone; `0 -> 1`;
+/// `0 -> 1, 0 -> 2`; and `0 -> 1 -> 2`. Each comes without a fan and with
+/// the fan of hyper-edge `h` from its last node to the root under the label
+/// `x`. The embedding is the graph encoding's, so the fan node is `n` and
+/// the node counter `n` or `n + 1`.
+#[must_use]
+pub fn segmented_tree_apply_trees() -> Vec<(Tree, TreeEmbedding)> {
+    let shapes: [&[(u32, u32)]; 4] = [&[], &[(0, 1)], &[(0, 1), (0, 2)], &[(0, 1), (1, 2)]];
+    let mut out = Vec::new();
+    for arcs in shapes {
+        let n = u32::try_from(arcs.len()).unwrap_or(u32::MAX) + 1;
+        for fan in [false, true] {
+            let tree = Tree {
+                nodes: (0..n).map(|id| (id, Node::new(id, "a"))).collect(),
+                arcs: arcs
+                    .iter()
+                    .map(|(parent, child)| (*parent, *child, tree_arc_label()))
+                    .collect(),
+                fans: if fan {
+                    vec![Fan {
+                        parent: n - 1,
+                        hyper_edge: "h".to_owned(),
+                        children: BTreeMap::from([("x".to_owned(), 0)]),
+                    }]
+                } else {
+                    Vec::new()
+                },
+                root: 0,
+            };
+            if let Ok((_, embedding)) = crate::encode::tree_to_graph(&tree, None) {
+                out.push((tree, embedding));
+            }
+        }
+    }
+    out
+}
+
+/// The edits of the segmented tree edit carrier at a tree with nodes
+/// `0 .. n-1` and node counter `fresh`.
+///
+/// In order: an insertion of node `fresh` (anchored at `a`, under the label
+/// `a -e-> a`) under each node; an insertion of node `n - 1`, which exists,
+/// under the root; an insertion of node `fresh` under node `3`, which is no
+/// tree node; the deletion of each of the ids `0` to `3`; the contraction of
+/// each node; the change of each node's anchor to `b`; setting the field `f`
+/// of each node to `0`; the move of each node under each other node; the
+/// insertion of a fan of hyper-edge `g` from each node to the root under the
+/// label `y`; the deletion of the fans of `h` and of `g`; and the join of
+/// each node into each other node, the product being the primary anchored
+/// at `a`. That is `5n + 8 + 2n(n - 1)` edits.
+#[must_use]
+pub fn segmented_tree_edits(n: u32, fresh: u32) -> Vec<crate::edit::TreeEdit> {
+    use crate::edit::TreeEdit;
+    let insert = |parent: u32, child_id: u32| TreeEdit::InsertNode {
+        parent,
+        child_id,
+        node: Node::new(child_id, "a"),
+        edge: tree_arc_label(),
+    };
+    let mut out: Vec<TreeEdit> = (0..n).map(|parent| insert(parent, fresh)).collect();
+    out.push(insert(0, n - 1));
+    out.push(insert(3, fresh));
+    out.extend((0..=3).map(|id| TreeEdit::DeleteNode { id }));
+    out.extend((0..n).map(|id| TreeEdit::ContractNode { id }));
+    out.extend((0..n).map(|id| TreeEdit::RelabelNode {
+        id,
+        new_anchor: "b".to_owned(),
+    }));
+    out.extend((0..n).map(|node_id| TreeEdit::SetField {
+        node_id,
+        field: "f".to_owned(),
+        value: crate::value::Value::Int(0),
+    }));
+    for node_id in 0..n {
+        for new_parent in (0..n).filter(|parent| *parent != node_id) {
+            out.push(TreeEdit::MoveSubtree {
+                node_id,
+                new_parent,
+                edge: tree_arc_label(),
+            });
+        }
+    }
+    out.extend((0..n).map(|parent| TreeEdit::InsertFan {
+        fan: Fan {
+            parent,
+            hyper_edge: "g".to_owned(),
+            children: BTreeMap::from([("y".to_owned(), 0)]),
+        },
+    }));
+    out.extend(["h", "g"].map(|hyper| TreeEdit::DeleteFan {
+        hyper_edge: hyper.to_owned(),
+    }));
+    for primary in 0..n {
+        for joined in (0..n).filter(|joined| *joined != primary) {
+            out.push(TreeEdit::JoinFeatures {
+                primary,
+                joined: vec![joined],
+                produce: Node::new(primary, "a"),
+            });
+        }
+    }
+    out
+}
+
+/// The tree partitions assigning the node ids `0` to `4` as `owners` does
+/// (`None` for no segment), each segment owning its ids as singleton
+/// ranges.
+fn tree_owner_partition(owners: &[Option<u32>]) -> Partition {
+    let segments = owners.iter().flatten().max().map_or(0, |max| max + 1);
+    Partition {
+        shape: InstanceShapeKind::Tree,
+        specs: (0..segments)
+            .map(|id| SegmentSpec {
+                id: SegmentId(id),
+                nodes: (0_u32..)
+                    .zip(owners)
+                    .filter(|(_, owner)| **owner == Some(id))
+                    .map(|(node, _)| IdRange { lo: node, hi: node })
+                    .collect(),
+                alloc_nodes: None,
+                alloc_edges: None,
+            })
+            .collect(),
+    }
+}
+
+/// The restricted growth strings of length `len` with at most `blocks`
+/// blocks: the assignments of `len` ids to at most `blocks` segments,
+/// numbered in the order of their least id.
+fn restricted_growth(len: usize, blocks: u32) -> Vec<Vec<u32>> {
+    let mut strings: Vec<Vec<u32>> = vec![Vec::new()];
+    for _ in 0..len {
+        strings = strings
+            .into_iter()
+            .flat_map(|string| {
+                let next = string.iter().max().map_or(0, |max| max + 1);
+                (0..=next.min(blocks - 1)).map(move |block| {
+                    let mut longer = string.clone();
+                    longer.push(block);
+                    longer
+                })
+            })
+            .collect();
+    }
+    strings
+}
+
+/// The partitions of the segmented tree edit carrier: every assignment of
+/// the node ids `0` to `4` to at most three segments, then every assignment
+/// of `0` to `3` to at most three segments leaving `4` to no segment.
+#[must_use]
+pub fn segmented_tree_apply_partitions() -> Vec<Partition> {
+    let mut out = Vec::new();
+    for (len, unowned) in [(5_usize, 0_usize), (4, 1)] {
+        for string in restricted_growth(len, 3) {
+            let mut owners: Vec<Option<u32>> = string.into_iter().map(Some).collect();
+            owners.extend(std::iter::repeat_n(None, unowned));
+            out.push(tree_owner_partition(&owners));
+        }
+    }
+    out
+}
+
+/// Every tree of [`segmented_tree_apply_trees`] under every partition of
+/// [`segmented_tree_apply_partitions`] with every edit of
+/// [`segmented_tree_edits`] at that tree, in that nesting order.
+pub fn segmented_tree_apply_cases() -> impl Iterator<Item = SegmentedTreeApplyCase> {
+    let partitions = segmented_tree_apply_partitions();
+    segmented_tree_apply_trees()
+        .into_iter()
+        .flat_map(move |(tree, embedding)| {
+            let n = u32::try_from(tree.nodes.len()).unwrap_or(u32::MAX);
+            let edits = segmented_tree_edits(n, embedding.next_node);
+            partitions.clone().into_iter().flat_map(move |partition| {
+                let (tree, embedding) = (tree.clone(), embedding.clone());
+                edits
+                    .clone()
+                    .into_iter()
+                    .map(move |edit| SegmentedTreeApplyCase {
+                        tree: tree.clone(),
+                        embedding: embedding.clone(),
+                        partition: partition.clone(),
+                        edit,
+                    })
+            })
+        })
+}
+
+/// Independent counts of the segmented tree edit carrier.
+///
+/// Trees: four shapes, each without and with a fan, `8`, two with one node,
+/// two with two and four with three. Partitions: the restricted growth
+/// strings of length five with at most three blocks number
+/// `1 + 15 + 25 = 41` (the Stirling numbers `S(5, k)` for `k` up to three)
+/// and those of length four `1 + 7 + 6 = 14`, `55`. Edits at a tree of `n`
+/// nodes: `5n + 8 + 2n(n - 1)`, so `13`, `22` and `35`, and
+/// `2 * 13 + 2 * 22 + 4 * 35 = 210` over the trees. So `55 * 210 = 11_550`
+/// cases.
+#[must_use]
+pub const fn segmented_tree_apply_case_counts() -> (u64, u64, u64, u64) {
+    let trees = 8;
+    let partitions = 41 + 14;
+    let edits = 2 * 13 + 2 * 22 + 4 * 35;
+    (trees, partitions, edits, partitions * edits)
+}

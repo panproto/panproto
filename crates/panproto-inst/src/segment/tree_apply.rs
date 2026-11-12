@@ -503,11 +503,9 @@ fn decode_all(facts: &[Vec<u8>]) -> Result<Vec<Facts>, SegmentError> {
 /// tree after the edit, with the embeddings that follow it.
 ///
 /// `real` holds the reported tree nodes; every other node of `before` is
-/// an unreported endpoint standing in by its anchor. `root` is the tree's
-/// root when a read segment holds it.
+/// an unreported endpoint standing in by its anchor.
 struct Followed {
     real: BTreeSet<u32>,
-    root: Option<u32>,
     before: WInstance,
     before_embedding: TreeEmbedding,
     after: WInstance,
@@ -579,7 +577,6 @@ impl Followed {
         after_embedding.follow_edit(&mut after, edit)?;
         Ok(Self {
             real,
-            root,
             before,
             before_embedding: embedding,
             after,
@@ -598,22 +595,14 @@ impl Followed {
 
     /// The refusal of laying the edited tree out under the family's
     /// partition, as [`partition_tree`](super::partition_tree) and sealing
-    /// its split return it: a root whose anchor the edit changes, the first
-    /// fan in fan order with an endpoint that is no tree node, and the least
-    /// node or edge id at or above its counter, each as
-    /// [`SegmentError::NotEmbedded`]; then the least tree node no range
-    /// owns and the first fan in fan order whose fan node no range owns, as
-    /// [`SegmentError::Unowned`]; then the seal floor rule's refusal of the
-    /// least edge id it refuses for the segment holding it.
+    /// its split return it: the first fan in fan order with an endpoint that
+    /// is no tree node, and the least node or edge id at or above its
+    /// counter, each as [`SegmentError::NotEmbedded`]; then the least tree
+    /// node no range owns and the first fan in fan order whose fan node no
+    /// range owns, as [`SegmentError::Unowned`]; then the seal floor rule's
+    /// refusal of the least edge id it refuses for the segment holding it.
     fn check_layout(&self, family: &FamilyIndex) -> Result<(), SegmentError> {
         let not_embedded = |elem: ViewRef| Err(SegmentError::NotEmbedded { elem });
-        if let Some(root) = self.root
-            && let (Some(old), Some(new)) =
-                (self.before.nodes.get(&root), self.after.nodes.get(&root))
-            && old.anchor != new.anchor
-        {
-            return not_embedded(ViewRef::Node(root));
-        }
         for (fan, ids) in self.after.fans.iter().zip(&self.after_embedding.fans) {
             let known = std::iter::once(fan.parent)
                 .chain(fan.children.values().copied())

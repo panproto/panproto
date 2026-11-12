@@ -6634,3 +6634,335 @@ mod segmented_table_apply {
         }
     }
 }
+
+mod segmented_tree_apply {
+    use std::cell::RefCell;
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use panproto_inst::edit_error::EditError;
+    use panproto_inst::identity::Digest;
+    use panproto_inst::segment::{
+        AnySegment, ApplyRun, ArtifactKey, Budget, FamilyIndex, MemoryStore, Partition, Phase,
+        Residual, Resource, RunIncompleteReason, RunSpec, RunStatus, SegmentError, SegmentId,
+        SegmentManifest, SegmentSource, SegmentStore, SegmentedApplyError, TreeSegment, apply_run,
+        apply_segmented, assemble_tree, partition_tree, read_emitted_segment, verify_manifest,
+    };
+    use panproto_inst::{GInstance, TreeEdit, TreeEmbedding, ViewRef, WInstance};
+    use panproto_reference::enumerate::segments as carrier;
+    use panproto_reference::segment as segments;
+
+    use super::segmented_apply::{
+        CountingSource, FailingStore, RunOutcome, SCHEMA, Seen, prod_partition, seal_family,
+        sealed_nothing, seen_production_by, seen_reference_by, shard,
+    };
+    use super::{
+        EmbeddingObs, production_embedding, reference, reference_embedding, reference_model,
+        tree_edit_to_production, tree_to_production, tree_to_reference,
+    };
+
+    /// A whole-state tree refusal, as both implementations report it.
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    enum TreeObs {
+        NodeNotFound(u32),
+        ParentNotFound(u32),
+        Duplicate(u32),
+        Root(u32),
+        NotLeaf(u32),
+        Cycle(u32, u32),
+        InvalidJoin(u32),
+        FanNotFound(String),
+    }
+
+    fn production_obs(error: &EditError) -> TreeObs {
+        match error {
+            EditError::NodeNotFound(id) => TreeObs::NodeNotFound(*id),
+            EditError::ParentNotFound(id) => TreeObs::ParentNotFound(*id),
+            EditError::DuplicateNodeId(id) => TreeObs::Duplicate(*id),
+            EditError::RootOperation(id) => TreeObs::Root(*id),
+            EditError::NotLeaf(id) => TreeObs::NotLeaf(*id),
+            EditError::CycleDetected {
+                node_id,
+                new_parent,
+            } => TreeObs::Cycle(*node_id, *new_parent),
+            EditError::InvalidJoin(id) => TreeObs::InvalidJoin(*id),
+            EditError::FanNotFound(hyper) => TreeObs::FanNotFound(hyper.clone()),
+            other => panic!("a production refusal outside the carrier: {other:?}"),
+        }
+    }
+
+    fn reference_obs(error: &reference::TreeApplyError) -> TreeObs {
+        match error {
+            reference::TreeApplyError::NodeNotFound(id) => TreeObs::NodeNotFound(*id),
+            reference::TreeApplyError::ParentNotFound(id) => TreeObs::ParentNotFound(*id),
+            reference::TreeApplyError::DuplicateNodeId(id) => TreeObs::Duplicate(*id),
+            reference::TreeApplyError::RootOperation(id) => TreeObs::Root(*id),
+            reference::TreeApplyError::NotLeaf(id) => TreeObs::NotLeaf(*id),
+            reference::TreeApplyError::Cycle { node, parent } => TreeObs::Cycle(*node, *parent),
+            reference::TreeApplyError::InvalidJoin(id) => TreeObs::InvalidJoin(*id),
+            reference::TreeApplyError::FanNotFound(hyper) => TreeObs::FanNotFound(hyper.clone()),
+            other => panic!("a reference refusal outside the carrier: {other:?}"),
+        }
+    }
+
+    /// A refusal as both implementations project it.
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    enum Refusal {
+        /// A whole-state refusal.
+        Edit(TreeObs),
+        /// The split of the edited tree is refused: the element.
+        NotEmbedded(String),
+        /// A node no range owns.
+        Unowned(u32),
+    }
+
+    fn production_refusal(error: &SegmentedApplyError) -> Refusal {
+        match error {
+            SegmentedApplyError::Edit(error) => Refusal::Edit(production_obs(error)),
+            SegmentedApplyError::Segment(SegmentError::NotEmbedded { elem }) => {
+                Refusal::NotEmbedded(format!("{elem:?}"))
+            }
+            SegmentedApplyError::Segment(SegmentError::Unowned {
+                elem: ViewRef::Node(node),
+            }) => Refusal::Unowned(*node),
+            other => panic!("a refusal outside the carrier: {other:?}"),
+        }
+    }
+
+    fn reference_refusal(
+        error: &segments::SegmentedApplyRefusal<reference::TreeApplyError>,
+    ) -> Refusal {
+        match error {
+            segments::SegmentedApplyRefusal::Edit(error) => Refusal::Edit(reference_obs(error)),
+            segments::SegmentedApplyRefusal::Segment(segments::SegmentError::NotEmbedded {
+                elem,
+            }) => Refusal::NotEmbedded(format!("{elem:?}")),
+            segments::SegmentedApplyRefusal::Segment(segments::SegmentError::Unowned {
+                elem: segments::ViewRef::Node(node),
+            }) => Refusal::Unowned(*node),
+            segments::SegmentedApplyRefusal::Segment(other) => {
+                panic!("a reference refusal outside the carrier: {other:?}")
+            }
+        }
+    }
+
+    /// The canonical bytes of a production segment.
+    fn bytes(segment: &TreeSegment, partition: &Partition) -> Vec<u8> {
+        AnySegment::Tree(segment.clone())
+            .canonical_bytes(&Digest(SCHEMA), partition)
+            .expect("production segment bytes")
+    }
+
+    /// The canonical bytes of a reference segment.
+    fn reference_bytes(
+        segment: &segments::TreeSegment,
+        partition: &segments::Partition,
+    ) -> Vec<u8> {
+        segments::canonical_segment_bytes(
+            &segments::AnySegment::Tree(segment.clone()),
+            segments::Digest(SCHEMA),
+            partition,
+        )
+        .expect("reference segment bytes")
+    }
+
+    /// The production tree and embedding of a reference tree, whose
+    /// embedding is the graph encoding's in both implementations.
+    fn production_tree(
+        tree: &reference_model::Tree,
+        embedding: &panproto_reference::encode::TreeEmbedding,
+    ) -> (WInstance, TreeEmbedding) {
+        let whole = tree_to_production(tree);
+        let (_, production) = GInstance::from_wtype_embedded(&whole, None).expect("embeds");
+        assert_eq!(
+            production_embedding(&production),
+            reference_embedding(embedding),
+            "the encodings agree on {tree:?}"
+        );
+        (whole, production)
+    }
+
+    /// The tree and embedding a family glues to, as observed.
+    fn glued(
+        segments: Vec<TreeSegment>,
+        partition: &Partition,
+    ) -> (reference_model::Tree, EmbeddingObs) {
+        let (tree, embedding) = assemble_tree(segments, partition).expect("glues");
+        (tree_to_reference(&tree), production_embedding(&embedding))
+    }
+
+    /// What one case showed.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    enum Outcome {
+        /// Both applied alike.
+        Applied,
+        /// Both refused alike with a whole-state refusal.
+        Edit,
+        /// Both refused alike laying the edited tree out.
+        Layout,
+    }
+
+    /// Check the law on one case: the read set (from the segments and from
+    /// the sealed manifest) equals the reference's; the output segments
+    /// equal the reference's byte for byte, no segment outside the read set
+    /// changes, and the output glues to whole-state application
+    /// ([`TreeEmbedding::follow_edit`]) of the glued input; or both refuse
+    /// alike, whole-state application refusing alike when the refusal is an
+    /// edit refusal and applying when it is a layout refusal.
+    fn check_case(
+        tree: &reference_model::Tree,
+        embedding: &panproto_reference::encode::TreeEmbedding,
+        partition: &segments::Partition,
+        edit: &reference::TreeEdit,
+    ) -> Outcome {
+        let production_partition = prod_partition(partition);
+        let (whole, production_embedding_state) = production_tree(tree, embedding);
+        let held = partition_tree(&whole, &production_embedding_state, &production_partition)
+            .expect("production split");
+        let reference_held =
+            segments::partition_tree(tree, embedding, partition).expect("reference split");
+        let production_edit = tree_edit_to_production(edit);
+        let any: Vec<AnySegment> = held.iter().cloned().map(AnySegment::Tree).collect();
+        let family = FamilyIndex::of_segments(&any, &production_partition).expect("an index");
+        let read = family.read_set(&production_edit);
+        let (manifest, _) = seal_family(&any, &production_partition);
+        assert_eq!(
+            FamilyIndex::of_manifest(&manifest)
+                .expect("an index")
+                .read_set(&production_edit),
+            read,
+            "the manifest gives the read set the segments give"
+        );
+        let reference_any: Vec<segments::AnySegment> = reference_held
+            .iter()
+            .cloned()
+            .map(segments::AnySegment::Tree)
+            .collect();
+        let records = segments::seal_manifest(
+            &reference_any,
+            partition,
+            segments::Digest(SCHEMA),
+            segments::ManifestRole::Source,
+            None,
+        )
+        .expect("the reference seals")
+        .segments;
+        let expected_read: BTreeSet<u32> = segments::tree_read_set(edit, &records, partition)
+            .into_iter()
+            .map(|segment| segment.0)
+            .collect();
+        assert_eq!(
+            read.iter()
+                .map(|segment| segment.0)
+                .collect::<BTreeSet<_>>(),
+            expected_read,
+            "read set of {edit:?} on {tree:?} under {partition:?}"
+        );
+        let production = apply_segmented(&production_edit, &held, &production_partition);
+        let expected = segments::apply_tree_segmented(edit, &reference_held, partition);
+        let (mut whole_state, mut followed) =
+            assemble_tree(held.clone(), &production_partition).expect("the input glues");
+        let applied = followed.follow_edit(&mut whole_state, &production_edit);
+        match (production, expected) {
+            (Ok(output), Ok(expected)) => {
+                assert_eq!(output.len(), expected.len());
+                for ((segment, expected), before) in
+                    output.iter().zip(&expected).zip(&reference_held)
+                {
+                    assert_eq!(
+                        bytes(segment, &production_partition),
+                        reference_bytes(expected, partition),
+                        "segment {} of {edit:?} on {tree:?} under {partition:?}",
+                        segment.segment.0
+                    );
+                    if !read.contains(&segment.segment) {
+                        assert_eq!(expected, before, "an unread segment changes");
+                    }
+                }
+                applied.expect("whole-state application accepts");
+                assert_eq!(
+                    glued(output, &production_partition),
+                    (
+                        tree_to_reference(&whole_state),
+                        production_embedding(&followed)
+                    ),
+                    "the output glues to whole-state application"
+                );
+                Outcome::Applied
+            }
+            (Err(error), Err(expected)) => {
+                let refusal = production_refusal(&error);
+                assert_eq!(
+                    refusal,
+                    reference_refusal(&expected),
+                    "refusal of {edit:?} on {tree:?} under {partition:?}"
+                );
+                if let Refusal::Edit(obs) = &refusal {
+                    assert_eq!(
+                        applied.map_err(|error| production_obs(&error)),
+                        Err(obs.clone())
+                    );
+                    Outcome::Edit
+                } else {
+                    applied.expect("whole-state application accepts");
+                    Outcome::Layout
+                }
+            }
+            (production, expected) => panic!(
+                "segmented tree apply disagrees on {edit:?} on {tree:?} under {partition:?}: {production:?} / {expected:?}"
+            ),
+        }
+    }
+
+    /// Every case of the segmented tree edit carrier, or the share of
+    /// `PANPROTO_TEST_SHARD`.
+    #[test]
+    fn segmented_tree_apply_agrees_with_the_reference_on_every_case_of_the_carrier() {
+        let (trees, partitions, edits, total) = carrier::segmented_tree_apply_case_counts();
+        let carrier_trees = carrier::segmented_tree_apply_trees();
+        assert_eq!(carrier_trees.len() as u64, trees);
+        assert_eq!(
+            carrier::segmented_tree_apply_partitions().len() as u64,
+            partitions
+        );
+        assert_eq!(
+            carrier_trees
+                .iter()
+                .map(|(tree, embedding)| {
+                    let n = u32::try_from(tree.nodes.len()).expect("a small tree");
+                    carrier::segmented_tree_edits(n, embedding.next_node).len() as u64
+                })
+                .sum::<u64>(),
+            edits
+        );
+        assert_eq!(total, 11_550);
+        let (index, count) = shard();
+        let mut walked = 0;
+        let mut outcomes: BTreeMap<Outcome, u64> = BTreeMap::new();
+        for (position, case) in carrier::segmented_tree_apply_cases().enumerate() {
+            walked += 1;
+            if position % count == index {
+                *outcomes
+                    .entry(check_case(
+                        &case.tree,
+                        &case.embedding,
+                        &case.partition,
+                        &case.edit,
+                    ))
+                    .or_insert(0) += 1;
+            }
+        }
+        println!("shard {index}/{count}: {outcomes:?}");
+        assert_eq!(walked, total);
+        assert_eq!(outcomes.len(), 3, "every outcome occurs: {outcomes:?}");
+        if count == 1 {
+            assert_eq!(
+                outcomes,
+                BTreeMap::from([
+                    (Outcome::Applied, 6_762),
+                    (Outcome::Edit, 4_620),
+                    (Outcome::Layout, 168)
+                ])
+            );
+        }
+    }
+}
