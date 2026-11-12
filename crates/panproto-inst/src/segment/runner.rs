@@ -1,12 +1,16 @@
-//! The checkpointed run of segmented graph restriction.
+//! The checkpointed run of a segmented operation.
 //!
-//! [`graph_restrict_run`] runs [`graph_restrict_segmented`] as the six
-//! phases of a segmented run ([`Phase`]), one task per segment in the
-//! segment phases and one coordinator task in Assemble and Seal, so a run of
-//! `n` segments has `4n + 2` tasks. Each task writes one artifact to the
-//! caller's [`SegmentStore`] and commits it with its journal record, and a
-//! task reads only the input segment it names and the committed artifacts of
-//! earlier phases:
+//! [`run_segmented`] runs a [`PhaseOperation`] as the six phases of a
+//! segmented run ([`Phase`]), one task per segment in the segment phases and
+//! one coordinator task in Assemble and Seal, so a run of `n` segments has
+//! `4n + 2` tasks. Each task writes one artifact to the caller's
+//! [`SegmentStore`] and commits it with its journal record, and a task reads
+//! only the input segment it names and the committed artifacts of earlier
+//! phases. The operation says what each task computes; the runner owns the
+//! rest. Graph restriction is one operation ([`GraphRestrict`], run by
+//! [`graph_restrict_run`]) and graph put, in `panproto-lens`, is another.
+//!
+//! [`graph_restrict_run`] runs [`graph_restrict_segmented`] as follows:
 //!
 //! - Validate reads one input segment from the caller's [`SegmentSource`]
 //!   and checks it against the input manifest; its artifact is the
@@ -50,6 +54,8 @@
 //! artifact) at Assemble, and the running total of complement bytes before
 //! each Emit task commits. An exceeded budget ends the run with a
 //! [`Residual::BudgetExceeded`].
+//!
+//! [`graph_restrict_segmented`]: super::graph_restrict_segmented
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
