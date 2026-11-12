@@ -616,28 +616,138 @@ fn assert_bounded_span(
     }
 }
 
-#[test]
-fn a_bounded_search_answers_or_names_its_bound_on_every_bounded_pair() {
+/// The environment variable that selects one shard of the refusal scope.
+const SHARD_VARIABLE: &str = "PANPROTO_TEST_SHARD";
+
+/// One shard of the refusal scope split `count` ways: the ordered pairs whose
+/// position in the enumeration is congruent to `index` modulo `count`. The
+/// shards with indexes `0` to `count - 1` partition the pairs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Shard {
+    index: usize,
+    count: usize,
+}
+
+impl Shard {
+    /// Parse `index/count`: two unsigned decimal numerals with
+    /// `0 <= index < count`.
+    fn parse(value: &str) -> Result<Self, String> {
+        let numeral = |part: &str, role: &str| {
+            if part.is_empty() || !part.bytes().all(|byte| byte.is_ascii_digit()) {
+                return Err(format!(
+                    "the shard {role} {part:?} is not an unsigned decimal numeral"
+                ));
+            }
+            part.parse::<usize>()
+                .map_err(|error| format!("the shard {role} {part:?} does not fit: {error}"))
+        };
+        let (index, count) = value
+            .split_once('/')
+            .ok_or_else(|| format!("{value:?} is not of the form index/count"))?;
+        let (index, count) = (numeral(index, "index")?, numeral(count, "count")?);
+        if count == 0 {
+            return Err(format!("{value:?} has a shard count of zero"));
+        }
+        if index >= count {
+            return Err(format!(
+                "{value:?} has shard index {index}, which is not below the shard count {count}"
+            ));
+        }
+        Ok(Self { index, count })
+    }
+
+    /// The shard [`SHARD_VARIABLE`] names, or every pair when it is unset. A
+    /// value that is not a well-formed shard panics, so a misconfigured job
+    /// fails instead of checking the wrong pairs.
+    fn from_environment() -> Self {
+        match std::env::var(SHARD_VARIABLE) {
+            Err(std::env::VarError::NotPresent) => Self { index: 0, count: 1 },
+            Err(std::env::VarError::NotUnicode(value)) => {
+                panic!("{SHARD_VARIABLE}={} is not valid Unicode", value.display())
+            }
+            Ok(value) => Self::parse(&value).unwrap_or_else(|error| {
+                panic!("{SHARD_VARIABLE} must be index/count with index < count: {error}")
+            }),
+        }
+    }
+
+    /// How many of `total` positions fall in this shard.
+    const fn size(self, total: usize) -> usize {
+        (total + self.count - 1 - self.index) / self.count
+    }
+}
+
+/// The searches of the refusal scope per ordered pair: twelve budgets under
+/// five total and three span requests.
+const SEARCHES_PER_PAIR: usize = 12 * 8;
+
+/// Compare every bounded search of the pairs of the refusal scope in
+/// `shard`, returning how many searches were compared.
+fn compare_bounded_searches(shard: Shard) -> usize {
     let family = schemas(2, 1);
+    assert_eq!(family.len(), 126);
     let mut compared = 0_usize;
     let mut refusals = BTreeMap::new();
-    for source in &family {
-        for target in &family {
-            for budget in budgets() {
-                for request in TOTAL_REQUESTS {
-                    assert_bounded_total(source, target, request, &budget, &mut refusals);
-                    compared += 1;
-                }
-                for request in SPAN_REQUESTS {
-                    assert_bounded_span(source, target, request, &budget, &mut refusals);
-                    compared += 1;
-                }
+    let pairs = family
+        .iter()
+        .flat_map(|source| family.iter().map(move |target| (source, target)));
+    for (position, (source, target)) in pairs.enumerate() {
+        if position % shard.count != shard.index {
+            continue;
+        }
+        for budget in budgets() {
+            for request in TOTAL_REQUESTS {
+                assert_bounded_total(source, target, request, &budget, &mut refusals);
+                compared += 1;
+            }
+            for request in SPAN_REQUESTS {
+                assert_bounded_span(source, target, request, &budget, &mut refusals);
+                compared += 1;
             }
         }
     }
-    println!("bound: vertices=2, edges=1, budgets=12; searches compared: {compared}");
+    println!(
+        "bound: vertices=2, edges=1, budgets=12, shard={}/{}; searches compared: {compared}",
+        shard.index, shard.count
+    );
     println!("refusals and stops by bound: {refusals:?}");
-    assert_eq!(compared, 126 * 126 * 12 * 8);
+    compared
+}
+
+#[test]
+fn a_bounded_search_answers_or_names_its_bound_on_every_bounded_pair() {
+    let shard = Shard::from_environment();
+    let compared = compare_bounded_searches(shard);
+    assert_eq!(compared, shard.size(126 * 126) * SEARCHES_PER_PAIR);
+    if shard.count == 1 {
+        assert_eq!(compared, 1_524_096);
+    }
+}
+
+#[test]
+fn bounded_searches_on_one_sixteenth_of_the_refusal_scope_answer_or_name_their_bound() {
+    let shard = Shard {
+        index: 0,
+        count: 16,
+    };
+    assert_eq!(shard.size(126 * 126), 993);
+    assert_eq!(compare_bounded_searches(shard), 993 * SEARCHES_PER_PAIR);
+}
+
+#[test]
+fn the_refusal_scope_shards_partition_its_pairs() {
+    let total = 126 * 126;
+    for count in [1, 4, 16] {
+        let sizes: usize = (0..count)
+            .map(|index| Shard { index, count }.size(total))
+            .sum();
+        assert_eq!(sizes, total, "the {count} shards cover every pair once");
+    }
+    assert_eq!(Shard::parse("3/4"), Ok(Shard { index: 3, count: 4 }));
+    assert!(Shard::parse("4/4").is_err());
+    assert!(Shard::parse("0/0").is_err());
+    assert!(Shard::parse("+1/4").is_err());
+    assert!(Shard::parse("1").is_err());
 }
 
 fn schema_strategy() -> impl Strategy<Value = Schema> {

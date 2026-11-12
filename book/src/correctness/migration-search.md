@@ -153,7 +153,7 @@ A bound is lowered when it is below the value [`SearchBudget::default`](https://
 2. Exact inference is priced against the memory and operation budgets before it runs and otherwise does not consult a budget, so it never stops; a pair it cannot price within the budget goes to branch and bound, which counts nodes and operations and stops on whichever it exhausts first. Each counter compares against its own bound, so the limit reported is a bound the caller lowered.
 3. Building the network and sizing the `iso` frames are checked against `mem_bytes` before any allocation, and they refuse with the measured figure rather than fall back.
 4. An empty list is returned only by a search that ran to completion without a complete assignment in the requested class, or by the cardinality tests of the `epic` path; in either case no such assignment exists, which is the emptiness of `optimal_total`. Non-empty answers pass the checker by step 5 of [L-migration-search-1](#L-migration-search-1).
-5. The differential checks every case on the refusal scope (1,524,096 searches over five total and three span requests) and the property test on random pairs and random node, operation and memory budgets.
+5. The differential checks every case on the refusal scope (1,524,096 searches over five total and three span requests) and the property test on random pairs and random node, operation and memory budgets. The whole scope runs in four shards in the `exhaustive-reference` job of the corpus gate, each taking the pairs whose position is congruent to its index modulo four, and one sixteenth of the pairs runs on every pull request.
 
 ### Executable counterpart
 
