@@ -1118,7 +1118,8 @@ fn field_edit_translation_uses_only_the_edited_nodes_anchor() {
         raw_candidate.nodes[&0].extra_fields,
         expected.nodes[&0].extra_fields
     );
-    assert_eq!(raw_candidate.schema_root.as_ref(), "a");
+    // Relabelling the root moves the schema root with it in both trees.
+    assert_eq!(raw_candidate.schema_root.as_ref(), "b");
     assert_eq!(expected.schema_root.as_ref(), "b");
     let error = edit_lens.put_edit(edit).unwrap_err();
     assert!(
