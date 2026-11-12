@@ -10,6 +10,7 @@
 //! checked to refuse with the bound they spent rather than answer empty.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
 use std::process::Command;
 
 use panproto_mig::hom_search::{
@@ -68,7 +69,7 @@ fn reference_edge(edge: &panproto_schema::Edge) -> Edge {
         edge.src.as_str(),
         edge.tgt.as_str(),
         edge.kind.as_str(),
-        edge.name.as_ref().map(|name| name.as_str()),
+        edge.name.as_ref().map(panproto_gat::Name::as_str),
     )
 }
 
@@ -238,10 +239,11 @@ fn render_total(morphisms: &[FoundMorphism], truncated: bool) -> String {
     for found in morphisms {
         let vertices = vertex_map(&found.vertex_map);
         let edges = edge_map(&found.edge_map);
-        text.push_str(&format!(
+        let _ = write!(
+            text,
             "[{vertices:?}|{edges:?}|{:016x}]",
             found.quality.to_bits()
-        ));
+        );
     }
     text
 }
@@ -518,7 +520,16 @@ fn assert_bounded_total(
 ) {
     let (src, tgt) = (production(source, false), production(target, false));
     let context = format!("{source:?} -> {target:?} {request:?} {budget:?}");
-    let exists = reference::optimal_total(source, target, request).is_some();
+    let optimum = reference::optimal_total(source, target, request).map(|optimum| optimum.cost);
+    let passes = |found: &FoundMorphism| {
+        reference::check_total(
+            source,
+            target,
+            request,
+            &vertex_map(&found.vertex_map),
+            &edge_map(&found.edge_map),
+        )
+    };
     match find_morphisms_budgeted(
         &src,
         &tgt,
@@ -526,27 +537,36 @@ fn assert_bounded_total(
         &DomainConstraints::default(),
         budget,
     ) {
-        Ok(answer) if answer.morphisms.is_empty() => {
-            assert!(!exists, "{context}: an empty success");
-        }
         Ok(answer) => {
+            assert!(
+                answer.morphisms.is_empty() || optimum.is_some(),
+                "{context}: a morphism where none exists"
+            );
+            assert!(
+                !answer.morphisms.is_empty() || optimum.is_none(),
+                "{context}: an empty success"
+            );
             for found in &answer.morphisms {
+                assert_eq!(passes(found), Ok(()), "{context}");
                 assert_eq!(
-                    reference::check_total(
-                        source,
-                        target,
-                        request,
-                        &vertex_map(&found.vertex_map),
-                        &edge_map(&found.edge_map),
-                    ),
-                    Ok(()),
-                    "{context}"
+                    reference::cost(source, target, &total_assignment(found)),
+                    optimum,
+                    "{context}: an answer that is not optimal"
                 );
             }
         }
-        Err(SpanError::Stopped { limit }) => {
+        Err(SpanError::Stopped { limit, incumbent }) => {
             assert!(names_a_lowered_bound(budget, limit), "{context}: {limit:?}");
-            *refusals.entry(format!("total {limit:?}")).or_insert(0) += 1;
+            if let Some(found) = &incumbent {
+                assert_eq!(passes(found), Ok(()), "{context}: the incumbent");
+            }
+            let held = match incumbent {
+                Some(_) => "with an incumbent",
+                None => "without an incumbent",
+            };
+            *refusals
+                .entry(format!("total {limit:?} {held}"))
+                .or_insert(0) += 1;
         }
         Err(error) => {
             assert!(memory_refusal(budget, &error), "{context}: {error}");
@@ -592,22 +612,19 @@ fn assert_bounded_span(
                 Ok(()),
                 "{context}"
             );
-            match span.certificate.limit_hit {
-                Some(limit) => {
-                    assert!(!span.certificate.proven_optimal, "{context}");
-                    assert!(names_a_lowered_bound(budget, limit), "{context}: {limit:?}");
-                    *refusals.entry(format!("span {limit:?}")).or_insert(0) += 1;
-                }
-                None => {
-                    assert!(span.certificate.proven_optimal, "{context}");
-                    let optimum = reference::optimal_span(source, target, request)
-                        .map(|optimum| optimum.cost);
-                    assert_eq!(
-                        reference::cost(source, target, &span_assignment(source, &span)),
-                        optimum,
-                        "{context}: an unstopped span is optimal"
-                    );
-                }
+            if let Some(limit) = span.certificate.limit_hit {
+                assert!(!span.certificate.proven_optimal, "{context}");
+                assert!(names_a_lowered_bound(budget, limit), "{context}: {limit:?}");
+                *refusals.entry(format!("span {limit:?}")).or_insert(0) += 1;
+            } else {
+                assert!(span.certificate.proven_optimal, "{context}");
+                let optimum =
+                    reference::optimal_span(source, target, request).map(|optimum| optimum.cost);
+                assert_eq!(
+                    reference::cost(source, target, &span_assignment(source, &span)),
+                    optimum,
+                    "{context}: an unstopped span is optimal"
+                );
             }
         }
         Err(error) => {
@@ -617,28 +634,145 @@ fn assert_bounded_span(
     }
 }
 
-#[test]
-fn a_bounded_search_answers_or_names_its_bound_on_every_bounded_pair() {
+/// The environment variable that selects one shard of the refusal scope.
+const SHARD_VARIABLE: &str = "PANPROTO_TEST_SHARD";
+
+/// One shard of the refusal scope split `count` ways: the ordered pairs whose
+/// position in the enumeration is congruent to `index` modulo `count`. The
+/// shards with indexes `0` to `count - 1` partition the pairs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Shard {
+    index: usize,
+    count: usize,
+}
+
+impl Shard {
+    /// Parse `index/count`: two unsigned decimal numerals with
+    /// `0 <= index < count`.
+    fn parse(value: &str) -> Result<Self, String> {
+        let numeral = |part: &str, role: &str| {
+            if part.is_empty() || !part.bytes().all(|byte| byte.is_ascii_digit()) {
+                return Err(format!(
+                    "the shard {role} {part:?} is not an unsigned decimal numeral"
+                ));
+            }
+            part.parse::<usize>()
+                .map_err(|error| format!("the shard {role} {part:?} does not fit: {error}"))
+        };
+        let (index, count) = value
+            .split_once('/')
+            .ok_or_else(|| format!("{value:?} is not of the form index/count"))?;
+        let (index, count) = (numeral(index, "index")?, numeral(count, "count")?);
+        if count == 0 {
+            return Err(format!("{value:?} has a shard count of zero"));
+        }
+        if index >= count {
+            return Err(format!(
+                "{value:?} has shard index {index}, which is not below the shard count {count}"
+            ));
+        }
+        Ok(Self { index, count })
+    }
+
+    /// The shard [`SHARD_VARIABLE`] names, or every pair when it is unset. A
+    /// value that is not a well-formed shard panics, so a misconfigured job
+    /// fails instead of checking the wrong pairs.
+    fn from_environment() -> Self {
+        match std::env::var(SHARD_VARIABLE) {
+            Err(std::env::VarError::NotPresent) => Self { index: 0, count: 1 },
+            Err(std::env::VarError::NotUnicode(value)) => {
+                panic!("{SHARD_VARIABLE}={} is not valid Unicode", value.display())
+            }
+            Ok(value) => Self::parse(&value).unwrap_or_else(|error| {
+                panic!("{SHARD_VARIABLE} must be index/count with index < count: {error}")
+            }),
+        }
+    }
+
+    /// How many of `total` positions fall in this shard.
+    const fn size(self, total: usize) -> usize {
+        (total + self.count - 1 - self.index) / self.count
+    }
+}
+
+/// The searches of the refusal scope per ordered pair: twelve budgets under
+/// five total and three span requests.
+const SEARCHES_PER_PAIR: usize = 12 * 8;
+
+/// Compare every bounded search of the pairs of the refusal scope in
+/// `shard`, returning how many searches were compared and how many stops and
+/// refusals each bound produced.
+fn compare_bounded_searches(shard: Shard) -> (usize, BTreeMap<String, usize>) {
     let family = schemas(2, 1);
+    assert_eq!(family.len(), 126);
     let mut compared = 0_usize;
     let mut refusals = BTreeMap::new();
-    for source in &family {
-        for target in &family {
-            for budget in budgets() {
-                for request in TOTAL_REQUESTS {
-                    assert_bounded_total(source, target, request, &budget, &mut refusals);
-                    compared += 1;
-                }
-                for request in SPAN_REQUESTS {
-                    assert_bounded_span(source, target, request, &budget, &mut refusals);
-                    compared += 1;
-                }
+    let pairs = family
+        .iter()
+        .flat_map(|source| family.iter().map(move |target| (source, target)));
+    for (position, (source, target)) in pairs.enumerate() {
+        if position % shard.count != shard.index {
+            continue;
+        }
+        for budget in budgets() {
+            for request in TOTAL_REQUESTS {
+                assert_bounded_total(source, target, request, &budget, &mut refusals);
+                compared += 1;
+            }
+            for request in SPAN_REQUESTS {
+                assert_bounded_span(source, target, request, &budget, &mut refusals);
+                compared += 1;
             }
         }
     }
-    println!("bound: vertices=2, edges=1, budgets=12; searches compared: {compared}");
+    println!(
+        "bound: vertices=2, edges=1, budgets=12, shard={}/{}; searches compared: {compared}",
+        shard.index, shard.count
+    );
     println!("refusals and stops by bound: {refusals:?}");
-    assert_eq!(compared, 126 * 126 * 12 * 8);
+    (compared, refusals)
+}
+
+#[test]
+fn a_bounded_search_answers_or_names_its_bound_on_every_bounded_pair() {
+    let shard = Shard::from_environment();
+    let (compared, refusals) = compare_bounded_searches(shard);
+    assert_eq!(compared, shard.size(126 * 126) * SEARCHES_PER_PAIR);
+    if shard.count == 1 {
+        assert_eq!(compared, 1_524_096);
+        // A stop after a complete assignment is reached on the scope, so the
+        // refusal that carries an incumbent is exercised and not only stated.
+        assert!(
+            refusals.contains_key("total Nodes with an incumbent"),
+            "{refusals:?}"
+        );
+    }
+}
+
+#[test]
+fn bounded_searches_on_one_sixteenth_of_the_refusal_scope_answer_or_name_their_bound() {
+    let shard = Shard {
+        index: 0,
+        count: 16,
+    };
+    assert_eq!(shard.size(126 * 126), 993);
+    assert_eq!(compare_bounded_searches(shard).0, 993 * SEARCHES_PER_PAIR);
+}
+
+#[test]
+fn the_refusal_scope_shards_partition_its_pairs() {
+    let total = 126 * 126;
+    for count in [1, 4, 16] {
+        let sizes: usize = (0..count)
+            .map(|index| Shard { index, count }.size(total))
+            .sum();
+        assert_eq!(sizes, total, "the {count} shards cover every pair once");
+    }
+    assert_eq!(Shard::parse("3/4"), Ok(Shard { index: 3, count: 4 }));
+    assert!(Shard::parse("4/4").is_err());
+    assert!(Shard::parse("0/0").is_err());
+    assert!(Shard::parse("+1/4").is_err());
+    assert!(Shard::parse("1").is_err());
 }
 
 fn schema_strategy() -> impl Strategy<Value = Schema> {

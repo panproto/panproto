@@ -211,41 +211,35 @@ fn the_checker_finds_each_defect() {
         .iter()
         .map(|(f, t)| ((*f).to_owned(), (*t).to_owned()))
         .collect();
-    let good: EdgeMap = [(
+    let good: EdgeMap = std::iter::once((
         Edge::new("a", "b", "prop", Some("n")),
         Edge::new("x", "y", "prop", Some("n")),
-    )]
-    .into_iter()
+    ))
     .collect();
     let request = Request::default();
     assert_eq!(
         check_total(&source, &target, request, &vertices, &good),
         Ok(())
     );
-    let unnamed: EdgeMap = [(
+    let unnamed: EdgeMap = std::iter::once((
         Edge::new("a", "b", "prop", Some("n")),
         Edge::new("x", "y", "prop", None),
-    )]
-    .into_iter()
+    ))
     .collect();
     assert_eq!(
         check_total(&source, &target, request, &vertices, &unnamed),
         Err(Defect::NameNotKept(Edge::new("a", "b", "prop", Some("n"))))
     );
-    let elsewhere: EdgeMap = [(
+    let elsewhere: EdgeMap = std::iter::once((
         Edge::new("a", "b", "prop", Some("n")),
         Edge::new("x", "z", "prop", None),
-    )]
-    .into_iter()
+    ))
     .collect();
     assert_eq!(
         check_total(&source, &target, request, &vertices, &elsewhere),
         Err(Defect::EdgeImage(Edge::new("a", "b", "prop", Some("n"))))
     );
-    let short: VertexMap = [("a", "x")]
-        .iter()
-        .map(|(f, t)| ((*f).to_owned(), (*t).to_owned()))
-        .collect();
+    let short: VertexMap = std::iter::once(("a".to_owned(), "x".to_owned())).collect();
     assert_eq!(
         check_total(&source, &target, request, &short, &good),
         Err(Defect::VertexDomain)
@@ -266,7 +260,23 @@ fn the_checker_finds_each_defect() {
         check_total(&source, &target, iso, &vertices, &good),
         Err(Defect::NotSurjective)
     );
+}
 
+#[test]
+fn the_span_checker_finds_each_defect() {
+    let source = schema(
+        &[("a", "object"), ("b", "string")],
+        &[("a", "b", Some("n"))],
+    );
+    let target = schema(
+        &[("x", "object"), ("y", "string"), ("z", "string")],
+        &[("x", "y", Some("n")), ("x", "y", None), ("x", "z", None)],
+    );
+    let vertices: VertexMap = [("a", "x"), ("b", "y")]
+        .iter()
+        .map(|(f, t)| ((*f).to_owned(), (*t).to_owned()))
+        .collect();
+    let request = Request::default();
     // A span that keeps `a` alone, and one whose apex forgets the edge.
     let kept: BTreeSet<String> = std::iter::once("a".to_owned()).collect();
     let apex = source.induced(&kept);

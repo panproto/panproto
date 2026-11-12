@@ -7,30 +7,20 @@
 //! > that: a search that could not run or could not finish reports `Err`, so a
 //! > caller can tell the two apart.
 //!
-//! `optimal_assignments` used not to keep it. Its fallback branch was
-//!
-//! ```text
-//! solve(cfn, budget).best.into_iter().collect()
-//! ```
-//!
-//! which keeps `SolveOutcome::best` and drops `SolveOutcome::limit_hit` and
-//! `SolveOutcome::proven_optimal` beside it. A branch and bound that spends its
-//! operation budget before it reaches any complete assignment hands back
-//! `best: None`, and `None` collects to the empty vector, which the entry point
-//! above then spelled as the *absence of a total morphism* rather than as the
-//! *absence of an answer*.
+//! A branch and bound that spends its operation budget before it reaches any
+//! complete assignment hands back `SolveOutcome { best: None, limit_hit:
+//! Some(_), .. }`, and the entry points report that as `SpanError::Stopped`
+//! with no incumbent rather than as the empty list.
 //!
 //! The fixture below is a pair on which the two differ: a total morphism
 //! exists, the library finds it when the domains are narrowed to where it
-//! lives, and the default budget runs out before the search reaches it. That
-//! pair now reports `SpanError::Stopped`.
+//! lives, and the default budget runs out before the search reaches it.
 //!
-//! The predicate is `best.is_none() && limit_hit.is_some()`, not
-//! `limit_hit.is_some()`. A stop that did reach a leaf holds a genuine total
-//! morphism, since removing `⊥` from every domain makes feasibility exactly
-//! totality, so refusing that one would discard a correct answer and trade this
-//! defect for its mirror image. The last test here holds the other end down:
-//! a pair that really has no total morphism still answers `Ok(None)`.
+//! A stop that did reach a leaf is refused too, since its incumbent is not
+//! proved optimal; the refusal carries that incumbent, and the bounded
+//! differentials of `reference_migration_search.rs` check it against the
+//! reference checker. The last test here holds the other end down: a pair that
+//! really has no total morphism still answers `Ok(None)`.
 //!
 //! # The shape
 //!
@@ -51,15 +41,9 @@
 //!
 //! # Cost
 //!
-//! The assertions here each spend the default operation budget, which is a
-//! minute or so of processor time in a release build and several in a debug
-//! one. That is the price of reaching a *default* budget, and a fixture that
-//! reached a lowered one would be asserting something a caller cannot see.
-
-#![allow(
-    clippy::expect_used,
-    reason = "a fixture that will not build is a defect in this file"
-)]
+//! The assertions here each spend a lowered operation budget; the default one
+//! reaches the same stop after about ninety seconds of processor time in a
+//! release build.
 
 use std::collections::HashMap;
 
@@ -73,6 +57,26 @@ use panproto_mig::hom_search::{
 use panproto_mig::solve::build::{NoEvidence, build_cfn};
 use panproto_mig::solve::{LimitKind, SearchBudget, solve};
 use panproto_schema::{EdgeRule, Protocol, Schema, SchemaBuilder};
+
+/// Unwrap a fixture step, panicking with the step that failed.
+trait OrPanic<T> {
+    fn or_panic(self, step: &str) -> T;
+}
+
+impl<T, E: std::fmt::Debug> OrPanic<T> for Result<T, E> {
+    fn or_panic(self, step: &str) -> T {
+        match self {
+            Ok(value) => value,
+            Err(error) => panic!("{step}: {error:?}"),
+        }
+    }
+}
+
+impl<T> OrPanic<T> for Option<T> {
+    fn or_panic(self, step: &str) -> T {
+        self.unwrap_or_else(|| panic!("{step}: nothing"))
+    }
+}
 
 /// The complete digraph the fixture is built from.
 const K: usize = 10;
@@ -112,7 +116,7 @@ fn add_clique(mut builder: SchemaBuilder, prefix: &str, edge: &str, k: usize) ->
     for index in 0..k {
         builder = builder
             .vertex(&format!("{prefix}{index}"), "object", None::<&str>)
-            .expect("vertex");
+            .or_panic("vertex");
     }
     for left in 0..k {
         for right in 0..k {
@@ -124,7 +128,7 @@ fn add_clique(mut builder: SchemaBuilder, prefix: &str, edge: &str, k: usize) ->
                         "prop",
                         Some(&format!("{edge}{right}")),
                     )
-                    .expect("edge");
+                    .or_panic("edge");
             }
         }
     }
@@ -135,14 +139,14 @@ fn source() -> Schema {
     add_clique(SchemaBuilder::new(&protocol()), "o", "p", K)
         .entry("o0")
         .build()
-        .expect("build")
+        .or_panic("build")
 }
 
 fn target() -> Schema {
     let mut builder = SchemaBuilder::new(&protocol());
     builder = add_clique(builder, "o", "p", K - 1);
     builder = add_clique(builder, "z", "q", K);
-    builder.entry("o0").build().expect("build")
+    builder.entry("o0").build().or_panic("build")
 }
 
 /// The real image's vertices, which is where the total morphism lives.
@@ -176,8 +180,8 @@ fn a_total_morphism_exists() {
             ..DomainConstraints::default()
         },
     )
-    .expect("the narrowed network poses")
-    .expect("the source maps onto the real image");
+    .or_panic("the narrowed network poses")
+    .or_panic("the source maps onto the real image");
 
     assert_eq!(
         found.vertex_map.len(),
@@ -212,7 +216,7 @@ fn the_search_stops_without_an_answer_and_records_it() {
         DEFAULT_WEIGHTS,
         budget.mem_bytes,
     )
-    .expect("the network poses");
+    .or_panic("the network poses");
 
     // The total-morphism search is this network with `⊥` removed, which is
     // exactly what `find_morphisms_constrained` searches.
@@ -258,7 +262,8 @@ fn find_best_morphism_reports_the_stop_rather_than_denying_the_morphism() {
         matches!(
             result,
             Err(SpanError::Stopped {
-                limit: LimitKind::Operations
+                limit: LimitKind::Operations,
+                incumbent: None,
             })
         ),
         "`Ok(None)` is documented as `exactly when no total morphism exists`, and \
@@ -281,24 +286,24 @@ fn a_pair_with_no_total_morphism_still_answers() {
     let proto = protocol();
     let src = SchemaBuilder::new(&proto)
         .vertex("a", "object", None::<&str>)
-        .expect("a")
+        .or_panic("a")
         .vertex("b", "object", None::<&str>)
-        .expect("b")
+        .or_panic("b")
         .edge("a", "b", "prop", Some("x"))
-        .expect("edge")
+        .or_panic("edge")
         .entry("a")
         .build()
-        .expect("src");
+        .or_panic("src");
     // One vertex, so nothing injective lands and the edge has no image.
     let tgt = SchemaBuilder::new(&proto)
         .vertex("z", "object", None::<&str>)
-        .expect("z")
+        .or_panic("z")
         .entry("z")
         .build()
-        .expect("tgt");
+        .or_panic("tgt");
 
     let answer = find_best_morphism(&src, &tgt, &SearchOptions::default())
-        .expect("a small pair finishes, so this must not be the `Err` arm");
+        .or_panic("a small pair finishes, so this must not be the `Err` arm");
     assert!(
         answer.is_none(),
         "this pair has no total morphism and the search finished, so the absence \

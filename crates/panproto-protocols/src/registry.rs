@@ -541,6 +541,18 @@ static DESCRIPTORS: &[ProtocolDescriptor] = &[
         bundle_project: false,
     },
     ProtocolDescriptor {
+        name: "jsonld",
+        aliases: &["json-ld"],
+        parser: Parser::Programmatic,
+        protocol: rdf::jsonld::protocol,
+        register_theories: |r| {
+            rdf::jsonld::register_theories(r);
+            Ok(())
+        },
+        bundle: false,
+        bundle_project: false,
+    },
+    ProtocolDescriptor {
         name: "k8s-crd",
         aliases: &[],
         parser: Parser::Document(config::k8s_crd::parse_k8s_crd_schema),

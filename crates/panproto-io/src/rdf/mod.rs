@@ -38,11 +38,12 @@ use panproto_schema::{Edge, Schema};
 
 #[cfg(feature = "tree-sitter")]
 mod cst;
+pub mod jsonld;
 pub mod ntriples;
 pub mod turtle;
 
-/// Register the RDF graph codecs (`ntriples`, `turtle`) with the registry's
-/// graph table.
+/// Register the RDF graph codecs (`ntriples`, `turtle`, `jsonld`) with the
+/// registry's graph table.
 ///
 /// Each reads through a bundled tree-sitter grammar, so a codec whose
 /// grammar is not compiled in is left out, and one whose grammar fails to
@@ -62,6 +63,10 @@ pub fn register_all(registry: &mut crate::ProtocolRegistry) {
         Err(err) => report(&err),
     }
     match turtle::TurtleCodec::new() {
+        Ok(codec) => registry.register_graph(codec),
+        Err(err) => report(&err),
+    }
+    match jsonld::JsonLdCodec::new() {
         Ok(codec) => registry.register_graph(codec),
         Err(err) => report(&err),
     }
@@ -148,6 +153,18 @@ pub enum RdfReadErrorKind {
         /// The prefix, without its `:`.
         prefix: String,
     },
+    /// A JSON-LD document the reader refuses.
+    JsonLd {
+        /// Why.
+        refusal: jsonld::JsonLdRefusal,
+        /// The JSON Pointer (RFC 6901) of the value at fault.
+        pointer: String,
+    },
+    /// Arrays and objects nested deeper than the reader's limit.
+    NestingLimit {
+        /// The deepest nesting accepted.
+        limit: usize,
+    },
 }
 
 impl fmt::Display for RdfReadErrorKind {
@@ -184,6 +201,12 @@ impl fmt::Display for RdfReadErrorKind {
                 u32::from(*character)
             ),
             Self::UndefinedPrefix { prefix } => write!(f, "the prefix {prefix:?} is not declared"),
+            Self::JsonLd { refusal, pointer } => {
+                write!(f, "at JSON Pointer {pointer:?}: {refusal}")
+            }
+            Self::NestingLimit { limit } => {
+                write!(f, "arrays and objects nest deeper than {limit} levels")
+            }
         }
     }
 }
@@ -272,6 +295,15 @@ pub enum RdfWriteErrorKind {
     /// collection, or a blank node written without a label), so no token
     /// can be rewritten in place.
     ImplicitTerm,
+    /// The node's new lexical form is not one that a JSON number or
+    /// boolean in the place of the preserved token converts to.
+    NativeLexical,
+    /// The preserved document, with the edited tokens rewritten, reads back
+    /// as another graph than the edited one.
+    ReadBackDiffers,
+    /// The IRI holds more than one `#`, which the JSON-LD reader refuses as
+    /// RFC 3987 does, so no JSON-LD document reads back as it.
+    IriFragments,
 }
 
 impl fmt::Display for RdfWriteErrorKind {
@@ -315,6 +347,13 @@ impl fmt::Display for RdfWriteErrorKind {
             }
             Self::ImplicitTerm => f.write_str(
                 "the document writes this term without a token of its own, so its value cannot change in place",
+            ),
+            Self::NativeLexical => f.write_str(
+                "no JSON number or boolean in the token's place converts to the new lexical form",
+            ),
+            Self::IriFragments => f.write_str("the IRI holds more than one '#'"),
+            Self::ReadBackDiffers => f.write_str(
+                "the document with the edited tokens rewritten reads back as another graph",
             ),
         }
     }

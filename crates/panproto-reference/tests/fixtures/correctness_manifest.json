@@ -7056,6 +7056,7 @@
       "reference_files": [
         "crates/panproto-reference/src/pages/rdf_formats.rs",
         "crates/panproto-reference/src/pages/rdf_formats/turtle.rs",
+        "crates/panproto-reference/src/pages/rdf_formats/jsonld.rs",
         "crates/panproto-reference/src/enumerate/rdf_formats.rs"
       ],
       "laws": [
@@ -7259,6 +7260,114 @@
               "crate": "panproto-reference",
               "binary": "panproto-reference::rdf_formats_turtle",
               "test": "the_turtle_scopes_have_their_closed_form_counts"
+            }
+          ]
+        },
+        {
+          "id": "rdf-formats.jsonld-reading",
+          "anchor": "L-rdf-formats-8",
+          "references": [
+            "panproto_reference::pages::rdf_formats::jsonld::read_document"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_jsonld",
+              "test": "jsonld_documents_read_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_jsonld",
+              "test": "randomized_jsonld_documents_read_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::rdf_formats_jsonld",
+              "test": "jsonld_reads_contexts_values_lists_and_reverse_properties"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::rdf_formats_jsonld",
+              "test": "jsonld_refusals_name_the_kind_and_the_pointer_of_the_value"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::rdf_formats_jsonld",
+              "test": "keys_that_expand_to_no_iri_are_dropped_as_the_standard_requires"
+            }
+          ]
+        },
+        {
+          "id": "rdf-formats.jsonld-numbers",
+          "anchor": "L-rdf-formats-9",
+          "references": [
+            "panproto_reference::pages::rdf_formats::jsonld::number_form"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_jsonld",
+              "test": "native_numbers_convert_as_the_reference_on_every_bounded_numeral"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_jsonld",
+              "test": "randomized_numerals_convert_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::rdf_formats_jsonld",
+              "test": "numbers_take_the_api_forms_at_their_boundaries"
+            }
+          ]
+        },
+        {
+          "id": "rdf-formats.canonical-jsonld",
+          "anchor": "L-rdf-formats-10",
+          "references": [
+            "panproto_reference::pages::rdf_formats::jsonld::canonical_text"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_jsonld",
+              "test": "canonical_jsonld_matches_the_reference_on_every_bounded_triple_list"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::rdf_formats_jsonld",
+              "test": "canonical_jsonld_writes_one_node_object_per_subject"
+            }
+          ]
+        },
+        {
+          "id": "rdf-formats.jsonld-preservation",
+          "anchor": "L-rdf-formats-11",
+          "references": [
+            "panproto_reference::pages::rdf_formats::jsonld::read_document"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_jsonld",
+              "test": "preserving_edits_read_back_under_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::rdf_formats_jsonld",
+              "test": "the_jsonld_scopes_have_their_closed_form_counts"
             }
           ]
         }
@@ -7473,7 +7582,8 @@
           "references": [
             "panproto_reference::pages::migration_search::optimal_total",
             "panproto_reference::pages::migration_search::check_total",
-            "panproto_reference::pages::migration_search::check_span"
+            "panproto_reference::pages::migration_search::check_span",
+            "panproto_reference::pages::migration_search::cost"
           ]
         }
       ],

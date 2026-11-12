@@ -1,5 +1,6 @@
 //! Complete reference operations assigned to `rdf-formats`.
 
+pub mod jsonld;
 pub mod turtle;
 
 pub mod ntriples {

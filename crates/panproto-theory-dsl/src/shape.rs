@@ -117,11 +117,11 @@ enum Shape {
     Bool,
     /// A string or `null`.
     OptStr,
-    List(&'static Shape),
+    List(&'static Self),
     /// An array or `null`.
-    OptList(&'static Shape),
+    OptList(&'static Self),
     /// An object whose every member has this shape.
-    Map(&'static Shape),
+    Map(&'static Self),
     Record(&'static [Field]),
     /// An object whose `type` member selects one of these field tables.
     Tagged(&'static [(&'static str, &'static [Field])]),
@@ -306,7 +306,7 @@ const BODIES: &[(&str, &[Field])] = &[
     ("inductive", INDUCTIVE_FIELDS),
 ];
 
-fn refuse(path: DocumentPath, problem: ShapeProblem) -> TheoryDslError {
+const fn refuse(path: DocumentPath, problem: ShapeProblem) -> TheoryDslError {
     TheoryDslError::Shape { path, problem }
 }
 

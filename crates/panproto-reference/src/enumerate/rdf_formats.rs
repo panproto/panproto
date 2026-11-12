@@ -414,3 +414,165 @@ pub fn resolution_pairs() -> Vec<(&'static str, String)> {
 pub fn resolution_pairs_count() -> u64 {
     5 * super::sequences_count(9, 3)
 }
+
+// ── JSON-LD ─────────────────────────────────────────────────────────
+
+/// The `@context` members of the JSON-LD document scope: none, and one
+/// spelling of each context feature of the subset and each refused one.
+pub const JSONLD_CONTEXTS: &[&str] = &[
+    "",
+    r#""@context": {"@vocab": "http://e/"}, "#,
+    r#""@context": {"ex": "http://e/"}, "#,
+    r#""@context": {"@vocab": "http://e/", "r": {"@id": "http://e/r", "@type": "@id"}}, "#,
+    r#""@context": {"@vocab": "http://e/", "l": {"@container": "@list"}}, "#,
+    r#""@context": {"@vocab": "http://e/", "@language": "en"}, "#,
+    r#""@context": {"@base": "http://b/d/", "p": "http://e/p"}, "#,
+    r#""@context": {"@vocab": "http://e/", "d": {"@type": "http://www.w3.org/2001/XMLSchema#double"}}, "#,
+    r#""@context": {"@vocab": "http://e/", "id": "@id", "type": "@type"}, "#,
+    r#""@context": {"@vocab": "http://e/", "rev": {"@reverse": "http://e/p"}}, "#,
+    r#""@context": {"@vocab": "http://e/", "v": {"@type": "@vocab"}}, "#,
+    r#""@context": [{"@vocab": "http://e/"}, null, {"ex": "http://f/"}], "#,
+    r#""@context": {"@vocab": "_:"}, "#,
+    r#""@context": "http://remote/context", "#,
+    r#""@context": {"@vocab": "http://e/", "@protected": true}, "#,
+    r#""@context": {"a": "b:c", "b": "a:d"}, "#,
+    r#""@context": {"@version": 1.0}, "#,
+    r#""@context": {"x": {"@id": "http://e/x", "@container": "@index"}}, "#,
+    r#""@context": {"@vocab": "http://e/", "s": {"@id": "http://e/s", "@context": {}}}, "#,
+    r#""@context": {"p": {"@id": 5}}, "#,
+];
+
+/// The node object bodies of the JSON-LD document scope: each value form,
+/// keyword and refusal of the subset.
+pub const JSONLD_BODIES: &[&str] = &[
+    r#""@id": "http://e/s", "p": "x""#,
+    r#""@id": "s", "p": "x""#,
+    r#""p": "x""#,
+    r#""@id": "_:a", "p": {"@id": "_:a"}"#,
+    r#""@id": "_:a b", "p": {"@id": "_:b0"}"#,
+    r#""ex:p": "x""#,
+    r#""http://e/p": 1"#,
+    r#""p": [1.5, 1e21, -0, true, 12345678901234567890]"#,
+    r#""p": {"@value": "5", "@type": "http://e/t"}"#,
+    r#""p": {"@value": "x", "@language": "en-US"}"#,
+    r#""p": {"@value": "x", "@language": "e n"}"#,
+    r#""p": {"@list": ["a", {"@id": "http://e/o"}]}"#,
+    r#""p": {"@set": ["a", "b"]}"#,
+    r#""p": [], "q": null"#,
+    r#""l": ["a", ["b"], []]"#,
+    r#""r": ["http://e/o", "o"]"#,
+    r#""v": "Thing""#,
+    r#""d": 5"#,
+    r#""@type": ["C", "_:t"], "p": "x""#,
+    r#""type": "C", "id": "http://e/s""#,
+    r#""rev": {"@id": "http://e/o"}"#,
+    r#""@reverse": {"p": {"@id": "http://e/o"}}"#,
+    r#""@reverse": {"p": "x"}"#,
+    r#""p": {"q": "x"}"#,
+    r#""@graph": [{"@id": "http://e/s", "p": "x"}]"#,
+    r#""@id": "http://e/g", "@graph": [{"p": "x"}]"#,
+    r#""p": {"@value": [1]}"#,
+    r#""@id": 5"#,
+    r#""p": {"@value": "x", "q": 1}"#,
+    r#""p": "x", "p": "y""#,
+    r#""@nest": {}"#,
+    r#""foo": "x""#,
+    r#""@id": "@foo", "p": "x""#,
+    r#""p": {"@value": 1, "@language": "en"}"#,
+    r#""@id": "http://e/a b", "p": "x""#,
+    r#""p": {"@id": "http://e/a#b#c"}"#,
+    r#""p": 1e400"#,
+    r#""p": {"@value": "x", "@type": "_:t"}"#,
+];
+
+/// The bases the JSON-LD documents are read with.
+pub const JSONLD_BASES: &[Option<&str>] = &[None, Some("http://b/d/f")];
+
+/// Whole documents of the JSON-LD scope beyond one node object.
+pub const JSONLD_EXTRA: &[&str] = &[
+    "\"x\"",
+    "[]",
+    "{}",
+    "[{\"@id\": \"http://e/s\", \"http://e/p\": \"x\"}, \"x\"]",
+    "{\"@value\": \"x\"}",
+    "[{\"@graph\": [{\"http://e/p\": \"x\"}]}]",
+    "{\"@context\": {\"@vocab\": \"http://e/\"}, \"@graph\": [\"x\"]}",
+    "{\"@context\": {\"@vocab\": \"http://e/\"}, \"@graph\": [{\"p\": {\"@list\": []}}, {\"@list\": [1]}]}",
+    "{\"a\": 1,}",
+];
+
+/// Every document of the JSON-LD reading scope with the base it is read
+/// with: for each base, each context member followed by each body as one
+/// object, then each extra document.
+#[must_use]
+pub fn jsonld_documents() -> Vec<(Option<&'static str>, String)> {
+    let mut out = Vec::new();
+    for base in JSONLD_BASES {
+        for context in JSONLD_CONTEXTS {
+            for body in JSONLD_BODIES {
+                out.push((*base, format!("{{{context}{body}}}")));
+            }
+        }
+        for extra in JSONLD_EXTRA {
+            out.push((*base, (*extra).to_owned()));
+        }
+    }
+    out
+}
+
+/// The count of [`jsonld_documents`]: `2 * (20 * 38 + 9)`.
+#[must_use]
+pub const fn jsonld_documents_count() -> usize {
+    JSONLD_BASES.len() * (JSONLD_CONTEXTS.len() * JSONLD_BODIES.len() + JSONLD_EXTRA.len())
+}
+
+/// The numeral spellings of the number scope: zero and signs, the integer
+/// boundary at 10^21, binary64 precision, overflow, subnormals, ties at the
+/// sixteenth significant digit and carries.
+pub const JSONLD_NUMERALS: &[&str] = &[
+    "0",
+    "-0",
+    "0.0",
+    "-0.0",
+    "1",
+    "-1",
+    "1.0",
+    "1.5",
+    "-1.5",
+    "0.1",
+    "1e0",
+    "1E2",
+    "1e-7",
+    "123456789012345678",
+    "9007199254740993",
+    "999999999999999868928",
+    "999999999999999999999",
+    "1e21",
+    "-1e21",
+    "1e20",
+    "100000000000000000000.5",
+    "1.7976931348623157e308",
+    "1e309",
+    "-1e309",
+    "5e-324",
+    "2e-324",
+    "1e-400",
+    "0.9999999999999999",
+    "0.99999999999999999",
+    "1.0000152587890625",
+    "1.00001525878906249",
+    "9.9999999999999995e22",
+    "3.14159265358979323846",
+    "0.30000000000000004",
+    "123.456e-2",
+    "1e-5",
+    "4.35",
+];
+
+/// The datatypes a numeral of the number scope is typed with.
+pub const JSONLD_NUMBER_TYPES: &[Option<&str>] = &[
+    None,
+    Some("http://www.w3.org/2001/XMLSchema#double"),
+    Some("http://www.w3.org/2001/XMLSchema#integer"),
+    Some("http://e/t"),
+];

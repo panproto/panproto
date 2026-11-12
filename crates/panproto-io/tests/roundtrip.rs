@@ -524,7 +524,7 @@ fn all_protocols_have_roundtrip_tests() {
     // below are gated the same way.
     let reg = registry();
     let expected = if cfg!(feature = "tree-sitter") {
-        59
+        60
     } else {
         50
     };
@@ -679,6 +679,17 @@ fn roundtrip_turtle() {
         "turtle",
         &panproto_protocols::rdf::turtle::graph_schema().unwrap(),
         b"@prefix : <http://e/> .\n:s :p 1, ( :a ) ; a :C .\n",
+    );
+}
+
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn roundtrip_jsonld() {
+    graph_roundtrip(
+        "jsonld",
+        &panproto_protocols::rdf::jsonld::graph_schema().unwrap(),
+        br#"{"@context": {"@vocab": "http://e/", "l": {"@container": "@list"}},
+            "@id": "http://e/s", "@type": "C", "p": [1, 1.5, true, "x"], "l": ["a"]}"#,
     );
 }
 

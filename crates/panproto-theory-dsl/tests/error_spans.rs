@@ -4,7 +4,7 @@
 use panproto_theory_dsl::shape::ShapeProblem;
 use panproto_theory_dsl::{SourceFormat, TheoryDslError, compile_source, read_source};
 
-fn no_theories(_name: &str) -> Option<panproto_gat::Theory> {
+const fn no_theories(_name: &str) -> Option<panproto_gat::Theory> {
     None
 }
 

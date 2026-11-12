@@ -28,7 +28,7 @@ const CODEC_NOT_YET_REPLACED: &[(&str, NativeRepr)] = &[
 
 /// Protocols with a declared shape and no instance codec yet. Each is
 /// checked to still have none, so the entry is removed when the codec is
-/// registered. The generic text formats, PostgreSQL, N-Triples, Turtle and the
+/// registered. The generic text formats, PostgreSQL, N-Triples, Turtle, JSON-LD and the
 /// edge lists have codecs only under the `tree-sitter` feature, so the default
 /// build lists them too.
 #[cfg(feature = "tree-sitter")]
@@ -40,6 +40,7 @@ const NO_CODEC_YET: &[&str] = &[
     "edgelist-tsv",
     "graphql",
     "json-schema",
+    "jsonld",
     "ntriples",
     "protobuf",
     "postgresql",

@@ -1724,6 +1724,10 @@ pub fn typecheck_theory(theory: &Theory) -> Result<(), GatError> {
 
 /// Everything [`typecheck_theory`] checks after the signature: implicit
 /// inferrability, closed sorts, and every equation.
+///
+/// # Errors
+///
+/// Returns the first type error encountered.
 pub fn typecheck_theory_body(theory: &Theory) -> Result<(), GatError> {
     for op in &theory.ops {
         check_implicits_inferrable(op)?;

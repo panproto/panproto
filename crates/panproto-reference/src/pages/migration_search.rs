@@ -232,8 +232,8 @@ pub fn edit_distance(a: &str, b: &str) -> usize {
     for (i, row) in table.iter_mut().enumerate() {
         row[0] = i;
     }
-    for j in 0..=b.len() {
-        table[0][j] = j;
+    for (j, cell) in table[0].iter_mut().enumerate() {
+        *cell = j;
     }
     for i in 1..=a.len() {
         for j in 1..=b.len() {
@@ -247,7 +247,9 @@ pub fn edit_distance(a: &str, b: &str) -> usize {
 }
 
 /// The target edge a source edge maps to when its endpoints map to `from`
-/// and `to`: the target edge from `from` to `to` of the same kind and the
+/// and `to`.
+///
+/// It is the target edge from `from` to `to` of the same kind and the
 /// same name (an absent name matching an absent name) when there is one,
 /// and otherwise the least target edge from `from` to `to` of the same kind.
 /// `None` when no target edge from `from` to `to` has the kind.
@@ -322,26 +324,35 @@ fn named_class(source: &Schema) -> usize {
 /// with a named outgoing edge.
 fn unary_term(source: &Schema, target: &Schema, vertex: &str, image: Option<&str>) -> Ratio {
     let vertices = source.vertices.len();
-    let name = image.map_or(Ratio::of(1, 1), |image| {
-        Ratio::of(
-            edit_distance(vertex, image),
-            vertex.len().max(image.len()).max(1),
-        )
-    });
-    let degree = image.map_or(Ratio::of(1, 1), |image| {
-        let (d, e) = (source.degree(vertex), target.degree(image));
-        Ratio::of(d.abs_diff(e), d.max(e))
-    });
+    let name = image.map_or_else(
+        || Ratio::of(1, 1),
+        |image| {
+            Ratio::of(
+                edit_distance(vertex, image),
+                vertex.len().max(image.len()).max(1),
+            )
+        },
+    );
+    let degree = image.map_or_else(
+        || Ratio::of(1, 1),
+        |image| {
+            let (d, e) = (source.degree(vertex), target.degree(image));
+            Ratio::of(d.abs_diff(e), d.max(e))
+        },
+    );
     let own = source.outgoing_names(vertex);
     let prop = if own.is_empty() {
         Ratio::ZERO
     } else {
-        image.map_or(Ratio::of(1, 1), |image| {
-            let other = target.outgoing_names(image);
-            let shared = own.intersection(&other).count();
-            let union = own.union(&other).count();
-            Ratio::of(union - shared, union)
-        })
+        image.map_or_else(
+            || Ratio::of(1, 1),
+            |image| {
+                let other = target.outgoing_names(image);
+                let shared = own.intersection(&other).count();
+                let union = own.union(&other).count();
+                Ratio::of(union - shared, union)
+            },
+        )
     };
     W_NAME
         .mul(name)
@@ -373,8 +384,10 @@ fn edge_term(
     })
 }
 
-/// The cost of a span assignment: the sum of its terms, each rounded to the
-/// nearest unit of `10^-9`, and its number of drops. `None` when the
+/// The cost of a span assignment.
+///
+/// The cost is the sum of its terms, each rounded to the nearest unit of
+/// `10^-9`, and its number of drops. `None` when the
 /// assignment is not a feasible span assignment: a source vertex missing or
 /// mapped to a target vertex that is absent or of another kind, or a source
 /// edge with both endpoints mapped and no target edge of its kind between
@@ -391,9 +404,11 @@ pub fn cost(source: &Schema, target: &Schema, assignment: &Assignment) -> Option
     })
 }
 
-/// Whether every term any assignment of `source` into `target` can carry
-/// lies further than `10^-5` of a unit from the midpoint between two units,
-/// so that rounding it is insensitive to any error below that size.
+/// Whether the pair's terms are clear of rounding ties.
+///
+/// That is, whether every term any assignment of `source` into `target` can
+/// carry lies further than `10^-5` of a unit from the midpoint between two
+/// units, so that rounding it is insensitive to any error below that size.
 #[must_use]
 pub fn terms_clear_of_ties(source: &Schema, target: &Schema) -> bool {
     let share = W_EDGE.mul(Ratio::of(1, source.internal_edges().count()));
@@ -409,8 +424,9 @@ pub fn terms_clear_of_ties(source: &Schema, target: &Schema) -> bool {
     edge_clear && vertex_clear
 }
 
-/// Every assignment of the source vertices to same-kind target vertices,
-/// and to `None` as well when `allow_drop` holds, in lexicographic order of
+/// Every assignment of the source vertices.
+///
+/// Each source vertex goes to a same-kind target vertex, and to `None` as well when `allow_drop` holds, in lexicographic order of
 /// the source vertices with each vertex's targets in id order and `None`
 /// last.
 #[must_use]
@@ -491,7 +507,9 @@ pub struct Optimum {
     pub assignments: Vec<Assignment>,
 }
 
-/// The optimal total morphisms: among the total assignments that are
+/// The optimal total morphisms.
+///
+/// Among the total assignments that are
 /// feasible and meet the request (under `iso`, also onto the target vertices
 /// and with as many source as target edges), the least cost and every
 /// assignment attaining it. `None` when there is no such assignment.
@@ -514,7 +532,9 @@ pub fn optimal_total(source: &Schema, target: &Schema, request: Request) -> Opti
     )
 }
 
-/// The optimal span assignments: among the assignments, drops allowed, that
+/// The optimal span assignments.
+///
+/// Among the assignments, drops allowed, that
 /// are feasible and meet the request, the least cost and every assignment
 /// attaining it. The all-drop assignment is always feasible, so a span
 /// optimum always exists; `None` only for a request with `epic`, which no
@@ -727,8 +747,9 @@ fn check_leg(
     Ok(())
 }
 
-/// The edge images an isomorphism request pairs the edges of `domain` with,
-/// under the vertex map `vertices`: within each ordered pair of images, every
+/// The edge images an isomorphism request pairs the edges of `domain` with.
+///
+/// Under the vertex map `vertices`, within each ordered pair of images, every
 /// edge that a target edge of its kind and name joins the images is paired
 /// with that edge, and then the remaining edges, least first, are each paired
 /// with the least remaining target edge of their kind. An edge left without a

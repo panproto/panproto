@@ -266,6 +266,22 @@ jobs:
           - package: panproto-inst
             binary: reference_edits
             test: graph_independence_and_merge_match_reference_on_every_letter_pair_of_the_coverage_scope
+          - package: panproto-mig
+            binary: reference_migration_search
+            test: a_bounded_search_answers_or_names_its_bound_on_every_bounded_pair
+            shard: 0/4
+          - package: panproto-mig
+            binary: reference_migration_search
+            test: a_bounded_search_answers_or_names_its_bound_on_every_bounded_pair
+            shard: 1/4
+          - package: panproto-mig
+            binary: reference_migration_search
+            test: a_bounded_search_answers_or_names_its_bound_on_every_bounded_pair
+            shard: 2/4
+          - package: panproto-mig
+            binary: reference_migration_search
+            test: a_bounded_search_answers_or_names_its_bound_on_every_bounded_pair
+            shard: 3/4
     steps:
       - name: Free disk space
         run: |
