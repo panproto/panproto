@@ -2515,7 +2515,10 @@ class TestRepositoryDataAccess:
             repo.add_data(str(data), schema_id="not-an-object-id")
         with pytest.raises(panproto.VcsError, match="object not found"):
             repo.add_data(str(data), schema_id="0" * 64)
-        with pytest.raises(panproto.VcsError, match="expected file_schema or schema_tree"):
+        # A commit id is refused as the wrong object type; the expected
+        # kinds are named by the resolver, so only the variant's form and
+        # the object found are matched.
+        with pytest.raises(panproto.VcsError, match=r"expected .+ object, found commit"):
             repo.add_data(str(data), schema_id=head)
 
         assert repo.index()["staged_data"] == []
