@@ -68,4 +68,4 @@ The table lists each correctness page and the number of laws it proves for the t
 | [Migration search](migration-search.md) | 4 |
 | [Schema merge](schema-merge.md) | 4 |
 | [Theory DSL](theory-dsl.md) | 4 |
-| [Instance version control](instance-version-control.md) | 5 |
+| [Instance version control](instance-version-control.md) | 6 |

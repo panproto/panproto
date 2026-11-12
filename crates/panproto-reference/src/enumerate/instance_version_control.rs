@@ -338,27 +338,79 @@ pub fn small_instances(
 
 /// Every commit chain of `commits` commits over `keys`.
 ///
-/// A chain lists, for each commit, oldest first, the keys it records a
-/// fresh data set under, each a subset of `keys` listed in `keys` order.
-/// There are `(2^keys)^commits` of them.
+/// A chain lists, for each commit, oldest first, what it records under each
+/// key, in `keys` order: nothing (the key is left out), a fresh data set
+/// (`true`) or the end of tracking (`false`). There are
+/// `(3^keys)^commits` of them.
 #[must_use]
-pub fn tracking_chains(commits: usize, keys: &[&str]) -> Vec<Vec<Vec<String>>> {
-    let subsets: Vec<Vec<String>> = super::subsets(keys, keys.len())
-        .into_iter()
-        .map(|subset| subset.into_iter().map(str::to_owned).collect())
-        .collect();
+pub fn tracking_chains(commits: usize, keys: &[&str]) -> Vec<Vec<Vec<(String, bool)>>> {
+    let mut choices: Vec<Vec<(String, bool)>> = vec![Vec::new()];
+    for key in keys {
+        choices = choices
+            .into_iter()
+            .flat_map(|prefix| {
+                [None, Some(true), Some(false)]
+                    .into_iter()
+                    .map(move |choice| {
+                        let mut grown = prefix.clone();
+                        if let Some(record) = choice {
+                            grown.push(((*key).to_owned(), record));
+                        }
+                        grown
+                    })
+            })
+            .collect();
+    }
     let mut out = vec![Vec::new()];
     for _ in 0..commits {
         out = out
             .into_iter()
-            .flat_map(|prefix: Vec<Vec<String>>| {
-                subsets.iter().map(move |subset| {
+            .flat_map(|prefix: Vec<Vec<(String, bool)>>| {
+                choices.iter().map(move |choice| {
                     let mut grown = prefix.clone();
-                    grown.push(subset.clone());
+                    grown.push(choice.clone());
                     grown
                 })
             })
             .collect();
     }
     out
+}
+
+/// The states of the instance merge scope over `schema`, by shape.
+///
+/// They are the graphs with at most one node and the tables with at most
+/// one row of the edit algebra's coverage scope, and the sequences of at
+/// most two trees drawn from the one-node trees of that scope.
+#[must_use]
+pub fn merge_states(
+    schema: &super::edits::CoverageSchema,
+) -> Vec<Vec<crate::pages::instance_version_control::Instance>> {
+    use crate::pages::instance_version_control::Instance;
+    let graphs = super::edits::coverage_graphs(schema)
+        .into_iter()
+        .filter(|graph| graph.nodes.len() <= 1)
+        .map(Instance::Graph)
+        .collect();
+    let tables = super::edits::coverage_tables(schema)
+        .into_iter()
+        .filter(|table| table.rows.len() <= 1)
+        .map(Instance::Table)
+        .collect();
+    let single: Vec<crate::model::Tree> = super::edits::coverage_trees(schema)
+        .into_iter()
+        .filter(|tree| tree.nodes.len() == 1)
+        .collect();
+    let mut sequences = vec![Instance::Trees(Vec::new())];
+    sequences.extend(
+        single
+            .iter()
+            .map(|tree| Instance::Trees(vec![tree.clone()])),
+    );
+    for first in &single {
+        for second in &single {
+            sequences.push(Instance::Trees(vec![first.clone(), second.clone()]));
+        }
+    }
+    vec![graphs, tables, sequences]
 }

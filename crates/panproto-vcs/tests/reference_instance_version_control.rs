@@ -2005,23 +2005,29 @@ fn every_pair_of_small_coverage_instances_diffs_and_applies_as_the_reference_doe
 // ---------------------------------------------------------------------------
 
 /// Commit `choices` on a fresh store, each commit recording a graph data
-/// set per chosen key; return the store, the commits oldest first and the
-/// reference's recorded entries of each commit.
+/// set under each key chosen `true` and stopping tracking each key chosen
+/// `false`; return the store, the commits oldest first and the reference's
+/// record of each commit.
+/// What one commit records under each key, as the reference states it.
+type ModelRecord = BTreeMap<String, Option<ModelEntry>>;
+
 fn commit_chain(
-    choices: &[Vec<String>],
-) -> (
-    MemStore,
-    Vec<CommitObject>,
-    Vec<BTreeMap<String, ModelEntry>>,
-) {
+    choices: &[Vec<(String, bool)>],
+) -> (MemStore, Vec<CommitObject>, Vec<ModelRecord>) {
     let mut store = MemStore::new();
     let mut commits = Vec::new();
     let mut recorded = Vec::new();
     let mut parent: Option<ObjectId> = None;
     for (index, keys) in choices.iter().enumerate() {
         let mut data_ids = Vec::new();
+        let mut untracked = Vec::new();
         let mut entries = BTreeMap::new();
-        for key in keys {
+        for (key, record) in keys {
+            if !*record {
+                untracked.push(key.clone());
+                entries.insert(key.clone(), None);
+                continue;
+            }
             let graph = GInstance::new().with_node(Node::new(u32::try_from(index).unwrap(), "a"));
             let dataset = DataSetObject::from_instance(
                 ObjectId::ZERO,
@@ -2033,17 +2039,18 @@ fn commit_chain(
             data_ids.push(id);
             entries.insert(
                 key.clone(),
-                ModelEntry {
+                Some(ModelEntry {
                     data: id.to_string(),
                     schema: ObjectId::ZERO.to_string(),
                     instance: ModelInstance::Graph(graph_to_reference(&graph)),
-                },
+                }),
             );
         }
         let commit = CommitObject::builder(ObjectId::ZERO, "test", "test", format!("c{index}"))
             .timestamp(0)
             .parents(parent.into_iter().collect())
             .data_ids(data_ids)
+            .untracked(untracked)
             .build();
         parent = Some(store.put(&Object::Commit(commit.clone())).unwrap());
         commits.push(commit);
@@ -2052,11 +2059,11 @@ fn commit_chain(
     (store, commits, recorded)
 }
 
-fn check_tracking(choices: &[Vec<String>]) -> usize {
+fn check_tracking(choices: &[Vec<(String, bool)>]) -> usize {
     let (store, commits, recorded) = commit_chain(choices);
     let mut checked = 0;
     for (index, commit) in commits.iter().enumerate() {
-        let chain: Vec<BTreeMap<String, ModelEntry>> =
+        let chain: Vec<BTreeMap<String, Option<ModelEntry>>> =
             recorded[..=index].iter().rev().cloned().collect();
         let expected: BTreeMap<String, String> = model_tracked(&chain)
             .into_iter()
@@ -2086,9 +2093,10 @@ fn every_commit_chain_of_the_tracking_scope_tracks_what_the_reference_tracks() {
             chains += 1;
         }
     }
-    // Each commit records one of the 4 subsets of two keys: 4 + 16 + 64
-    // chains, holding 4 + 32 + 192 commits.
-    assert_eq!((chains, commits), (84, 228));
+    // Each commit leaves each of two keys alone, records it or stops
+    // tracking it: 9 choices per commit, so 9 + 81 + 729 chains holding
+    // 9 + 2 * 81 + 3 * 729 commits.
+    assert_eq!((chains, commits), (819, 2_358));
 }
 
 #[test]
@@ -2334,14 +2342,803 @@ proptest! {
     #[test]
     fn randomized_commit_chains_track_what_the_reference_tracks(
         choices in proptest::collection::vec(
-            proptest::collection::btree_set(prop_oneof![Just("a"), Just("b"), Just("c"), Just("d")], 0..4),
+            proptest::collection::btree_map(
+                prop_oneof![Just("a"), Just("b"), Just("c"), Just("d")],
+                any::<bool>(),
+                0..4,
+            ),
             1..7,
         )
     ) {
-        let choices: Vec<Vec<String>> = choices
+        let choices: Vec<Vec<(String, bool)>> = choices
             .into_iter()
-            .map(|keys| keys.into_iter().map(str::to_owned).collect())
+            .map(|keys| keys.into_iter().map(|(key, record)| (key.to_owned(), record)).collect())
             .collect();
         check_tracking(&choices);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Merge of tracked instances.
+// ---------------------------------------------------------------------------
+
+use panproto_inst::graph_edit::{EditConflict, ElemRef};
+use panproto_reference::enumerate::instance_version_control::merge_states;
+use panproto_reference::pages::instance_version_control::{
+    Conflict as ModelConflict, Merged as ModelMerged, RecordConflict as ModelRecordConflict,
+    Side as ModelSide, TrackingConflict as ModelTrackingConflict,
+    merge_instances as model_merge_instances, merge_tracked as model_merge_tracked,
+};
+use panproto_vcs::instance_merge::{
+    self, InstanceConflict, MergedEntry, RecordConflict, RecordDelta, TrackedMerge,
+    TrackingConflict,
+};
+use panproto_vcs::merge::Side;
+
+const fn side_to_reference(side: &Side) -> ModelSide {
+    match side {
+        Side::Ours => ModelSide::Ours,
+        Side::Theirs => ModelSide::Theirs,
+    }
+}
+
+fn gelem_to_reference(elem: &ElemRef) -> reference_edit::GElem {
+    match elem {
+        ElemRef::Node(id) => reference_edit::GElem::Node(*id),
+        ElemRef::Edge(id) => reference_edit::GElem::Edge(id.0),
+        other => panic!("not a graph element: {other:?}"),
+    }
+}
+
+fn graph_ref_to_reference(elem: &ElemRef) -> reference_edit::ElemRef {
+    match elem {
+        ElemRef::Attr(key) => reference_edit::ElemRef::Attr(attr_key_to_reference(key)),
+        other => reference_edit::ElemRef::Elem(gelem_to_reference(other)),
+    }
+}
+
+fn graph_conflict_to_reference(conflict: &EditConflict) -> reference_edit::EditConflict {
+    match conflict {
+        EditConflict::DeleteDelete { elem } => reference_edit::EditConflict::DeleteDelete {
+            elem: gelem_to_reference(elem),
+        },
+        EditConflict::DeleteUse { deleted, user } => reference_edit::EditConflict::DeleteUse {
+            deleted: gelem_to_reference(deleted),
+            user: graph_ref_to_reference(user),
+        },
+        EditConflict::UpdateUpdate { key } => reference_edit::EditConflict::UpdateUpdate {
+            key: attr_key_to_reference(key),
+        },
+        EditConflict::AddAdd { elem } => reference_edit::EditConflict::AddAdd {
+            elem: gelem_to_reference(elem),
+        },
+        EditConflict::AnchorUse { node, user } => reference_edit::EditConflict::AnchorUse {
+            node: *node,
+            user: graph_ref_to_reference(user),
+        },
+        EditConflict::FanUse { first, second } => reference_edit::EditConflict::FanUse {
+            first: graph_ref_to_reference(first),
+            second: graph_ref_to_reference(second),
+        },
+    }
+}
+
+fn telem_to_reference(elem: &ElemRef) -> reference_edit::TElem {
+    match elem {
+        ElemRef::Row(row) => reference_edit::TElem::Row(row.0),
+        ElemRef::Pair { edge, src, tgt } => {
+            reference_edit::TElem::Pair(edge_to_reference(edge), src.0, tgt.0)
+        }
+        other => panic!("not a table element: {other:?}"),
+    }
+}
+
+fn tkey_to_reference(key: &AttrKey) -> reference_edit::TKey {
+    match key {
+        AttrKey::Cell { row, column } => reference_edit::TKey::Cell(row.0, column.clone()),
+        AttrKey::Table { row } => reference_edit::TKey::Table(row.0),
+        other => panic!("not a table entry: {other:?}"),
+    }
+}
+
+fn table_use_to_reference(elem: &ElemRef) -> reference_edit::TableUse {
+    match elem {
+        ElemRef::Attr(key) => reference_edit::TableUse::Attr(tkey_to_reference(key)),
+        other => reference_edit::TableUse::Elem(telem_to_reference(other)),
+    }
+}
+
+fn table_conflict_to_reference(conflict: &EditConflict) -> reference_edit::TableConflict {
+    match conflict {
+        EditConflict::DeleteDelete { elem } => reference_edit::TableConflict::DeleteDelete {
+            elem: telem_to_reference(elem),
+        },
+        EditConflict::DeleteUse { deleted, user } => reference_edit::TableConflict::DeleteUse {
+            deleted: telem_to_reference(deleted),
+            user: table_use_to_reference(user),
+        },
+        EditConflict::UpdateUpdate { key } => reference_edit::TableConflict::UpdateUpdate {
+            key: tkey_to_reference(key),
+        },
+        EditConflict::AddAdd { elem } => reference_edit::TableConflict::AddAdd {
+            elem: telem_to_reference(elem),
+        },
+        EditConflict::AnchorUse { node, user } => reference_edit::TableConflict::AnchorUse {
+            row: *node,
+            user: telem_to_reference(user),
+        },
+        EditConflict::FanUse { .. } => panic!("a table delta has no fan: {conflict:?}"),
+    }
+}
+
+fn conflict_to_reference(conflict: &InstanceConflict) -> ModelConflict {
+    match conflict {
+        InstanceConflict::Tracking { key, conflict } => ModelConflict::Tracking(
+            key.clone(),
+            match conflict {
+                TrackingConflict::AddedOnBothSides { .. } => {
+                    ModelTrackingConflict::AddedOnBothSides
+                }
+                TrackingConflict::RemovedAndChanged { removed_by } => {
+                    ModelTrackingConflict::RemovedAndChanged(side_to_reference(removed_by))
+                }
+                TrackingConflict::ShapeDiffers { .. } => ModelTrackingConflict::ShapeDiffers,
+                TrackingConflict::SchemaDiffers { .. } => ModelTrackingConflict::SchemaDiffers,
+            },
+        ),
+        InstanceConflict::Edit {
+            key,
+            record,
+            ours,
+            conflict,
+            ..
+        } => match ours.as_ref() {
+            RecordDelta::Table(_) => {
+                ModelConflict::TableEdit(key.clone(), table_conflict_to_reference(conflict))
+            }
+            RecordDelta::Graph(_) => ModelConflict::GraphEdit(
+                key.clone(),
+                *record,
+                graph_conflict_to_reference(conflict),
+            ),
+        },
+        InstanceConflict::Record {
+            key,
+            record,
+            conflict,
+        } => ModelConflict::Record(
+            key.clone(),
+            *record,
+            match conflict {
+                RecordConflict::RemovedByBoth => ModelRecordConflict::RemovedByBoth,
+                RecordConflict::RemovedAndChanged { removed_by } => {
+                    ModelRecordConflict::RemovedAndChanged(side_to_reference(removed_by))
+                }
+                RecordConflict::AppendedByBoth => ModelRecordConflict::AppendedByBoth,
+                RecordConflict::NotATree { .. } => ModelRecordConflict::NotATree,
+            },
+        ),
+        other => panic!("a validation conflict where none is checked: {other:?}"),
+    }
+}
+
+/// What a three-way merge of instances gives, as the reference states it.
+type MergeObservation = Result<Result<ModelInstance, Vec<ModelConflict>>, ModelRefusal>;
+
+fn production_merge(
+    schema: &panproto_schema::Schema,
+    [base, ours, theirs]: [&Instance; 3],
+) -> MergeObservation {
+    match instance_merge::merge_instances("k", schema, base, ours, theirs) {
+        Ok(Ok(merged)) => Ok(Ok(instance_to_reference(&merged))),
+        Ok(Err(conflicts)) => {
+            let mut sorted = conflicts.clone();
+            sorted.sort_by(InstanceConflict::listing_order);
+            assert_eq!(sorted, conflicts, "conflicts are listed in their order");
+            Ok(Err(conflicts.iter().map(conflict_to_reference).collect()))
+        }
+        Err(VcsError::DeltaDoesNotApply { .. }) => Err(ModelRefusal::DoesNotApply),
+        Err(VcsError::ShapeMismatch { .. }) => Err(ModelRefusal::ShapeMismatch),
+        Err(other) => panic!("an untyped refusal: {other}"),
+    }
+}
+
+fn reference_merge([base, ours, theirs]: [&ModelInstance; 3]) -> MergeObservation {
+    model_merge_instances("k", base, ours, theirs)
+        .map(|merged| merged.map(|instance| normalized_instance(&instance)))
+}
+
+/// The counts of a run over the merge scope.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct MergeCounts {
+    triples: [usize; 3],
+    merged: [usize; 3],
+    conflicted: [usize; 3],
+    conflicts: [usize; 3],
+}
+
+/// Merge every triple of each of the first `shapes` shapes' states of the
+/// merge scope over `schema` (graphs, tables, then sequences of trees),
+/// against the reference, counting into `counts` and rendering each
+/// observation into `rendering`.
+fn merge_scope_of_schema(
+    schema: &carrier::CoverageSchema,
+    shapes: usize,
+    counts: &mut MergeCounts,
+    rendering: &mut Vec<String>,
+) {
+    let production = production_schema(schema);
+    for (shape, states) in merge_states(schema).iter().enumerate().take(shapes) {
+        let built: Vec<Instance> = states.iter().map(instance_to_production).collect();
+        for b in 0..states.len() {
+            for o in 0..states.len() {
+                for t in 0..states.len() {
+                    let actual = production_merge(&production, [&built[b], &built[o], &built[t]]);
+                    let expected = reference_merge([&states[b], &states[o], &states[t]]);
+                    assert_eq!(
+                        actual,
+                        expected,
+                        "{:?}",
+                        [&states[b], &states[o], &states[t]]
+                    );
+                    counts.triples[shape] += 1;
+                    match &actual {
+                        Ok(Ok(_)) => counts.merged[shape] += 1,
+                        Ok(Err(found)) => {
+                            counts.conflicted[shape] += 1;
+                            counts.conflicts[shape] += found.len();
+                        }
+                        Err(refusal) => panic!("a scope merge was refused: {refusal:?}"),
+                    }
+                    rendering.push(format!("{actual:?}"));
+                }
+            }
+        }
+    }
+}
+
+fn merge_scope_rendering(shapes: usize) -> (MergeCounts, String) {
+    let mut counts = MergeCounts::default();
+    let mut rendering = Vec::new();
+    for schema in carrier::coverage_schemas() {
+        merge_scope_of_schema(&schema, shapes, &mut counts, &mut rendering);
+    }
+    (counts, rendering.join("\n"))
+}
+
+#[test]
+fn every_triple_of_the_merge_scope_merges_as_the_reference_merges() {
+    if std::env::var_os("PP_INSTANCE_MERGE_DIGEST").is_some() {
+        return;
+    }
+    let (counts, _) = merge_scope_rendering(3);
+    // The triples are the cubes of each schema's number of states of each
+    // shape: graphs with at most one node, tables with at most one row,
+    // and sequences of at most two one-node trees (1 + n + n^2 of them for
+    // n one-node trees).
+    let mut expected_triples = [0usize; 3];
+    for schema in carrier::coverage_schemas() {
+        for (shape, states) in merge_states(&schema).iter().enumerate() {
+            expected_triples[shape] += states.len().pow(3);
+        }
+        let ones = carrier::coverage_trees(&schema)
+            .into_iter()
+            .filter(|tree| tree.nodes.len() == 1)
+            .count();
+        assert_eq!(merge_states(&schema)[2].len(), 1 + ones + ones * ones);
+    }
+    assert_eq!(counts.triples, expected_triples);
+    assert_eq!(counts.triples, [23_542, 10_384, 883_366]);
+    assert_eq!(counts.merged, [5_218, 2_788, 118_450]);
+    assert_eq!(counts.conflicted, [18_324, 7_596, 764_916]);
+    assert_eq!(counts.conflicts, [36_204, 11_694, 1_254_852]);
+}
+
+/// The digest of the rendering of every graph and table merge of the merge
+/// scope.
+const INSTANCE_MERGES_DIGEST: u64 = 0x000a_cafc_7edb_4a3e;
+
+/// The child half: one process's digest of the graph and table merges of
+/// the merge scope, printed.
+#[test]
+fn one_process_instance_merge_digest() {
+    if std::env::var_os("PP_INSTANCE_MERGE_DIGEST").is_none() {
+        return;
+    }
+    print!(
+        "<<<{:016x}>>>",
+        panproto_reference::pages::migration_search::digest(merge_scope_rendering(2).1.as_bytes())
+    );
+}
+
+#[test]
+fn instance_merges_are_the_same_in_every_process() {
+    if std::env::var_os("PP_INSTANCE_MERGE_DIGEST").is_some() {
+        return;
+    }
+    let here = format!(
+        "{:016x}",
+        panproto_reference::pages::migration_search::digest(merge_scope_rendering(2).1.as_bytes())
+    );
+    let Ok(exe) = std::env::current_exe() else {
+        panic!("the test binary does not know its own path");
+    };
+    for _ in 0..3 {
+        let output = std::process::Command::new(&exe)
+            .args([
+                "one_process_instance_merge_digest",
+                "--exact",
+                "--nocapture",
+            ])
+            .env("PP_INSTANCE_MERGE_DIGEST", "1")
+            .output()
+            .unwrap();
+        let text = String::from_utf8_lossy(&output.stdout).into_owned();
+        let (Some(start), Some(end)) = (text.find("<<<"), text.find(">>>")) else {
+            panic!("the child printed no digest: {text}");
+        };
+        assert_eq!(
+            &text[start + 3..end],
+            here,
+            "a child process merged differently"
+        );
+    }
+    assert_eq!(
+        here,
+        format!("{INSTANCE_MERGES_DIGEST:016x}"),
+        "the merges moved from the pinned digest"
+    );
+}
+
+// The key scope: two keys, each tracked by the base as nothing or a graph
+// `g0`, and by each side as it inherits, stops tracking, or records one of
+// five data sets.
+
+/// What a side does to a key.
+#[derive(Clone, Copy, Debug)]
+enum SideChoice {
+    Inherit,
+    Remove,
+    Record(usize),
+}
+
+const SIDE_CHOICES: [SideChoice; 7] = [
+    SideChoice::Inherit,
+    SideChoice::Remove,
+    SideChoice::Record(1),
+    SideChoice::Record(2),
+    SideChoice::Record(3),
+    SideChoice::Record(4),
+    SideChoice::Record(5),
+];
+
+/// Data set `index` of the key scope under `key`: `g0` holds node 0; `g1`
+/// adds node 1 at `a`, `g2` node 2 at `a`, `g3` node 1 at `b`; `t0` is a
+/// table and `s2` is `g0` under another schema.
+fn scope_dataset(index: usize, key: &str) -> (DataSetObject, ModelEntry) {
+    let graph = |extra: Option<(u32, &str)>| {
+        let mut graph = GInstance::new().with_node(Node::new(0, "a"));
+        if let Some((id, anchor)) = extra {
+            graph = graph.with_node(Node::new(id, anchor));
+        }
+        Instance::Graph(graph)
+    };
+    let other_schema = ObjectId::from_bytes([1; 32]);
+    let (schema, instance) = match index {
+        0 => (ObjectId::ZERO, graph(None)),
+        1 => (ObjectId::ZERO, graph(Some((1, "a")))),
+        2 => (ObjectId::ZERO, graph(Some((2, "a")))),
+        3 => (ObjectId::ZERO, graph(Some((1, "b")))),
+        4 => (
+            ObjectId::ZERO,
+            Instance::Table(FInstance::new().with_table("a", [HashMap::new()]).unwrap()),
+        ),
+        _ => (other_schema, graph(None)),
+    };
+    let dataset = DataSetObject::from_instance(schema, &instance, Some(key.to_owned())).unwrap();
+    let entry = ModelEntry {
+        data: panproto_vcs::hash::hash_dataset(&dataset)
+            .unwrap()
+            .to_string(),
+        schema: schema.to_string(),
+        instance: instance_to_reference(&instance),
+    };
+    (dataset, entry)
+}
+
+const SCOPE_KEYS: [&str; 2] = ["k1", "k2"];
+
+/// The production and reference merge of one repository of the key scope.
+fn merge_key_scope_case(
+    base_has: [bool; 2],
+    sides: [[SideChoice; 2]; 2],
+) -> (
+    TrackedMerge,
+    BTreeMap<String, ModelMerged>,
+    Vec<ModelConflict>,
+) {
+    let mut store = MemStore::new();
+    let mut base_ids = Vec::new();
+    let mut base_model = BTreeMap::new();
+    for (key, has) in SCOPE_KEYS.iter().zip(base_has) {
+        if has {
+            let (dataset, entry) = scope_dataset(0, key);
+            base_ids.push(store.put(&Object::DataSet(dataset)).unwrap());
+            base_model.insert((*key).to_owned(), Some(entry));
+        }
+    }
+    let base = CommitObject::builder(ObjectId::ZERO, "test", "test", "base")
+        .timestamp(0)
+        .data_ids(base_ids)
+        .build();
+    let base_id = store.put(&Object::Commit(base.clone())).unwrap();
+    let mut side = |choices: [SideChoice; 2], name: &str| {
+        let mut data_ids = Vec::new();
+        let mut untracked = Vec::new();
+        let mut model = BTreeMap::new();
+        for (key, choice) in SCOPE_KEYS.iter().zip(choices) {
+            match choice {
+                SideChoice::Inherit => {}
+                SideChoice::Remove => {
+                    untracked.push((*key).to_owned());
+                    model.insert((*key).to_owned(), None);
+                }
+                SideChoice::Record(index) => {
+                    let (dataset, entry) = scope_dataset(index, key);
+                    data_ids.push(store.put(&Object::DataSet(dataset)).unwrap());
+                    model.insert((*key).to_owned(), Some(entry));
+                }
+            }
+        }
+        let commit = CommitObject::builder(ObjectId::ZERO, "test", "test", name)
+            .timestamp(0)
+            .parents(vec![base_id])
+            .data_ids(data_ids)
+            .untracked(untracked)
+            .build();
+        store.put(&Object::Commit(commit.clone())).unwrap();
+        (commit, model_tracked(&[model, base_model.clone()]))
+    };
+    let (ours_commit, ours_model) = side(sides[0], "ours");
+    let (theirs_commit, theirs_model) = side(sides[1], "theirs");
+    let base_model = model_tracked(&[base_model]);
+    let tracked = |commit: &CommitObject| instance_vc::tracked(&store, commit).unwrap();
+    let schema = panproto_schema::Schema {
+        protocol: "test".into(),
+        ..Default::default()
+    };
+    let mut load = |dataset: &DataSetObject| Ok((schema.clone(), dataset.decode()?));
+    let mut validate = |_: &panproto_schema::Schema, _: &Instance| Ok(Vec::new());
+    let merge = instance_merge::merge_tracked(
+        &tracked(&base),
+        &tracked(&ours_commit),
+        &tracked(&theirs_commit),
+        &mut load,
+        &mut validate,
+    )
+    .unwrap();
+    let (merged, conflicts) = model_merge_tracked(&base_model, &ours_model, &theirs_model).unwrap();
+    (merge, merged, conflicts)
+}
+
+fn merged_to_reference(entry: &MergedEntry) -> ModelMerged {
+    match entry {
+        MergedEntry::Kept(id) => ModelMerged::Kept(id.to_string()),
+        MergedEntry::Merged {
+            schema_id,
+            instance,
+        } => ModelMerged::New(schema_id.to_string(), instance_to_reference(instance)),
+    }
+}
+
+#[test]
+fn every_repository_of_the_key_scope_merges_its_tracked_instances_as_the_reference_does() {
+    let mut repositories = 0usize;
+    let mut clean = 0usize;
+    let mut conflicts = 0usize;
+    let mut entries = 0usize;
+    for base_has in [[false, false], [false, true], [true, false], [true, true]] {
+        for ours in SIDE_CHOICES
+            .iter()
+            .flat_map(|a| SIDE_CHOICES.map(|b| [*a, b]))
+        {
+            for theirs in SIDE_CHOICES
+                .iter()
+                .flat_map(|a| SIDE_CHOICES.map(|b| [*a, b]))
+            {
+                let (merge, expected_merged, expected_conflicts) =
+                    merge_key_scope_case(base_has, [ours, theirs]);
+                let merged: BTreeMap<String, ModelMerged> = merge
+                    .merged
+                    .iter()
+                    .map(|(key, entry)| (key.clone(), merged_to_reference(entry)))
+                    .collect();
+                let found: Vec<ModelConflict> =
+                    merge.conflicts.iter().map(conflict_to_reference).collect();
+                assert_eq!(
+                    (&merged, &found),
+                    (&expected_merged, &expected_conflicts),
+                    "{base_has:?} {ours:?} {theirs:?}"
+                );
+                repositories += 1;
+                clean += usize::from(found.is_empty());
+                conflicts += found.len();
+                entries += merged.len();
+            }
+        }
+    }
+    // Per key, 2 * 49 cases: 52 without a conflict (7 tracking nothing,
+    // 41 keeping a side's data set, 4 merging g1 or g3 with g2) and 46 with
+    // one conflict each (20 added on both sides, 10 removed and changed, 8
+    // shapes, 6 schemas, 2 adding node 1 on both sides).
+    assert_eq!(repositories, 98 * 98);
+    assert_eq!(clean, 52 * 52);
+    assert_eq!(conflicts, 2 * 46 * 98);
+    assert_eq!(entries, 2 * 45 * 98);
+}
+
+fn graph_of(nodes: &[(u32, &str)]) -> Instance {
+    let mut graph = GInstance::new();
+    for (id, anchor) in nodes {
+        graph = graph.with_node(Node::new(*id, *anchor));
+    }
+    Instance::Graph(graph)
+}
+
+/// A repository over the instance repository's schema whose `main` and
+/// `feature` branches each made one commit on a common base; `stage` stages
+/// on the base, and `ours` and `theirs` on each branch.
+fn diverged_repository(
+    stage: impl Fn(&mut Repository),
+    ours: impl Fn(&mut Repository),
+    theirs: impl Fn(&mut Repository),
+) -> (tempfile::TempDir, Repository) {
+    let (dir, mut repo, _) = instance_repository();
+    stage(&mut repo);
+    let base = repo.commit("base", "test").unwrap();
+    panproto_vcs::refs::create_branch(repo.store_mut(), "feature", base).unwrap();
+    ours(&mut repo);
+    repo.commit("ours", "test").unwrap();
+    panproto_vcs::refs::checkout_branch(repo.store_mut(), "feature").unwrap();
+    theirs(&mut repo);
+    repo.commit("theirs", "test").unwrap();
+    panproto_vcs::refs::checkout_branch(repo.store_mut(), "main").unwrap();
+    (dir, repo)
+}
+
+fn head_commit(repo: &Repository) -> CommitObject {
+    let id = panproto_vcs::store::resolve_head(repo.store())
+        .unwrap()
+        .unwrap();
+    let Object::Commit(commit) = repo.store().get(&id).unwrap() else {
+        panic!("HEAD is a commit");
+    };
+    commit
+}
+
+fn stage(repo: &mut Repository, key: &str, instance: &Instance) {
+    repo.add_instance(key, instance, &panproto_vcs::AddDataOptions::default())
+        .unwrap();
+}
+
+#[test]
+fn a_repository_merge_records_one_data_set_per_key_and_tracks_the_merged_instances() {
+    let (_dir, mut repo) = diverged_repository(
+        |repo| {
+            stage(repo, "g", &graph_of(&[(0, "a")]));
+            stage(repo, "r", &graph_of(&[(0, "a")]));
+        },
+        |repo| stage(repo, "g", &graph_of(&[(0, "a"), (1, "a")])),
+        |repo| {
+            stage(repo, "g", &graph_of(&[(0, "a"), (2, "a")]));
+            stage(repo, "h", &graph_of(&[(5, "b")]));
+            repo.remove_instance("r").unwrap();
+        },
+    );
+    let result = repo.merge("feature", "test").unwrap();
+    assert_eq!(result.instance_conflicts, vec![]);
+    let merge = head_commit(&repo);
+    assert_eq!(merge.parents.len(), 2);
+    assert_eq!(
+        merge.data_ids.len(),
+        2,
+        "one data set per key the merge tracks"
+    );
+    assert_eq!(merge.untracked, vec!["r".to_owned()]);
+    let tracked = instance_vc::tracked(repo.store(), &merge).unwrap();
+    assert_eq!(tracked.keys().collect::<Vec<_>>(), vec!["g", "h"]);
+    assert_eq!(
+        instance_to_reference(&repo.committed_instance("HEAD", "g").unwrap().instance),
+        instance_to_reference(&graph_of(&[(0, "a"), (1, "a"), (2, "a")]))
+    );
+    assert!(matches!(
+        repo.committed_instance("HEAD", "r"),
+        Err(VcsError::RefNotFound { .. })
+    ));
+}
+
+#[test]
+fn a_repository_merge_with_instance_conflicts_records_nothing_until_they_are_resolved() {
+    use panproto_vcs::merge::ConflictResolution::{ChooseOurs, ChooseTheirs};
+    let (_dir, mut repo) = diverged_repository(
+        |repo| stage(repo, "g", &graph_of(&[(0, "a")])),
+        |repo| stage(repo, "g", &graph_of(&[(0, "a"), (1, "a"), (2, "a")])),
+        |repo| stage(repo, "g", &graph_of(&[(0, "a"), (1, "b"), (2, "b")])),
+    );
+    let before = head_commit(&repo);
+    let result = repo.merge("feature", "test").unwrap();
+    let found: Vec<ModelConflict> = result
+        .instance_conflicts
+        .iter()
+        .map(conflict_to_reference)
+        .collect();
+    let add_add = |n| {
+        ModelConflict::GraphEdit(
+            "g".to_owned(),
+            None,
+            reference_edit::EditConflict::AddAdd {
+                elem: reference_edit::GElem::Node(n),
+            },
+        )
+    };
+    assert_eq!(found, vec![add_add(1), add_add(2)]);
+    assert_eq!(
+        head_commit(&repo).message,
+        before.message,
+        "nothing recorded"
+    );
+
+    let resolve = |choices: &[(usize, panproto_vcs::merge::ConflictResolution)]| {
+        panproto_vcs::merge::MergeOptions {
+            instance_resolutions: panproto_vcs::merge::ResolutionStrategy {
+                resolutions: choices.iter().cloned().collect(),
+            },
+            ..Default::default()
+        }
+    };
+    assert!(matches!(
+        repo.merge_with_options("feature", "test", &resolve(&[(0, ChooseTheirs)])),
+        Err(VcsError::UnresolvedInstanceConflicts { count: 1, total: 2 })
+    ));
+    assert!(matches!(
+        repo.merge_with_options("feature", "test", &resolve(&[(0, ChooseTheirs), (1, ChooseOurs)])),
+        Err(VcsError::InconsistentInstanceResolution { key }) if key == "g"
+    ));
+    let result = repo
+        .merge_with_options(
+            "feature",
+            "test",
+            &resolve(&[(0, ChooseTheirs), (1, ChooseTheirs)]),
+        )
+        .unwrap();
+    assert_eq!(result.instance_conflicts.len(), 2);
+    assert_eq!(head_commit(&repo).parents.len(), 2);
+    assert_eq!(
+        instance_to_reference(&repo.committed_instance("HEAD", "g").unwrap().instance),
+        instance_to_reference(&graph_of(&[(0, "a"), (1, "b"), (2, "b")]))
+    );
+}
+
+#[test]
+fn a_merged_instance_failing_a_key_check_or_validation_is_a_conflict_carrying_its_report() {
+    use panproto_schema::{Key, KeyEquality, KeyPart, KeyRole, KeyScope, Vertex};
+    let mut schema = panproto_schema::Schema {
+        protocol: "test".into(),
+        ..Default::default()
+    };
+    schema.vertices.insert(
+        "item".into(),
+        Vertex {
+            id: "item".into(),
+            kind: "number".into(),
+            nsid: None,
+        },
+    );
+    schema.declarations.keys.insert(
+        "item".into(),
+        vec![Key {
+            id: "value".into(),
+            parts: vec![KeyPart::Path(Vec::new())],
+            role: KeyRole::Unique,
+            scope: KeyScope::Global,
+            equality: vec![KeyEquality::NumericValue],
+        }],
+    );
+    let protocol = panproto_schema::Protocol::default();
+    let item = |id: u32, anchor: &str, value: i64| {
+        Node::new(id, anchor).with_value(FieldPresence::Present(Value::Int(value)))
+    };
+    let mut store = MemStore::new();
+    let mut tracked_as = |graph: GInstance| {
+        let dataset =
+            DataSetObject::from_instance(ObjectId::ZERO, &Instance::Graph(graph), Some("k".into()))
+                .unwrap();
+        let id = store.put(&Object::DataSet(dataset.clone())).unwrap();
+        BTreeMap::from([("k".to_owned(), (id, dataset))])
+    };
+    let base = tracked_as(GInstance::new().with_node(item(0, "item", 1)));
+    // Each side adds an item of value 7: each alone is valid, the merge
+    // holds the value twice.
+    let ours = tracked_as(
+        GInstance::new()
+            .with_node(item(0, "item", 1))
+            .with_node(item(1, "item", 7)),
+    );
+    let theirs = tracked_as(
+        GInstance::new()
+            .with_node(item(0, "item", 1))
+            .with_node(item(2, "item", 7)),
+    );
+    // A third side adds a node anchored outside the schema.
+    let stray = tracked_as(
+        GInstance::new()
+            .with_node(item(0, "item", 1))
+            .with_node(item(3, "nowhere", 9)),
+    );
+    let mut load = |dataset: &DataSetObject| Ok((schema.clone(), dataset.decode()?));
+    let mut validate = |schema: &panproto_schema::Schema, instance: &Instance| {
+        let Instance::Graph(graph) = instance else {
+            panic!("a graph");
+        };
+        let report = panproto_inst::validate_graph(graph, schema, &protocol);
+        Ok(if report.status == panproto_gat::CheckStatus::Passed {
+            Vec::new()
+        } else {
+            vec![(0, report)]
+        })
+    };
+    let merge =
+        instance_merge::merge_tracked(&base, &ours, &theirs, &mut load, &mut validate).unwrap();
+    assert_eq!(merge.merged.len(), 0);
+    match merge.conflicts.as_slice() {
+        [
+            InstanceConflict::KeyConstraint {
+                key,
+                record: None,
+                diagnostics,
+            },
+        ] => {
+            assert_eq!(key, "k");
+            assert_eq!(diagnostics.len(), 1);
+            assert_eq!(
+                diagnostics[0].check.kind,
+                panproto_inst::validation::CheckKind::KeyUnique
+            );
+        }
+        other => panic!("expected one key conflict, got {other:?}"),
+    }
+    let merge =
+        instance_merge::merge_tracked(&base, &ours, &stray, &mut load, &mut validate).unwrap();
+    match merge.conflicts.as_slice() {
+        [
+            InstanceConflict::Validation {
+                key,
+                record: None,
+                report,
+            },
+        ] => {
+            assert_eq!(key, "k");
+            assert_eq!(report.status, panproto_gat::CheckStatus::Failed);
+        }
+        other => panic!("expected one validation conflict, got {other:?}"),
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(256))]
+
+    #[test]
+    fn randomized_graph_merges_agree_with_the_reference(
+        base in arbitrary_graph(),
+        ours in arbitrary_graph(),
+        theirs in arbitrary_graph(),
+    ) {
+        let schema = panproto_schema::Schema { protocol: "test".into(), ..Default::default() };
+        let models = [base, ours, theirs].map(ModelInstance::Graph);
+        let built = [&models[0], &models[1], &models[2]].map(instance_to_production);
+        prop_assert_eq!(
+            production_merge(&schema, [&built[0], &built[1], &built[2]]),
+            reference_merge([&models[0], &models[1], &models[2]])
+        );
     }
 }

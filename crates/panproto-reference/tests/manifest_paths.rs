@@ -30,10 +30,10 @@ fn the_crate_table_is_exactly_the_manifest_reference_population() {
         .values()
         .flat_map(|page| &page.laws)
         .collect();
-    assert_eq!(laws.len(), 282);
+    assert_eq!(laws.len(), 283);
     assert_eq!(
         laws.iter().map(|law| law.references.len()).sum::<usize>(),
-        518
+        520
     );
 
     let value_io_cst_presentation = manifest.pages["value-io"]
@@ -73,8 +73,8 @@ fn the_crate_table_is_exactly_the_manifest_reference_population() {
         .cloned()
         .collect();
     let documented = documented_table_functions();
-    assert_eq!(expected.len(), 373);
-    assert_eq!(documented.len(), 373);
+    assert_eq!(expected.len(), 375);
+    assert_eq!(documented.len(), 375);
     assert_eq!(documented, expected);
 }
 

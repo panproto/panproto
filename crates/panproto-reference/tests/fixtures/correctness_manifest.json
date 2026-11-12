@@ -8628,6 +8628,64 @@
               "test": "tracking_and_diffs_on_hand_computed_cases"
             }
           ]
+        },
+        {
+          "id": "instance-version-control.merge",
+          "anchor": "L-instance-version-control-6",
+          "references": [
+            "panproto_reference::pages::instance_version_control::merge_tracked",
+            "panproto_reference::pages::instance_version_control::merge_instances"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "every_triple_of_the_merge_scope_merges_as_the_reference_merges"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "every_repository_of_the_key_scope_merges_its_tracked_instances_as_the_reference_does"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "instance_merges_are_the_same_in_every_process"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "randomized_graph_merges_agree_with_the_reference"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "a_repository_merge_records_one_data_set_per_key_and_tracks_the_merged_instances"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "a_repository_merge_with_instance_conflicts_records_nothing_until_they_are_resolved"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-vcs",
+              "binary": "panproto-vcs::reference_instance_version_control",
+              "test": "a_merged_instance_failing_a_key_check_or_validation_is_a_conflict_carrying_its_report"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::instance_version_control",
+              "test": "instance_merges_on_hand_computed_cases"
+            }
+          ]
         }
       ]
     }

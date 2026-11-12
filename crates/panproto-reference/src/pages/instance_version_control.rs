@@ -456,18 +456,25 @@ pub struct Entry {
     pub instance: Instance,
 }
 
-/// The entries a commit tracks by key, given the entries each commit of
-/// its first-parent chain records, the commit itself first: for each key,
-/// the entry of the first commit that records one.
+/// The entries a commit tracks by key.
+///
+/// The chain lists what each commit of the first-parent chain records under
+/// each key, the commit itself first: an entry, or `None` when the commit
+/// stops tracking the key. For each key it is the entry of the first commit
+/// that records something under the key, and the key is not tracked when
+/// that commit stops tracking it.
 #[must_use]
-pub fn tracked(chain: &[BTreeMap<String, Entry>]) -> BTreeMap<String, Entry> {
-    let mut out = BTreeMap::new();
+pub fn tracked(chain: &[BTreeMap<String, Option<Entry>>]) -> BTreeMap<String, Entry> {
+    let mut decided: BTreeMap<String, Option<Entry>> = BTreeMap::new();
     for recorded in chain {
         for (key, entry) in recorded {
-            out.entry(key.clone()).or_insert_with(|| entry.clone());
+            decided.entry(key.clone()).or_insert_with(|| entry.clone());
         }
     }
-    out
+    decided
+        .into_iter()
+        .filter_map(|(key, entry)| entry.map(|entry| (key, entry)))
+        .collect()
 }
 
 /// One key's change between two tracked maps.
@@ -512,4 +519,276 @@ pub fn diff_tracked(
         }
     }
     Ok(out)
+}
+
+/// A side of a merge.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Side {
+    /// Ours.
+    Ours,
+    /// Theirs.
+    Theirs,
+}
+
+/// A conflict over a whole key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum TrackingConflict {
+    /// The base does not track the key and the sides track different data
+    /// sets under it.
+    AddedOnBothSides,
+    /// The side stops tracking the key and the other changes it.
+    RemovedAndChanged(Side),
+    /// The three shapes are not all one.
+    ShapeDiffers,
+    /// The three schemas are not all one.
+    SchemaDiffers,
+}
+
+/// A conflict over one record of a sequence of trees.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum RecordConflict {
+    /// Both sides remove the record.
+    RemovedByBoth,
+    /// The side removes the record and the other changes it.
+    RemovedAndChanged(Side),
+    /// Both sides append records.
+    AppendedByBoth,
+    /// The merged graph form of the record is not a tree.
+    NotATree,
+}
+
+/// A conflict of an instance merge.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Conflict {
+    /// Over a key.
+    Tracking(String, TrackingConflict),
+    /// Between two graph deltas: of a graph, or of a tree record's graph
+    /// form.
+    GraphEdit(String, Option<usize>, crate::edit::EditConflict),
+    /// Between two table deltas.
+    TableEdit(String, crate::edit::TableConflict),
+    /// Over a tree record.
+    Record(String, usize, RecordConflict),
+}
+
+/// What a merge gives a key.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Merged {
+    /// The data set, by name, that a side tracks.
+    Kept(String),
+    /// A merged instance of the named schema.
+    New(String, Instance),
+}
+
+/// The three-way merge of the entries two sides track against the entries
+/// their base tracks: what it gives each key it tracks, and the conflicts.
+///
+/// Key by key in ascending order: a key the two sides track under one data
+/// set, or neither tracks, keeps that; a key one side tracks as the base
+/// does takes the other side's entry or absence. Otherwise a key the base
+/// does not track is added on both sides, a key one side does not track is
+/// removed by it and changed by the other, three shapes or three schemas
+/// that are not one are a conflict, and three instances merge by
+/// [`merge_instances`].
+///
+/// # Errors
+///
+/// [`Refusal::DoesNotApply`] when a tree has no graph form or the merge of
+/// independent deltas does not apply.
+pub fn merge_tracked(
+    base: &BTreeMap<String, Entry>,
+    ours: &BTreeMap<String, Entry>,
+    theirs: &BTreeMap<String, Entry>,
+) -> Result<(BTreeMap<String, Merged>, Vec<Conflict>), Refusal> {
+    let keys: BTreeSet<&String> = base
+        .keys()
+        .chain(ours.keys())
+        .chain(theirs.keys())
+        .collect();
+    let mut merged = BTreeMap::new();
+    let mut conflicts = Vec::new();
+    for key in keys {
+        let (b, o, t) = (base.get(key), ours.get(key), theirs.get(key));
+        let name = |entry: Option<&Entry>| entry.map(|e| e.data.clone());
+        let tracking = |conflict| Conflict::Tracking(key.clone(), conflict);
+        let chosen = if name(o) == name(t) || name(t) == name(b) {
+            Some(o)
+        } else if name(o) == name(b) {
+            Some(t)
+        } else {
+            None
+        };
+        if let Some(chosen) = chosen {
+            if let Some(entry) = chosen {
+                merged.insert(key.clone(), Merged::Kept(entry.data.clone()));
+            }
+            continue;
+        }
+        match (b, o, t) {
+            (None, _, _) => conflicts.push(tracking(TrackingConflict::AddedOnBothSides)),
+            (_, None, _) => {
+                conflicts.push(tracking(TrackingConflict::RemovedAndChanged(Side::Ours)));
+            }
+            (_, _, None) => {
+                conflicts.push(tracking(TrackingConflict::RemovedAndChanged(Side::Theirs)));
+            }
+            (Some(b), Some(o), Some(t)) => {
+                let shape = |entry: &Entry| match entry.instance {
+                    Instance::Trees(_) => Shape::Tree,
+                    Instance::Table(_) => Shape::Table,
+                    Instance::Graph(_) => Shape::Graph,
+                };
+                if shape(b) != shape(o) || shape(b) != shape(t) {
+                    conflicts.push(tracking(TrackingConflict::ShapeDiffers));
+                } else if b.schema != o.schema || b.schema != t.schema {
+                    conflicts.push(tracking(TrackingConflict::SchemaDiffers));
+                } else {
+                    match merge_instances(key, &b.instance, &o.instance, &t.instance)? {
+                        Ok(instance) => {
+                            merged.insert(key.clone(), Merged::New(b.schema.clone(), instance));
+                        }
+                        Err(found) => conflicts.extend(found),
+                    }
+                }
+            }
+        }
+    }
+    Ok((merged, conflicts))
+}
+
+/// The three-way merge of three instances of one shape under `key`: the
+/// instance the merge of the two deltas from the base gives the base, or
+/// the conflicts.
+///
+/// Graphs and tables merge by [`crate::edit::merge`] and
+/// [`crate::edit::merge_table`], with every conflict of the deltas'
+/// independence when they are not independent. Sequences of trees merge
+/// record by record: a record both keep merges through the graph forms of
+/// its three versions and must read back as a tree; a record one side
+/// removes is removed when the other leaves its graph form unchanged and
+/// is otherwise removed by one and changed by the other; a record both
+/// remove conflicts; the records one side appends follow the merged
+/// records, and records both sides append conflict at the base's length.
+///
+/// # Errors
+///
+/// [`Refusal::ShapeMismatch`] for instances of different shapes, and
+/// [`Refusal::DoesNotApply`] when a tree has no graph form or the merge of
+/// independent deltas does not apply.
+pub fn merge_instances(
+    key: &str,
+    base: &Instance,
+    ours: &Instance,
+    theirs: &Instance,
+) -> Result<Result<Instance, Vec<Conflict>>, Refusal> {
+    match (base, ours, theirs) {
+        (Instance::Graph(b), Instance::Graph(o), Instance::Graph(t)) => {
+            Ok(merge_graphs(key, None, b, o, t)?.map(Instance::Graph))
+        }
+        (Instance::Table(table), Instance::Table(ours), Instance::Table(theirs)) => {
+            merge_tables(key, table, ours, theirs)
+        }
+        (Instance::Trees(b), Instance::Trees(o), Instance::Trees(t)) => {
+            merge_tree_records(key, b, o, t)
+        }
+        _ => Err(Refusal::ShapeMismatch),
+    }
+}
+
+fn merge_tables(
+    key: &str,
+    base: &crate::model::Table,
+    ours: &crate::model::Table,
+    theirs: &crate::model::Table,
+) -> Result<Result<Instance, Vec<Conflict>>, Refusal> {
+    let from_ours = crate::edit::diff_table(base, ours);
+    let from_theirs = crate::edit::diff_table(base, theirs);
+    let found = crate::edit::table_independence(&from_ours, &from_theirs);
+    if found.is_empty() {
+        let delta = crate::edit::merge_table(&from_ours, &from_theirs)
+            .map_err(|_| Refusal::DoesNotApply)?;
+        let table = crate::edit::apply_table(&delta, base).map_err(|_| Refusal::DoesNotApply)?;
+        Ok(Ok(Instance::Table(table)))
+    } else {
+        Ok(Err(found
+            .into_iter()
+            .map(|conflict| Conflict::TableEdit(key.to_owned(), conflict))
+            .collect()))
+    }
+}
+
+fn merge_graphs(
+    key: &str,
+    record: Option<usize>,
+    base: &crate::model::Graph,
+    ours: &crate::model::Graph,
+    theirs: &crate::model::Graph,
+) -> Result<Result<crate::model::Graph, Vec<Conflict>>, Refusal> {
+    let (x, y) = (
+        crate::edit::diff(base, ours),
+        crate::edit::diff(base, theirs),
+    );
+    let found = crate::edit::independence(&x, &y);
+    if found.is_empty() {
+        let delta = crate::edit::merge(&x, &y).map_err(|_| Refusal::DoesNotApply)?;
+        let graph = crate::edit::apply(&delta, base).map_err(|_| Refusal::DoesNotApply)?;
+        Ok(Ok(graph))
+    } else {
+        Ok(Err(found
+            .into_iter()
+            .map(|conflict| Conflict::GraphEdit(key.to_owned(), record, conflict))
+            .collect()))
+    }
+}
+
+fn merge_tree_records(
+    key: &str,
+    base: &[crate::model::Tree],
+    ours: &[crate::model::Tree],
+    theirs: &[crate::model::Tree],
+) -> Result<Result<Instance, Vec<Conflict>>, Refusal> {
+    let mut conflicts = Vec::new();
+    let mut merged = Vec::new();
+    let record = |index: usize, conflict| Conflict::Record(key.to_owned(), index, conflict);
+    for (index, tree) in base.iter().enumerate() {
+        let b = graph_form(tree)?;
+        let kept_by_ours = index < ours.len();
+        let kept_by_theirs = index < theirs.len();
+        if kept_by_ours && kept_by_theirs {
+            let (o, t) = (graph_form(&ours[index])?, graph_form(&theirs[index])?);
+            match merge_graphs(key, Some(index), &b, &o, &t)? {
+                Ok(graph) => match tree_form(&graph) {
+                    Ok(tree) => merged.push(tree),
+                    Err(_) => conflicts.push(record(index, RecordConflict::NotATree)),
+                },
+                Err(found) => conflicts.extend(found),
+            }
+        } else if !kept_by_ours && !kept_by_theirs {
+            conflicts.push(record(index, RecordConflict::RemovedByBoth));
+        } else {
+            let (remover, keeper) = if kept_by_ours {
+                (Side::Theirs, &ours[index])
+            } else {
+                (Side::Ours, &theirs[index])
+            };
+            if crate::edit::diff(&b, &graph_form(keeper)?) != crate::edit::GraphDelta::identity() {
+                conflicts.push(record(index, RecordConflict::RemovedAndChanged(remover)));
+            }
+        }
+    }
+    let appended_ours = ours.len() > base.len();
+    let appended_theirs = theirs.len() > base.len();
+    if appended_ours && appended_theirs {
+        conflicts.push(record(base.len(), RecordConflict::AppendedByBoth));
+    }
+    if !conflicts.is_empty() {
+        return Ok(Err(conflicts));
+    }
+    if appended_ours {
+        merged.extend(ours[base.len()..].iter().cloned());
+    }
+    if appended_theirs {
+        merged.extend(theirs[base.len()..].iter().cloned());
+    }
+    Ok(Ok(Instance::Trees(merged)))
 }
