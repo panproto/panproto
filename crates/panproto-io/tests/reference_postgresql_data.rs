@@ -6,6 +6,8 @@
 #![cfg(feature = "tree-sitter")]
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
+use std::fmt::Write as _;
+
 use panproto_inst::Value;
 use panproto_inst::value::{DecimalClass, DecimalValue, FidelityReason};
 use panproto_io::postgresql::{SqlDataError, ValueRefusal, read_dump, write_data};
@@ -48,7 +50,10 @@ fn canonical(value: &Value) -> Option<String> {
         Value::Bool(b) => Some(format!("bool:{b}")),
         Value::Bytes(bytes) => Some(format!(
             "bytes:{}",
-            bytes.iter().map(|b| format!("{b:02x}")).collect::<String>()
+            bytes.iter().fold(String::new(), |mut out, b| {
+                let _ = write!(out, "{b:02x}");
+                out
+            })
         )),
         Value::Str(s) => Some(format!("text:{s}")),
         other => panic!("no reference form for {other:?}"),

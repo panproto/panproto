@@ -2,7 +2,9 @@
 
 use crate::pages::postgresql_data::{Cell, Insert, TYPES};
 
-/// The input texts of the bounded scope: integers in and out of range and
+/// The input texts of the bounded scope.
+///
+/// They are integers in and out of range and
 /// in every radix, numerals with and without scale and exponent, the
 /// special values, boolean spellings, bytea in both formats, texts around
 /// a length of three, and UUID forms.

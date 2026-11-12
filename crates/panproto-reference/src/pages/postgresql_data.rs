@@ -73,28 +73,22 @@ fn digits_of(text: &str, radix: u32, after_prefix: bool) -> Option<String> {
 
 /// A sign and the rest of a trimmed text.
 fn signed(text: &str) -> (bool, &str) {
-    if let Some(rest) = text.strip_prefix('-') {
-        (true, rest)
-    } else if let Some(rest) = text.strip_prefix('+') {
-        (false, rest)
-    } else {
-        (false, text)
+    match text.as_bytes().first() {
+        Some(b'-') => (true, &text[1..]),
+        Some(b'+') => (false, &text[1..]),
+        _ => (false, text),
     }
 }
 
 /// The magnitude of an unsigned integer text with an optional radix
 /// prefix.
 fn magnitude(body: &str) -> Result<u128, Refusal> {
-    let (radix, rest, prefixed) =
-        if let Some(r) = body.strip_prefix("0x").or_else(|| body.strip_prefix("0X")) {
-            (16, r, true)
-        } else if let Some(r) = body.strip_prefix("0o").or_else(|| body.strip_prefix("0O")) {
-            (8, r, true)
-        } else if let Some(r) = body.strip_prefix("0b").or_else(|| body.strip_prefix("0B")) {
-            (2, r, true)
-        } else {
-            (10, body, false)
-        };
+    let (radix, rest, prefixed) = match body.get(..2) {
+        Some("0x" | "0X") => (16, &body[2..], true),
+        Some("0o" | "0O") => (8, &body[2..], true),
+        Some("0b" | "0B") => (2, &body[2..], true),
+        _ => (10, body, false),
+    };
     let digits = digits_of(rest, radix, prefixed).ok_or(Refusal::Syntax)?;
     u128::from_str_radix(&digits, radix).map_err(|_| Refusal::Overflow)
 }
@@ -235,7 +229,7 @@ fn bytea(text: &str) -> Result<String, Refusal> {
     let mut out = String::from("bytes:");
     if let Some(hex) = text.strip_prefix("\\x") {
         let digits: Vec<char> = hex.chars().filter(|c| !" \t\n\r".contains(*c)).collect();
-        if digits.len() % 2 != 0 || !digits.iter().all(char::is_ascii_hexdigit) {
+        if !digits.len().is_multiple_of(2) || !digits.iter().all(char::is_ascii_hexdigit) {
             return Err(Refusal::Syntax);
         }
         for d in digits {
@@ -292,7 +286,7 @@ fn uuid(text: &str) -> Result<String, Refusal> {
     let mut previous_hyphen = true;
     for c in inner.chars() {
         if c == '-' {
-            if previous_hyphen || hex.len() % 4 != 0 || hex.len() == 32 {
+            if previous_hyphen || !hex.len().is_multiple_of(4) || hex.len() == 32 {
                 return Err(Refusal::Syntax);
             }
             previous_hyphen = true;
@@ -470,8 +464,9 @@ pub fn read_script(script: &[Insert]) -> Result<(Rows, Rows), ScriptRefusal> {
     Ok((a, b))
 }
 
-/// The canonical `INSERT` text of the rows of `a` and `b`: one statement
-/// per table holding rows, tables in name order, every column listed in
+/// The canonical `INSERT` text of the rows of `a` and `b`.
+///
+/// It has one statement per table holding rows, tables in name order, every column listed in
 /// position order, an integer unquoted, a text as a standard string and
 /// `NULL` for a null.
 #[must_use]
@@ -485,13 +480,15 @@ pub fn canonical_text(a: &Rows, b: &Rows) -> String {
         for (i, row) in rows.iter().enumerate() {
             let cells: Vec<String> = row
                 .iter()
-                .map(|cell| match cell {
-                    None => "NULL".to_owned(),
-                    Some(v) => match v.split_once(':') {
-                        Some(("int", n)) => n.to_owned(),
-                        Some((_, t)) => quote(t),
-                        None => quote(v),
-                    },
+                .map(|cell| {
+                    cell.as_deref().map_or_else(
+                        || "NULL".to_owned(),
+                        |v| match v.split_once(':') {
+                            Some(("int", n)) => n.to_owned(),
+                            Some((_, t)) => quote(t),
+                            None => quote(v),
+                        },
+                    )
                 })
                 .collect();
             let end = if i + 1 == rows.len() { ";" } else { "," };
