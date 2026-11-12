@@ -346,7 +346,7 @@ fn compat_protocol_disagreeing_with_manifest_exits_2() {
     write_atproto_project(&dir.path().join("new"), &base_properties(), true);
 
     schema_cmd()
-        .args(["compat", "old", "new", "--protocol", "sql"])
+        .args(["compat", "old", "new", "--protocol", "postgresql"])
         .current_dir(dir.path())
         .assert()
         .code(2)
@@ -377,7 +377,7 @@ fn compat_directory_without_bundle_protocol_exits_2() {
     write_atproto_project(&dir.path().join("old"), &base_properties(), false);
     write_atproto_project(&dir.path().join("new"), &base_properties(), false);
 
-    // `sql` has no bundle parser, so a bare directory cannot be read
+    // `postgresql` has no bundle parser, so a bare directory cannot be read
     // under it; that is a load error, not a breaking change.
     schema_cmd()
         .args([
@@ -385,7 +385,7 @@ fn compat_directory_without_bundle_protocol_exits_2() {
             "old/lexicons",
             "new/lexicons",
             "--protocol",
-            "sql",
+            "postgresql",
         ])
         .current_dir(dir.path())
         .assert()

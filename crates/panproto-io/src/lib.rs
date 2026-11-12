@@ -35,6 +35,8 @@
 //! - [`json_pathway`]: Shared lossless JSON → `WInstance` builder
 //! - [`error`]: Error types for parse and emit operations
 //! - [`arena`]: Arena allocation helpers for zero-copy hot paths
+//! - [`schema_documents`]: Schema documents read by protocol name, through
+//!   the grammar readers of this crate or the parsers of `panproto-protocols`
 //!
 //! ## Format-preservation limits
 //!
@@ -94,8 +96,17 @@ pub mod byte_tabular;
 
 pub mod cst_extract;
 
+pub mod rdf;
+
+pub mod edgelist;
+
+pub mod schema_documents;
+
 #[cfg(feature = "tree-sitter")]
 pub mod unified_codec;
+
+#[cfg(feature = "tree-sitter")]
+pub mod postgresql;
 
 // ── Protocol category modules ──────────────────────────────────────────
 
@@ -150,6 +161,10 @@ pub fn default_registry() -> ProtocolRegistry {
     serialization::register_all(&mut registry);
     #[cfg(feature = "tree-sitter")]
     text_format::register_all(&mut registry);
+    #[cfg(feature = "tree-sitter")]
+    rdf::register_all(&mut registry);
+    #[cfg(feature = "tree-sitter")]
+    edgelist::register_all(&mut registry);
     web_document::register_all(&mut registry);
     registry
 }
@@ -162,9 +177,10 @@ mod tests {
     fn default_registry_has_expected_protocols() {
         let registry = default_registry();
 
-        // 50 protocols in the default build, plus the three generic
-        // text-format protocols (yaml, toml, csv) when the tree-sitter
-        // feature enables their format-preserving codecs.
+        // 50 protocols in the default build, plus, under the tree-sitter
+        // feature, the four generic text formats, the PostgreSQL table codec
+        // the N-Triples and Turtle graph codecs and the two edge-list graph
+        // codecs.
         let base: &[&str] = &[
             // API (4)
             "openapi",
@@ -229,10 +245,24 @@ mod tests {
             "edi_x12",
         ];
 
-        // The generic text-format codecs are format-preserving and thus
+        // The generic text-format codecs are format-preserving, the
+        // PostgreSQL codec reads through the PostgreSQL grammar and the
+        // N-Triples and Turtle codecs through the Turtle grammar and the JSON-LD
+        // codec through the JSON grammar, so they are
         // only registered under the tree-sitter feature.
         #[cfg(feature = "tree-sitter")]
-        let extra: &[&str] = &["yaml", "toml", "csv"];
+        let extra: &[&str] = &[
+            "yaml",
+            "toml",
+            "csv",
+            "tsv",
+            "postgresql",
+            "ntriples",
+            "turtle",
+            "jsonld",
+            "edgelist-csv",
+            "edgelist-tsv",
+        ];
         #[cfg(not(feature = "tree-sitter"))]
         let extra: &[&str] = &[];
 

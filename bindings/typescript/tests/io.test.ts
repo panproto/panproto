@@ -187,15 +187,24 @@ describe('PROTOCOL_CATEGORIES', () => {
     expect(keys).toContain('data_science');
     expect(keys).toContain('database');
     expect(keys).toContain('domain');
+    expect(keys).toContain('edgelist');
+    expect(keys).toContain('rdf');
     expect(keys).toContain('serialization');
+    expect(keys).toContain('text');
     expect(keys).toContain('web_document');
-    expect(keys).toHaveLength(9);
+    expect(keys).toHaveLength(12);
   });
 
-  it('has 50 total protocols across all categories', () => {
+  it('has 60 total protocols across all categories', () => {
     const total = Object.values(PROTOCOL_CATEGORIES)
       .reduce((sum, protos) => sum + protos.length, 0);
-    expect(total).toBe(50);
+    expect(total).toBe(60);
+  });
+
+  it('spells every name with hyphens, as the registry does', () => {
+    for (const name of Object.values(PROTOCOL_CATEGORIES).flat()) {
+      expect(name).not.toContain('_');
+    }
   });
 
   it('annotation has expected protocols', () => {
@@ -207,13 +216,13 @@ describe('PROTOCOL_CATEGORIES', () => {
 
   it('api has expected protocols', () => {
     expect(PROTOCOL_CATEGORIES.api).toEqual([
-      'openapi', 'asyncapi', 'jsonapi', 'raml',
+      'asyncapi', 'jsonapi', 'openapi', 'raml',
     ]);
   });
 
   it('serialization has expected protocols', () => {
     expect(PROTOCOL_CATEGORIES.serialization).toEqual([
-      'avro', 'flatbuffers', 'asn1', 'bond', 'msgpack_schema',
+      'asn1', 'avro', 'bond', 'flatbuffers', 'msgpack-schema',
     ]);
   });
 });

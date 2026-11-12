@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 2fcb10ccec373e854a1bebf0bdf1833303075a9aa81498fc1cfbccd02fb5c4ad # shrinks to source = Schema { vertices: {"a": "object", "ab": "string"}, edges: {} }, target = Schema { vertices: {"a": "object", "b": "object", "ba": "string"}, edges: {Edge { src: "ba", tgt: "a", kind: "prop", name: Some("n") }} }, budget = SearchBudget { max_nodes: None, max_millis: None, mem_bytes: 92, op_budget: 1000000000 }
+cc 65abe3eb682dc0efb54cd0f8b157de364034617914b98efe738dc65a8f729235 # shrinks to source = Schema { vertices: {"a": "string"}, edges: {Edge { src: "a", tgt: "a", kind: "item", name: None }, Edge { src: "a", tgt: "a", kind: "prop", name: None }, Edge { src: "a", tgt: "a", kind: "prop", name: Some("m") }} }, target = Schema { vertices: {"a": "string"}, edges: {Edge { src: "a", tgt: "a", kind: "item", name: None }, Edge { src: "a", tgt: "a", kind: "prop", name: Some("m") }, Edge { src: "a", tgt: "a", kind: "prop", name: Some("n") }} }

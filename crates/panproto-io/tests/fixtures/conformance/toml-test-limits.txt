@@ -1,0 +1,5 @@
+# toml-test cases of the TOML 1.0.0 list that the TOML route does not pass,
+# each with the limit the book's Text formats page states for it.
+valid/string/ends-in-whitespace-escape.toml line-ending-backslash-before-whitespace
+valid/string/multiline-empty.toml line-ending-backslash-before-whitespace
+valid/string/multiline.toml line-ending-backslash-before-whitespace

@@ -1,7 +1,24 @@
-//! Instance codecs for configuration protocols.
+//! Instance codecs and schema readers for configuration protocols.
 //!
-//! Configuration instances (playbooks, templates, manifests)
-//! use JSON as their canonical instance representation.
+//! Configuration documents (playbooks, templates, manifests) are YAML or
+//! JSON, and no configuration protocol reads either itself: under the
+//! `tree-sitter` feature each reads through the shared YAML route
+//! (`tree::read_yaml`) or the shared JSON route (`tree::read_json`). The
+//! `k8s_crd` codec reads custom resources through the YAML route,
+//! `k8s_crd::read_crd` reads a `CustomResourceDefinition` into a schema,
+//! `cloudformation::read_template` reads a `CloudFormation` template into
+//! one, and `ansible::read_ansible` reads an Ansible playbook, task file or
+//! variables file into one. Without the feature the codecs read the JSON form of a
+//! document only.
+
+#[cfg(feature = "tree-sitter")]
+pub mod ansible;
+#[cfg(feature = "tree-sitter")]
+pub mod cloudformation;
+#[cfg(feature = "tree-sitter")]
+pub mod k8s_crd;
+#[cfg(feature = "tree-sitter")]
+pub mod tree;
 
 use crate::registry::ProtocolRegistry;
 
@@ -12,8 +29,8 @@ pub fn register_all(registry: &mut ProtocolRegistry) {
     {
         use crate::unified_codec::UnifiedCodec;
         registry.register_optional(UnifiedCodec::json("cloudformation"));
-        registry.register_optional(UnifiedCodec::json("ansible"));
-        registry.register_optional(UnifiedCodec::json("k8s_crd"));
+        registry.register_optional(UnifiedCodec::yaml("ansible"));
+        registry.register_optional(UnifiedCodec::yaml("k8s_crd"));
     }
     #[cfg(not(feature = "tree-sitter"))]
     {

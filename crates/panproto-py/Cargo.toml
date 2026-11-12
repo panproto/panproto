@@ -37,7 +37,14 @@ pythonize = { workspace = true }
 # directly can select another group or individual language feature.
 
 [features]
-default = ["group-core"]
+default = ["group-core", "format-preserving"]
+# Links the data-format grammars (JSON, YAML, PostgreSQL and the rest of
+# the `group-data` bundle) into the extension, for the schema readers of
+# OpenAPI, AsyncAPI, JSON Schema, Kubernetes CRDs, CloudFormation, Ansible
+# and PostgreSQL and for the format-preserving instance codecs. The
+# readers take their grammars from the extension itself, not from a
+# companion grammar package.
+format-preserving = ["panproto-core/tree-sitter"]
 group-core = ["panproto-grammars/group-core", "panproto-parse/group-core"]
 group-web = ["panproto-grammars/group-web", "panproto-parse/group-web"]
 group-systems = ["panproto-grammars/group-systems", "panproto-parse/group-systems"]
@@ -216,6 +223,7 @@ lang-php = ["panproto-grammars/lang-php", "panproto-parse/lang-php"]
 lang-pkl = ["panproto-grammars/lang-pkl", "panproto-parse/lang-pkl"]
 lang-po = ["panproto-grammars/lang-po", "panproto-parse/lang-po"]
 lang-pony = ["panproto-grammars/lang-pony", "panproto-parse/lang-pony"]
+lang-postgresql = ["panproto-grammars/lang-postgresql", "panproto-parse/lang-postgresql"]
 lang-postscript = ["panproto-grammars/lang-postscript", "panproto-parse/lang-postscript"]
 lang-powershell = ["panproto-grammars/lang-powershell", "panproto-parse/lang-powershell"]
 lang-printf = ["panproto-grammars/lang-printf", "panproto-parse/lang-printf"]

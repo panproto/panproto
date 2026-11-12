@@ -1908,7 +1908,7 @@ fn oracle_diagnostics(case: &Case, oracle: Oracle<'_>, references: bool) -> Vec<
                     class: CheckKind::KeyUnique.class(),
                     requirement: Requirement::Advisory,
                     subject: Some(element.clone()),
-                    elements: vec![element.clone()],
+                    elements: vec![element],
                     violation: Violation::OutsideKeyScope {
                         key: key.id.into(),
                         scope: "doc".into(),

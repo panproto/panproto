@@ -500,7 +500,7 @@ fn encode_toml_value(
         Value::Float(number) => Ok(toml::Value::Float(*number)),
         Value::Bool(value) => Ok(toml::Value::Boolean(*value)),
         Value::Bytes(bytes) => toml_bytes_value(bytes, spec, site),
-        Value::Temporal(temporal) => toml_temporal_value(temporal, site),
+        Value::Temporal(temporal) => toml_temporal_value(temporal, site, raw),
         Value::Decimal(number) => raw.marker(number.to_string()),
         Value::BigInt(number) => {
             let token = crate::json_pathway::bigint_lexeme(number, spec.kind == ScalarKind::BigInt)
@@ -576,9 +576,17 @@ fn encode_toml_value(
     }
 }
 
+/// The TOML token of a temporal value, written as the value displays.
+///
+/// The token is written verbatim rather than through `toml::value::Datetime`,
+/// which holds at most nine fractional digits, a `T` separator and an
+/// uppercase `Z`: converting through it would truncate a longer fraction and
+/// rewrite a space separator or a lowercase `z`, each of which the temporal
+/// value carries.
 fn toml_temporal_value(
     temporal: &Temporal,
     site: &ValueSite,
+    raw: &mut RawTomlTokens,
 ) -> Result<toml::Value, EmitInstanceError> {
     if !toml_temporal_representable(temporal) {
         return Err(EmitValueError::new(
@@ -589,19 +597,7 @@ fn toml_temporal_value(
         )
         .into());
     }
-    temporal
-        .to_string()
-        .parse::<toml::value::Datetime>()
-        .map(toml::Value::Datetime)
-        .map_err(|_| {
-            EmitValueError::new(
-                site.clone(),
-                "temporal",
-                "toml",
-                EmitValueReason::NotRepresentable,
-            )
-            .into()
-        })
+    raw.marker(temporal.to_string())
 }
 
 fn toml_bytes_value(

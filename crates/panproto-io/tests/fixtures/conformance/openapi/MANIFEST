@@ -1,0 +1,66 @@
+# The refusal cases of the OpenAPI corpus. Each file under invalid/ was
+# written for panproto from the OpenAPI 3.1.2 specification to break one
+# rule; an upstream/ file listed here is an unchanged upstream document the
+# reader refuses: the meta-schema's fail cases, and three pass cases that
+# break a MUST of the specification text the meta-schema does not check.
+# Columns: file, JSON pointer of the refusal, refusal class, the rule broken.
+upstream/fail/example-examples.yaml	/components/parameters/animal/examples	Exclusive	example and examples are exclusive
+upstream/fail/header-object-allowReserved.yaml	/components/headers/Style/allowReserved	UnknownField	a header has no allowReserved
+upstream/fail/invalid_schema_types.yaml	/components/schemas/invalid_null	Schema	a Schema Object is an object or a boolean
+upstream/fail/link-object-no-body.yaml	/components/links/Link-Object-with-body-property/body	UnknownField	a link has no body field
+upstream/fail/no_containers.yaml		Missing	paths, components or webhooks is present
+upstream/fail/parameter-object-cookie-form-allowReserved.yaml	/components/parameters/style_form/allowReserved	Invalid	allowReserved applies only to query parameters
+upstream/fail/parameter-object-header-allowReserved.yaml	/components/parameters/header/allowReserved	Invalid	allowReserved applies only to query parameters
+upstream/fail/parameter-object-path-allowReserved.yaml	/components/parameters/path/allowReserved	Invalid	allowReserved applies only to query parameters
+upstream/fail/server_enum_empty.yaml	/servers/0/variables/var/enum	Invalid	a server variable's enum is not empty
+upstream/fail/servers.yaml	/servers	WrongType	servers is an array
+upstream/fail/unknown_container.yaml	/overlays	UnknownField	only the fixed fields and x- extensions
+upstream/pass/link-object-examples.yaml	/paths/~1users~1{id}/get/responses/200/links/address2/operationId	UnknownOperationId	a link's operationId names an operation of the description
+upstream/pass/path_item_servers_parameters.yaml	/components/links/ThingLink/operationId	UnknownOperationId	a link's operationId names an operation of the description
+upstream/pass/style-defaults.yaml	/components/parameters/encoding_object_defaults	Invalid	a path parameter has required: true
+invalid/swagger.yaml	/swagger	Swagger	Swagger 2.0 is not read
+invalid/version-3.0.yaml	/openapi	Version	OpenAPI 3.0 is not read
+invalid/version-3.2.yaml	/openapi	Version	OpenAPI 3.2 is not read
+invalid/missing-info.yaml		Missing	info is REQUIRED
+invalid/no-container.yaml		Missing	paths, components or webhooks is present
+invalid/unknown-field.yaml	/basePath	UnknownField	only the fixed fields and x- extensions
+invalid/dangling-ref.yaml	/paths/~1pets/get/parameters/0/$ref	RefTarget	a reference names an object of the description
+invalid/ref-kind.yaml	/paths/~1pets/get/parameters/0/$ref	RefKind	the referenced structure is of the type its place takes
+invalid/ref-cycle.yaml	/components/parameters/a/$ref	RefCycle	a chain of references reaches an object
+invalid/external-ref.yaml	/components/parameters/a/$ref	External	nothing is fetched
+invalid/schema-dangling-ref.yaml	/components/schemas/Pet/$ref	Schema	a Schema Object reference names a subschema
+invalid/duplicate-operation-id.yaml	/paths/~1pets/post/operationId	DuplicateOperationId	operationId is unique among all operations
+invalid/unknown-operation-id.yaml	/paths/~1pets/get/responses/200/links/next/operationId	UnknownOperationId	a link's operationId names an operation
+invalid/operation-ref-kind.yaml	/paths/~1pets/get/responses/200/links/self/operationRef	RefKind	operationRef points to an Operation Object
+invalid/unknown-scheme.yaml	/security/0/apiKey	UnknownScheme	a requirement names a declared security scheme
+invalid/missing-path-parameter.yaml	/paths/~1pets~1{petId}/get	MissingPathParameter	each template expression has a path parameter
+invalid/unknown-path-parameter.yaml	/paths/~1pets/get/parameters/0	UnknownPathParameter	a path parameter names a template expression
+invalid/duplicate-path.yaml	/paths/~1pets~1{b}	DuplicatePath	templated paths of one hierarchy are identical
+invalid/template.yaml	/paths/~1pets~1{petId	Template	template braces pair
+invalid/duplicate-parameter.yaml	/paths/~1pets/get/parameters/1	DuplicateParameter	a list holds a name and location once
+invalid/path-not-required.yaml	/components/parameters/id	Invalid	a path parameter has required: true
+invalid/schema-and-content.yaml	/components/parameters/q/content	Exclusive	a parameter has schema or content, not both
+invalid/content-two.yaml	/components/parameters/q/content	Invalid	content holds one entry
+invalid/style-location.yaml	/components/parameters/q/style	Invalid	a style applies to its location
+invalid/header-style.yaml	/components/headers/Rate/style	Invalid	a header's style is simple
+invalid/header-name.yaml	/components/headers/Rate/name	UnknownField	a header has no name
+invalid/responses-empty.yaml	/paths/~1pets/get/responses	Invalid	a Responses Object holds a response code
+invalid/response-key.yaml	/paths/~1pets/get/responses/600	Invalid	a response is keyed by a status code
+invalid/response-description.yaml	/paths/~1pets/get/responses/200	Missing	a response has a description
+invalid/path-no-slash.yaml	/paths/pets	Invalid	a path begins with /
+invalid/component-name.yaml	/components/schemas/Pet Type	ComponentName	a component name matches ^[a-zA-Z0-9.-_]+$
+invalid/license-both.yaml	/info/license/url	Exclusive	identifier and url are exclusive
+invalid/server-default.yaml	/servers/0/variables/region/default	Invalid	a variable's default is one of its enum
+invalid/server-query.yaml	/servers/0/url	Invalid	a server URL has no query
+invalid/scheme-type.yaml	/components/securitySchemes/basic/type	Invalid	type is one of five
+invalid/scheme-missing.yaml	/components/securitySchemes/key	Missing	an API key scheme has in
+invalid/bearer-format.yaml	/components/securitySchemes/basic/bearerFormat	Invalid	bearerFormat applies to bearer
+invalid/flow-url.yaml	/components/securitySchemes/oauth/flows/implicit/tokenUrl	Invalid	the implicit flow has no token URL
+invalid/dialect.yaml	/jsonSchemaDialect	Dialect	the OAS dialect or 2020-12
+invalid/schema-dialect.yaml	/components/schemas/Pet/$schema	Schema	a Schema Object names a dialect the reader reads
+invalid/discriminator.yaml	/components/schemas/Pet/discriminator	Schema	a discriminator has propertyName
+invalid/duplicate-tag.yaml	/tags/1/name	DuplicateTag	tag names are unique
+invalid/link-both.yaml	/components/links/next/operationId	Exclusive	operationRef and operationId are exclusive
+invalid/example-both.yaml	/components/examples/cat/externalValue	Exclusive	value and externalValue are exclusive
+invalid/ref-type.yaml	/components/parameters/a/$ref	WrongType	$ref is a string
+invalid/duplicate-key.json		Syntax	a JSON object's keys are distinct

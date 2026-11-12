@@ -184,6 +184,7 @@ impl ProtocolCodec for crate::xml_codec::XmlCodec {}
 #[allow(deprecated)]
 impl ProtocolCodec for crate::tabular_codec::TabularCodec {}
 impl ProtocolCodec for crate::annotation::conllu::ConlluCodec {}
+impl ProtocolCodec for crate::data_schema::bson::BsonCodec {}
 impl ProtocolCodec for crate::byte_tabular::ByteTabularCodec {
     fn parse_functor_preserving(
         &self,
@@ -413,9 +414,12 @@ impl ProtocolRegistry {
             Err(crate::error::UnifiedCodecError::MissingGrammar { .. }) => {
                 // Expected: grammar feature disabled.
             }
-            Err(err @ crate::error::UnifiedCodecError::ParserInit { .. }) => {
+            Err(
+                err @ (crate::error::UnifiedCodecError::ParserInit { .. }
+                | crate::error::UnifiedCodecError::SchemaInit { .. }),
+            ) => {
                 eprintln!(
-                    "panproto-io: bundled grammar failed parser initialisation; \
+                    "panproto-io: bundled codec failed initialisation; \
                      skipping registration: {err}"
                 );
             }

@@ -1,0 +1,20 @@
+# JSON-Schema-Test-Suite 2020-12 cases the JSON Schema reader does not pass,
+# each with the limit the book's JSON Schema page states for it, and the
+# instance tests, which no case's reading checks.
+# Columns: case (file#index of the case in the file's tests array), limit.
+tests/*.json#*/tests	instance-validation
+dynamicRef.json#3	dynamic-scope
+dynamicRef.json#5	dynamic-scope
+dynamicRef.json#9	dynamic-scope
+dynamicRef.json#11	dynamic-scope
+dynamicRef.json#13	dynamic-scope
+dynamicRef.json#15	dynamic-scope
+dynamicRef.json#17	dynamic-scope
+dynamicRef.json#21	dynamic-scope
+dynamicRef.json#23	dynamic-scope
+dynamicRef.json#29	dynamic-scope
+dynamicRef.json#31	dynamic-scope
+unevaluatedItems.json#32	dynamic-scope
+unevaluatedProperties.json#22	dynamic-scope
+vocabulary.json#2	custom-metaschema
+vocabulary.json#3	custom-metaschema

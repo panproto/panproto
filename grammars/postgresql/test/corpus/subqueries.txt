@@ -1,0 +1,147 @@
+================================================================================
+IN subquery
+================================================================================
+
+SELECT a FROM foo WHERE a IN (SELECT b FROM bar);
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (SelectStmt
+        (select_no_parens
+          (simple_select
+            (kw_select)
+            (opt_target_list
+              (target_list
+                (target_el
+                  (a_expr
+                    (a_expr
+                      (c_expr
+                        (columnref
+                          (ColId
+                            (identifier)))))))))
+            (from_clause
+              (kw_from)
+              (from_list
+                (table_ref
+                  (relation_expr
+                    (qualified_name
+                      (ColId
+                        (identifier)))))))
+            (where_clause
+              (kw_where)
+              (a_expr
+                (a_expr
+                  (a_expr
+                    (c_expr
+                      (columnref
+                        (ColId
+                          (identifier))))))
+                (kw_in)
+                (select_with_parens
+                  (select_no_parens
+                    (simple_select
+                      (kw_select)
+                      (opt_target_list
+                        (target_list
+                          (target_el
+                            (a_expr
+                              (a_expr
+                                (c_expr
+                                  (columnref
+                                    (ColId
+                                      (identifier)))))))))
+                      (from_clause
+                        (kw_from)
+                        (from_list
+                          (table_ref
+                            (relation_expr
+                              (qualified_name
+                                (ColId
+                                  (identifier))))))))))))))))))
+
+================================================================================
+Scalar subquery
+================================================================================
+
+SELECT (SELECT 1);
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (SelectStmt
+        (select_no_parens
+          (simple_select
+            (kw_select)
+            (opt_target_list
+              (target_list
+                (target_el
+                  (a_expr
+                    (a_expr
+                      (c_expr
+                        (select_with_parens
+                          (select_no_parens
+                            (simple_select
+                              (kw_select)
+                              (opt_target_list
+                                (target_list
+                                  (target_el
+                                    (a_expr
+                                      (a_expr
+                                        (c_expr
+                                          (AexprConst
+                                            (Iconst
+                                              (integer_literal))))))))))))))))))))))))
+
+================================================================================
+FROM subquery
+================================================================================
+
+SELECT a FROM (SELECT 1 AS a) t;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (SelectStmt
+        (select_no_parens
+          (simple_select
+            (kw_select)
+            (opt_target_list
+              (target_list
+                (target_el
+                  (a_expr
+                    (a_expr
+                      (c_expr
+                        (columnref
+                          (ColId
+                            (identifier)))))))))
+            (from_clause
+              (kw_from)
+              (from_list
+                (table_ref
+                  (select_with_parens
+                    (select_no_parens
+                      (simple_select
+                        (kw_select)
+                        (opt_target_list
+                          (target_list
+                            (target_el
+                              (a_expr
+                                (a_expr
+                                  (c_expr
+                                    (AexprConst
+                                      (Iconst
+                                        (integer_literal))))))
+                              (kw_as)
+                              (ColLabel
+                                (identifier))))))))
+                  (opt_alias_clause
+                    (alias_clause
+                      (ColId
+                        (identifier)))))))))))))

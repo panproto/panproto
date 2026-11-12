@@ -93,6 +93,11 @@
 //! | Representation equality and expression evaluation | [`value::representation`], [`value::eval`] | `values.md` |
 //! | Reification and tree edit application | [`encode::reify`], [`edit::apply_tree`] | `representation.md`, `edits.md` |
 //! | Protolens operations | [`lens::protolens_schema`], [`lens::protolens_instance`], [`lens::get`], [`lens::put`] | `lenses.md` |
+//! | Elementary protolens kinds | [`lens::ElementaryProtolens::target_and_migration`], [`lens::relabel`], [`lens::restrict`], [`lens::extend`] | `lenses.md` |
+//! | Fused chains and scoped protolenses | [`lens::ProtolensTerm::at`], [`lens::ProtolensTerm::target`], [`lens::ProtolensTerm::transform`], [`lens::ProtolensTerm::surviving_vertices`], [`lens::ProtolensTerm::edge_images`], [`lens::structural_migration`] | `lenses.md` |
+//! | Sort coercions | [`lens::SortCoercion::target_and_migration`] | `lenses.md` |
+//! | Value-level steps | [`lens::FieldProgram::output_fields`] | `lenses.md` |
+//! | Sequential protolens composites | [`lens::CompositeLens::instantiate`], [`lens::CompositeLens::get`], [`lens::CompositeLens::put`], [`lens::CompositeLens::check_put_domain`] | `lenses.md` |
 //! | Tree view alignment | [`lens::align_tree_view`] | `lenses.md` |
 //! | Graph and table observable squares | [`lens::graph_square`], [`lens::graph_put_square`], [`lens::table_square`], [`lens::table_put_square`], [`lens::relational_table_get`], [`lens::relational_table_put`] | `lenses.md` |
 //! | Migration observable squares | [`migration::graph_square`], [`migration::table_square`], [`migration::tree_square`] | `lenses.md` |
@@ -112,6 +117,25 @@
 //! | CST preservation and duplicate handling | [`value_io::parse_cst`], [`value_io::round_trip_cst`], [`value_io::preserve`], [`value_io::preserve_cst`], [`value_io::duplicate_member_cst`], [`value_io::encoding_bom_cst`] | `value-io.md` |
 //! | TOML, TSV, tabular and XML edge observables | [`toml::decimal_bigint_cst`], [`value_io::toml_scalar`], [`value_io::tsv_comment`], [`value_io::tsv_quote`], [`value_io::tabular_empty_row`], [`value_io::tabular_missing`], [`value_io::xml_entity`], [`value_io::xml_expanded_name`] | `value-io.md` |
 //! | XML CST laws | [`xml::bounded_expansion_cst`], [`xml::expanded_name_cst`], [`xml::round_trip_cst`] | `value-io.md` |
+//! | TOML key resolution and YAML directive acceptance | [`pages::text_formats::toml::resolve_keys`], [`pages::text_formats::yaml::read_directives`] | `text-formats.md` |
+//! | Whole TOML and block YAML document reading | [`pages::text_formats::toml::read_document`], [`pages::text_formats::yaml::render_block`], [`pages::text_formats::yaml::read_block_document`] | `text-formats.md` |
+//! | PostgreSQL data values, rows, canonical text and table directory fields | [`pages::postgresql_data::input_value`], [`pages::postgresql_data::render`], [`pages::postgresql_data::read_script`], [`pages::postgresql_data::canonical_text`], [`pages::postgresql_data::csv_field`], [`pages::postgresql_data::text_field`] | `postgresql-data.md` |
+//! | PostgreSQL DDL column types, keys and references, and canonical text | [`pages::postgresql_ddl::column_type`], [`pages::postgresql_ddl::render`], [`pages::postgresql_ddl::read_script`], [`pages::postgresql_ddl::canonical_text`] | `postgresql-ddl.md` |
+//! | N-Triples reading, the RDF graph encoding and canonical writing | [`pages::rdf_formats::ntriples::read_document`], [`pages::rdf_formats::ntriples::encode`], [`pages::rdf_formats::ntriples::canonical_text`], [`pages::rdf_formats::ntriples::write_graph`] | `rdf-formats.md` |
+//! | Turtle reading, IRI resolution, canonical Turtle and format-preserving edits | [`pages::rdf_formats::turtle::read_document`], [`pages::rdf_formats::turtle::resolve`], [`pages::rdf_formats::turtle::canonical_text`], [`pages::rdf_formats::turtle::edit`], [`pages::rdf_formats::turtle::edited_triples`] | `rdf-formats.md` |
+//! | JSON-LD reading, native numbers, canonical JSON-LD and format-preserving edits | [`pages::rdf_formats::jsonld::read_document`], [`pages::rdf_formats::jsonld::number_form`], [`pages::rdf_formats::jsonld::canonical_text`] | `rdf-formats.md` |
+//! | Edge-list reading, the edge-list graph encoding and canonical writing | [`pages::edge_lists::read_document`], [`pages::edge_lists::encode`], [`pages::edge_lists::canonical_text`], [`pages::edge_lists::write_graph`] | `edge-lists.md` |
+//! | Kubernetes CRD reading and canonical writing | [`pages::kubernetes_crds::read`], [`pages::kubernetes_crds::render_yaml`], [`pages::kubernetes_crds::canonical_text`] | `kubernetes-crds.md` |
+//! | `CloudFormation` template reading, reference resolution and canonical writing | [`pages::cloudformation::read`], [`pages::cloudformation::render_yaml`], [`pages::cloudformation::json`], [`pages::cloudformation::canonical_text`] | `cloudformation.md` |
+//! | Ansible playbook, task-file and variables-file reading and canonical writing | [`pages::ansible::read`], [`pages::ansible::render_yaml`], [`pages::ansible::canonical_text`] | `ansible.md` |
+//! | JSON Schema 2020-12 reading, reference resolution and canonical writing | [`pages::json_schema::read`], [`pages::json_schema::render`], [`pages::json_schema::resolve`], [`pages::json_schema::canonical_text`] | `json-schema.md` |
+//! | `OpenAPI` 3.1 reading, reference resolution and canonical writing | [`pages::openapi::read`], [`pages::json_schema::read_embedded`], [`pages::openapi::canonical_text`] | `openapi.md` |
+//! | `AsyncAPI` 3 reading, reference resolution, draft-07 Schema Objects and canonical writing | [`pages::asyncapi::read`], [`pages::json_schema::read_draft07`], [`pages::asyncapi::canonical_text`] | `asyncapi.md` |
+//! | BSON 1.1 decoding, canonical binary writing, the BSON tree encoding and Extended JSON reading and writing | [`pages::bson::decode`], [`pages::bson::encode`], [`pages::bson::tree`], [`pages::bson::canonical_text`], [`pages::bson::relaxed_text`], [`pages::bson::read_text`] | `bson.md` |
+//! | Optimal total morphisms and spans, the morphism checker, the search cost, the isomorphism edge pairing and the answer digest | [`pages::migration_search::optimal_total`], [`pages::migration_search::optimal_span`], [`pages::migration_search::check_total`], [`pages::migration_search::check_span`], [`pages::migration_search::cost`], [`pages::migration_search::paired_edge_images`], [`pages::migration_search::digest`] | `migration-search.md` |
+//! | The per-element three-way schema merge, well-formedness, the merge rendering and conflict order, the selected migration's surviving identity and the repository format marker | [`pages::schema_merge::merge`], [`pages::schema_merge::Schema::well_formed`], [`pages::schema_merge::render`], [`pages::schema_merge::Conflict::order_key`], [`pages::schema_merge::Conflict::swapped`], [`pages::schema_merge::surviving_identity`], [`pages::schema_merge::may_rename`], [`pages::schema_merge::repository_format`] | `schema-merge.md` |
+//! | Theory DSL document grammar, elaboration, morphism, protocol and composition documents and refusal location | [`pages::theory_dsl::check_document`], [`pages::theory_dsl::elaborate`], [`pages::theory_dsl::compile_morphism`], [`pages::theory_dsl::compile_protocol`], [`pages::theory_dsl::compile_composition`], [`pages::theory_dsl::compile_document`], [`pages::theory_dsl::locate`] | `theory-dsl.md` |
+//! | Lens DSL document grammar, compilation of steps and rules, vertical and horizontal composition, and refusal location | [`pages::lens_dsl::check_document`], [`pages::lens_dsl::step_stages`], [`pages::lens_dsl::compile_document`], [`pages::lens_dsl::rules_stages`], [`pages::lens_dsl::vertical`], [`pages::lens_dsl::horizontal`], [`dsl_path::locate`] | `lens-dsl.md` |
 //!
 //! [`enumerate`] holds the exhaustive small-scope enumerators (labelled,
 //! with no pruning of isomorphic copies, each with an independent count),
@@ -122,6 +146,7 @@ mod blake3_ref;
 pub mod bytes;
 pub mod canonical;
 pub mod coerce;
+pub mod dsl_path;
 pub mod edit;
 pub mod encode;
 pub mod enumerate;

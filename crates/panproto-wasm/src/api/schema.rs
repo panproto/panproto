@@ -5,6 +5,7 @@
 use panproto_core::{
     check,
     inst::{self, WInstance},
+    io::schema_documents::{self, BundleSource, ReadOptions},
     lens::{self},
     mig::{self, Migration},
     protocols,
@@ -151,6 +152,14 @@ pub fn parse_atproto_lexicon(json_bytes: &[u8]) -> Result<u32, JsError> {
 /// support without changing this signature. Query the supported set with
 /// [`list_bundle_parser_protocols`].
 ///
+/// A protocol read through a tree-sitter grammar (`openapi`, `asyncapi`,
+/// `json-schema`, `k8s-crd`, `cloudformation`, `ansible`, `postgresql`)
+/// is read by its `panproto-io` reader in a build with the
+/// `format-preserving` feature. The published module leaves the grammars
+/// out, so there it is refused with an error that names the reader and
+/// that feature. The `ansible` reader needs the file's class, which this
+/// entry point does not take, so `ansible` is refused in every build.
+///
 /// # Errors
 ///
 /// Returns `JsError` if the JSON cannot be parsed, is not an array, no
@@ -162,12 +171,17 @@ pub fn parse_schema_bundle(protocol: &str, docs_bytes: &[u8]) -> Result<u32, JsE
         serde_json::from_slice(docs_bytes).map_err(|e| WasmError::DeserializationFailed {
             reason: format!("expected a JSON array of schema documents: {e}"),
         })?;
+    let texts: Vec<String> = docs.iter().map(serde_json::Value::to_string).collect();
+    let sources: Vec<BundleSource<'_>> = texts
+        .iter()
+        .map(|source| BundleSource {
+            retrieval_uri: None,
+            source,
+        })
+        .collect();
 
-    let schema = protocols::parse_schema_bundle(protocol, &docs).map_err(|e| {
-        WasmError::SchemaBuildFailed {
-            reason: e.to_string(),
-        }
-    })?;
+    let schema =
+        schema_documents::parse_schema_bundle(protocol, &sources).map_err(WasmError::from)?;
 
     Ok(slab::alloc(Resource::Schema(std::sync::Arc::new(schema))))
 }
@@ -206,22 +220,27 @@ pub fn list_bundle_parser_protocols() -> Result<Vec<u8>, JsError> {
 /// document are parsed with [`parse_schema_source`]. Query the supported
 /// set with [`list_document_parser_protocols`].
 ///
+/// A protocol read through a tree-sitter grammar (`openapi`, `asyncapi`,
+/// `json-schema`, `k8s-crd`, `cloudformation`, `ansible`, `postgresql`)
+/// is read by its `panproto-io` reader in a build with the
+/// `format-preserving` feature. The published module leaves the grammars
+/// out, so there it is refused with an error that names the reader and
+/// that feature. The `ansible` reader needs the file's class, which this
+/// entry point does not take, so `ansible` is refused in every build.
+///
 /// # Errors
 ///
 /// Returns `JsError` if the JSON cannot be parsed, no document parser is
 /// registered for `protocol`, or the document is not well-formed for it.
 #[wasm_bindgen]
 pub fn parse_schema_document(protocol: &str, doc_bytes: &[u8]) -> Result<u32, JsError> {
-    let doc: serde_json::Value =
-        serde_json::from_slice(doc_bytes).map_err(|e| WasmError::DeserializationFailed {
-            reason: format!("expected a JSON schema document: {e}"),
-        })?;
-
-    let schema = protocols::parse_schema_document(protocol, &doc).map_err(|e| {
-        WasmError::SchemaBuildFailed {
-            reason: e.to_string(),
-        }
+    let text = std::str::from_utf8(doc_bytes).map_err(|e| WasmError::DeserializationFailed {
+        reason: format!("expected a JSON schema document: {e}"),
     })?;
+
+    let schema =
+        schema_documents::parse_schema_document_text(protocol, text, &ReadOptions::default())
+            .map_err(WasmError::from)?;
 
     Ok(slab::alloc(Resource::Schema(std::sync::Arc::new(schema))))
 }
@@ -234,17 +253,22 @@ pub fn parse_schema_document(protocol: &str, doc_bytes: &[u8]) -> Result<u32, Js
 /// lives in the protocol layer, so this signature names no protocol.
 /// Query the supported set with [`list_source_parser_protocols`].
 ///
+/// A protocol read through a tree-sitter grammar (`openapi`, `asyncapi`,
+/// `json-schema`, `k8s-crd`, `cloudformation`, `ansible`, `postgresql`)
+/// is read by its `panproto-io` reader in a build with the
+/// `format-preserving` feature. The published module leaves the grammars
+/// out, so there it is refused with an error that names the reader and
+/// that feature. The `ansible` reader needs the file's class, which this
+/// entry point does not take, so `ansible` is refused in every build.
+///
 /// # Errors
 ///
 /// Returns `JsError` if no text-source parser is registered for
 /// `protocol`, or the source is not well-formed for it.
 #[wasm_bindgen]
 pub fn parse_schema_source(protocol: &str, source: &str) -> Result<u32, JsError> {
-    let schema = protocols::parse_schema_source(protocol, source).map_err(|e| {
-        WasmError::SchemaBuildFailed {
-            reason: e.to_string(),
-        }
-    })?;
+    let schema = schema_documents::parse_schema_source(protocol, source, &ReadOptions::default())
+        .map_err(WasmError::from)?;
 
     Ok(slab::alloc(Resource::Schema(std::sync::Arc::new(schema))))
 }

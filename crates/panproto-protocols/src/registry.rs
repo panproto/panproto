@@ -18,8 +18,8 @@ use panproto_schema::{Protocol, Schema};
 
 use crate::error::ProtocolError;
 use crate::{
-    annotation, api, config, data_schema, data_science, database, domain, serialization, text,
-    web_document,
+    annotation, api, config, data_schema, data_science, database, domain, edgelist, rdf,
+    serialization, text, web_document,
 };
 
 /// How a protocol's schema documents arrive, and the function that
@@ -37,6 +37,16 @@ pub enum Parser {
     /// Reads text in the protocol's own syntax. Reached by
     /// [`parse_schema_source`](crate::parse_schema_source).
     Source(fn(&str) -> Result<Schema, ProtocolError>),
+    /// Reads text in the protocol's own syntax through a tree-sitter
+    /// grammar. This crate does not link the grammars, so the reading is
+    /// done by `panproto-io` under its `tree-sitter` feature, at the path
+    /// named here: `panproto_io::schema_documents` reaches the reader by
+    /// this path, and the dispatches of this crate refuse the protocol
+    /// with an error that names it.
+    Grammar {
+        /// The path of the reader, as `crate::module::function`.
+        reader: &'static str,
+    },
     /// Reads no schema documents. The protocol is a generic data format
     /// whose files carry no schema, so its schemas are built in code with
     /// [`SchemaBuilder`](panproto_schema::SchemaBuilder), and both
@@ -66,10 +76,12 @@ pub struct ProtocolDescriptor {
     /// partial set, which is why the signature returns a `Result` at
     /// all.
     pub register_theories: fn(&mut HashMap<String, Theory>) -> Result<(), ProtocolError>,
-    /// Whether [`parse_schema_bundle`](crate::parse_schema_bundle)
-    /// accepts it, which is to say whether a reference from one
-    /// document into a sibling resolves rather than becoming an opaque
-    /// placeholder.
+    /// Whether its documents can be read as a bundle, which is to say
+    /// whether a reference from one document into a sibling resolves
+    /// rather than becoming an opaque placeholder. A document or source
+    /// protocol's bundles are read by
+    /// [`parse_schema_bundle`](crate::parse_schema_bundle), a grammar
+    /// protocol's by the bundle form of its `panproto-io` reader.
     pub bundle: bool,
     /// Whether
     /// [`parse_schema_bundle_project`](crate::parse_schema_bundle_project)
@@ -141,7 +153,9 @@ static DESCRIPTORS: &[ProtocolDescriptor] = &[
     ProtocolDescriptor {
         name: "ansible",
         aliases: &[],
-        parser: Parser::Document(config::ansible::parse_ansible_schema),
+        parser: Parser::Grammar {
+            reader: "panproto_io::config::ansible::read_ansible",
+        },
         protocol: config::ansible::protocol,
         register_theories: |r| {
             config::ansible::register_theories(r);
@@ -177,13 +191,15 @@ static DESCRIPTORS: &[ProtocolDescriptor] = &[
     ProtocolDescriptor {
         name: "asyncapi",
         aliases: &[],
-        parser: Parser::Document(api::asyncapi::parse_asyncapi),
+        parser: Parser::Grammar {
+            reader: "panproto_io::api::asyncapi::read_asyncapi",
+        },
         protocol: api::asyncapi::protocol,
         register_theories: |r| {
             api::asyncapi::register_theories(r);
             Ok(())
         },
-        bundle: false,
+        bundle: true,
         bundle_project: false,
     },
     ProtocolDescriptor {
@@ -246,7 +262,7 @@ static DESCRIPTORS: &[ProtocolDescriptor] = &[
     ProtocolDescriptor {
         name: "bson",
         aliases: &[],
-        parser: Parser::Document(data_schema::bson::parse_bson_schema),
+        parser: Parser::Programmatic,
         protocol: data_schema::bson::protocol,
         register_theories: |r| {
             data_schema::bson::register_theories(r);
@@ -282,7 +298,9 @@ static DESCRIPTORS: &[ProtocolDescriptor] = &[
     ProtocolDescriptor {
         name: "cloudformation",
         aliases: &[],
-        parser: Parser::Document(config::cloudformation::parse_cfn_schema),
+        parser: Parser::Grammar {
+            reader: "panproto_io::config::cloudformation::read_template",
+        },
         protocol: config::cloudformation::protocol,
         register_theories: |r| {
             config::cloudformation::register_theories(r);
@@ -388,6 +406,30 @@ static DESCRIPTORS: &[ProtocolDescriptor] = &[
         bundle_project: false,
     },
     ProtocolDescriptor {
+        name: "edgelist-csv",
+        aliases: &[],
+        parser: Parser::Programmatic,
+        protocol: edgelist::csv::protocol,
+        register_theories: |r| {
+            edgelist::csv::register_theories(r);
+            Ok(())
+        },
+        bundle: false,
+        bundle_project: false,
+    },
+    ProtocolDescriptor {
+        name: "edgelist-tsv",
+        aliases: &[],
+        parser: Parser::Programmatic,
+        protocol: edgelist::tsv::protocol,
+        register_theories: |r| {
+            edgelist::tsv::register_theories(r);
+            Ok(())
+        },
+        bundle: false,
+        bundle_project: false,
+    },
+    ProtocolDescriptor {
         name: "elan",
         aliases: &[],
         parser: Parser::Document(annotation::elan::parse_elan),
@@ -486,7 +528,9 @@ static DESCRIPTORS: &[ProtocolDescriptor] = &[
     ProtocolDescriptor {
         name: "json-schema",
         aliases: &[],
-        parser: Parser::Document(data_schema::json_schema::parse_json_schema),
+        parser: Parser::Grammar {
+            reader: "panproto_io::data_schema::json_schema::read_schema",
+        },
         protocol: data_schema::json_schema::protocol,
         register_theories: |r| {
             data_schema::json_schema::register_theories(r);
@@ -508,9 +552,23 @@ static DESCRIPTORS: &[ProtocolDescriptor] = &[
         bundle_project: false,
     },
     ProtocolDescriptor {
+        name: "jsonld",
+        aliases: &["json-ld"],
+        parser: Parser::Programmatic,
+        protocol: rdf::jsonld::protocol,
+        register_theories: |r| {
+            rdf::jsonld::register_theories(r);
+            Ok(())
+        },
+        bundle: false,
+        bundle_project: false,
+    },
+    ProtocolDescriptor {
         name: "k8s-crd",
         aliases: &[],
-        parser: Parser::Document(config::k8s_crd::parse_k8s_crd_schema),
+        parser: Parser::Grammar {
+            reader: "panproto_io::config::k8s_crd::read_crd",
+        },
         protocol: config::k8s_crd::protocol,
         register_theories: |r| {
             config::k8s_crd::register_theories(r);
@@ -592,6 +650,18 @@ static DESCRIPTORS: &[ProtocolDescriptor] = &[
         bundle_project: false,
     },
     ProtocolDescriptor {
+        name: "ntriples",
+        aliases: &["n-triples"],
+        parser: Parser::Programmatic,
+        protocol: rdf::ntriples::protocol,
+        register_theories: |r| {
+            rdf::ntriples::register_theories(r);
+            Ok(())
+        },
+        bundle: false,
+        bundle_project: false,
+    },
+    ProtocolDescriptor {
         name: "odf",
         aliases: &[],
         parser: Parser::Document(web_document::odf::parse_odf_schema),
@@ -606,7 +676,9 @@ static DESCRIPTORS: &[ProtocolDescriptor] = &[
     ProtocolDescriptor {
         name: "openapi",
         aliases: &[],
-        parser: Parser::Document(api::openapi::parse_openapi),
+        parser: Parser::Grammar {
+            reader: "panproto_io::api::openapi::read_openapi",
+        },
         protocol: api::openapi::protocol,
         register_theories: |r| {
             api::openapi::register_theories(r);
@@ -688,12 +760,14 @@ static DESCRIPTORS: &[ProtocolDescriptor] = &[
         bundle_project: false,
     },
     ProtocolDescriptor {
-        name: "sql",
+        name: "postgresql",
         aliases: &[],
-        parser: Parser::Source(database::sql::parse_ddl),
-        protocol: database::sql::protocol,
+        parser: Parser::Grammar {
+            reader: "panproto_io::postgresql::read_ddl",
+        },
+        protocol: database::postgresql::protocol,
         register_theories: |r| {
-            database::sql::register_theories(r);
+            database::postgresql::register_theories(r);
             Ok(())
         },
         bundle: false,
@@ -742,6 +816,30 @@ static DESCRIPTORS: &[ProtocolDescriptor] = &[
         protocol: text::toml::protocol,
         register_theories: |r| {
             text::toml::register_theories(r);
+            Ok(())
+        },
+        bundle: false,
+        bundle_project: false,
+    },
+    ProtocolDescriptor {
+        name: "tsv",
+        aliases: &[],
+        parser: Parser::Programmatic,
+        protocol: text::tsv::protocol,
+        register_theories: |r| {
+            text::tsv::register_theories(r);
+            Ok(())
+        },
+        bundle: false,
+        bundle_project: false,
+    },
+    ProtocolDescriptor {
+        name: "turtle",
+        aliases: &["ttl"],
+        parser: Parser::Programmatic,
+        protocol: rdf::turtle::protocol,
+        register_theories: |r| {
+            rdf::turtle::register_theories(r);
             Ok(())
         },
         bundle: false,

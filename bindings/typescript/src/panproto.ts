@@ -175,10 +175,19 @@ export class Panproto implements Disposable {
    * of the bundle stays a placeholder, which is what marks it as
    * genuinely external.
    *
-   * Cross-document resolution is currently implemented for `'atproto'`.
-   * Other protocols whose documents can reference each other (OpenAPI's
-   * cross-file `$ref`, Avro's namespaced named types) will be added
-   * under this same entry point.
+   * Cross-document resolution is implemented for `'atproto'` and
+   * `'avro'`, and for `'openapi'`, `'asyncapi'` and `'json-schema'` by
+   * their tree-sitter grammar readers, as the next paragraph describes.
+   *
+   * The protocols read through a tree-sitter grammar (`openapi`,
+   * `asyncapi`, `json-schema`, `k8s-crd`, `cloudformation`, `ansible`,
+   * `postgresql`) are read by their `panproto-io` readers in a WASM build
+   * with the `format-preserving` feature. The published module leaves the
+   * grammars out, so there they are refused with an error that names the
+   * reader and that feature; read such a document with the Rust crates,
+   * the Python package or the `schema` CLI and pass the schema here as
+   * panproto schema JSON. `ansible` needs the file's class, which this
+   * method does not take, so it is refused in every build.
    *
    * @param protocol - The protocol the documents are written in
    * @param docs - The schema documents (objects or strings)
@@ -218,17 +227,27 @@ export class Panproto implements Disposable {
    *
    * The generic single-document loader: it reaches every JSON-document
    * protocol parser through one call, so any built-in protocol whose
-   * source is a JSON document (JSON Schema, ATProto lexicons, OpenAPI,
-   * Avro `.avsc`, and the rest) can be turned into a {@link BuiltSchema}
+   * source is a JSON document (ATProto lexicons, Avro `.avsc`, and the
+   * rest) can be turned into a {@link BuiltSchema}
    * usable as a lens or migration endpoint. Protocols whose source is a
-   * language rather than a JSON document (SQL, GraphQL, Protobuf, CDDL,
+   * language rather than a JSON document (GraphQL, Protobuf, CDDL,
    * …) are parsed with {@link parseSchemaSource}.
+   *
+   * The protocols read through a tree-sitter grammar (`openapi`,
+   * `asyncapi`, `json-schema`, `k8s-crd`, `cloudformation`, `ansible`,
+   * `postgresql`) are read by their `panproto-io` readers in a WASM build
+   * with the `format-preserving` feature. The published module leaves the
+   * grammars out, so there they are refused with an error that names the
+   * reader and that feature; read such a document with the Rust crates,
+   * the Python package or the `schema` CLI and pass the schema here as
+   * panproto schema JSON. `ansible` needs the file's class, which this
+   * method does not take, so it is refused in every build.
    *
    * Both the canonical hyphenated protocol name and its underscore
    * compatibility spelling resolve.
    *
    * @param protocol - The protocol the document is written in (e.g.
-   *   `'json-schema'`, `'openapi'`)
+   *   `'atproto'`, `'avro'`)
    * @param doc - The schema document (object or JSON string)
    * @returns A built schema
    * @throws {@link PanprotoError} if no document parser is registered for
@@ -236,9 +255,10 @@ export class Panproto implements Disposable {
    *
    * @example
    * ```typescript
-   * const schema = panproto.parseSchemaDocument('json-schema', {
-   *   type: 'object',
-   *   properties: { id: { type: 'string' }, count: { type: 'integer' } },
+   * const schema = panproto.parseSchemaDocument('avro', {
+   *   type: 'record',
+   *   name: 'User',
+   *   fields: [{ name: 'id', type: 'long' }],
    * });
    * ```
    */
@@ -263,12 +283,21 @@ export class Panproto implements Disposable {
    * dispatching on protocol name.
    *
    * The text counterpart to {@link parseSchemaDocument}, for protocols
-   * whose source is a language rather than a JSON document: SQL DDL,
-   * GraphQL SDL, Protocol Buffers `.proto`, CDDL, Cassandra CQL, Cypher,
+   * whose source is a language rather than a JSON document: GraphQL SDL, Protocol Buffers `.proto`, CDDL, Cassandra CQL, Cypher,
    * ASN.1, Bond, FlatBuffers, and CoNLL-U.
    *
+   * The protocols read through a tree-sitter grammar (`openapi`,
+   * `asyncapi`, `json-schema`, `k8s-crd`, `cloudformation`, `ansible`,
+   * `postgresql`) are read by their `panproto-io` readers in a WASM build
+   * with the `format-preserving` feature. The published module leaves the
+   * grammars out, so there they are refused with an error that names the
+   * reader and that feature; read such a document with the Rust crates,
+   * the Python package or the `schema` CLI and pass the schema here as
+   * panproto schema JSON. `ansible` needs the file's class, which this
+   * method does not take, so it is refused in every build.
+   *
    * @param protocol - The protocol the source is written in (e.g.
-   *   `'sql'`, `'graphql'`, `'protobuf'`)
+   *   `'graphql'`, `'protobuf'`)
    * @param source - The schema source text
    * @returns A built schema
    * @throws {@link PanprotoError} if no source parser is registered for
@@ -567,7 +596,7 @@ export class Panproto implements Disposable {
   /**
    * List all built-in protocol names.
    *
-   * Returns the canonical names of all 57 built-in protocols supported by the
+   * Returns the canonical names of all 63 built-in protocols supported by the
    * WASM layer.
    *
    * @returns Array of protocol name strings

@@ -1,0 +1,49 @@
+================================================================================
+Simple CTE
+================================================================================
+
+WITH t AS (SELECT 1) SELECT * FROM t;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (SelectStmt
+        (select_no_parens
+          (with_clause
+            (kw_with)
+            (cte_list
+              (common_table_expr
+                (name
+                  (ColId
+                    (identifier)))
+                (kw_as)
+                (PreparableStmt
+                  (SelectStmt
+                    (select_no_parens
+                      (simple_select
+                        (kw_select)
+                        (opt_target_list
+                          (target_list
+                            (target_el
+                              (a_expr
+                                (a_expr
+                                  (c_expr
+                                    (AexprConst
+                                      (Iconst
+                                        (integer_literal))))))))))))))))
+          (select_clause
+            (simple_select
+              (kw_select)
+              (opt_target_list
+                (target_list
+                  (target_el)))
+              (from_clause
+                (kw_from)
+                (from_list
+                  (table_ref
+                    (relation_expr
+                      (qualified_name
+                        (ColId
+                          (identifier))))))))))))))

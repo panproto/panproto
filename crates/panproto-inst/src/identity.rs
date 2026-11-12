@@ -2951,7 +2951,7 @@ mod tests {
             assert_eq!(decoded.len(), 2, "{encoding:?}");
             assert!(decoded.iter().all(|d| d.identity() == c.identity.as_ref()));
 
-            let mut trailing = bytes.clone();
+            let mut trailing = bytes;
             trailing.push(0);
             assert!(
                 matches!(

@@ -26,6 +26,9 @@ use pyo3::prelude::*;
 use pyo3::types::PyString;
 
 use panproto_core::gat::{SortKind, Theory, ValueKind};
+use panproto_core::io::schema_documents::{self, BundleSource, ReadOptions, SchemaReadError};
+use panproto_core::protocols::config::ansible::FileClass;
+use panproto_core::protocols::registry::{self, Parser};
 use panproto_core::protocols::web_document::atproto;
 use panproto_core::schema::Schema;
 
@@ -46,6 +49,56 @@ fn json_from_py(doc: &Bound<'_, PyAny>) -> PyResult<serde_json::Value> {
         });
     }
     crate::convert::from_python(doc)
+}
+
+/// The reader options a call names: the class of an Ansible file.
+fn read_options(ansible_class: Option<&str>) -> PyResult<ReadOptions> {
+    let file_class = ansible_class
+        .map(|name| {
+            FileClass::from_name(name).ok_or_else(|| {
+                pyo3::exceptions::PyValueError::new_err(format!(
+                    "unknown Ansible file class {name:?}; expected one of {:?}",
+                    FileClass::ALL.map(FileClass::name)
+                ))
+            })
+        })
+        .transpose()?;
+    Ok(ReadOptions {
+        file_class,
+        ..ReadOptions::default()
+    })
+}
+
+/// The message of a schema-document refusal, naming the feature of this
+/// extension that provides a reader the build does not include.
+fn read_error_message(error: &SchemaReadError) -> String {
+    match error {
+        SchemaReadError::GrammarNotBuilt { .. } => format!(
+            "{error}; this panproto build lacks the panproto-py feature \
+             format-preserving, which the published wheel enables"
+        ),
+        _ => error.to_string(),
+    }
+}
+
+/// Whether `protocol` is read through a tree-sitter grammar.
+fn read_through_grammar(protocol: &str) -> bool {
+    registry::descriptor(protocol).is_some_and(|d| matches!(d.parser, Parser::Grammar { .. }))
+}
+
+/// The JSON text of a document given as a string or a Python value.
+///
+/// A string is taken as written, so a reader sees its key order and any
+/// repeated key; any other value is written by Python's `json` module,
+/// which keeps a mapping's insertion order.
+fn document_text(doc: &Bound<'_, PyAny>) -> PyResult<String> {
+    if let Ok(text) = doc.cast::<PyString>() {
+        return Ok(text.to_str()?.to_owned());
+    }
+    doc.py()
+        .import("json")?
+        .call_method1("dumps", (doc,))?
+        .extract()
 }
 
 /// Parse an `ATProto` lexicon value into a [`PySchema`].
@@ -142,18 +195,26 @@ pub fn parse_atproto_lexicon(doc: &Bound<'_, PyAny>) -> PyResult<PySchema> {
 /// Parse a schema-defining JSON *document* under the named protocol.
 ///
 /// A protocol-dispatching entry point over every JSON-document schema
-/// parser, forwarding the protocol string to the parser layer so no
-/// protocol name is hard-coded here. Protocols whose source is text
-/// rather than a JSON document are parsed with
-/// :func:`parse_schema_source`.
+/// reader, forwarding the protocol string to the reader layer so no
+/// protocol name is hard-coded here. The protocols read through a
+/// tree-sitter grammar whose documents are JSON (``openapi``,
+/// ``asyncapi``, ``json-schema``, ``k8s-crd``, ``cloudformation``,
+/// ``ansible``) are read here too. Protocols whose source is text rather
+/// than a JSON document are parsed with :func:`parse_schema_source`.
 ///
 /// Parameters
 /// ----------
 /// protocol : str
-///     Protocol name selecting the document parser. Both the canonical
+///     Protocol name selecting the document reader. Both the canonical
 ///     hyphenated name and its underscore compatibility spelling resolve.
 /// doc : Mapping or str
-///     The schema document, as a parsed dict or a raw JSON string.
+///     The schema document, as a parsed dict or a raw JSON string. A
+///     grammar protocol reads a string as written and a dict as Python's
+///     ``json.dumps`` writes it.
+/// `ansible_class` : str, optional
+///     The class of an Ansible file, ``"playbook"``, ``"tasks"`` or
+///     ``"vars"``, which the ``ansible`` reader needs and the file does
+///     not state.
 ///
 /// Returns
 /// -------
@@ -164,13 +225,23 @@ pub fn parse_atproto_lexicon(doc: &Bound<'_, PyAny>) -> PyResult<PySchema> {
 /// ------
 /// `ValueError`
 ///     If ``doc`` is a string that is not valid JSON, if no document
-///     parser is registered for ``protocol``, or the document is not
-///     well-formed for it.
+///     reader is registered for ``protocol``, if the reader refuses the
+///     document, or if ``ansible_class`` is missing for ``ansible`` or
+///     names no class.
 #[pyfunction]
-pub fn parse_schema_document(protocol: &str, doc: &Bound<'_, PyAny>) -> PyResult<PySchema> {
-    let value = json_from_py(doc)?;
-    let schema = panproto_core::protocols::parse_schema_document(protocol, &value)
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+#[pyo3(signature = (protocol, doc, ansible_class = None))]
+pub fn parse_schema_document(
+    protocol: &str,
+    doc: &Bound<'_, PyAny>,
+    ansible_class: Option<&str>,
+) -> PyResult<PySchema> {
+    let options = read_options(ansible_class)?;
+    let schema = if read_through_grammar(protocol) {
+        schema_documents::parse_schema_document_text(protocol, &document_text(doc)?, &options)
+    } else {
+        schema_documents::parse_schema_document(protocol, &json_from_py(doc)?, &options)
+    }
+    .map_err(|e| pyo3::exceptions::PyValueError::new_err(read_error_message(&e)))?;
     Ok(PySchema {
         inner: Arc::new(schema),
     })
@@ -180,15 +251,23 @@ pub fn parse_schema_document(protocol: &str, doc: &Bound<'_, PyAny>) -> PyResult
 /// the named protocol.
 ///
 /// The text counterpart to :func:`parse_schema_document`, for protocols
-/// whose source is a language rather than a JSON document. Dispatch
-/// lives in the parser layer, so no protocol name is hard-coded here.
+/// whose source is a language rather than a JSON document, and for the
+/// protocols read through a tree-sitter grammar, which read their text as
+/// written: an ``openapi``, ``asyncapi``, ``k8s-crd``, ``cloudformation``
+/// or ``ansible`` document in YAML or JSON, a ``json-schema`` document,
+/// or a ``postgresql`` script. Dispatch lives in the reader layer, so no
+/// protocol name is hard-coded here.
 ///
 /// Parameters
 /// ----------
 /// protocol : str
-///     Protocol name selecting the source parser.
+///     Protocol name selecting the source reader.
 /// source : str
 ///     The schema source text.
+/// `ansible_class` : str, optional
+///     The class of an Ansible file, ``"playbook"``, ``"tasks"`` or
+///     ``"vars"``, which the ``ansible`` reader needs and the file does
+///     not state.
 ///
 /// Returns
 /// -------
@@ -198,12 +277,19 @@ pub fn parse_schema_document(protocol: &str, doc: &Bound<'_, PyAny>) -> PyResult
 /// Raises
 /// ------
 /// `ValueError`
-///     If no source parser is registered for ``protocol``, or the source
-///     is not well-formed for it.
+///     If no source reader is registered for ``protocol``, if the reader
+///     refuses the source, or if ``ansible_class`` is missing for
+///     ``ansible`` or names no class.
 #[pyfunction]
-pub fn parse_schema_source(protocol: &str, source: &str) -> PyResult<PySchema> {
-    let schema = panproto_core::protocols::parse_schema_source(protocol, source)
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+#[pyo3(signature = (protocol, source, ansible_class = None))]
+pub fn parse_schema_source(
+    protocol: &str,
+    source: &str,
+    ansible_class: Option<&str>,
+) -> PyResult<PySchema> {
+    let schema =
+        schema_documents::parse_schema_source(protocol, source, &read_options(ansible_class)?)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(read_error_message(&e)))?;
     Ok(PySchema {
         inner: Arc::new(schema),
     })
@@ -220,12 +306,22 @@ pub fn parse_schema_source(protocol: &str, source: &str) -> PyResult<PySchema> {
 /// reference whose target is in no document of the bundle stays a
 /// placeholder, which is what marks it as genuinely external.
 ///
+/// The ``openapi``, ``asyncapi`` and ``json-schema`` bundles are read by
+/// their tree-sitter grammar readers, the first document the entry. A
+/// reference between their documents resolves against a document's
+/// retrieval URI, or against the ``$id`` it declares.
+///
 /// Parameters
 /// ----------
 /// protocol : str
-///     Protocol name selecting the bundle parser.
+///     Protocol name selecting the bundle reader.
 /// docs : Sequence of Mapping or str
-///     The schema documents, each a parsed dict or a raw JSON string.
+///     The schema documents, each a parsed dict or a raw JSON string; a
+///     grammar protocol also reads a YAML string.
+/// `retrieval_uris` : Sequence of str or None, optional
+///     The absolute URI each document was retrieved from, in the order
+///     of ``docs``, for a grammar protocol. Only a grammar protocol's
+///     reader takes them.
 ///
 /// Returns
 /// -------
@@ -240,14 +336,48 @@ pub fn parse_schema_source(protocol: &str, source: &str) -> PyResult<PySchema> {
 /// `SchemaValidationError`
 ///     If the documents are not a well-formed bundle for the protocol.
 #[pyfunction]
-pub fn parse_schema_bundle(protocol: &str, docs: &Bound<'_, PyAny>) -> PyResult<PySchema> {
-    let mut values = Vec::new();
-    for doc in docs.try_iter()? {
-        values.push(json_from_py(&doc?)?);
+#[pyo3(signature = (protocol, docs, retrieval_uris = None))]
+pub fn parse_schema_bundle(
+    protocol: &str,
+    docs: &Bound<'_, PyAny>,
+    retrieval_uris: Option<Vec<Option<String>>>,
+) -> PyResult<PySchema> {
+    let schema = if read_through_grammar(protocol) {
+        let texts = docs
+            .try_iter()?
+            .map(|doc| document_text(&doc?))
+            .collect::<PyResult<Vec<String>>>()?;
+        let uris = retrieval_uris.unwrap_or_else(|| vec![None; texts.len()]);
+        if uris.len() != texts.len() {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "{} retrieval URIs for {} documents",
+                uris.len(),
+                texts.len()
+            )));
+        }
+        let sources: Vec<BundleSource<'_>> = texts
+            .iter()
+            .zip(&uris)
+            .map(|(source, uri)| BundleSource {
+                retrieval_uri: uri.as_deref(),
+                source,
+            })
+            .collect();
+        schema_documents::parse_schema_bundle(protocol, &sources)
+            .map_err(|e| read_error_message(&e))
+    } else {
+        if retrieval_uris.is_some() {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "protocol {protocol:?} reads its bundles without retrieval URIs"
+            )));
+        }
+        let mut values = Vec::new();
+        for doc in docs.try_iter()? {
+            values.push(json_from_py(&doc?)?);
+        }
+        panproto_core::protocols::parse_schema_bundle(protocol, &values).map_err(|e| e.to_string())
     }
-
-    let schema = panproto_core::protocols::parse_schema_bundle(protocol, &values)
-        .map_err(|e| SchemaValidationError::new_err(format!("bundle parse failed: {e}")))?;
+    .map_err(|e| SchemaValidationError::new_err(format!("bundle parse failed: {e}")))?;
 
     Ok(PySchema {
         inner: Arc::new(schema),

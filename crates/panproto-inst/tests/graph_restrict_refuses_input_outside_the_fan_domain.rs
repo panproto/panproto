@@ -202,7 +202,7 @@ fn the_plan_engine_refuses_each_witness_with_its_least_violation() {
             RestrictError::MalformedFan {
                 node: found,
                 reason: found_reason,
-            } => assert_eq!((found, found_reason), (node, reason.clone()), "{g:?}"),
+            } => assert_eq!((found, found_reason), (node, reason), "{g:?}"),
             other => panic!("{g:?} is not refused as malformed: {other:?}"),
         }
     }

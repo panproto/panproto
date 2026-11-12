@@ -119,11 +119,13 @@ pub struct Repository {
 impl Repository {
     /// Initialize a new repository at the given path.
     ///
-    /// Creates the `.panproto/` directory structure and sets HEAD to `main`.
+    /// Creates the `.panproto/` directory structure, writes the repository
+    /// format marker and sets HEAD to `main`.
     ///
     /// # Errors
     ///
-    /// Returns an error if the directory already exists or I/O fails.
+    /// Returns [`VcsError::AlreadyARepository`] if `.panproto/` already
+    /// exists, and an I/O error if creating it fails.
     pub fn init(path: &Path) -> Result<Self, VcsError> {
         let store = FsStore::init(path)?;
         Ok(Self {
@@ -138,7 +140,10 @@ impl Repository {
     ///
     /// # Errors
     ///
-    /// Returns [`VcsError::NotARepository`] if `.panproto/` does not exist.
+    /// Returns [`VcsError::NotARepository`] if `.panproto/` does not exist,
+    /// and [`VcsError::UnsupportedRepositoryFormat`] if its format marker
+    /// names a format other than
+    /// [`REPOSITORY_FORMAT_VERSION`](crate::REPOSITORY_FORMAT_VERSION).
     pub fn open(path: &Path) -> Result<Self, VcsError> {
         let store = FsStore::open(path)?;
         Ok(Self {
@@ -1811,7 +1816,7 @@ mod tests {
         // Switch back to main and merge feature.
         refs::checkout_branch(repo.store_mut(), "main")?;
         let result = repo.merge("feature", "alice")?;
-        assert!(result.conflicts.is_empty());
+        assert_eq!(result.conflicts, vec![]);
 
         // main should now have vertex b.
         let log = repo.log(None)?;
@@ -2399,7 +2404,7 @@ mod tests {
         refs::create_branch(repo.store_mut(), "feature", c_theirs_id)?;
 
         let result = repo.merge("feature", "alice")?;
-        assert!(result.conflicts.is_empty(), "clean merge expected");
+        assert_eq!(result.conflicts, vec![], "clean merge expected");
 
         // The merge commit's data was lifted, not unioned stale: neither
         // original data id survives verbatim.

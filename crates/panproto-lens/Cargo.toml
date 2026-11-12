@@ -24,6 +24,7 @@ rustc-hash = { workspace = true }
 
 [dev-dependencies]
 panproto-reference = { workspace = true }
+panproto-protocols = { workspace = true }
 divan = { workspace = true }
 proptest = { workspace = true }
 smallvec = { workspace = true }

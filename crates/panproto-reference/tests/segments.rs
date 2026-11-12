@@ -1542,7 +1542,7 @@ fn every_shape_restarts_from_committed_tasks_to_the_same_manifest() {
         );
         assert!(matches!(resumed.report.status, RunStatus::Complete { .. }));
         assert!(resumed.report.tasks_reused >= 2);
-        assert_eq!(resumed.value, Some(whole.clone()));
+        assert_eq!(resumed.value, Some(whole));
         let resumed_manifest = resumed.manifest.test_unwrap("complete run has manifest");
 
         let replay = segment::segmented_with(

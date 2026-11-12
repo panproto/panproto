@@ -1434,7 +1434,7 @@ pub mod implementation {
                     Err(error) => {
                         incomplete.push(undecided(
                             CheckKind::KeyUnique,
-                            decl.clone(),
+                            decl,
                             Requirement::Required,
                             None,
                             IncompleteReason::Unsupported {

@@ -159,6 +159,25 @@ pub enum ComplementConstructor {
     },
 }
 
+impl ComplementConstructor {
+    /// Whether the complement keeps no residue: it is empty, an `Iso`
+    /// coercion, a scoped complement whose inner one keeps none, or a
+    /// composite whose every part keeps none.
+    #[must_use]
+    pub fn is_lossless(&self) -> bool {
+        match self {
+            Self::Empty
+            | Self::CoercedSortData {
+                class: panproto_gat::CoercionClass::Iso,
+                ..
+            } => true,
+            Self::Composite(parts) => parts.iter().all(Self::is_lossless),
+            Self::Scoped { inner, .. } => inner.is_lossless(),
+            _ => false,
+        }
+    }
+}
+
 /// A protolens: a dependent function from schemas to lenses.
 ///
 /// A `Protolens` is **not** a lens. A [`Lens`] is a concrete pair
@@ -295,7 +314,7 @@ impl Protolens {
             src_schema,
             tgt_schema,
         };
-        attach_exact_vertex_kind_coercions(&mut lens, &self.target.transform)?;
+        attach_declared_value_transforms(&mut lens, &self.target.transform)?;
         let defaults =
             crate::default_synthesis::constructor_defaults(&self.complement_constructor)?;
         let target_schema = lens.tgt_schema.clone();
@@ -374,18 +393,11 @@ impl Protolens {
         crate::optic::classify_transform(&self.target.transform)
     }
 
-    /// Returns `true` if this protolens produces lossless lenses
-    /// (empty complement).
+    /// Returns `true` if this protolens produces lossless lenses: its
+    /// complement keeps no residue (see [`ComplementConstructor::is_lossless`]).
     #[must_use]
-    pub const fn is_lossless(&self) -> bool {
-        matches!(
-            self.complement_constructor,
-            ComplementConstructor::Empty
-                | ComplementConstructor::CoercedSortData {
-                    class: panproto_gat::CoercionClass::Iso,
-                    ..
-                }
-        )
+    pub fn is_lossless(&self) -> bool {
+        self.complement_constructor.is_lossless()
     }
 
     /// Serialize to JSON.
@@ -407,13 +419,18 @@ impl Protolens {
     }
 }
 
-/// Install value transforms for exact per-vertex kind changes.
+/// Install the value transforms a transform declares: exact per-vertex kind
+/// changes, sort coercions and directed equations.
 ///
 /// A schema kind mutation is not a value coercion by itself. The target
 /// schema must register the coercion for the old/new kind pair; otherwise
 /// instantiation fails instead of emitting values that violate the target
-/// schema. Composite transforms preserve step order.
-fn attach_exact_vertex_kind_coercions(
+/// schema. A sort coercion applies its forward expression to the value of
+/// every node of every vertex of the coerced kind that survives, with its
+/// inverse and class. A directed equation rewrites the field its left-hand
+/// side names ([`directed_equation_transforms`]). Composite transforms
+/// preserve step order.
+fn attach_declared_value_transforms(
     lens: &mut Lens,
     transform: &TheoryTransform,
 ) -> Result<(), LensError> {
@@ -445,15 +462,109 @@ fn attach_exact_vertex_kind_coercions(
             );
             Ok(())
         }
+        TheoryTransform::CoerceSort {
+            sort_name,
+            coercion_expr,
+            inverse_expr,
+            coercion_class,
+            ..
+        } => {
+            let mut coerced: Vec<Name> = lens
+                .src_schema
+                .vertices
+                .values()
+                .filter(|vertex| {
+                    *vertex.kind == **sort_name && lens.tgt_schema.vertices.contains_key(&vertex.id)
+                })
+                .map(|vertex| vertex.id.clone())
+                .collect();
+            coerced.sort();
+            for id in coerced {
+                lens.compiled.field_transforms.entry(id).or_default().push(
+                    panproto_inst::FieldTransform::ApplyExpr {
+                        key: "__value__".to_owned(),
+                        expr: coercion_expr.clone(),
+                        inverse: inverse_expr.clone(),
+                        coercion_class: *coercion_class,
+                    },
+                );
+            }
+            Ok(())
+        }
+        TheoryTransform::AddDirectedEquation(equation) => {
+            for (vertex, transform) in directed_equation_transforms(equation, &lens.src_schema) {
+                if lens.tgt_schema.vertices.contains_key(&vertex) {
+                    lens.compiled
+                        .field_transforms
+                        .entry(vertex)
+                        .or_default()
+                        .push(transform);
+                }
+            }
+            Ok(())
+        }
         TheoryTransform::Compose(first, second) => {
-            attach_exact_vertex_kind_coercions(lens, first)?;
-            attach_exact_vertex_kind_coercions(lens, second)
+            attach_declared_value_transforms(lens, first)?;
+            attach_declared_value_transforms(lens, second)
         }
         TheoryTransform::ScopedTransform { inner, .. } => {
-            attach_exact_vertex_kind_coercions(lens, inner)
+            attach_declared_value_transforms(lens, inner)
         }
         _ => Ok(()),
     }
+}
+
+/// The value transforms a directed equation declares at a schema.
+///
+/// A left-hand side `f(t, ...)` names the field `f`: at every vertex with an
+/// outgoing edge labelled `f`, in id order, the field's value is rewritten
+/// by the equation's implementation and an edit is taken back by its
+/// inverse, each evaluated with the field's value bound to `x`, the variable
+/// the equation's honesty check binds for an application, under the
+/// equation's class. A left-hand side that is no application names no
+/// field, and declares no value transform.
+#[must_use]
+pub(crate) fn directed_equation_transforms(
+    equation: &panproto_gat::DirectedEquation,
+    schema: &Schema,
+) -> Vec<(Name, panproto_inst::FieldTransform)> {
+    let panproto_gat::Term::App { op, .. } = &equation.lhs else {
+        return Vec::new();
+    };
+    let field = Name::from(&**op);
+    let bound: Arc<str> = Arc::from("x");
+    let bind = |expr: &panproto_expr::Expr| {
+        panproto_expr::Expr::let_in(
+            Arc::clone(&bound),
+            panproto_expr::Expr::Var(Arc::from(&**op)),
+            expr.clone(),
+        )
+    };
+    let mut vertices: Vec<&Name> = schema
+        .vertices
+        .keys()
+        .filter(|vertex| {
+            schema
+                .outgoing_edges(vertex)
+                .iter()
+                .any(|edge| edge.name.as_ref() == Some(&field))
+        })
+        .collect();
+    vertices.sort();
+    vertices
+        .into_iter()
+        .map(|vertex| {
+            (
+                vertex.clone(),
+                panproto_inst::FieldTransform::ApplyExpr {
+                    key: field.to_string(),
+                    expr: bind(&equation.impl_term),
+                    inverse: equation.inverse.as_ref().map(bind),
+                    coercion_class: equation.coercion_class,
+                },
+            )
+        })
+        .collect()
 }
 
 /// The composite of `transforms` in order, as a `Compose` tree split at
@@ -848,6 +959,24 @@ pub fn vertical_compose(eta: &Protolens, theta: &Protolens) -> Result<Protolens,
     })
 }
 
+/// `first.compose(second)`, an identity factor dropped from the composite
+/// transform: `Id ∘ F = F ∘ Id = F`, so the horizontal composite of two
+/// protolenses whose sources are the identity has the identity as its
+/// source, and composes vertically after any protolens.
+fn compose_endofunctors(
+    first: &TheoryEndofunctor,
+    second: &TheoryEndofunctor,
+) -> TheoryEndofunctor {
+    let mut composed = first.compose(second);
+    match (&first.transform, &second.transform) {
+        (TheoryTransform::Identity, other) | (other, TheoryTransform::Identity) => {
+            composed.transform = other.clone();
+        }
+        _ => {}
+    }
+    composed
+}
+
 /// Horizontal composition of protolenses: given `η : F ⟹ G` and
 /// `θ : F' ⟹ G'`, produce `η * θ : F∘F' ⟹ G∘G'`.
 ///
@@ -856,8 +985,8 @@ pub fn vertical_compose(eta: &Protolens, theta: &Protolens) -> Result<Protolens,
 /// Currently infallible, but returns `Result` for future compatibility
 /// with static compatibility checks.
 pub fn horizontal_compose(eta: &Protolens, theta: &Protolens) -> Result<Protolens, LensError> {
-    let source = eta.source.compose(&theta.source);
-    let target = eta.target.compose(&theta.target);
+    let source = compose_endofunctors(&eta.source, &theta.source);
+    let target = compose_endofunctors(&eta.target, &theta.target);
     let complement = ComplementConstructor::Composite(vec![
         eta.complement_constructor.clone(),
         theta.complement_constructor.clone(),
@@ -961,7 +1090,99 @@ impl ProtolensChain {
             return self.steps[0].instantiate(schema, protocol);
         }
         let fused = self.fuse()?;
-        fused.instantiate(schema, protocol)
+        let mut lens = fused.instantiate(schema, protocol)?;
+        self.follow_elements_through_steps(&mut lens, protocol)?;
+        Ok(lens)
+    }
+
+    /// Record in a fused lens the fate of each source vertex and edge as the
+    /// steps carry it, each step at the schema its predecessors produce.
+    ///
+    /// The fused lens compares its source with its target in one pass, which
+    /// cannot tell which of several renamed edges between two vertices a
+    /// source edge became when two steps rename it (an operation rename
+    /// followed by an edge-name rename, say), and reads a vertex one step
+    /// drops and another adds with the same kind as one vertex renamed.
+    /// Following each vertex and edge through the steps' own maps does: it
+    /// survives under its last image when every step keeps it, and is
+    /// dropped when a step drops it, even when a later step adds an element
+    /// with its name. The resolver keeps only pairs of surviving vertices.
+    fn follow_elements_through_steps(
+        &self,
+        lens: &mut Lens,
+        protocol: &Protocol,
+    ) -> Result<(), LensError> {
+        let mut vertices: Vec<(Name, Option<Name>)> = lens
+            .src_schema
+            .vertices
+            .keys()
+            .map(|vertex| (vertex.clone(), Some(vertex.clone())))
+            .collect();
+        let mut edges: Vec<(Edge, Option<Edge>)> = lens
+            .src_schema
+            .edges
+            .keys()
+            .map(|edge| (edge.clone(), Some(edge.clone())))
+            .collect();
+        let mut running = lens.src_schema.clone();
+        for step in &self.steps {
+            let stage = step.instantiate(&running, protocol)?;
+            for (_, image) in &mut vertices {
+                *image = image.take().and_then(|vertex| {
+                    let next = stage
+                        .compiled
+                        .vertex_remap
+                        .get(&vertex)
+                        .cloned()
+                        .unwrap_or(vertex);
+                    stage
+                        .tgt_schema
+                        .vertices
+                        .contains_key(&next)
+                        .then_some(next)
+                });
+            }
+            for (_, image) in &mut edges {
+                *image = image.take().and_then(|edge| {
+                    let next = stage
+                        .compiled
+                        .edge_remap
+                        .get(&edge)
+                        .cloned()
+                        .unwrap_or(edge);
+                    stage.tgt_schema.edges.contains_key(&next).then_some(next)
+                });
+            }
+            running = stage.tgt_schema;
+        }
+        let compiled = &mut lens.compiled;
+        compiled.vertex_remap = HashMap::new();
+        compiled.surviving_verts = HashSet::new();
+        for (vertex, image) in vertices {
+            if let Some(image) = image {
+                compiled.surviving_verts.insert(vertex.clone());
+                compiled.surviving_verts.insert(image.clone());
+                if image != vertex {
+                    compiled.vertex_remap.insert(vertex, image);
+                }
+            }
+        }
+        compiled.edge_remap = HashMap::new();
+        compiled.surviving_edges = HashSet::new();
+        for (edge, image) in edges {
+            if let Some(image) = image {
+                compiled.surviving_edges.insert(edge.clone());
+                compiled.surviving_edges.insert(image.clone());
+                if image != edge {
+                    compiled.edge_remap.insert(edge, image);
+                }
+            }
+        }
+        let surviving = &compiled.surviving_verts;
+        compiled
+            .resolver
+            .retain(|(src, tgt), _| surviving.contains(src) && surviving.contains(tgt));
+        Ok(())
     }
 
     /// Sequential instantiation: instantiate each step at the running
@@ -1944,6 +2165,54 @@ pub mod elementary {
         }
     }
 
+    /// `η : Id ⟹ MergeSorts(a, b, m)`: identify the sorts `a` and `b` as the
+    /// sort `m`.
+    ///
+    /// At a schema with a vertex of each kind, every vertex of kind `a` or
+    /// `b` takes the kind `m`; vertex ids, edges and data are unchanged, so
+    /// the instantiated lens is a relabelling. The complement constructor
+    /// records the data of both sorts, since the theory-level merge is not
+    /// injective on sorts.
+    #[must_use]
+    pub fn merge_sorts(
+        sort_a: impl Into<Name>,
+        sort_b: impl Into<Name>,
+        merged: impl Into<Name>,
+        merger_expr: panproto_expr::Expr,
+    ) -> Protolens {
+        let sort_a = sort_a.into();
+        let sort_b = sort_b.into();
+        let merged = merged.into();
+        let first = name_arc_clone(&sort_a);
+        let second = name_arc_clone(&sort_b);
+        let precondition = TheoryConstraint::All(vec![
+            TheoryConstraint::HasSort(Arc::clone(&first)),
+            TheoryConstraint::HasSort(Arc::clone(&second)),
+        ]);
+        Protolens {
+            name: Name::from(format!("merge_{sort_a}_{sort_b}_{merged}")),
+            source: TheoryEndofunctor {
+                name: Arc::from("id"),
+                precondition: precondition.clone(),
+                transform: TheoryTransform::Identity,
+            },
+            target: TheoryEndofunctor {
+                name: Arc::from(&*format!("merge_{sort_a}_{sort_b}")),
+                precondition,
+                transform: TheoryTransform::MergeSorts {
+                    sort_a: first,
+                    sort_b: second,
+                    merged_name: name_arc_clone(&merged),
+                    merger_expr,
+                },
+            },
+            complement_constructor: ComplementConstructor::Composite(vec![
+                ComplementConstructor::DroppedSortData { sort: sort_a },
+                ComplementConstructor::DroppedSortData { sort: sort_b },
+            ]),
+        }
+    }
+
     /// Honesty-checked [`directed_eq`].
     ///
     /// Verifies the directed equation's declared
@@ -2418,15 +2687,21 @@ pub mod combinators {
     }
 }
 
-/// The schema vertices a transform drops or adds by exact id.
+/// The schema vertices a transform drops or adds by exact id, and the
+/// operations it renames.
 ///
 /// A vertex a transform drops by id is gone, and a vertex it adds by id is
 /// new; neither is one end of a rename, so the structural comparison in
-/// [`compute_migration_between`] never pairs them.
+/// [`compute_migration_between`] never pairs them. An operation rename
+/// changes the kind of every edge of that operation, so the comparison pairs
+/// each such source edge with its renamed target edge rather than reading a
+/// parallel pair of renamed edges as dropped.
 #[derive(Default)]
 struct ExplicitVertexChanges {
     dropped: HashSet<Name>,
     added: HashSet<Name>,
+    /// The net renaming of edge kinds, old kind to new kind.
+    op_renames: HashMap<Name, Name>,
 }
 
 impl ExplicitVertexChanges {
@@ -2444,12 +2719,47 @@ impl ExplicitVertexChanges {
             TheoryTransform::AddSchemaVertex { vertex_id, .. } => {
                 self.added.insert(Name::from(&**vertex_id));
             }
+            TheoryTransform::RenameOp { old, new } => {
+                self.rename_ops(&HashMap::from([(Arc::clone(old), Arc::clone(new))]));
+            }
+            TheoryTransform::Pullback(morphism) => {
+                let renames = morphism
+                    .op_map
+                    .iter()
+                    .filter_map(|(old, assignment)| {
+                        assignment
+                            .as_op()
+                            .map(|new| (Arc::clone(old), Arc::clone(new)))
+                    })
+                    .collect();
+                self.rename_ops(&renames);
+            }
             TheoryTransform::Compose(first, second) => {
                 self.collect(first);
                 self.collect(second);
             }
             _ => {}
         }
+    }
+
+    /// Follow the recorded operation renames by one simultaneous renaming.
+    ///
+    /// A kind an earlier rename produced is carried on to its new name, and
+    /// an original kind no earlier rename moved is renamed directly.
+    fn rename_ops(&mut self, renames: &HashMap<Arc<str>, Arc<str>>) {
+        let moved: HashSet<Name> = self.op_renames.keys().cloned().collect();
+        for current in self.op_renames.values_mut() {
+            if let Some(new) = renames.get(current.as_str()) {
+                *current = Name::from(&**new);
+            }
+        }
+        for (old, new) in renames {
+            let old = Name::from(&**old);
+            if !moved.contains(&old) {
+                self.op_renames.insert(old, Name::from(&**new));
+            }
+        }
+        self.op_renames.retain(|old, new| old != new);
     }
 }
 
@@ -2520,9 +2830,23 @@ fn compute_migration_between(
 
     // A generated endpoint resolver may repeat a unique target edge, but it
     // must not choose one of several parallel edges. Such a choice is
-    // semantic and cannot be recovered from the endpoint pair alone.
+    // semantic and cannot be recovered from the endpoint pair alone. It
+    // resolves only a pair the source joins by no edge, so it contracts a
+    // path whose interior was dropped and never carries a dropped or
+    // unmatched direct edge onto another target edge.
+    let joined: HashSet<(Name, Name)> = src
+        .edges
+        .keys()
+        .map(|edge| {
+            let end = |vertex: &Name| vertex_remap.get(vertex).unwrap_or(vertex).clone();
+            (end(&edge.src), end(&edge.tgt))
+        })
+        .collect();
     let mut resolver_candidates: HashMap<(Name, Name), Option<Edge>> = HashMap::new();
     for edge in tgt.edges.keys() {
+        if joined.contains(&(edge.src.clone(), edge.tgt.clone())) {
+            continue;
+        }
         let src_in =
             final_surviving.contains(&edge.src) || vertex_remap.values().any(|v| *v == edge.src);
         let tgt_in =
@@ -2552,7 +2876,7 @@ fn compute_migration_between(
     //
     // Endpoints are matched through `vertex_remap` so an edge whose
     // vertices were also renamed still pairs up.
-    let edge_remap = compute_edge_remap(src, tgt, &vertex_remap);
+    let edge_remap = compute_edge_remap(src, tgt, &vertex_remap, &explicit.op_renames);
 
     // A renamed edge survives; it just answers to a different name. Record
     // both spellings, mirroring how a renamed *vertex* is entered into
@@ -2597,10 +2921,15 @@ fn compute_migration_between(
 /// order of appearance, and a target edge is claimed at most once, so a
 /// schema with several same-kind edges between the same two vertices
 /// yields one pairing per edge rather than collapsing them.
+///
+/// An edge whose kind `op_renames` renames corresponds instead to a target
+/// edge of the renamed kind, preferring the one with the same name, so
+/// every edge of a renamed operation survives under its new kind.
 fn compute_edge_remap(
     src: &Schema,
     tgt: &Schema,
     vertex_remap: &HashMap<Name, Name>,
+    op_renames: &HashMap<Name, Name>,
 ) -> HashMap<Edge, Edge> {
     let mut remap = HashMap::new();
     let mut claimed: HashSet<Edge> = HashSet::new();
@@ -2608,8 +2937,11 @@ fn compute_edge_remap(
     let mut source_edges: Vec<&Edge> = src.edges.keys().collect();
     source_edges.sort();
     for src_edge in source_edges {
-        // An edge present verbatim in the target was not renamed.
-        if tgt.edges.contains_key(src_edge) {
+        let renamed_kind = op_renames.get(&src_edge.kind);
+        // An edge present verbatim in the target was not renamed, unless its
+        // operation was: then the verbatim target edge is another source
+        // edge's image.
+        if renamed_kind.is_none() && tgt.edges.contains_key(src_edge) {
             continue;
         }
         let want_src = vertex_remap.get(&src_edge.src).unwrap_or(&src_edge.src);
@@ -2619,17 +2951,21 @@ fn compute_edge_remap(
             .edges
             .keys()
             .filter(|e| {
-                &e.src == want_src
-                    && &e.tgt == want_tgt
-                    && e.kind == src_edge.kind
-                    && e.name != src_edge.name
-                    && !src.edges.contains_key(*e)
-                    && !claimed.contains(*e)
+                let corresponds = renamed_kind.map_or_else(
+                    || {
+                        e.kind == src_edge.kind
+                            && e.name != src_edge.name
+                            && !src.edges.contains_key(*e)
+                    },
+                    |kind| e.kind == *kind,
+                );
+                &e.src == want_src && &e.tgt == want_tgt && corresponds && !claimed.contains(*e)
             })
             .collect();
         // `Schema::edges` is a HashMap, so iteration order varies between
-        // runs; sort so the pairing is a function of the two schemas.
-        candidates.sort();
+        // runs; sort so the pairing is a function of the two schemas, with a
+        // target edge keeping the source edge's name first.
+        candidates.sort_by_key(|e| (e.name != src_edge.name, *e));
 
         if let Some(tgt_edge) = candidates.first() {
             claimed.insert((*tgt_edge).clone());
@@ -2801,18 +3137,20 @@ fn apply_theory_transform_to_schema(
             sort_a,
             sort_b,
             merged_name,
-            merger_expr,
+            ..
         } => Ok(apply_merge_sorts_to_schema(
             schema,
             sort_a,
             sort_b,
             merged_name,
-            merger_expr,
         )),
-        TheoryTransform::RenameSort { old, new } => {
-            Ok(apply_rename_sort_to_schema(schema, old, new))
+        TheoryTransform::RenameSort { old, new } => Ok(apply_sort_renames(
+            schema,
+            &HashMap::from([(Arc::clone(old), Arc::clone(new))]),
+        )),
+        TheoryTransform::RenameOp { old, new } => {
+            apply_op_renames(schema, &HashMap::from([(Arc::clone(old), Arc::clone(new))]))
         }
-        TheoryTransform::RenameOp { old, new } => Ok(apply_rename_op_to_schema(schema, old, new)),
         TheoryTransform::DropSort(name) => Ok(apply_drop_sort_from_schema(schema, name)),
         TheoryTransform::AddSort { sort, vertex_kind } => {
             Ok(apply_add_sort(schema, sort, vertex_kind.as_ref(), None))
@@ -2830,22 +3168,26 @@ fn apply_theory_transform_to_schema(
         TheoryTransform::DropOp(name) => Ok(apply_drop_op_from_schema(schema, name)),
         TheoryTransform::AddOp(op) => Ok(apply_add_op(schema, op)),
         TheoryTransform::Pullback(morphism) => {
-            let mut result = schema.clone();
-            for (old, new) in &morphism.sort_map {
-                if old != new {
-                    result = apply_rename_sort_to_schema(&result, old, new);
-                }
-            }
-            for (old, assignment) in &morphism.op_map {
-                // Renaming an operation renames its schema edge kind; a
-                // derived-term assignment is not a rename.
-                if let Some(new) = assignment.as_op()
-                    && old != new
-                {
-                    result = apply_rename_op_to_schema(&result, old, new);
-                }
-            }
-            Ok(result)
+            // A morphism renames all of its sorts at once, then all of its
+            // operations at once, so a swap is a swap. A derived-term
+            // assignment is not a rename.
+            let sorts: HashMap<Arc<str>, Arc<str>> = morphism
+                .sort_map
+                .iter()
+                .filter(|(old, new)| old != new)
+                .map(|(old, new)| (Arc::clone(old), Arc::clone(new)))
+                .collect();
+            let ops: HashMap<Arc<str>, Arc<str>> = morphism
+                .op_map
+                .iter()
+                .filter_map(|(old, assignment)| {
+                    assignment
+                        .as_op()
+                        .filter(|new| *new != old)
+                        .map(|new| (Arc::clone(old), Arc::clone(new)))
+                })
+                .collect();
+            apply_op_renames(&apply_sort_renames(schema, &sorts), &ops)
         }
         TheoryTransform::RenameEdgeName {
             src_sort,
@@ -2932,8 +3274,9 @@ fn apply_strip_enrichment(schema: &Schema, kind: panproto_gat::EnrichmentKind) -
 /// Schema-level counterpart of
 /// [`crate::schema_functor::apply_scoped_transform`]:
 /// extract the sub-schema reachable from `focus`, apply `inner` to it,
-/// and pushout-merge the result back into the full schema. Cross-boundary
-/// edges are preserved; adjacency indices are rebuilt.
+/// and pushout-merge the result back into the full schema. A cross-boundary
+/// edge is preserved unless the inner transform removed its endpoint, in
+/// which case it goes with that vertex; adjacency indices are rebuilt.
 #[allow(clippy::only_used_in_recursion)]
 fn apply_scoped_schema_transform(
     schema: &Schema,
@@ -3000,12 +3343,24 @@ fn apply_scoped_schema_transform(
         .retain(|e, _| !(reachable.contains(&e.src) && reachable.contains(&e.tgt)));
     result.constraints.retain(|id, _| !reachable.contains(id));
     result.defaults.retain(|id, _| !reachable.contains(id));
+    let removed: Vec<Name> = reachable
+        .iter()
+        .filter(|id| !transformed_sub.vertices.contains_key(*id))
+        .cloned()
+        .collect();
     result.vertices.extend(transformed_sub.vertices);
     result.edges.extend(transformed_sub.edges);
     result.constraints.extend(transformed_sub.constraints);
     result.defaults.extend(transformed_sub.defaults);
 
-    // 5. Rebuild adjacency indices.
+    // 5. A vertex the inner transform removed takes with it every edge and
+    //    declaration outside the scope that names it, so no edge keeps an
+    //    endpoint that is not a vertex.
+    for id in &removed {
+        result = apply_drop_schema_vertex(&result, &Arc::from(id.as_str()));
+    }
+
+    // 6. Rebuild adjacency indices.
     rebuild_adjacency(&mut result);
     Ok(result)
 }
@@ -3146,6 +3501,21 @@ fn apply_rename_edge_name(
             edge_renames.insert(edge.clone(), renamed);
         }
     }
+    rewrite_schema_edges(schema, &edge_renames)
+}
+
+/// Carry a schema's edges, and every declaration keyed by an edge, through
+/// an injective edge renaming; an edge the renaming moves to another kind
+/// takes that kind as its recorded kind.
+///
+/// # Errors
+///
+/// [`LensError::ProtolensError`] when a key or reference declaration cannot
+/// be carried through the renaming.
+fn rewrite_schema_edges(
+    schema: &Schema,
+    edge_renames: &HashMap<Edge, Edge>,
+) -> Result<Schema, LensError> {
     if edge_renames.is_empty() {
         return Ok(schema.clone());
     }
@@ -3154,14 +3524,10 @@ fn apply_rename_edge_name(
     new_schema.edges = schema
         .edges
         .iter()
-        .map(|(edge, kind)| {
-            (
-                edge_renames
-                    .get(edge)
-                    .cloned()
-                    .unwrap_or_else(|| edge.clone()),
-                kind.clone(),
-            )
+        .map(|(edge, kind)| match edge_renames.get(edge) {
+            Some(renamed) if renamed.kind != edge.kind => (renamed.clone(), renamed.kind.clone()),
+            Some(renamed) => (renamed.clone(), kind.clone()),
+            None => (edge.clone(), kind.clone()),
         })
         .collect();
     for required in new_schema.required.values_mut() {
@@ -3239,44 +3605,33 @@ fn apply_add_op(schema: &Schema, op: &panproto_gat::Operation) -> Schema {
         return new_schema;
     }
     let edge = Edge {
-        src: src.clone(),
-        tgt: tgt.clone(),
+        src,
+        tgt,
         kind: Name::from(&*op.name),
         name: Some(Name::from(&*op.name)),
     };
-    new_schema.edges.insert(edge.clone(), Name::from(&*op.name));
-    new_schema
-        .outgoing
-        .entry(src)
-        .or_default()
-        .push(edge.clone());
-    new_schema.incoming.entry(tgt).or_default().push(edge);
+    new_schema.edges.insert(edge, Name::from(&*op.name));
+    rebuild_indices(&mut new_schema);
     new_schema
 }
 
-/// Merge two sort-vertices into a single vertex with the supplied merger
-/// expression installed.
+/// Merge two sorts into one: every vertex of either kind takes the merged
+/// kind, all at once, as the theory-level merge renames both sorts to the
+/// merged one. Vertex ids, edges and data are unchanged, so no two nodes
+/// are ever identified and the merger expression has no values to combine.
 fn apply_merge_sorts_to_schema(
     schema: &Schema,
     sort_a: &Arc<str>,
     sort_b: &Arc<str>,
     merged_name: &Arc<str>,
-    merger_expr: &panproto_expr::Expr,
 ) -> Schema {
-    let mut new_schema = apply_drop_sort_from_schema(schema, sort_a);
-    new_schema = apply_drop_sort_from_schema(&new_schema, sort_b);
-    let vertex = Vertex {
-        id: Name::from(&**merged_name),
-        kind: Name::from(&**merged_name),
-        nsid: None,
-    };
-    new_schema
-        .vertices
-        .insert(Name::from(&**merged_name), vertex);
-    new_schema
-        .mergers
-        .insert(Name::from(&**merged_name), merger_expr.clone());
-    new_schema
+    apply_sort_renames(
+        schema,
+        &HashMap::from([
+            (Arc::clone(sort_a), Arc::clone(merged_name)),
+            (Arc::clone(sort_b), Arc::clone(merged_name)),
+        ]),
+    )
 }
 
 /// Rebuild `outgoing`, `incoming`, and `between` adjacency indices from
@@ -3285,107 +3640,76 @@ fn rebuild_adjacency(schema: &mut Schema) {
     rebuild_indices(schema);
 }
 
-/// Rename a sort (vertex kind) within a schema.
-fn apply_rename_sort_to_schema(schema: &Schema, old: &Arc<str>, new: &Arc<str>) -> Schema {
+/// Rename sorts (vertex kinds) within a schema, all at once.
+///
+/// Each name `renames` maps is replaced by its image wherever the schema
+/// uses it as a sort: vertex kinds, recorded edge kinds, coercion keys and
+/// constraint sorts. Vertex ids, and the hyper-edge signatures that name
+/// them, are not sorts and do not change. The renaming is simultaneous, so a
+/// map that swaps two sorts swaps them.
+fn apply_sort_renames(schema: &Schema, renames: &HashMap<Arc<str>, Arc<str>>) -> Schema {
+    let rename = |name: &Name| {
+        renames
+            .get(name.as_str())
+            .map_or_else(|| name.clone(), |new| Name::from(&**new))
+    };
     let mut new_schema = schema.clone();
-
-    // Rename vertex kinds (not IDs) that match the old sort name
-    let mut new_vertices = HashMap::new();
-    for (id, vertex) in &new_schema.vertices {
-        let mut v = vertex.clone();
-        if *v.kind == **old {
-            v.kind = Name::from(&**new);
+    for vertex in new_schema.vertices.values_mut() {
+        vertex.kind = rename(&vertex.kind);
+    }
+    for kind in new_schema.edges.values_mut() {
+        *kind = rename(kind);
+    }
+    new_schema.coercions = schema
+        .coercions
+        .iter()
+        .map(|((from, to), spec)| ((rename(from), rename(to)), spec.clone()))
+        .collect();
+    for constraints in new_schema.constraints.values_mut() {
+        for constraint in constraints {
+            constraint.sort = rename(&constraint.sort);
         }
-        new_vertices.insert(id.clone(), v);
     }
-    new_schema.vertices = new_vertices;
-
-    // Rename edge kinds that match the old sort name
-    let mut new_edges = HashMap::new();
-    for (edge, kind) in &new_schema.edges {
-        let e = edge.clone();
-        let k = if **kind == **old {
-            Name::from(&**new)
-        } else {
-            kind.clone()
-        };
-        new_edges.insert(e, k);
-    }
-    new_schema.edges = new_edges;
-
-    // Rename coercion keys that reference the old sort name
-    let mut new_coercions = HashMap::new();
-    for ((from, to), spec) in &new_schema.coercions {
-        let new_from = if **from == **old {
-            Name::from(&**new)
-        } else {
-            from.clone()
-        };
-        let new_to = if **to == **old {
-            Name::from(&**new)
-        } else {
-            to.clone()
-        };
-        new_coercions.insert((new_from, new_to), spec.clone());
-    }
-    new_schema.coercions = new_coercions;
-
-    // Rename hyper-edge sort references
-    for he in new_schema.hyper_edges.values_mut() {
-        he.signature = he
-            .signature
-            .iter()
-            .map(|(label, vid)| {
-                let new_vid = if **vid == **old {
-                    Name::from(&**new)
-                } else {
-                    vid.clone()
-                };
-                (label.clone(), new_vid)
-            })
-            .collect();
-    }
-
-    // Rename constraint sort references
-    let mut new_constraints = HashMap::new();
-    for (cid, cs) in &new_schema.constraints {
-        let new_cs: Vec<_> = cs
-            .iter()
-            .map(|c| {
-                let mut c2 = c.clone();
-                if *c2.sort == **old {
-                    c2.sort = Name::from(&**new);
-                }
-                c2
-            })
-            .collect();
-        new_constraints.insert(cid.clone(), new_cs);
-    }
-    new_schema.constraints = new_constraints;
-
     rebuild_indices(&mut new_schema);
     new_schema
 }
 
-/// Rename an operation (edge kind) within a schema.
-fn apply_rename_op_to_schema(schema: &Schema, old: &Arc<str>, new: &Arc<str>) -> Schema {
-    let mut new_schema = schema.clone();
-    let mut new_edges = HashMap::new();
-    for (edge, kind) in &new_schema.edges {
-        let mut e = edge.clone();
-        if *e.kind == **old {
-            e.kind = Name::from(&**new);
+/// Rename operations (edge kinds) within a schema, all at once.
+///
+/// Every edge whose kind `renames` maps takes the image as its kind, and
+/// every declaration keyed by that edge follows it.
+///
+/// # Errors
+///
+/// [`LensError::ProtolensError`] when the renaming sends two distinct edges
+/// to one edge, which would identify them, or when a declaration cannot be
+/// carried through it.
+fn apply_op_renames(
+    schema: &Schema,
+    renames: &HashMap<Arc<str>, Arc<str>>,
+) -> Result<Schema, LensError> {
+    let mut edges: Vec<&Edge> = schema.edges.keys().collect();
+    edges.sort();
+    let mut edge_renames = HashMap::new();
+    let mut preimages: HashMap<Edge, &Edge> = HashMap::new();
+    for edge in edges {
+        let image = renames.get(edge.kind.as_str()).map_or_else(
+            || edge.clone(),
+            |new| Edge {
+                kind: Name::from(&**new),
+                ..edge.clone()
+            },
+        );
+        if let Some(earlier) = preimages.insert(image.clone(), edge) {
+            return Err(LensError::ProtolensError(format!(
+                "renaming operations sends the edges {earlier:?} and {edge:?} to one edge {image:?}"
+            )));
         }
-        let k = if **kind == **old {
-            Name::from(&**new)
-        } else {
-            kind.clone()
-        };
-        new_edges.insert(e, k);
+        if image != *edge {
+            edge_renames.insert(edge.clone(), image);
+        }
     }
-    new_schema.edges = new_edges;
-    rebuild_indices(&mut new_schema);
-    new_schema
+    rewrite_schema_edges(schema, &edge_renames)
 }
 
 /// Drop a sort (vertex ID or kind) and all dependent edges from a schema.
@@ -4192,6 +4516,17 @@ mod tests {
     }
 
     #[test]
+    fn a_scoped_or_composite_protolens_is_lossless_exactly_when_every_part_is() {
+        let rename = elementary::rename_sort("a", "b");
+        assert!(elementary::scoped("item", rename.clone()).is_lossless());
+        assert!(!elementary::scoped("item", elementary::drop_sort("a")).is_lossless());
+        let both = horizontal_compose(&rename, &elementary::rename_op("f", "g")).unwrap();
+        assert!(both.is_lossless());
+        let lossy = horizontal_compose(&rename, &elementary::drop_op("f")).unwrap();
+        assert!(!lossy.is_lossless());
+    }
+
+    #[test]
     fn complement_constructor_types() {
         assert!(matches!(
             elementary::rename_sort("a", "b").complement_constructor,
@@ -4233,6 +4568,18 @@ mod tests {
         let p2 = elementary::rename_sort("c", "d");
         let composed = horizontal_compose(&p1, &p2).unwrap();
         assert!(composed.name.contains('*'));
+    }
+
+    #[test]
+    fn a_horizontal_composite_of_identity_sourced_protolenses_composes_after_any_protolens() {
+        let h = horizontal_compose(
+            &elementary::rename_sort("a", "b"),
+            &elementary::rename_sort("c", "d"),
+        )
+        .unwrap();
+        assert_eq!(h.source.transform, panproto_gat::TheoryTransform::Identity);
+        let chain = ProtolensChain::new(vec![elementary::drop_op("f"), h]);
+        assert!(chain.fuse().is_ok(), "Id composed with Id is the identity");
     }
 
     #[test]
@@ -5782,12 +6129,13 @@ mod step_laws {
 
     #[test]
     fn step_law_coerce_sort() {
-        // An Iso identity coercion on the `string` sort is lossless.
+        // An Iso identity coercion on the `string` sort is lossless. The
+        // coerced value is bound as `v`.
         assert_step_law(elementary::sort_coerce(
             "string",
             ValueKind::Str,
-            panproto_expr::Expr::var("x"),
-            Some(panproto_expr::Expr::var("x")),
+            panproto_expr::Expr::var("v"),
+            Some(panproto_expr::Expr::var("v")),
             CoercionClass::Iso,
         ));
     }
@@ -5976,5 +6324,446 @@ mod rewritten_schemas_are_seed_independent {
                 KeyPart::Position { within: renamed },
             ]
         );
+    }
+}
+
+/// Renames of operations keep every renamed edge, refuse a renaming that
+/// identifies two edges, and a pullback renames simultaneously.
+#[cfg(test)]
+mod renames_keep_every_edge {
+    use std::collections::HashMap;
+    use std::error::Error;
+
+    use panproto_gat::Name;
+    use panproto_inst::{EdgeId, GEdge, GInstance, Node};
+    use panproto_schema::{Edge, Protocol, Schema, SchemaBuilder};
+
+    use super::elementary;
+    use crate::LensError;
+
+    type TestResult = Result<(), Box<dyn Error>>;
+
+    /// The two-vertex schema `a -> b` with one edge per `(kind, name)`.
+    fn pair_schema(kinds: [&str; 2], edges: &[(&str, &str)]) -> Result<Schema, Box<dyn Error>> {
+        let mut builder = SchemaBuilder::new(&Protocol::default())
+            .vertex("a", kinds[0], None)?
+            .vertex("b", kinds[1], None)?;
+        for (kind, name) in edges {
+            builder = builder.edge("a", "b", kind, Some(name))?;
+        }
+        Ok(builder.build()?)
+    }
+
+    /// One `a` node, one `b` node, and one `a -> b` edge per schema edge in
+    /// the listed order.
+    fn pair_instance(edges: &[(&str, &str)]) -> Result<GInstance, Box<dyn Error>> {
+        let mut instance = GInstance::new();
+        instance.insert_node(Node::new(0, "a"))?;
+        instance.insert_node(Node::new(1, "b"))?;
+        for (id, (kind, name)) in (0_u32..).zip(edges) {
+            let label = Edge {
+                src: "a".into(),
+                tgt: "b".into(),
+                kind: (*kind).into(),
+                name: Some((*name).into()),
+            };
+            instance.insert_edge(EdgeId(id), GEdge::new(0, 1, label))?;
+        }
+        Ok(instance)
+    }
+
+    fn view_edge_kinds(view: &GInstance) -> Vec<(u32, String)> {
+        view.edges_sorted()
+            .map(|(id, edge)| (id.0, edge.edge.kind.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn renaming_an_operation_keeps_parallel_edges_in_the_view() -> TestResult {
+        let edges = [("prop", "x"), ("prop", "y")];
+        let schema = pair_schema(["obj", "obj"], &edges)?;
+        let source = pair_instance(&edges)?;
+        let lens = elementary::rename_op("prop", "field")
+            .instantiate_checked(&schema, &Protocol::default())?;
+        let (view, complement) = crate::graph_lens::get(&lens, &source)?;
+        assert_eq!(
+            view_edge_kinds(&view),
+            vec![(0, "field".to_owned()), (1, "field".to_owned())]
+        );
+        assert_eq!(complement.dropped_edges.len(), 0);
+        let restored = crate::graph_lens::put(&lens, &view, &complement)?;
+        assert!(GInstance::identical(&restored, &source));
+        Ok(())
+    }
+
+    #[test]
+    fn renaming_an_operation_onto_an_existing_edge_is_refused() -> TestResult {
+        let schema = pair_schema(["obj", "obj"], &[("prop", "x"), ("field", "x")])?;
+        let refused = elementary::rename_op("prop", "field")
+            .instantiate_checked(&schema, &Protocol::default());
+        assert!(
+            matches!(&refused, Err(LensError::ProtolensError(message))
+                if message.starts_with("renaming operations sends the edges")),
+            "{refused:?}"
+        );
+        Ok(())
+    }
+
+    fn swap_morphism(sorts: [&str; 2], ops: [&str; 2]) -> panproto_gat::TheoryMorphism {
+        let swap = |[left, right]: [&str; 2]| {
+            HashMap::from([
+                (std::sync::Arc::from(left), std::sync::Arc::from(right)),
+                (std::sync::Arc::from(right), std::sync::Arc::from(left)),
+            ])
+        };
+        panproto_gat::TheoryMorphism::new("swap", "domain", "codomain", swap(sorts), swap(ops))
+    }
+
+    fn vertex_kind(schema: &Schema, id: &str) -> Option<String> {
+        schema
+            .vertices
+            .get(&Name::from(id))
+            .map(|vertex| vertex.kind.to_string())
+    }
+
+    #[test]
+    fn pullback_along_a_swap_swaps_sorts_and_operations() -> TestResult {
+        let edges = [("p", "x"), ("q", "y")];
+        let schema = pair_schema(["s", "t"], &edges)?;
+        let source = pair_instance(&edges)?;
+        let protolens = elementary::pullback(swap_morphism(["s", "t"], ["p", "q"]));
+        for _ in 0..8 {
+            let lens = protolens.instantiate_checked(&schema, &Protocol::default())?;
+            assert_eq!(
+                (
+                    vertex_kind(&lens.tgt_schema, "a"),
+                    vertex_kind(&lens.tgt_schema, "b")
+                ),
+                (Some("t".to_owned()), Some("s".to_owned()))
+            );
+            let (view, complement) = crate::graph_lens::get(&lens, &source)?;
+            assert_eq!(
+                view_edge_kinds(&view),
+                vec![(0, "q".to_owned()), (1, "p".to_owned())]
+            );
+            assert_eq!(complement.dropped_edges.len(), 0);
+            let restored = crate::graph_lens::put(&lens, &view, &complement)?;
+            assert!(GInstance::identical(&restored, &source));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn renaming_a_sort_keeps_the_vertex_ids_a_hyper_edge_names() -> TestResult {
+        let schema = SchemaBuilder::new(&Protocol::default())
+            .vertex("obj", "obj", None)?
+            .vertex("row", "row", None)?
+            .hyper_edge(
+                "fan",
+                "fan",
+                HashMap::from([("l".to_owned(), "obj".to_owned())]),
+                "l",
+            )?
+            .build()?;
+        let lens = elementary::rename_sort("obj", "thing")
+            .instantiate_checked(&schema, &Protocol::default())?;
+        let signature = lens
+            .tgt_schema
+            .hyper_edges
+            .get(&Name::from("fan"))
+            .and_then(|fan| fan.signature.get(&Name::from("l")))
+            .map(ToString::to_string);
+        assert_eq!(signature.as_deref(), Some("obj"));
+        assert_eq!(
+            vertex_kind(&lens.tgt_schema, "obj").as_deref(),
+            Some("thing")
+        );
+        Ok(())
+    }
+}
+
+/// A scoped protolens that removes a vertex removes the edges that reach it
+/// from outside its scope.
+#[cfg(test)]
+mod scoped_drops_take_their_edges {
+    use std::error::Error;
+
+    use panproto_schema::{Protocol, SchemaBuilder};
+
+    use super::elementary;
+
+    type TestResult = Result<(), Box<dyn Error>>;
+
+    #[test]
+    fn a_scoped_sort_drop_removes_the_edge_into_it_from_outside_the_scope() -> TestResult {
+        let protocol = Protocol::default();
+        let schema = SchemaBuilder::new(&protocol)
+            .vertex("p", "object", None)?
+            .vertex("c", "string", None)?
+            .edge("p", "c", "prop", Some("c"))?
+            .build()?;
+        let lens = elementary::scoped("c", elementary::drop_sort("c"))
+            .instantiate_checked(&schema, &protocol)?;
+        assert!(!lens.tgt_schema.vertices.contains_key("c"));
+        assert!(lens.tgt_schema.edges.is_empty());
+        assert!(lens.tgt_schema.vertices.contains_key("p"));
+        Ok(())
+    }
+}
+
+/// A dropped edge stays dropped, and a fused chain follows each edge through
+/// its steps' renames.
+#[cfg(test)]
+mod fused_edges_follow_their_steps {
+    use std::error::Error;
+
+    use panproto_inst::{EdgeId, GEdge, GInstance, Node};
+    use panproto_schema::{Edge, Protocol, Schema, SchemaBuilder};
+
+    use super::{ProtolensChain, elementary};
+
+    type TestResult = Result<(), Box<dyn Error>>;
+
+    fn edge(kind: &str, name: &str) -> Edge {
+        Edge {
+            src: "a".into(),
+            tgt: "b".into(),
+            kind: kind.into(),
+            name: Some(name.into()),
+        }
+    }
+
+    fn pair_schema(edges: &[(&str, &str)]) -> Result<Schema, Box<dyn Error>> {
+        let mut builder = SchemaBuilder::new(&Protocol::default())
+            .vertex("a", "s", None)?
+            .vertex("b", "t", None)?;
+        for (kind, name) in edges {
+            builder = builder.edge("a", "b", kind, Some(name))?;
+        }
+        Ok(builder.build()?)
+    }
+
+    #[test]
+    fn dropping_an_operation_drops_its_edge_beside_a_unique_other_edge() -> TestResult {
+        let protocol = Protocol::default();
+        let schema = pair_schema(&[("p", "x"), ("o", "o")])?;
+        let lens = elementary::drop_op("p").instantiate_checked(&schema, &protocol)?;
+        let mut source = GInstance::new();
+        source.insert_node(Node::new(0, "a"))?;
+        source.insert_node(Node::new(1, "b"))?;
+        source.insert_edge(EdgeId(0), GEdge::new(0, 1, edge("p", "x")))?;
+        let (view, complement) = crate::graph_lens::get(&lens, &source)?;
+        assert!(view.edges().is_empty());
+        assert!(complement.dropped_edges.contains_key(&EdgeId(0)));
+        Ok(())
+    }
+
+    #[test]
+    fn a_fused_operation_rename_then_edge_name_rename_keeps_each_edge_its_own_image() -> TestResult
+    {
+        let protocol = Protocol::default();
+        let schema = pair_schema(&[("p", "x"), ("p", "y")])?;
+        let chain = ProtolensChain::new(vec![
+            elementary::rename_op("p", "r"),
+            elementary::rename_edge_name("a", "b", "x", "z"),
+        ]);
+        let lens = chain.instantiate(&schema, &protocol)?;
+        assert_eq!(
+            lens.compiled.edge_remap.get(&edge("p", "x")),
+            Some(&edge("r", "z"))
+        );
+        assert_eq!(
+            lens.compiled.edge_remap.get(&edge("p", "y")),
+            Some(&edge("r", "y"))
+        );
+        Ok(())
+    }
+}
+
+/// A sort coercion rewrites the values of its sort's nodes at get and takes
+/// an edited value back by its inverse at put.
+#[cfg(test)]
+mod sort_coercions_rewrite_values {
+    use std::error::Error;
+    use std::sync::Arc;
+
+    use panproto_expr::{BuiltinOp, Expr};
+    use panproto_gat::{CoercionClass, ValueKind};
+    use panproto_inst::{FieldPresence, GInstance, Node, Value};
+    use panproto_schema::{Protocol, SchemaBuilder};
+
+    use super::elementary;
+
+    type TestResult = Result<(), Box<dyn Error>>;
+
+    #[test]
+    fn an_integer_to_string_coercion_rewrites_the_value_and_puts_an_edit_back() -> TestResult {
+        let protocol = Protocol::default();
+        let schema = SchemaBuilder::new(&protocol)
+            .vertex("a", "integer", None)?
+            .build()?;
+        let v = || Expr::Var(Arc::from("v"));
+        let lens = elementary::sort_coerce(
+            "integer",
+            ValueKind::Str,
+            Expr::Builtin(BuiltinOp::IntToStr, vec![v()]),
+            Some(Expr::Builtin(BuiltinOp::StrToInt, vec![v()])),
+            CoercionClass::Iso,
+        )
+        .instantiate_checked(&schema, &protocol)?;
+        let mut source = GInstance::new();
+        let mut node = Node::new(0, "a");
+        node.value = Some(FieldPresence::Present(Value::Int(5)));
+        source.insert_node(node)?;
+        let (mut view, complement) = crate::graph_lens::get(&lens, &source)?;
+        assert_eq!(
+            view.node(0).and_then(|node| node.value.clone()),
+            Some(FieldPresence::Present(Value::Str("5".to_owned())))
+        );
+        if let Some(node) = view.node_mut(0) {
+            node.value = Some(FieldPresence::Present(Value::Str("9".to_owned())));
+        }
+        let restored = crate::graph_lens::put(&lens, &view, &complement)?;
+        assert_eq!(
+            restored.node(0).and_then(|node| node.value.clone()),
+            Some(FieldPresence::Present(Value::Int(9)))
+        );
+        Ok(())
+    }
+}
+
+/// Adding an operation indexes its edge between its endpoints, so a lens
+/// instantiated at the extended schema maps a view edge of that operation
+/// back.
+#[cfg(test)]
+mod added_operations_are_indexed {
+    use std::error::Error;
+
+    use panproto_schema::{Edge, Protocol, SchemaBuilder};
+
+    use super::elementary;
+
+    type TestResult = Result<(), Box<dyn Error>>;
+
+    #[test]
+    fn an_added_operation_edge_is_indexed_between_its_endpoints() -> TestResult {
+        let protocol = Protocol::default();
+        let schema = SchemaBuilder::new(&protocol)
+            .vertex("a", "s", None)?
+            .vertex("b", "s", None)?
+            .build()?;
+        let lens =
+            elementary::add_op("o", "a", "b", "o").instantiate_checked(&schema, &protocol)?;
+        let edge = Edge {
+            src: "a".into(),
+            tgt: "b".into(),
+            kind: "o".into(),
+            name: Some("o".into()),
+        };
+        assert!(
+            lens.tgt_schema
+                .between
+                .get(&("a".into(), "b".into()))
+                .is_some_and(|edges| edges.contains(&edge))
+        );
+        Ok(())
+    }
+}
+
+/// A sort merge relabels both sorts as the merged one and keeps every node,
+/// and a directed equation rewrites the field its left-hand side names.
+#[cfg(test)]
+mod merges_and_directed_equations_keep_and_rewrite_data {
+    use std::error::Error;
+    use std::sync::Arc;
+
+    use panproto_expr::{BuiltinOp, Expr, Literal};
+    use panproto_gat::{CoercionClass, DirectedEquation, Term};
+    use panproto_inst::{FieldPresence, GInstance, Node, Value};
+    use panproto_schema::{Protocol, SchemaBuilder};
+
+    use super::elementary;
+
+    type TestResult = Result<(), Box<dyn Error>>;
+
+    #[test]
+    fn a_merge_relabels_both_sorts_and_keeps_their_nodes() -> TestResult {
+        let protocol = Protocol::default();
+        let schema = SchemaBuilder::new(&protocol)
+            .vertex("x", "s", None)?
+            .vertex("y", "t", None)?
+            .edge("x", "y", "prop", Some("e"))?
+            .build()?;
+        let lens = elementary::merge_sorts("s", "t", "m", Expr::Var(Arc::from("v")))
+            .instantiate_checked(&schema, &protocol)?;
+        let kinds: Vec<(&str, &str)> = {
+            let mut kinds: Vec<_> = lens
+                .tgt_schema
+                .vertices
+                .values()
+                .map(|vertex| (vertex.id.as_str(), vertex.kind.as_str()))
+                .collect();
+            kinds.sort_unstable();
+            kinds
+        };
+        assert_eq!(kinds, vec![("x", "m"), ("y", "m")]);
+        assert_eq!(lens.tgt_schema.edges.len(), 1);
+        let mut source = GInstance::new();
+        let mut node = Node::new(0, "x");
+        node.value = Some(FieldPresence::Present(Value::Int(1)));
+        source.insert_node(node)?;
+        source.insert_node(Node::new(1, "y"))?;
+        let (view, complement) = crate::graph_lens::get(&lens, &source)?;
+        assert_eq!(view.nodes().len(), 2);
+        assert!(complement.dropped_nodes.is_empty());
+        assert_eq!(
+            view.node(0).and_then(|node| node.value.clone()),
+            Some(FieldPresence::Present(Value::Int(1)))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_directed_equation_rewrites_its_field_and_puts_an_edit_back() -> TestResult {
+        let protocol = Protocol::default();
+        let schema = SchemaBuilder::new(&protocol)
+            .vertex("p", "object", None)?
+            .vertex("p.n", "integer", None)?
+            .edge("p", "p.n", "prop", Some("n"))?
+            .build()?;
+        let x = || Expr::Var(Arc::from("x"));
+        let one = || Expr::Lit(Literal::Int(1));
+        let lens = elementary::directed_eq(DirectedEquation {
+            name: Arc::from("succ_n"),
+            lhs: Term::app("n", vec![Term::var("x")]),
+            rhs: Term::app("n", vec![Term::var("x")]),
+            impl_term: Expr::Builtin(BuiltinOp::Add, vec![x(), one()]),
+            inverse: Some(Expr::Builtin(BuiltinOp::Sub, vec![x(), one()])),
+            source_kind: None,
+            target_kind: None,
+            coercion_class: CoercionClass::Iso,
+        })
+        .instantiate_checked(&schema, &protocol)?;
+        let mut source = GInstance::new();
+        let mut node = Node::new(0, "p");
+        node.extra_fields.insert("n".to_owned(), Value::Int(5));
+        source.insert_node(node)?;
+        let (mut view, complement) = crate::graph_lens::get(&lens, &source)?;
+        assert_eq!(
+            view.node(0)
+                .and_then(|node| node.extra_fields.get("n").cloned()),
+            Some(Value::Int(6))
+        );
+        if let Some(node) = view.node_mut(0) {
+            node.extra_fields.insert("n".to_owned(), Value::Int(9));
+        }
+        let restored = crate::graph_lens::put(&lens, &view, &complement)?;
+        assert_eq!(
+            restored
+                .node(0)
+                .and_then(|node| node.extra_fields.get("n").cloned()),
+            Some(Value::Int(8))
+        );
+        Ok(())
     }
 }

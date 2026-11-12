@@ -2,7 +2,8 @@
 //! attributes through their protocols' value-kind and non-value-kind
 //! declarations alone.
 //!
-//! Each schema here comes from the protocol's own registered parser, and its
+//! Each schema here comes from the protocol's own registered parser (or, for
+//! a protocol read through a grammar, is the schema its reader builds), and its
 //! attributed relation-ified form is built under the protocol the registry
 //! constructs, so a parser that emits a kind its protocol does not classify,
 //! or an attribute that reaches a record, fails here.
@@ -10,6 +11,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use panproto_inst::{RelSchema, RelSchemaError};
+use panproto_protocols::database::postgresql::Scalar;
 use panproto_protocols::registry::descriptor;
 use panproto_protocols::{parse_schema_document, parse_schema_source};
 use panproto_schema::{Edge, Schema};
@@ -32,16 +34,21 @@ fn columns<'a>(rel: &'a RelSchema, table: &str) -> Vec<&'a str> {
 
 /// A JSON array root whose items are objects: both are tables, the `items`
 /// edge between them a relation, and the item's scalar property a column.
+/// The schema is the one `panproto_io`'s JSON Schema reader builds from
+/// `{"type": "array", "items": {"type": "object", "properties": {"id":
+/// {"type": "integer"}}}}`, written out with the builder since this crate
+/// links no JSON grammar.
 #[test]
 fn a_json_array_root_of_objects_is_two_tables() {
-    let doc = serde_json::json!({
-        "type": "array",
-        "items": {
-            "type": "object",
-            "properties": { "id": { "type": "integer" } }
-        }
-    });
-    let schema = parse_schema_document("json-schema", &doc).unwrap();
+    let protocol = (descriptor("json-schema").expect("registered").protocol)();
+    let schema = panproto_schema::SchemaBuilder::new(&protocol)
+        .vertex("#", "array", None)
+        .and_then(|b| b.vertex("#/items", "object", None))
+        .and_then(|b| b.edge("#", "#/items", "items", None))
+        .and_then(|b| b.vertex("#/items/properties/id", "integer", None))
+        .and_then(|b| b.edge("#/items", "#/items/properties/id", "prop", Some("id")))
+        .and_then(panproto_schema::SchemaBuilder::build)
+        .unwrap();
     let rel = classify("json-schema", &schema).unwrap();
     let kinds = |kind: &str| -> Vec<&str> {
         schema
@@ -164,9 +171,14 @@ fn conllu_tags_are_attributes_of_the_word_table() {
 /// the cell's value.
 #[test]
 fn an_sql_array_column_is_an_attribute() {
-    let ddl = "CREATE TABLE post (id INTEGER PRIMARY KEY, tags TEXT[]);";
-    let schema = parse_schema_source("sql", ddl).unwrap();
-    let rel = classify("sql", &schema).unwrap();
+    let schema = sql_table(
+        "post",
+        &[
+            ("id", Scalar::Int(32), 0, true),
+            ("tags", Scalar::Text, 1, false),
+        ],
+    );
+    let rel = classify("postgresql", &schema).unwrap();
     assert_eq!(tables(&rel), ["post"]);
     assert_eq!(columns(&rel, "post"), ["id", "tags"]);
     assert!(!rel.inner_edges().is_empty(), "{schema:?}");
@@ -307,4 +319,56 @@ fn each_table_protocol_sample_builds_a_rel_schema() {
         assert!(rel.is_table(table), "{protocol}: {rel:?}");
         assert!(!rel.columns(table).is_empty(), "{protocol}: {rel:?}");
     }
+}
+
+/// The schema of one table, read from its statement as a `PostgreSQL`
+/// reader hands it over: columns `(name, type, NOT NULL)`, each a built-in
+/// type with its array dimensions.
+fn sql_table(
+    table: &str,
+    columns: &[(
+        &str,
+        panproto_protocols::database::postgresql::Scalar,
+        usize,
+        bool,
+    )],
+) -> Schema {
+    use panproto_protocols::database::postgresql::{
+        BaseType, ColumnConstraint, ColumnConstraintKind, ColumnDef, Name, OtherStatements,
+        Statement, TableElement, TypeSpec, read_statements,
+    };
+    let name = |text: &str| Name {
+        text: text.to_owned(),
+        offset: 0,
+    };
+    let elements = columns
+        .iter()
+        .map(|(column, scalar, dims, not_null)| {
+            TableElement::Column(ColumnDef {
+                name: name(column),
+                ty: TypeSpec {
+                    base: BaseType::Builtin(scalar.clone()),
+                    dims: *dims,
+                    offset: 0,
+                },
+                constraints: if *not_null {
+                    vec![ColumnConstraint {
+                        name: None,
+                        kind: ColumnConstraintKind::NotNull,
+                        offset: 0,
+                    }]
+                } else {
+                    Vec::new()
+                },
+            })
+        })
+        .collect();
+    let statement = Statement::CreateTable {
+        if_not_exists: false,
+        name: name(table),
+        elements,
+    };
+    read_statements([Ok(statement)], OtherStatements::Refuse)
+        .expect("the table reads")
+        .schema
 }

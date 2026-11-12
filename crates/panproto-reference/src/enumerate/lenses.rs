@@ -2719,9 +2719,22 @@ fn typed_candidates(schema: &Schema, anchors: &[&str]) -> Vec<(usize, usize, SEd
 /// self-loops and two-cycles included). Labelled and unpruned.
 #[must_use]
 pub fn bounded_lens_graph_states(schema: &Schema) -> Vec<Graph> {
+    graph_states_up_to(schema, BOUNDED_LENS_MAX_NODES, BOUNDED_LENS_MAX_EDGES)
+}
+
+/// Every graph state over `schema` with at most `max_nodes` nodes and
+/// `max_edges` edges.
+///
+/// The states have nodes `0..n-1` anchored at the schema's vertices, each
+/// with no value or [`BOUNDED_LENS_VALUE`], and edges `0..m-1`, each one of
+/// the typed candidates (parallel edges, self-loops and two-cycles
+/// included), in ascending node count, anchor code, value mask, edge count
+/// and edge code. Labelled and unpruned.
+#[must_use]
+pub fn graph_states_up_to(schema: &Schema, max_nodes: usize, max_edges: usize) -> Vec<Graph> {
     let vertices: Vec<&str> = schema.vertices.keys().map(String::as_str).collect();
     let mut out = Vec::new();
-    for nodes in 0..=BOUNDED_LENS_MAX_NODES {
+    for nodes in 0..=max_nodes {
         for mut anchor_code in 0..power(vertices.len(), nodes) {
             let anchors: Vec<&str> = (0..nodes)
                 .map(|_| {
@@ -2739,7 +2752,7 @@ pub fn bounded_lens_graph_states(schema: &Schema) -> Vec<Graph> {
                         bounded_lens_node(id, anchor, values & (1 << id) != 0),
                     );
                 }
-                for edges in 0..=BOUNDED_LENS_MAX_EDGES {
+                for edges in 0..=max_edges {
                     for mut code in 0..power(candidates.len(), edges) {
                         let mut graph = base.clone();
                         for id in 0..edges {
@@ -2769,9 +2782,17 @@ pub fn bounded_lens_graph_states(schema: &Schema) -> Vec<Graph> {
 /// with `c = sum_{(x, y) in E} k_x k_y`.
 #[must_use]
 pub fn bounded_lens_graph_state_count(schema: &Schema) -> usize {
+    graph_state_count_up_to(schema, BOUNDED_LENS_MAX_NODES, BOUNDED_LENS_MAX_EDGES)
+}
+
+/// Independent count of [`graph_states_up_to`] by anchor multiplicities:
+/// `sum_{n <= max_nodes} sum_{k} n! / prod k_v! * 2^n * sum_{m <= max_edges} c^m`
+/// with `c = sum_{(x, y) in E} k_x k_y`.
+#[must_use]
+pub fn graph_state_count_up_to(schema: &Schema, max_nodes: usize, max_edges: usize) -> usize {
     let vertices: Vec<&String> = schema.vertices.keys().collect();
     let mut total = 0;
-    for nodes in 0..=BOUNDED_LENS_MAX_NODES {
+    for nodes in 0..=max_nodes {
         for split in multiplicities(vertices.len(), nodes) {
             let arrangements = multinomial(nodes, &split);
             let typed: usize = schema
@@ -2785,7 +2806,7 @@ pub fn bounded_lens_graph_state_count(schema: &Schema) -> usize {
                     }
                 })
                 .sum();
-            let edge_sets: usize = (0..=BOUNDED_LENS_MAX_EDGES).map(|m| power(typed, m)).sum();
+            let edge_sets: usize = (0..=max_edges).map(|m| power(typed, m)).sum();
             total += arrangements * power(2, nodes) * edge_sets;
         }
     }
@@ -5899,4 +5920,1156 @@ mod tests {
             bounded_lens_tree_square_count_certificate().observations + 2
         );
     }
+}
+
+/// Vertices of every schema in the elementary protolens carrier.
+pub const ELEMENTARY_VERTICES: [&str; 2] = ["a", "b"];
+/// The `(kind, name)` labels of the candidate `a -> b` schema edges.
+pub const ELEMENTARY_EDGE_LABELS: [(&str, &str); 3] = [("p", "x"), ("p", "y"), ("q", "x")];
+/// The two kind assignments of `(a, b)`.
+pub const ELEMENTARY_KIND_ASSIGNMENTS: [[&str; 2]; 2] = [["s", "t"], ["s", "s"]];
+/// Most edges in a carrier schema.
+pub const ELEMENTARY_MAX_SCHEMA_EDGES: usize = 2;
+/// Most nodes and edges in a source state.
+pub const ELEMENTARY_SOURCE_BOUND: (usize, usize) = (2, 2);
+/// Most nodes and edges in a put view.
+pub const ELEMENTARY_VIEW_BOUND: (usize, usize) = (2, 1);
+
+/// The elementary protolens alphabet of the L-lenses-21 certificate.
+///
+/// It has one entry per kind the lens DSL's step alphabet compiles to, with
+/// a second parameterization where a kind has a refusal or collision
+/// boundary.
+///
+/// In order: rename sort `s` to the fresh `u` and onto the present `t`;
+/// rename operation `p` to the fresh `r` and onto the present `q`; rename
+/// edge name `x` to the fresh `z` and onto the present `y`; pull back along
+/// the swaps of `s, t` and `p, q`; add and drop an equation; drop the sort
+/// `t` by kind and `a` by id; drop operation `p`; drop the edges `a -> b`
+/// named `x`; add the sort `c` of kind `t`; add the edge `a -> b` of kind
+/// `p` named `w`; add the operation `o` from `a` to `b`.
+#[must_use]
+pub fn elementary_protolens_alphabet() -> Vec<crate::lens::ElementaryProtolens> {
+    use crate::lens::ElementaryProtolens as E;
+    let name = |text: &str| text.to_owned();
+    let swap = |left: &str, right: &str| {
+        BTreeMap::from([(name(left), name(right)), (name(right), name(left))])
+    };
+    let rename_edge_name = |new: &str| E::RenameEdgeName {
+        src: name("a"),
+        tgt: name("b"),
+        old: name("x"),
+        new: name(new),
+    };
+    vec![
+        E::RenameSort {
+            old: name("s"),
+            new: name("u"),
+        },
+        E::RenameSort {
+            old: name("s"),
+            new: name("t"),
+        },
+        E::RenameOp {
+            old: name("p"),
+            new: name("r"),
+        },
+        E::RenameOp {
+            old: name("p"),
+            new: name("q"),
+        },
+        rename_edge_name("z"),
+        rename_edge_name("y"),
+        E::Pullback {
+            sorts: swap("s", "t"),
+            ops: swap("p", "q"),
+        },
+        E::AddEquation,
+        E::DropEquation,
+        E::DropSort(name("t")),
+        E::DropSort(name("a")),
+        E::DropOp(name("p")),
+        E::DropEdge {
+            src: name("a"),
+            tgt: name("b"),
+            name: Some(name("x")),
+        },
+        E::AddSort {
+            sort: name("c"),
+            kind: name("t"),
+        },
+        E::AddEdge(SEdge::new("a", "b", "p", Some("w"))),
+        E::AddEdge(SEdge::new("a", "b", "o", Some("o"))),
+    ]
+}
+
+/// The schemas of the elementary protolens carrier: both vertices under
+/// each kind assignment, with each set of at most two candidate edges, in
+/// kind-assignment and then edge-subset order.
+#[must_use]
+pub fn elementary_protolens_schemas() -> Vec<Schema> {
+    let labels: Vec<(&str, &str)> = ELEMENTARY_EDGE_LABELS.to_vec();
+    let mut out = Vec::new();
+    for [a, b] in ELEMENTARY_KIND_ASSIGNMENTS {
+        for edges in super::subsets(&labels, ELEMENTARY_MAX_SCHEMA_EDGES) {
+            let mut schema = Schema::default()
+                .vertex(ELEMENTARY_VERTICES[0], a)
+                .vertex(ELEMENTARY_VERTICES[1], b);
+            for (kind, edge_name) in edges {
+                schema = schema.edge("a", "b", kind, Some(edge_name));
+            }
+            out.push(schema);
+        }
+    }
+    out
+}
+
+/// The schema whose vertices and edges are those of either argument, the
+/// carrier of the views put back through a lens from `source` to `target`.
+#[must_use]
+pub fn elementary_view_schema(source: &Schema, target: &Schema) -> Schema {
+    let mut union = source.clone();
+    for (vertex, kind) in &target.vertices {
+        union
+            .vertices
+            .entry(vertex.clone())
+            .or_insert_with(|| kind.clone());
+    }
+    union.edges.extend(target.edges.iter().cloned());
+    union
+}
+
+/// Independent census of the L-lenses-21 certificate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ElementaryProtolensCountCertificate {
+    /// Kinds in [`elementary_protolens_alphabet`].
+    pub kinds: usize,
+    /// Schemas in [`elementary_protolens_schemas`].
+    pub schemas: usize,
+    /// Source states summed over the schemas.
+    pub source_states: usize,
+    /// `(kind, schema, source)` get cases.
+    pub get_cases: usize,
+    /// `(kind, schema)` pairs whose precondition fails.
+    pub inapplicable: usize,
+    /// `(kind, schema)` pairs refused for identifying two edges.
+    pub identifying: usize,
+    /// `(kind, schema)` pairs that instantiate.
+    pub instantiated: usize,
+    /// `(kind, schema, source, view)` put cases over instantiated pairs.
+    pub put_cases: usize,
+}
+
+/// Count the L-lenses-21 carrier from the closed-form state counts and the
+/// reference's applicability verdicts, without materializing a state.
+#[must_use]
+pub fn elementary_protolens_count_certificate() -> ElementaryProtolensCountCertificate {
+    elementary_census(&elementary_protolens_alphabet())
+}
+
+/// Count an alphabet of elementary kinds over the elementary carrier's
+/// schemas from the closed-form state counts and the reference's
+/// applicability verdicts.
+fn elementary_census(
+    alphabet: &[crate::lens::ElementaryProtolens],
+) -> ElementaryProtolensCountCertificate {
+    let schemas = elementary_protolens_schemas();
+    let (source_nodes, source_edges) = ELEMENTARY_SOURCE_BOUND;
+    let (view_nodes, view_edges) = ELEMENTARY_VIEW_BOUND;
+    let source_counts: Vec<usize> = schemas
+        .iter()
+        .map(|schema| graph_state_count_up_to(schema, source_nodes, source_edges))
+        .collect();
+    let source_states: usize = source_counts.iter().sum();
+    let (mut inapplicable, mut identifying, mut instantiated, mut put_cases) = (0, 0, 0, 0);
+    for kind in alphabet {
+        for (schema, sources) in schemas.iter().zip(&source_counts) {
+            if !kind.precondition().holds(schema) {
+                inapplicable += 1;
+                continue;
+            }
+            match kind.target_and_migration(schema) {
+                Err(_) => identifying += 1,
+                Ok((target, _)) => {
+                    instantiated += 1;
+                    let views = elementary_view_schema(schema, &target);
+                    put_cases += sources * graph_state_count_up_to(&views, view_nodes, view_edges);
+                }
+            }
+        }
+    }
+    ElementaryProtolensCountCertificate {
+        kinds: alphabet.len(),
+        schemas: schemas.len(),
+        source_states,
+        get_cases: alphabet.len() * source_states,
+        inapplicable,
+        identifying,
+        instantiated,
+        put_cases,
+    }
+}
+
+/// The sort merge alphabet of the L-lenses-26 certificate.
+///
+/// In order: merge `s` and `t` into the fresh `m`; merge them into `s`
+/// itself; merge `s` with itself into `m`, which is a rename; and merge `s`
+/// with the absent `u`, which no carrier schema admits.
+#[must_use]
+pub fn merge_sorts_alphabet() -> Vec<crate::lens::ElementaryProtolens> {
+    let merge =
+        |first: &str, second: &str, merged: &str| crate::lens::ElementaryProtolens::MergeSorts {
+            first: first.to_owned(),
+            second: second.to_owned(),
+            merged: merged.to_owned(),
+        };
+    vec![
+        merge("s", "t", "m"),
+        merge("s", "t", "s"),
+        merge("s", "s", "m"),
+        merge("s", "u", "m"),
+    ]
+}
+
+/// Count the L-lenses-26 carrier: the merge alphabet over the elementary
+/// carrier's schemas, sources and views.
+#[must_use]
+pub fn merge_sorts_count_certificate() -> ElementaryProtolensCountCertificate {
+    elementary_census(&merge_sorts_alphabet())
+}
+
+// ---------------------------------------------------------------------------
+// Fused chains, scoped protolenses and sequential composites
+// ---------------------------------------------------------------------------
+
+/// The vertices of the fused protolens carrier, with their kinds.
+pub const FUSED_VERTICES: [(&str, &str); 3] = [("c", "string"), ("i", "object"), ("p", "object")];
+/// The candidate edges of the fused protolens carrier, `(src, tgt, kind,
+/// name)`: a path `p -> i -> c` and a direct edge `p -> c`.
+pub const FUSED_EDGE_LABELS: [(&str, &str, &str, &str); 3] = [
+    ("p", "i", "prop", "i"),
+    ("i", "c", "prop", "c"),
+    ("p", "c", "prop", "c"),
+];
+/// Most nodes and edges in a fused-carrier source state.
+pub const FUSED_SOURCE_BOUND: (usize, usize) = (3, 2);
+/// Most nodes and edges in a source state of the two-step composite carrier.
+pub const COMPOSITE_SOURCE_BOUND: (usize, usize) = (2, 1);
+
+/// The schemas of the fused protolens carrier: the three vertices with each
+/// subset of the candidate edges, in subset order.
+#[must_use]
+pub fn fused_protolens_schemas() -> Vec<Schema> {
+    let labels: Vec<(&str, &str, &str, &str)> = FUSED_EDGE_LABELS.to_vec();
+    super::subsets(&labels, labels.len())
+        .into_iter()
+        .map(|edges| {
+            let mut schema = Schema::default();
+            for (vertex, kind) in FUSED_VERTICES {
+                schema = schema.vertex(vertex, kind);
+            }
+            for (src, tgt, kind, name) in edges {
+                schema = schema.edge(src, tgt, kind, Some(name));
+            }
+            schema
+        })
+        .collect()
+}
+
+/// The fused protolens alphabet: the chains the lens DSL's `add_field`,
+/// `hoist_field` and `nest_field` steps compile to and the scoped protolenses
+/// its `scoped` steps compile to.
+///
+/// In order: add the integer field `f` under `p` with its default; hoist `c`
+/// from under `i` to `p`; nest `c` under a new `m` between `p` and `c`; and
+/// scoped at `i`, drop sort `c`, rename sort `string` to `text`, rename the
+/// edge `i -> c` named `c` to `d`, drop that edge, and add the sort `z`;
+/// scoped at `p`, the fused hoist of `c`; and scoped at `c`, drop sort `c`.
+#[must_use]
+pub fn fused_protolens_alphabet() -> Vec<crate::lens::ProtolensTerm> {
+    use crate::lens::ElementaryProtolens as E;
+    use crate::lens::ProtolensTerm as T;
+    let name = |text: &str| text.to_owned();
+    let hoist = T::Fused(vec![
+        T::Elementary(E::AddEdge(SEdge::new("p", "c", "c", Some("c")))),
+        T::Elementary(E::DropSort(name("i"))),
+    ]);
+    let scoped = |focus: &str, inner: T| T::Scoped {
+        focus: name(focus),
+        inner: Box::new(inner),
+    };
+    vec![
+        T::Defaulted {
+            term: Box::new(T::Fused(vec![
+                T::Elementary(E::AddSort {
+                    sort: name("f"),
+                    kind: name("integer"),
+                }),
+                T::Elementary(E::AddEdge(SEdge::new("p", "f", "prop", Some("f")))),
+            ])),
+            parent: name("p"),
+            field: name(BOUNDED_LENS_FIELD),
+        },
+        hoist.clone(),
+        T::Fused(vec![
+            T::Elementary(E::AddSort {
+                sort: name("m"),
+                kind: name("object"),
+            }),
+            T::Elementary(E::AddEdge(SEdge::new("p", "m", "prop", Some("m")))),
+            T::Elementary(E::AddEdge(SEdge::new("m", "c", "prop", Some("c")))),
+            T::Elementary(E::DropEdge {
+                src: name("p"),
+                tgt: name("c"),
+                name: Some(name("c")),
+            }),
+        ]),
+        scoped("i", T::Elementary(E::DropSort(name("c")))),
+        scoped(
+            "i",
+            T::Elementary(E::RenameSort {
+                old: name("string"),
+                new: name("text"),
+            }),
+        ),
+        scoped(
+            "i",
+            T::Elementary(E::RenameEdgeName {
+                src: name("i"),
+                tgt: name("c"),
+                old: name("c"),
+                new: name("d"),
+            }),
+        ),
+        scoped(
+            "i",
+            T::Elementary(E::DropEdge {
+                src: name("i"),
+                tgt: name("c"),
+                name: Some(name("c")),
+            }),
+        ),
+        scoped(
+            "i",
+            T::Elementary(E::AddSort {
+                sort: name("z"),
+                kind: name("string"),
+            }),
+        ),
+        scoped("p", hoist),
+        scoped("c", T::Elementary(E::DropSort(name("c")))),
+    ]
+}
+
+/// The value layer of the fused carrier's `add_field`.
+///
+/// Get writes [`BOUNDED_LENS_VALUE`] under [`BOUNDED_LENS_FIELD`] on every
+/// node anchored at `p` that lacks the field, and put requires an inserted
+/// default to stay unedited and removes it, while a field the source
+/// already had stays an ordinary editable field.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct FusedAddFieldDefault;
+
+impl crate::restrict::ValueLayer for FusedAddFieldDefault {
+    fn canonical_semantics(&self) -> crate::restrict::ValueLayerSemantics {
+        crate::restrict::ValueLayerSemantics {
+            domain: "panproto-reference/fused-add-field-default",
+            version: 1,
+            canonical_payload: Vec::new(),
+        }
+    }
+
+    fn survives(&self, _: &Graph, _: &Node) -> Result<bool, crate::restrict::PredicateRefusal> {
+        Ok(true)
+    }
+
+    fn transform(
+        &self,
+        _: &Graph,
+        node: &Node,
+    ) -> Result<
+        (BTreeMap<String, Value>, Option<crate::value::Presence>),
+        crate::restrict::LayerRefusal,
+    > {
+        let mut fields = node.fields.clone();
+        if node.anchor == "p" {
+            fields
+                .entry(BOUNDED_LENS_FIELD.to_owned())
+                .or_insert(BOUNDED_LENS_VALUE);
+        }
+        Ok((fields, node.value.clone()))
+    }
+
+    fn restore(
+        &self,
+        view: &Node,
+        original_fields: Option<&BTreeMap<String, Value>>,
+        _: Option<&Option<crate::value::Presence>>,
+    ) -> Result<
+        (BTreeMap<String, Value>, Option<crate::value::Presence>),
+        crate::restrict::PutFieldRefusal,
+    > {
+        let mut fields = view.fields.clone();
+        if view.anchor != "p" {
+            return Ok((fields, view.value.clone()));
+        }
+        let derived = crate::restrict::PutFieldRefusal::DerivedCellEdited {
+            field: BOUNDED_LENS_FIELD.to_owned(),
+        };
+        if original_fields.is_some_and(|original| !original.contains_key(BOUNDED_LENS_FIELD)) {
+            if fields.get(BOUNDED_LENS_FIELD) != Some(&BOUNDED_LENS_VALUE) {
+                return Err(derived);
+            }
+            fields.remove(BOUNDED_LENS_FIELD);
+        } else if !fields.contains_key(BOUNDED_LENS_FIELD) {
+            return Err(derived);
+        }
+        Ok((fields, view.value.clone()))
+    }
+}
+
+/// The value layer a fused-carrier term is instantiated with:
+/// [`FusedAddFieldDefault`] for a defaulted term, none otherwise.
+#[must_use]
+pub fn fused_protolens_layer(
+    term: &crate::lens::ProtolensTerm,
+) -> &'static dyn crate::restrict::ValueLayer {
+    if matches!(term, crate::lens::ProtolensTerm::Defaulted { .. }) {
+        &FusedAddFieldDefault
+    } else {
+        &crate::restrict::NoValueLayer
+    }
+}
+
+/// The views a put case of a lens instance puts back: the get view itself,
+/// then its one-step edits ([`bounded_lens_graph_edits`]) over the target.
+#[must_use]
+pub fn put_views_of(
+    view: &Graph,
+    target: &Schema,
+    complement: &crate::restrict::Complement,
+) -> Vec<Graph> {
+    std::iter::once(view.clone())
+        .chain(
+            bounded_lens_graph_edits(view, target, complement)
+                .into_iter()
+                .map(|edit| edit.view),
+        )
+        .collect()
+}
+
+/// Census of a protolens instance carrier.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ProtolensCarrierCertificate {
+    /// Terms (or term pairs) in the alphabet.
+    pub kinds: usize,
+    /// Schemas in the carrier.
+    pub schemas: usize,
+    /// Source states summed over the schemas.
+    pub source_states: usize,
+    /// `(kind, schema, source)` get cases.
+    pub get_cases: usize,
+    /// `(kind, schema)` pairs some precondition refuses.
+    pub inapplicable: usize,
+    /// `(kind, schema)` pairs refused for identifying two edges.
+    pub identifying: usize,
+    /// `(kind, schema)` pairs that instantiate.
+    pub instantiated: usize,
+    /// Instantiated get cases whose get refuses.
+    pub get_refusals: usize,
+    /// `(kind, schema, source, view)` put cases: the view and each of its
+    /// one-step edits, for every instantiated get case whose get succeeds.
+    pub put_cases: usize,
+}
+
+impl ProtolensCarrierCertificate {
+    const fn tally(&mut self, refusal: &crate::lens::TermRefusal) {
+        match refusal {
+            crate::lens::TermRefusal::Inapplicable => self.inapplicable += 1,
+            crate::lens::TermRefusal::Elementary(_) => self.identifying += 1,
+        }
+    }
+}
+
+/// One put case's count: the get view and its one-step edits, from the
+/// closed-form edit count.
+fn put_case_count(
+    view: &Graph,
+    target: &Schema,
+    complement: &crate::restrict::Complement,
+) -> usize {
+    1 + bounded_lens_graph_edit_count(view, target, complement)
+}
+
+/// Count the fused protolens carrier: closed-form source counts, the
+/// reference's instantiation verdicts, and per source the closed-form count
+/// of one-step edits of the reference view.
+#[must_use]
+pub fn fused_protolens_count_certificate() -> ProtolensCarrierCertificate {
+    let alphabet = fused_protolens_alphabet();
+    let schemas = fused_protolens_schemas();
+    let (nodes, edges) = FUSED_SOURCE_BOUND;
+    let mut certificate = ProtolensCarrierCertificate {
+        kinds: alphabet.len(),
+        schemas: schemas.len(),
+        source_states: schemas
+            .iter()
+            .map(|schema| graph_state_count_up_to(schema, nodes, edges))
+            .sum(),
+        ..ProtolensCarrierCertificate::default()
+    };
+    certificate.get_cases = certificate.kinds * certificate.source_states;
+    for term in &alphabet {
+        for schema in &schemas {
+            let protolens = match term.at(schema) {
+                Ok(protolens) => protolens,
+                Err(refusal) => {
+                    certificate.tally(&refusal);
+                    continue;
+                }
+            };
+            certificate.instantiated += 1;
+            let Ok(plan) =
+                crate::restrict::compile(schema, &protolens.target, &protolens.migration)
+            else {
+                certificate.get_refusals += graph_state_count_up_to(schema, nodes, edges);
+                continue;
+            };
+            let Ok(lens) = crate::lens::GraphLens::new(
+                schema,
+                &protolens.target,
+                &protolens.migration,
+                &plan,
+                &BTreeMap::new(),
+                fused_protolens_layer(term),
+            ) else {
+                unreachable!("a plan binds the schemas it was compiled for")
+            };
+            for source in graph_states_up_to(schema, nodes, edges) {
+                match lens.get(&source) {
+                    Ok((view, complement)) => {
+                        certificate.put_cases +=
+                            put_case_count(&view, &protolens.target, &complement);
+                    }
+                    Err(_) => certificate.get_refusals += 1,
+                }
+            }
+        }
+    }
+    certificate
+}
+
+/// The two-step composites of the composite carrier, as pairs of indexes
+/// into [`elementary_protolens_alphabet`]: every ordered pair.
+#[must_use]
+pub fn composite_protolens_pairs() -> Vec<(usize, usize)> {
+    let kinds = elementary_protolens_alphabet().len();
+    (0..kinds)
+        .flat_map(|first| (0..kinds).map(move |second| (first, second)))
+        .collect()
+}
+
+/// Census of the two-step composite carrier, sequential and fused.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CompositeCarrierCertificate {
+    /// The sequential composites, as [`crate::lens::CompositeLens`].
+    pub sequential: ProtolensCarrierCertificate,
+    /// The same pairs fused into one lens, as
+    /// [`crate::lens::ProtolensTerm::Fused`].
+    pub fused: ProtolensCarrierCertificate,
+}
+
+/// Count the two-step composite carrier.
+///
+/// The carrier is the elementary carrier's schemas with sources of at most
+/// [`COMPOSITE_SOURCE_BOUND`]. The count uses closed-form source counts, the
+/// reference's instantiation verdicts and the closed-form edit counts of the
+/// reference views, the sequential put views being edits over the second
+/// part's target against its complement.
+#[must_use]
+pub fn composite_protolens_count_certificate() -> CompositeCarrierCertificate {
+    use crate::lens::{CompositeInstantiationError, CompositeLens, ProtolensTerm};
+    let alphabet = elementary_protolens_alphabet();
+    let pairs = composite_protolens_pairs();
+    let schemas = elementary_protolens_schemas();
+    let (nodes, edges) = COMPOSITE_SOURCE_BOUND;
+    let source_states: usize = schemas
+        .iter()
+        .map(|schema| graph_state_count_up_to(schema, nodes, edges))
+        .sum();
+    let base = ProtolensCarrierCertificate {
+        kinds: pairs.len(),
+        schemas: schemas.len(),
+        source_states,
+        get_cases: pairs.len() * source_states,
+        ..ProtolensCarrierCertificate::default()
+    };
+    let mut out = CompositeCarrierCertificate {
+        sequential: base,
+        fused: base,
+    };
+    for (first, second) in pairs {
+        let parts = [
+            ProtolensTerm::Elementary(alphabet[first].clone()),
+            ProtolensTerm::Elementary(alphabet[second].clone()),
+        ];
+        for schema in &schemas {
+            let sources = graph_states_up_to(schema, nodes, edges);
+            match CompositeLens::instantiate(&parts, schema) {
+                Err(refusal) => match refusal.error {
+                    CompositeInstantiationError::Term(term) => out.sequential.tally(&term),
+                    CompositeInstantiationError::Plan(_) => {
+                        out.sequential.instantiated += 1;
+                        out.sequential.get_refusals += sources.len();
+                    }
+                },
+                Ok(composite) => {
+                    out.sequential.instantiated += 1;
+                    let Some(target) = composite.target() else {
+                        unreachable!("a two-step composite has a target")
+                    };
+                    for source in &sources {
+                        match composite.get(source) {
+                            Ok((view, complements)) => {
+                                out.sequential.put_cases +=
+                                    put_case_count(&view, target, &complements[1]);
+                            }
+                            Err(_) => out.sequential.get_refusals += 1,
+                        }
+                    }
+                }
+            }
+            let fused = ProtolensTerm::Fused(parts.to_vec());
+            match fused.at(schema) {
+                Err(refusal) => out.fused.tally(&refusal),
+                Ok(protolens) => {
+                    out.fused.instantiated += 1;
+                    let Ok(plan) =
+                        crate::restrict::compile(schema, &protolens.target, &protolens.migration)
+                    else {
+                        out.fused.get_refusals += sources.len();
+                        continue;
+                    };
+                    let Ok(lens) = crate::lens::GraphLens::new(
+                        schema,
+                        &protolens.target,
+                        &protolens.migration,
+                        &plan,
+                        &BTreeMap::new(),
+                        &crate::restrict::NoValueLayer,
+                    ) else {
+                        unreachable!("a plan binds the schemas it was compiled for")
+                    };
+                    for source in &sources {
+                        match lens.get(source) {
+                            Ok((view, complement)) => {
+                                out.fused.put_cases +=
+                                    put_case_count(&view, &protolens.target, &complement);
+                            }
+                            Err(_) => out.fused.get_refusals += 1,
+                        }
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+// ---------------------------------------------------------------------------
+// Sort coercions
+// ---------------------------------------------------------------------------
+
+/// The vertices of the sort coercion carrier that carry the coerced kind.
+pub const COERCION_VERTICES: [&str; 2] = ["a", "b"];
+/// The coerced kind.
+pub const COERCED_SORT: &str = "integer";
+/// Most nodes and edges in a sort coercion source state.
+pub const COERCION_SOURCE_BOUND: (usize, usize) = (2, 2);
+
+/// The schemas of the sort coercion carrier.
+///
+/// They are `a` of the coerced kind alone, with an edge to `s` of another
+/// kind, and with an edge to `b` of the coerced kind. Every vertex of the
+/// coerced kind is one of [`COERCION_VERTICES`].
+#[must_use]
+pub fn coercion_schemas() -> Vec<Schema> {
+    let with = |vertex: &str, kind: &str| {
+        Schema::default()
+            .vertex("a", COERCED_SORT)
+            .vertex(vertex, kind)
+            .edge("a", vertex, "prop", Some("x"))
+    };
+    vec![
+        Schema::default().vertex("a", COERCED_SORT),
+        with("s", "string"),
+        with("b", COERCED_SORT),
+    ]
+}
+
+fn integer_to_string(value: &Value) -> Option<Value> {
+    match value {
+        Value::Int(integer) => Some(Value::Str(integer.to_string())),
+        _ => None,
+    }
+}
+
+fn string_to_integer(value: &Value) -> Option<Value> {
+    match value {
+        Value::Str(text) => text.parse::<i64>().ok().map(Value::Int),
+        _ => None,
+    }
+}
+
+fn successor(value: &Value) -> Option<Value> {
+    match value {
+        Value::Int(integer) => integer.checked_add(1).map(Value::Int),
+        _ => None,
+    }
+}
+
+fn predecessor(value: &Value) -> Option<Value> {
+    match value {
+        Value::Int(integer) => integer.checked_sub(1).map(Value::Int),
+        _ => None,
+    }
+}
+
+/// The sort coercion alphabet, each a value layer on the coerced kind.
+///
+/// In order: integer to string with its parse as inverse, declared an
+/// isomorphism; successor with predecessor as inverse, declared a
+/// retraction; successor with no inverse, declared a projection; and
+/// successor with no inverse, declared opaque. The maps are written here
+/// on the reference's values, independently of the expression language.
+#[must_use]
+pub fn coercion_alphabet() -> Vec<crate::lens::SortCoercion> {
+    let coercion = |name, forward, inverse| crate::lens::SortCoercion {
+        name,
+        sort: COERCED_SORT,
+        vertices: &COERCION_VERTICES,
+        forward,
+        inverse,
+    };
+    vec![
+        coercion(
+            "iso integer to string",
+            integer_to_string as crate::lens::ValueMap,
+            Some(string_to_integer as crate::lens::ValueMap),
+        ),
+        coercion(
+            "retraction successor",
+            successor,
+            Some(predecessor as crate::lens::ValueMap),
+        ),
+        coercion("projection successor", successor, None),
+        coercion("opaque successor", successor, None),
+    ]
+}
+
+/// Count the sort coercion carrier: closed-form source counts, and per
+/// source the closed-form count of one-step edits of the reference view.
+#[must_use]
+pub fn coercion_count_certificate() -> ProtolensCarrierCertificate {
+    let alphabet = coercion_alphabet();
+    let schemas = coercion_schemas();
+    let (nodes, edges) = COERCION_SOURCE_BOUND;
+    let mut certificate = ProtolensCarrierCertificate {
+        kinds: alphabet.len(),
+        schemas: schemas.len(),
+        source_states: schemas
+            .iter()
+            .map(|schema| graph_state_count_up_to(schema, nodes, edges))
+            .sum(),
+        ..ProtolensCarrierCertificate::default()
+    };
+    certificate.get_cases = certificate.kinds * certificate.source_states;
+    for coercion in &alphabet {
+        for schema in &schemas {
+            let (target, migration) = coercion.target_and_migration(schema);
+            let Ok(plan) = crate::restrict::compile(schema, &target, &migration) else {
+                certificate.get_refusals += graph_state_count_up_to(schema, nodes, edges);
+                continue;
+            };
+            certificate.instantiated += 1;
+            let Ok(lens) = crate::lens::GraphLens::new(
+                schema,
+                &target,
+                &migration,
+                &plan,
+                &BTreeMap::new(),
+                coercion,
+            ) else {
+                unreachable!("a plan binds the schemas it was compiled for")
+            };
+            for source in graph_states_up_to(schema, nodes, edges) {
+                match lens.get(&source) {
+                    Ok((view, complement)) => {
+                        certificate.put_cases += put_case_count(&view, &target, &complement);
+                    }
+                    Err(_) => certificate.get_refusals += 1,
+                }
+            }
+        }
+    }
+    certificate
+}
+
+// ---------------------------------------------------------------------------
+// Value-level steps
+// ---------------------------------------------------------------------------
+
+/// The vertex the value-level steps run at.
+pub const VALUE_STEP_PARENT: &str = "p";
+/// The fields of the value-level carrier: the read field and the written
+/// one.
+pub const VALUE_STEP_FIELDS: [&str; 2] = ["n", "d"];
+/// The values a source field takes.
+pub const VALUE_STEP_SOURCE_VALUES: [i64; 2] = [0, 1];
+/// The values an edit writes into a view field.
+pub const VALUE_STEP_EDIT_VALUES: [i64; 3] = [0, 1, 2];
+/// Most nodes in a value-level source state.
+pub const VALUE_STEP_SOURCE_NODES: u32 = 2;
+
+/// The schemas of the value-level carrier: `p` with its attribute `n`, and
+/// with its attributes `n` and `d`, each a `prop` edge to a leaf named by
+/// the field.
+#[must_use]
+pub fn value_step_schemas() -> Vec<Schema> {
+    let with = |schema: Schema, field: &str| {
+        let leaf = format!("{VALUE_STEP_PARENT}.{field}");
+        schema
+            .vertex(&leaf, "integer")
+            .edge(VALUE_STEP_PARENT, &leaf, "prop", Some(field))
+    };
+    let base = with(
+        Schema::default().vertex(VALUE_STEP_PARENT, "object"),
+        VALUE_STEP_FIELDS[0],
+    );
+    vec![base.clone(), with(base, VALUE_STEP_FIELDS[1])]
+}
+
+/// Every field map over [`VALUE_STEP_FIELDS`] with values in `values`, in
+/// order: each field absent or one of the values.
+fn value_step_field_maps(values: &[i64]) -> Vec<BTreeMap<String, Value>> {
+    let choices: Vec<Option<i64>> = std::iter::once(None)
+        .chain(values.iter().copied().map(Some))
+        .collect();
+    let mut out = vec![BTreeMap::new()];
+    for field in VALUE_STEP_FIELDS {
+        out = out
+            .into_iter()
+            .flat_map(|fields| {
+                choices.iter().map(move |choice| {
+                    let mut fields = fields.clone();
+                    if let Some(value) = choice {
+                        fields.insert(field.to_owned(), Value::Int(*value));
+                    }
+                    fields
+                })
+            })
+            .collect();
+    }
+    out
+}
+
+/// The source states of the value-level carrier: up to
+/// [`VALUE_STEP_SOURCE_NODES`] nodes `0, 1, ...` at the parent, each with
+/// one of the field maps over [`VALUE_STEP_SOURCE_VALUES`], and no edge.
+#[must_use]
+pub fn value_step_sources() -> Vec<Graph> {
+    let maps = value_step_field_maps(&VALUE_STEP_SOURCE_VALUES);
+    let mut out = vec![Graph::default()];
+    let mut layer = vec![Graph::default()];
+    for id in 0..VALUE_STEP_SOURCE_NODES {
+        layer = layer
+            .into_iter()
+            .flat_map(|graph| {
+                maps.iter().map(move |fields| {
+                    let mut graph = graph.clone();
+                    let mut node = Node::new(id, VALUE_STEP_PARENT);
+                    node.fields.clone_from(fields);
+                    graph.nodes.insert(id, node);
+                    graph
+                })
+            })
+            .collect();
+        out.extend(layer.iter().cloned());
+    }
+    out
+}
+
+/// The views a value-level put case puts back.
+///
+/// Each view node is left as it is or takes one of its edits: a field set
+/// to another choice (absent or a value of [`VALUE_STEP_EDIT_VALUES`]), in
+/// field and choice order, or the node removed. The views are every
+/// combination of these per-node alternatives, in lexicographic order over
+/// the nodes in id order, first without and then with a fresh node at the
+/// parent; the first is the get view itself.
+#[must_use]
+pub fn value_step_views(view: &Graph, complement: &crate::restrict::Complement) -> Vec<Graph> {
+    let choices: Vec<Option<Value>> = std::iter::once(None)
+        .chain(
+            VALUE_STEP_EDIT_VALUES
+                .iter()
+                .map(|value| Some(Value::Int(*value))),
+        )
+        .collect();
+    let mut edited = vec![view.clone()];
+    for (id, node) in &view.nodes {
+        let mut alternatives: Vec<Option<Node>> = vec![Some(node.clone())];
+        for field in VALUE_STEP_FIELDS {
+            for choice in &choices {
+                if node.fields.get(field) == choice.as_ref() {
+                    continue;
+                }
+                let mut changed = node.clone();
+                match choice {
+                    Some(value) => {
+                        changed.fields.insert(field.to_owned(), value.clone());
+                    }
+                    None => {
+                        changed.fields.remove(field);
+                    }
+                }
+                alternatives.push(Some(changed));
+            }
+        }
+        alternatives.push(None);
+        edited = edited
+            .into_iter()
+            .flat_map(|graph| {
+                alternatives.iter().map(move |alternative| {
+                    let mut graph = graph.clone();
+                    if let Some(changed) = alternative {
+                        graph.nodes.insert(*id, changed.clone());
+                    } else {
+                        graph.nodes.remove(id);
+                        graph
+                            .edges
+                            .retain(|_, edge| edge.src != *id && edge.tgt != *id);
+                    }
+                    graph
+                })
+            })
+            .collect();
+    }
+    let fresh = fresh_id(
+        view.nodes
+            .keys()
+            .chain(complement.dropped_nodes.keys())
+            .chain(complement.synthesized_nodes.keys()),
+        complement.floor.0,
+    );
+    let added: Vec<Graph> = edited
+        .iter()
+        .map(|graph| {
+            let mut graph = graph.clone();
+            graph
+                .nodes
+                .insert(fresh, Node::new(fresh, VALUE_STEP_PARENT));
+            graph
+        })
+        .collect();
+    edited.extend(added);
+    edited
+}
+
+/// The number of views [`value_step_views`] lists for a view of `nodes`
+/// nodes.
+///
+/// Each node is unchanged, takes one of three other choices for each of two
+/// fields or is removed, so eight alternatives per node, with and without
+/// the fresh node.
+#[must_use]
+pub const fn value_step_view_count(nodes: u32) -> usize {
+    2 * (VALUE_STEP_FIELDS.len() * VALUE_STEP_EDIT_VALUES.len() + 2).pow(nodes)
+}
+
+/// A value-level step as the lens DSL compiles it, on the reference.
+#[derive(Clone, Debug)]
+pub struct ValueStepTerm {
+    /// The step, for diagnostics.
+    pub name: &'static str,
+    /// Whether the step is an `add_field` of `d` with default `0`, whose
+    /// structure is the fused addition of the field vertex and its edge and
+    /// whose default is written where it adds the field vertex.
+    pub adds_field: bool,
+    /// The field steps the step declares beyond that default.
+    pub steps: Vec<crate::lens::FieldStep>,
+}
+
+/// The field `add_field` adds, with its default.
+const VALUE_STEP_DEFAULT: (&str, Value) = ("d", Value::Int(0));
+
+impl ValueStepTerm {
+    /// The target, migration and field program of the step at a schema.
+    ///
+    /// An `add_field` step's structure is the fused chain of
+    /// [`crate::lens::ProtolensTerm`] that adds the field vertex `p.d` and
+    /// the edge `d` to it; its program writes the default first when the
+    /// schema lacks that vertex. Every other step is the identity on the
+    /// schema. The program runs at the parent.
+    #[must_use]
+    pub fn at(&self, schema: &Schema) -> (Schema, Migration, crate::lens::FieldProgram) {
+        let mut steps = Vec::new();
+        let (target, mut migration) = if self.adds_field {
+            use crate::lens::ElementaryProtolens as E;
+            use crate::lens::ProtolensTerm as T;
+            let (field, default) = VALUE_STEP_DEFAULT;
+            let leaf = format!("{VALUE_STEP_PARENT}.{field}");
+            if !schema.vertices.contains_key(&leaf) {
+                steps.push(crate::lens::FieldStep::Default {
+                    key: field,
+                    value: default,
+                });
+            }
+            let term = T::Fused(vec![
+                T::Elementary(E::AddSort {
+                    sort: leaf.clone(),
+                    kind: "integer".to_owned(),
+                }),
+                T::Elementary(E::AddEdge(SEdge::new(
+                    VALUE_STEP_PARENT,
+                    &leaf,
+                    "prop",
+                    Some(field),
+                ))),
+            ]);
+            let Ok(protolens) = term.at(schema) else {
+                unreachable!("an addition applies at every schema")
+            };
+            (protolens.target, protolens.migration)
+        } else {
+            (
+                schema.clone(),
+                Migration {
+                    surviving_verts: schema.vertices.keys().cloned().collect(),
+                    surviving_edges: schema.edges.clone(),
+                    ..Migration::default()
+                },
+            )
+        };
+        steps.extend(self.steps.iter().cloned());
+        let program = crate::lens::FieldProgram {
+            name: self.name,
+            vertices: vec![VALUE_STEP_PARENT.to_owned()],
+            steps,
+        };
+        if !program.steps.is_empty() {
+            migration.transformed.insert(VALUE_STEP_PARENT.to_owned());
+            migration
+                .output_fields
+                .insert(VALUE_STEP_PARENT.to_owned(), program.output_fields());
+        }
+        (target, migration, program)
+    }
+}
+
+/// The value-level alphabet of the L-lenses-27 certificate.
+///
+/// In order: `apply_expr` of `n` by successor with predecessor as inverse,
+/// and with no inverse; `compute_field` of `d` as the successor of `n`, with
+/// no inverse and with predecessor as inverse; `add_field` of `d` with
+/// default `0`, without and with the computation of `d` as the successor of
+/// `n`; and the directed equations `n(x) -> n(x)` implemented by successor,
+/// with predecessor as inverse and with none, and `x -> succ(x)`, whose left
+/// side names no field. The maps are written here on the reference's
+/// values, independently of the expression language.
+#[must_use]
+pub fn value_step_alphabet() -> Vec<ValueStepTerm> {
+    use crate::lens::{FieldStep, ValueMap};
+    let rewrite = |inverse: Option<ValueMap>| FieldStep::Rewrite {
+        key: "n",
+        forward: successor,
+        inverse,
+    };
+    let compute = |inverse: Option<ValueMap>| FieldStep::Compute {
+        target: "d",
+        source: "n",
+        forward: successor,
+        inverse,
+    };
+    let term = |name, adds_field, steps| ValueStepTerm {
+        name,
+        adds_field,
+        steps,
+    };
+    vec![
+        term(
+            "apply_expr with inverse",
+            false,
+            vec![rewrite(Some(predecessor))],
+        ),
+        term("apply_expr without inverse", false, vec![rewrite(None)]),
+        term("compute_field without inverse", false, vec![compute(None)]),
+        term(
+            "compute_field with inverse",
+            false,
+            vec![compute(Some(predecessor))],
+        ),
+        term("add_field", true, Vec::new()),
+        term("add_field with expr", true, vec![compute(None)]),
+        term(
+            "directed equation with inverse",
+            false,
+            vec![rewrite(Some(predecessor))],
+        ),
+        term(
+            "directed equation without inverse",
+            false,
+            vec![rewrite(None)],
+        ),
+        term("directed equation on a variable", false, Vec::new()),
+    ]
+}
+
+/// Count the value-level carrier: the sources, the reference's plan and get
+/// verdicts, and per source whose get succeeds the closed-form count of its
+/// put views.
+#[must_use]
+pub fn value_step_count_certificate() -> ProtolensCarrierCertificate {
+    let alphabet = value_step_alphabet();
+    let schemas = value_step_schemas();
+    let sources = value_step_sources();
+    let mut certificate = ProtolensCarrierCertificate {
+        kinds: alphabet.len(),
+        schemas: schemas.len(),
+        source_states: schemas.len() * sources.len(),
+        ..ProtolensCarrierCertificate::default()
+    };
+    certificate.get_cases = certificate.kinds * certificate.source_states;
+    for term in &alphabet {
+        for schema in &schemas {
+            let (target, migration, program) = term.at(schema);
+            let Ok(plan) = crate::restrict::compile(schema, &target, &migration) else {
+                certificate.inapplicable += 1;
+                continue;
+            };
+            certificate.instantiated += 1;
+            let Ok(lens) = crate::lens::GraphLens::new(
+                schema,
+                &target,
+                &migration,
+                &plan,
+                &BTreeMap::new(),
+                &program,
+            ) else {
+                unreachable!("a plan binds the schemas it was compiled for")
+            };
+            for source in &sources {
+                match lens.get(source) {
+                    Ok((view, _)) => {
+                        certificate.put_cases +=
+                            value_step_view_count(u32::try_from(view.nodes.len()).unwrap_or_else(
+                                |_| unreachable!("a carrier view has at most two nodes"),
+                            ));
+                    }
+                    Err(_) => certificate.get_refusals += 1,
+                }
+            }
+        }
+    }
+    certificate
 }

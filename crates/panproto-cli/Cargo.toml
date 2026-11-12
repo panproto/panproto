@@ -1,7 +1,6 @@
 [package]
 name = "panproto-cli"
 description = "Schematic version control CLI for panproto"
-homepage = "https://github.com/panproto/panproto"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -19,7 +18,10 @@ name = "schema"
 path = "src/main.rs"
 
 [dependencies]
-panproto-core = { workspace = true }
+# The `tree-sitter` feature links the grammars the schema readers of
+# OpenAPI, AsyncAPI, JSON Schema, Kubernetes CRDs, CloudFormation, Ansible
+# and PostgreSQL parse with, so `--protocol` reads every protocol.
+panproto-core = { workspace = true, features = ["tree-sitter"] }
 panproto-parse = { workspace = true }
 panproto-project = { workspace = true }
 panproto-git = { workspace = true }

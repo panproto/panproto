@@ -1323,15 +1323,15 @@ mod tests {
         );
         // Distinct names are kept in first-seen order.
         assert_eq!(
-            ProjectProtocol::from_names(["sql", "atproto", "sql"]),
-            ProjectProtocol::Heterogeneous(vec!["sql".to_owned(), "atproto".to_owned()])
+            ProjectProtocol::from_names(["postgresql", "atproto", "postgresql"]),
+            ProjectProtocol::Heterogeneous(vec!["postgresql".to_owned(), "atproto".to_owned()])
         );
         assert_eq!(
             ProjectProtocol::from_names(["atproto"]).homogeneous(),
             Some("atproto")
         );
         assert_eq!(
-            ProjectProtocol::from_names(["sql", "atproto"]).homogeneous(),
+            ProjectProtocol::from_names(["postgresql", "atproto"]).homogeneous(),
             None
         );
     }
@@ -1359,7 +1359,7 @@ mod tests {
     fn assembly_falls_back_for_a_heterogeneous_project() {
         let files = vec![
             (PathBuf::from("a.json"), schema_in("atproto", "a")),
-            (PathBuf::from("b.json"), schema_in("sql", "b")),
+            (PathBuf::from("b.json"), schema_in("postgresql", "b")),
         ];
         let assembled = assemble_from_files(&project_coproduct_protocol(), &files).unwrap();
         assert_eq!(assembled.protocol, "project");
@@ -1386,8 +1386,8 @@ mod tests {
     fn tree_protocol_reads_the_leaves() {
         let mut store = MemStore::new();
         let mut mixed = file_schema("b.json", "b");
-        mixed.protocol = "sql".to_owned();
-        mixed.schema.protocol = "sql".to_owned();
+        mixed.protocol = "postgresql".to_owned();
+        mixed.schema.protocol = "postgresql".to_owned();
         let mut homogeneous_leaf = file_schema("a.json", "a");
         homogeneous_leaf.protocol = "atproto".to_owned();
         homogeneous_leaf.schema.protocol = "atproto".to_owned();
@@ -1402,7 +1402,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             tree_protocol(&store, &root).unwrap(),
-            ProjectProtocol::Heterogeneous(vec!["atproto".to_owned(), "sql".to_owned()])
+            ProjectProtocol::Heterogeneous(vec!["atproto".to_owned(), "postgresql".to_owned()])
         );
 
         let mut second = MemStore::new();

@@ -116,33 +116,6 @@ fn samples() -> Vec<(&'static str, Value)> {
             }),
         ),
         (
-            "openapi",
-            serde_json::json!({
-                "openapi": "3.0.0",
-                "info": { "title": "t", "version": "1" },
-                "paths": {
-                    "/users": { "get": { "responses": { "200": { "description": "ok" } } } },
-                    "/items": { "post": { "responses": { "201": { "description": "made" } } } }
-                },
-                "components": {
-                    "schemas": {
-                        "User": {
-                            "type": "object",
-                            "properties": {
-                                "name": { "type": "string" },
-                                "age": { "type": "integer" },
-                                "email": { "type": "string" }
-                            }
-                        },
-                        "Item": {
-                            "type": "object",
-                            "properties": { "sku": { "type": "string" }, "qty": { "type": "integer" } }
-                        }
-                    }
-                }
-            }),
-        ),
-        (
             "dataframe",
             serde_json::json!({
                 "name": "users",
@@ -230,22 +203,6 @@ fn a_lexicon_bundle_reads_to_one_schema_in_any_member_order() {
     assert!(
         canonical_bytes(&written) == canonical_bytes(&other),
         "member order changed the schema of the lexicon bundle"
-    );
-}
-
-#[test]
-fn every_json_schema_fixture_reads_to_one_schema_in_any_member_order() {
-    let docs: Vec<(String, Value)> = ["github-workflow.json", "package.json", "tsconfig.json"]
-        .into_iter()
-        .map(|name| (name.to_owned(), read(&format!("jsonschema/{name}"))))
-        .collect();
-    let wrong = order_dependent(
-        docs.iter()
-            .map(|(name, doc)| ("json-schema", name.clone(), doc)),
-    );
-    assert!(
-        wrong.is_empty(),
-        "member order changed the schema of: {wrong:?}"
     );
 }
 

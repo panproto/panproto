@@ -1773,7 +1773,7 @@ timestamp: !!timestamp 2026-09-28T12:34:56.789+05:30
             assert!(matches!(
                 toml.parse_wtype_preserving(&schema, input),
                 Err(ParseInstanceError::Parse { ref message, .. })
-                    if message.contains("invalid TOML basic string token")
+                    if message.contains("invalid TOML string token")
             ));
         }
         toml.parse_wtype_preserving(&schema, br#"value = "\U0001F600""#)
@@ -2068,18 +2068,33 @@ timestamp: !!timestamp 2026-09-28T12:34:56.789+05:30
     }
 
     #[test]
-    fn toml_dotted_keys_and_headers_are_refused_instead_of_flattened() {
+    fn toml_dotted_keys_and_headers_nest_instead_of_flattening() {
         let schema = open_yaml_schema();
         let codec = UnifiedCodec::toml("fidelity-cst").expect("TOML CST codec");
-        for input in [b"a.b = 1\n".as_slice(), b"[a.b]\nc = 1\n".as_slice()] {
-            let error = codec
+        for (input, anchor) in [
+            (b"a.b = 1\n".as_slice(), "root:a:b"),
+            (b"[a.b]\nb = 1\n".as_slice(), "root:a:b:b"),
+        ] {
+            let (instance, complement) = codec
                 .parse_wtype_preserving(&schema, input)
-                .expect_err("dotted TOML structure must not become a flat key");
-            assert!(matches!(
-                error,
-                ParseInstanceError::Parse { message, .. }
-                    if message.contains("dotted keys")
-            ));
+                .expect("dotted TOML structure nests");
+            assert_eq!(
+                value_at(&instance, anchor),
+                &FieldPresence::Present(Value::Int(1))
+            );
+            assert!(
+                instance
+                    .nodes
+                    .values()
+                    .all(|node| !node.anchor.contains('.')),
+                "a dotted key became a flat key: {instance:?}"
+            );
+            assert_eq!(
+                codec
+                    .emit_wtype_preserving(&schema, &instance, &complement)
+                    .expect("unedited emission"),
+                input
+            );
         }
     }
 
@@ -2269,6 +2284,45 @@ timestamp: !!timestamp 2026-09-28T12:34:56.789+05:30
         }
     }
 
+    /// Applies the exact-value edits a CST route must rerender. YAML leaves
+    /// the local timestamp out, since it refuses one, and edits its NaN.
+    fn apply_rerender_edits(instance: &mut WInstance, label: &str) {
+        for (anchor, value) in exact_value_edits()
+            .into_iter()
+            .filter(|(anchor, _)| label != "YAML" || *anchor != "timestamp_local")
+            .chain([("null_value", Value::Str("materialized-null".into()))])
+        {
+            set_tree_value(instance, anchor, FieldPresence::Present(value));
+        }
+        if label == "YAML" {
+            set_tree_value(instance, "nan", FieldPresence::Present(Value::Float(1.25)));
+        }
+    }
+
+    /// A YAML timestamp without a zone denotes UTC, so the YAML route
+    /// refuses the edited local timestamp and keeps the source one.
+    fn assert_yaml_cst_refuses_a_local_timestamp(
+        codec: &UnifiedCodec,
+        schema: &Schema,
+        instance: &WInstance,
+        complement: &CstComplement,
+    ) {
+        let mut local = instance.clone();
+        let (anchor, value) = exact_value_edits()
+            .into_iter()
+            .find(|(anchor, _)| *anchor == "timestamp_local")
+            .expect("a local timestamp edit");
+        set_tree_value(&mut local, anchor, FieldPresence::Present(value));
+        assert!(
+            matches!(
+                codec.emit_wtype_preserving(schema, &local, complement),
+                Err(EmitInstanceError::Value(ref error))
+                    if error.reason == EmitValueReason::NotRepresentable
+            ),
+            "YAML wrote a local timestamp"
+        );
+    }
+
     #[test]
     fn json_cst_yaml_cst_and_toml_cst_exact_routes_force_a_rerender() {
         let schema = exact_value_schema("root");
@@ -2333,19 +2387,10 @@ timestamp: !!timestamp 2026-09-28T12:34:56.789+05:30
                 continue;
             }
 
-            for (anchor, value) in exact_value_edits()
-                .into_iter()
-                .chain([("null_value", Value::Str("materialized-null".into()))])
-            {
-                set_tree_value(&mut instance, anchor, FieldPresence::Present(value));
-            }
             if label == "YAML" {
-                set_tree_value(
-                    &mut instance,
-                    "nan",
-                    FieldPresence::Present(Value::Float(1.25)),
-                );
+                assert_yaml_cst_refuses_a_local_timestamp(&codec, &schema, &instance, &complement);
             }
+            apply_rerender_edits(&mut instance, label);
 
             let emitted = codec
                 .emit_wtype_preserving(&schema, &instance, &complement)

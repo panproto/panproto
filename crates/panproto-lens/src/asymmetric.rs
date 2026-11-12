@@ -332,17 +332,25 @@ pub(crate) fn value_equiv(
 
 /// The source anchor a view anchor maps back to, read off the vertex remap.
 ///
-/// A target vertex with exactly one explicit preimage maps back to it; one
-/// with none was not renamed and maps back to itself. One with several has
-/// no inverse, and `put` takes the anchor from
+/// A target vertex with exactly one explicit preimage maps back to it. One
+/// with none maps back to itself when it is a source vertex that survives
+/// under its own name, and to no source anchor otherwise: a view node there
+/// has no source vertex `get` could have carried it from. An anchor that is
+/// no target vertex is extended by the identity. One with several
+/// has no inverse, and `put` takes the anchor from
 /// [`Complement::original_anchors`] instead, which `get` fills for exactly
 /// the nodes this inverse would get wrong.
 struct ReverseAnchors {
     preimages: HashMap<Name, Vec<Name>>,
+    /// Source vertices that survive under their own name.
+    unrenamed: HashSet<Name>,
+    /// Target vertices.
+    targets: HashSet<Name>,
 }
 
 impl ReverseAnchors {
-    fn new(vertex_remap: &HashMap<Name, Name>) -> Self {
+    fn new(lens: &Lens) -> Self {
+        let vertex_remap = &lens.compiled.vertex_remap;
         let mut preimages: HashMap<Name, Vec<Name>> = HashMap::new();
         for (src, tgt) in vertex_remap {
             preimages.entry(tgt.clone()).or_default().push(src.clone());
@@ -350,14 +358,37 @@ impl ReverseAnchors {
         for candidates in preimages.values_mut() {
             candidates.sort();
         }
-        Self { preimages }
+        let unrenamed = lens
+            .src_schema
+            .vertices
+            .keys()
+            .filter(|vertex| {
+                vertex_remap
+                    .get(*vertex)
+                    .is_none_or(|image| image == *vertex)
+                    && lens.tgt_schema.vertices.contains_key(*vertex)
+                    && vertex_survives(lens, vertex)
+            })
+            .cloned()
+            .collect();
+        Self {
+            preimages,
+            unrenamed,
+            targets: lens.tgt_schema.vertices.keys().cloned().collect(),
+        }
     }
 
     /// The source anchor of `view_anchor`, or every candidate when there is
-    /// more than one.
+    /// not exactly one (none for a target vertex that no surviving source
+    /// vertex reaches).
     fn source_anchor<'a>(&'a self, view_anchor: &'a Name) -> Result<&'a Name, &'a [Name]> {
         match self.preimages.get(view_anchor).map(Vec::as_slice) {
-            None | Some([]) => Ok(view_anchor),
+            None | Some([])
+                if self.unrenamed.contains(view_anchor) || !self.targets.contains(view_anchor) =>
+            {
+                Ok(view_anchor)
+            }
+            None | Some([]) => Err(&[]),
             Some([only]) => Ok(only),
             Some(many) => Err(many),
         }
@@ -640,7 +671,7 @@ pub(crate) fn get_with_identity(
     // The source anchor of every surviving node the remap's inverse would
     // not recover: a node whose view anchor has several preimages, or a
     // single preimage that is not where it came from.
-    let reverse = ReverseAnchors::new(&lens.compiled.vertex_remap);
+    let reverse = ReverseAnchors::new(lens);
     let mut original_anchors = HashMap::new();
     for (&id, view_node) in &view.nodes {
         if let Some(source_node) = instance.nodes.get(&id)
@@ -832,7 +863,7 @@ pub fn fold_computed_children_into_fields(
     if lens.compiled.field_transforms.is_empty() && lens.compiled.op_term_assignments.is_empty() {
         return view.clone();
     }
-    let reverse_anchors = ReverseAnchors::new(&lens.compiled.vertex_remap);
+    let reverse_anchors = ReverseAnchors::new(lens);
     let source_arcs: HashSet<(u32, u32)> = complement.arc_order.iter().copied().collect();
     let mut children: HashMap<u32, Vec<(u32, &Edge)>> = HashMap::new();
     for (parent, child, edge) in &view.arcs {
@@ -1230,7 +1261,7 @@ fn structural_violations(
     complement: &Complement,
 ) -> Vec<PutDomainError> {
     let mut found = synthesized_edits(view, complement);
-    let reverse_anchors = ReverseAnchors::new(&lens.compiled.vertex_remap);
+    let reverse_anchors = ReverseAnchors::new(lens);
     let edge_preimages = EdgePreimages::new(lens);
     let mut view_arc_into: HashMap<u32, (u32, &Edge)> = HashMap::new();
     for (parent, child, edge) in &view.arcs {
@@ -2426,7 +2457,7 @@ fn reassemble_baseline(
     // nest-style `expansion_path` mechanism: they exist only in the view,
     // not in the source, so collapsing them back means dropping them.
     let mut nodes = HashMap::new();
-    let reverse_anchors = ReverseAnchors::new(&lens.compiled.vertex_remap);
+    let reverse_anchors = ReverseAnchors::new(lens);
     let edge_preimages = EdgePreimages::new(lens);
     // The arc into each view node: its parent and the edge it carries. A
     // W-type node has at most one; the first is kept if a malformed view
@@ -6795,5 +6826,64 @@ mod tests {
                 }
             }
         }
+    }
+}
+
+/// A view node at a target vertex that no surviving source vertex reaches
+/// has no source anchor, and tree put refuses it as graph put does.
+#[cfg(test)]
+mod a_view_node_without_a_surviving_preimage_is_refused {
+    use std::collections::HashMap;
+    use std::error::Error;
+
+    use panproto_gat::Name;
+    use panproto_inst::{CompiledMigration, Node, PutDomainError, ViewRef, WInstance};
+    use panproto_schema::{Protocol, SchemaBuilder};
+
+    use crate::{Lens, LensError};
+
+    #[test]
+    fn a_node_at_a_dropped_vertex_is_an_ambiguous_reverse_anchor() -> Result<(), Box<dyn Error>> {
+        let protocol = Protocol::default();
+        let schema = SchemaBuilder::new(&protocol)
+            .vertex("v0", "s", None)?
+            .vertex("v1", "s", None)?
+            .build()?;
+        let lens = Lens {
+            compiled: CompiledMigration {
+                surviving_verts: [Name::from("v1")].into(),
+                ..CompiledMigration::default()
+            },
+            src_schema: schema.clone(),
+            tgt_schema: schema,
+        };
+        let source = WInstance::new(
+            HashMap::from([(0, Node::new(0, "v1"))]),
+            Vec::new(),
+            Vec::new(),
+            0,
+            Name::from("v1"),
+        );
+        let (_, complement) = super::get(&lens, &source)?;
+        let view = WInstance::new(
+            HashMap::from([(0, Node::new(0, "v0"))]),
+            Vec::new(),
+            Vec::new(),
+            0,
+            Name::from("v0"),
+        );
+        let refused = super::put(&lens, &view, &complement);
+        assert!(
+            matches!(
+                &refused,
+                Err(LensError::PutDomain(error)) if matches!(
+                    error.as_ref(),
+                    PutDomainError::AmbiguousReverseAnchor { elem: ViewRef::Node(0), candidates }
+                        if candidates.is_empty()
+                )
+            ),
+            "{refused:?}"
+        );
+        Ok(())
     }
 }

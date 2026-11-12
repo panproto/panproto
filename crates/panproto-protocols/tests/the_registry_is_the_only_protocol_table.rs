@@ -138,12 +138,14 @@ fn the_bundle_listings_are_exactly_the_bundle_parsers() {
 
 /// A protocol that resolves cross-document references must be readable
 /// one document at a time as well, or the bundle flag names a
-/// capability with no parser behind it.
+/// capability with no parser behind it. A grammar protocol's single and
+/// bundle readers are both in `panproto-io`, whose dispatch test checks
+/// the bundle flag against them.
 #[test]
 fn every_bundle_parser_is_also_a_document_parser() {
     for d in descriptors().iter().filter(|d| d.bundle) {
         assert!(
-            matches!(d.parser, Parser::Document(_)),
+            matches!(d.parser, Parser::Document(_) | Parser::Grammar { .. }),
             "{} claims bundle support but is not read as a document",
             d.name,
         );
@@ -166,7 +168,7 @@ fn every_listed_protocol_is_reachable_through_its_dispatch() {
                 .err()
                 .map(|e| e.to_string()),
             Parser::Source(_) => parse_schema_source(d.name, "").err().map(|e| e.to_string()),
-            Parser::Programmatic => continue,
+            Parser::Grammar { .. } | Parser::Programmatic => continue,
         };
         if let Some(message) = refusal {
             assert!(
@@ -233,7 +235,21 @@ fn a_protocol_without_schema_documents_is_refused_by_both_dispatches() {
         .filter(|d| matches!(d.parser, Parser::Programmatic))
         .map(|d| d.name)
         .collect();
-    assert_eq!(programmatic, ["csv", "toml", "yaml"]);
+    assert_eq!(
+        programmatic,
+        [
+            "bson",
+            "csv",
+            "edgelist-csv",
+            "edgelist-tsv",
+            "jsonld",
+            "ntriples",
+            "toml",
+            "tsv",
+            "turtle",
+            "yaml"
+        ]
+    );
     for name in programmatic {
         for refusal in [
             parse_schema_document(name, &serde_json::json!({})).err(),
@@ -244,6 +260,49 @@ fn a_protocol_without_schema_documents_is_refused_by_both_dispatches() {
                 message.contains("reads no schema documents"),
                 "{name}: {message:?}"
             );
+        }
+        assert!(!document_parser_protocols().contains(&name));
+        assert!(!source_parser_protocols().contains(&name));
+    }
+}
+
+/// A protocol read through a tree-sitter grammar is refused by both
+/// dispatches of this crate, which does not link the grammars, with an
+/// error that names the reader to use, and neither listing offers it.
+#[test]
+fn a_protocol_read_through_a_grammar_names_its_reader() {
+    let grammar_read: Vec<(&str, &str)> = descriptors()
+        .iter()
+        .filter_map(|d| match d.parser {
+            Parser::Grammar { reader } => Some((d.name, reader)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        grammar_read,
+        [
+            ("ansible", "panproto_io::config::ansible::read_ansible"),
+            ("asyncapi", "panproto_io::api::asyncapi::read_asyncapi"),
+            (
+                "cloudformation",
+                "panproto_io::config::cloudformation::read_template"
+            ),
+            (
+                "json-schema",
+                "panproto_io::data_schema::json_schema::read_schema"
+            ),
+            ("k8s-crd", "panproto_io::config::k8s_crd::read_crd"),
+            ("openapi", "panproto_io::api::openapi::read_openapi"),
+            ("postgresql", "panproto_io::postgresql::read_ddl")
+        ]
+    );
+    for (name, reader) in grammar_read {
+        for refusal in [
+            parse_schema_document(name, &serde_json::json!({})).err(),
+            parse_schema_source(name, "CREATE TABLE t (a int);").err(),
+        ] {
+            let message = refusal.map(|e| e.to_string()).unwrap_or_default();
+            assert!(message.contains(reader), "{name}: {message:?}");
         }
         assert!(!document_parser_protocols().contains(&name));
         assert!(!source_parser_protocols().contains(&name));

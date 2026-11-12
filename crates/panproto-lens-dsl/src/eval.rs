@@ -1,12 +1,13 @@
 //! Evaluation of Nickel, JSON, and YAML sources into [`LensDocument`].
 //!
 //! Three evaluation paths:
-//! - **Nickel** (`.ncl`): evaluated via `nickel-lang`, then deserialized via `to_serde`
-//! - **JSON** (`.json`): deserialized directly via `serde_json`
-//! - **YAML** (`.yaml`, `.yml`): deserialized directly via `yaml_serde`
+//! - **Nickel** (`.ncl`): evaluated via `nickel-lang` to a value
+//! - **JSON** (`.json`): parsed via `serde_json`
+//! - **YAML** (`.yaml`, `.yml`): parsed via `yaml_serde`
 //!
 //! The Nickel path provides contracts, merge composition, functions,
-//! and imports. JSON/YAML are pass-through for simple cases.
+//! and imports. Whatever the format, the resulting value is checked
+//! against the document grammar ([`crate::shape`]) before it is read.
 //!
 //! The evaluation machinery lives in
 //! [`panproto_dsl_eval`](https://docs.rs/panproto-dsl-eval), which is
@@ -35,10 +36,23 @@ const LENS_CONTRACT_SOURCE: &str = include_str!("../contracts/lens.ncl");
 ///
 /// # Errors
 ///
-/// Returns [`LensDslError::NickelEval`] if evaluation or contract
-/// checking fails, or a deserialization error if the evaluated record
-/// does not match [`LensDocument`].
+/// Returns [`LensDslError::NickelEvalSpanned`] when evaluation fails at a
+/// place in `source` that Nickel's diagnostic names,
+/// [`LensDslError::NickelEval`] when it fails without one, and
+/// [`LensDslError::Shape`] when the exported value is not a document.
 pub fn eval_nickel(source: &str, import_paths: &[PathBuf]) -> Result<LensDocument, LensDslError> {
+    crate::shape::read_document(&nickel_value(source, import_paths)?)
+}
+
+/// Evaluate a Nickel source string to the document value it exports.
+///
+/// # Errors
+///
+/// As [`eval_nickel`], before the value is read as a document.
+pub fn nickel_value(
+    source: &str,
+    import_paths: &[PathBuf],
+) -> Result<serde_json::Value, LensDslError> {
     panproto_dsl_eval::eval_nickel(
         source,
         import_paths,
@@ -54,16 +68,28 @@ pub fn eval_nickel(source: &str, import_paths: &[PathBuf]) -> Result<LensDocumen
 ///
 /// # Errors
 ///
-/// Returns [`LensDslError::Json`] if parsing fails.
+/// Returns [`LensDslError::Json`] if parsing fails and
+/// [`LensDslError::Shape`] if the value is not a document.
 pub fn eval_json(source: &str) -> Result<LensDocument, LensDslError> {
-    panproto_dsl_eval::eval_json(source).map_err(LensDslError::from)
+    let value: serde_json::Value = panproto_dsl_eval::eval_json(source)?;
+    crate::shape::read_document(&value)
 }
 
 /// Evaluate a YAML string to a [`LensDocument`].
 ///
 /// # Errors
 ///
-/// Returns [`LensDslError::Yaml`] if parsing fails.
+/// Returns [`LensDslError::Yaml`] if parsing fails and
+/// [`LensDslError::Shape`] if the value is not a document.
 pub fn eval_yaml(source: &str) -> Result<LensDocument, LensDslError> {
-    panproto_dsl_eval::eval_yaml(source).map_err(LensDslError::from)
+    crate::shape::read_document(&yaml_value(source)?)
+}
+
+/// Parse a YAML string to the document value it holds.
+///
+/// # Errors
+///
+/// Returns [`LensDslError::Yaml`] if parsing fails.
+pub fn yaml_value(source: &str) -> Result<serde_json::Value, LensDslError> {
+    Ok(panproto_dsl_eval::eval_yaml(source)?)
 }

@@ -36,7 +36,7 @@ const DECLARED: &[(&str, InstanceShapeKind, InstanceShapeKind)] = &[
     ("bead", Tree, Graph),
     ("bond", Tree, Tree),
     ("brat", Tree, Graph),
-    ("bson", Tree, Graph),
+    ("bson", Tree, Tree),
     ("cassandra", Tree, Table),
     ("cddl", Tree, Tree),
     ("cloudformation", Tree, Graph),
@@ -48,6 +48,8 @@ const DECLARED: &[(&str, InstanceShapeKind, InstanceShapeKind)] = &[
     ("docx", Tree, Graph),
     ("dynamodb", Tree, Table),
     ("edi-x12", Table, Tree),
+    ("edgelist-csv", Graph, Graph),
+    ("edgelist-tsv", Graph, Graph),
     ("elan", Tree, Graph),
     ("fhir", Tree, Graph),
     ("flatbuffers", Tree, Tree),
@@ -58,6 +60,7 @@ const DECLARED: &[(&str, InstanceShapeKind, InstanceShapeKind)] = &[
     ("iso-space", Tree, Graph),
     ("json-schema", Tree, Tree),
     ("jsonapi", Tree, Graph),
+    ("jsonld", Graph, Graph),
     ("k8s-crd", Tree, Tree),
     ("laf-graf", Tree, Graph),
     ("mongodb", Tree, Graph),
@@ -65,6 +68,7 @@ const DECLARED: &[(&str, InstanceShapeKind, InstanceShapeKind)] = &[
     ("naf", Tree, Graph),
     ("neo4j", Tree, Graph),
     ("nif", Tree, Graph),
+    ("ntriples", Graph, Graph),
     ("odf", Tree, Graph),
     ("openapi", Tree, Tree),
     ("parquet", Table, Table),
@@ -73,11 +77,13 @@ const DECLARED: &[(&str, InstanceShapeKind, InstanceShapeKind)] = &[
     ("raml", Tree, Tree),
     ("redis", Table, Table),
     ("rss-atom", Tree, Tree),
-    ("sql", Table, Table),
+    ("postgresql", Table, Graph),
     ("swift-mt", Table, Tree),
     ("tei", Tree, Graph),
     ("timeml", Tree, Graph),
     ("toml", Tree, Tree),
+    ("tsv", Table, Table),
+    ("turtle", Graph, Graph),
     ("ucca", Tree, Graph),
     ("uima", Tree, Graph),
     ("vcard-ical", Tree, Tree),
@@ -85,11 +91,9 @@ const DECLARED: &[(&str, InstanceShapeKind, InstanceShapeKind)] = &[
     ("yaml", Tree, Graph),
 ];
 
-/// Protocols whose shape row is kept in a table file that another family
-/// fills: `sql`'s row belongs to the `sql` family file, which is still
-/// empty. Each is checked to have no row yet, so the entry is removed
-/// when the row lands.
-const ROW_NOT_YET_DECLARED: &[&str] = &["sql"];
+/// Protocols whose shape row is not yet declared. Each is checked to have
+/// no row yet, so the entry is removed when the row lands.
+const ROW_NOT_YET_DECLARED: &[&str] = &[];
 
 /// Protocols whose registered instance theory is not yet the theory of
 /// their declared syntactic shape, with the shape the registered theory

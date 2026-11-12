@@ -135,18 +135,13 @@ impl RefinedSort {
 
         // Also, self must actually be *strictly* tighter; it must have at
         // least one constraint that is tighter or an additional constraint.
-        if self.constraints.len() == other.constraints.len()
+        Ok(!(self.constraints.len() == other.constraints.len()
             && self.constraints.iter().all(|sc| {
                 other
                     .constraints
                     .iter()
                     .any(|oc| sc.kind == oc.kind && sc.value == oc.value)
-            })
-        {
-            return Ok(false);
-        }
-
-        Ok(true)
+            })))
     }
 }
 

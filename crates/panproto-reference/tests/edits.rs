@@ -5112,7 +5112,7 @@ fn order_preserving_fresh_id_renamings_change_only_exact_single_step_readings() 
                 changed += 1;
                 let mut relowered = embedding.clone();
                 if edit::graph_delta_from_tree_edit(&tree, &mut relowered, &reading, None)
-                    != Ok(delta.clone())
+                    != Ok(delta)
                 {
                     failures.push(format!(
                         "[{name}] {script:?} read as {reading:?}, shifted as {shifted:?}"
@@ -5284,7 +5284,7 @@ fn ceiling_findings(tree: &Tree, scripts: &[TreeEdit]) -> CeilingSweep {
         for node_room in 0..=room.0 {
             for edge_room in 0..=room.1 {
                 sweep.counts.floors += 1;
-                let ceiling = with_floors(&base, u32::MAX - node_room, u32::MAX - edge_room);
+                let mut ceiling = with_floors(&base, u32::MAX - node_room, u32::MAX - edge_room);
                 let full_room = (node_room, edge_room) == room;
                 let at = format!("{script:?} with room ({node_room}, {edge_room})");
                 let mut lowered = ceiling.clone();
@@ -5334,7 +5334,7 @@ fn ceiling_findings(tree: &Tree, scripts: &[TreeEdit]) -> CeilingSweep {
                         .findings
                         .push(format!("{at}: not an image of {reading:?}"));
                 }
-                match edit::apply_tree(&reading, tree, &mut ceiling.clone()) {
+                match edit::apply_tree(&reading, tree, &mut ceiling) {
                     Err(edit::TreeApplyError::IdsExhausted) if !full_room => {
                         sweep.counts.reading_exhausts += 1;
                     }

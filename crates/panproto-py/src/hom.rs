@@ -396,9 +396,10 @@ impl PySchemaSpan {
 ///
 /// # Errors
 ///
-/// Raises ``MigrationError`` when the search network could not be posed or the
-/// iso path refused it. Neither means "no morphism exists", which is why they
-/// are raised rather than folded into an empty list.
+/// Raises ``MigrationError`` when the search network could not be posed, when
+/// the iso path refused it, or when a budget stopped the search before it
+/// proved an answer optimal. None of these means "no morphism exists", which
+/// is why they are raised rather than folded into an empty list.
 #[pyfunction]
 #[pyo3(signature = (src, tgt, anchors=None, monic=false, epic=false, iso=false, max_results=0))]
 #[allow(clippy::fn_params_excessive_bools)]
@@ -444,8 +445,9 @@ pub fn find_morphisms(
 ///
 /// # Errors
 ///
-/// Raises ``MigrationError`` when the search network could not be posed or the
-/// iso path refused it, so ``None`` means what it says.
+/// Raises ``MigrationError`` when the search network could not be posed, when
+/// the iso path refused it, or when a budget stopped the search before it
+/// proved an answer optimal, so ``None`` means what it says.
 #[pyfunction]
 #[pyo3(signature = (src, tgt, anchors=None, monic=false, epic=false, iso=false))]
 #[allow(clippy::fn_params_excessive_bools)]

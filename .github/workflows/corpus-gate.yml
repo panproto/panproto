@@ -13,6 +13,9 @@ name: Corpus Gate
 #     pair in sixteen separate processes and compares the whole span, so a
 #     result that varied with the hash seed would show up as a second digest.
 #     ~7 minutes unoptimised.
+#   * The BSON conformance test runs on the full BSON corpus of the MongoDB
+#     specifications, fetched at its pinned commit and checked against the
+#     SHA-256 digests of its manifest; per-PR CI runs the original set.
 #
 # The `exhaustive-reference` job runs the exhaustive reference agreements that
 # exceed the ordinary per-test bound even in the optimised `ci-test` build (see
@@ -68,6 +71,16 @@ jobs:
         run: |
           cargo nextest run -p panproto-mig \
             -E 'test(every_corpus_pair_yields_the_same_span_in_every_process)'
+      # The BSON corpus is CC BY-NC-SA licensed and so not in the repository:
+      # fetch it at the commit its manifest records, check every file's
+      # SHA-256, and require the conformance test to run on it.
+      - name: Fetch the BSON corpus and run its conformance test
+        env:
+          PANPROTO_BSON_CORPUS: required
+        run: |
+          python3 tools/fetch-bson-corpus.py
+          cargo nextest run -p panproto-io --features tree-sitter \
+            --test conformance_bson --no-tests=fail
 
   exhaustive-reference:
     name: Exhaustive reference agreement (${{ matrix.test }}${{ matrix.shard && format(' shard {0}', matrix.shard) || '' }})
@@ -210,6 +223,54 @@ jobs:
           - package: panproto-inst
             binary: reference_edits
             test: graph_independence_and_merge_match_reference_on_every_letter_pair_of_the_coverage_scope
+          - package: panproto-lens
+            binary: reference_lenses
+            test: fused_and_scoped_protolenses_agree_with_the_reference_exhaustively
+            shard: 0/4
+          - package: panproto-lens
+            binary: reference_lenses
+            test: fused_and_scoped_protolenses_agree_with_the_reference_exhaustively
+            shard: 1/4
+          - package: panproto-lens
+            binary: reference_lenses
+            test: fused_and_scoped_protolenses_agree_with_the_reference_exhaustively
+            shard: 2/4
+          - package: panproto-lens
+            binary: reference_lenses
+            test: fused_and_scoped_protolenses_agree_with_the_reference_exhaustively
+            shard: 3/4
+          - package: panproto-lens
+            binary: reference_lenses
+            test: sequential_composites_of_elementary_protolenses_agree_with_the_reference_exhaustively
+            shard: 0/4
+          - package: panproto-lens
+            binary: reference_lenses
+            test: sequential_composites_of_elementary_protolenses_agree_with_the_reference_exhaustively
+            shard: 1/4
+          - package: panproto-lens
+            binary: reference_lenses
+            test: sequential_composites_of_elementary_protolenses_agree_with_the_reference_exhaustively
+            shard: 2/4
+          - package: panproto-lens
+            binary: reference_lenses
+            test: sequential_composites_of_elementary_protolenses_agree_with_the_reference_exhaustively
+            shard: 3/4
+          - package: panproto-mig
+            binary: reference_migration_search
+            test: a_bounded_search_answers_or_names_its_bound_on_every_bounded_pair
+            shard: 0/4
+          - package: panproto-mig
+            binary: reference_migration_search
+            test: a_bounded_search_answers_or_names_its_bound_on_every_bounded_pair
+            shard: 1/4
+          - package: panproto-mig
+            binary: reference_migration_search
+            test: a_bounded_search_answers_or_names_its_bound_on_every_bounded_pair
+            shard: 2/4
+          - package: panproto-mig
+            binary: reference_migration_search
+            test: a_bounded_search_answers_or_names_its_bound_on_every_bounded_pair
+            shard: 3/4
     steps:
       - name: Free disk space
         run: |

@@ -41,6 +41,22 @@
 #     demand; dispatch it before tagging a release. That job splits
 #     `lens_laws_agree_with_the_reference_exhaustively` into twelve shards
 #     through `PANPROTO_TEST_SHARD=i/n`; unset, the test compares every case.
+#   * the fused and scoped protolens differential and the sequential
+#     composite differential of `panproto-lens/tests/reference_lenses.rs`
+#     (1,608,824 and 1,065,355 cases), which took 55 s and 95 s alone in the
+#     `ci-test` build on a developer machine, past the 45 second budget of a
+#     single differential. The same job runs each as four shards through
+#     `PANPROTO_TEST_SHARD`, and their siblings on a quarter and an eighth
+#     of the carrier (`..._agree_with_the_reference_on_one_quarter_of_the_carrier`
+#     and `..._on_one_eighth_of_the_carrier`) stay in this profile.
+#   * the migration search's refusal-scope differential,
+#     `a_bounded_search_answers_or_names_its_bound_on_every_bounded_pair`
+#     (1,524,096 budgeted searches), which took 72 s alone in the `ci-test`
+#     build on a developer machine, past the 60 second slow threshold below.
+#     The same job runs it as four shards through `PANPROTO_TEST_SHARD`, and
+#     its sixteenth-sized sibling
+#     `bounded_searches_on_one_sixteenth_of_the_refusal_scope_answer_or_name_their_bound`
+#     stays in this profile.
 #
 # Running these on every PR is wasteful. Every excluded test still runs by
 # default for local runs (`cargo nextest run`). The corpus gates also run
@@ -59,7 +75,7 @@
 [profile.ci]
 # Report every failing test in one run rather than stopping at the first.
 fail-fast = false
-default-filter = 'not test(/corpus_verified_protocols_round_trip_full_corpus|strip_complement_canonical_section_is_structurally_faithful|long_tail_emit_is_verified|every_enumerable_lexicon_pair_agrees_with_exhaustive_enumeration|every_corpus_pair_yields_the_same_span_in_every_process|exhaustive_kan_executes_every_representative_profile_pair|exhaustive_kan_every_labelled_member_has_checked_operation_transports|exhaustive_kan_hom_profile_pairs_agree_with_the_reference|graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope|graph_independence_and_merge_match_reference_on_every_letter_pair_of_the_coverage_scope|table_edits_match_reference_on_every_word_of_the_coverage_scope|tree_edits_and_lowering_match_reference_on_every_word_of_the_coverage_scope|composition_agrees_with_the_reference_on_every_discrete_pair|nearest_reading_coercion_agrees_with_the_reference|coerce_value_agrees_with_the_reference_over_the_values_scope|lens_laws_agree_with_the_reference_exhaustively|lens_path_law_certificate/)'
+default-filter = 'not test(/corpus_verified_protocols_round_trip_full_corpus|strip_complement_canonical_section_is_structurally_faithful|long_tail_emit_is_verified|every_enumerable_lexicon_pair_agrees_with_exhaustive_enumeration|every_corpus_pair_yields_the_same_span_in_every_process|exhaustive_kan_executes_every_representative_profile_pair|exhaustive_kan_every_labelled_member_has_checked_operation_transports|exhaustive_kan_hom_profile_pairs_agree_with_the_reference|graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope|graph_independence_and_merge_match_reference_on_every_letter_pair_of_the_coverage_scope|table_edits_match_reference_on_every_word_of_the_coverage_scope|tree_edits_and_lowering_match_reference_on_every_word_of_the_coverage_scope|composition_agrees_with_the_reference_on_every_discrete_pair|nearest_reading_coercion_agrees_with_the_reference|coerce_value_agrees_with_the_reference_over_the_values_scope|lens_laws_agree_with_the_reference_exhaustively|lens_path_law_certificate|fused_and_scoped_protolenses_agree_with_the_reference_exhaustively|sequential_composites_of_elementary_protolenses_agree_with_the_reference_exhaustively|a_bounded_search_answers_or_names_its_bound_on_every_bounded_pair/)'
 
 # Kill a test that runs away instead of letting it hold the suite open.
 #

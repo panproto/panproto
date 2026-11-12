@@ -1,0 +1,39 @@
+================================================================================
+UNION
+================================================================================
+
+SELECT 1 UNION SELECT 2;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (SelectStmt
+        (select_no_parens
+          (simple_select
+            (select_clause
+              (simple_select
+                (kw_select)
+                (opt_target_list
+                  (target_list
+                    (target_el
+                      (a_expr
+                        (a_expr
+                          (c_expr
+                            (AexprConst
+                              (Iconst
+                                (integer_literal)))))))))))
+            (kw_union)
+            (select_clause
+              (simple_select
+                (kw_select)
+                (opt_target_list
+                  (target_list
+                    (target_el
+                      (a_expr
+                        (a_expr
+                          (c_expr
+                            (AexprConst
+                              (Iconst
+                                (integer_literal)))))))))))))))))

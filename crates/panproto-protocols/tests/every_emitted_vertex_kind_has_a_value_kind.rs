@@ -37,15 +37,6 @@ const FIXTURES: &[(&str, bool, &[&str])] = &[
     ),
     ("graphql", false, &["graphql/swapi.graphql"]),
     (
-        "json-schema",
-        true,
-        &[
-            "jsonschema/github-workflow.json",
-            "jsonschema/package.json",
-            "jsonschema/tsconfig.json",
-        ],
-    ),
-    (
         "protobuf",
         false,
         &[
@@ -54,11 +45,6 @@ const FIXTURES: &[(&str, bool, &[&str])] = &[
             "protobuf/resource.proto",
             "protobuf/trace.proto",
         ],
-    ),
-    (
-        "sql",
-        false,
-        &["sql/sakila-postgres.sql", "sql/sakila-sqlite.sql"],
     ),
 ];
 
@@ -157,8 +143,8 @@ fn every_classified_kind_is_a_kind_of_its_protocol() {
 }
 
 /// The protocols whose schemas are read as tables: every protocol with a
-/// `Table` shape on either side, and `sql` and `asn1`, whose records are
-/// tables of their relation-ified schemas.
+/// `Table` shape on either side, and `asn1`, whose records are tables of
+/// its relation-ified schemas.
 const TABLE_PROTOCOLS: &[&str] = &[
     "arrow",
     "asn1",
@@ -170,13 +156,14 @@ const TABLE_PROTOCOLS: &[&str] = &[
     "edi-x12",
     "parquet",
     "redis",
-    "sql",
+    "postgresql",
     "swift-mt",
+    "tsv",
 ];
 
 /// The list above is every registered protocol with a `Table` shape on
-/// either side, with `sql` and `asn1`: a protocol that gains a `Table`
-/// shape joins it.
+/// either side, with `asn1`: a protocol that gains a `Table` shape joins
+/// it.
 #[test]
 fn the_table_protocol_list_is_every_protocol_with_a_table_shape() {
     let mut expected: BTreeSet<&str> = descriptors()
@@ -188,7 +175,7 @@ fn the_table_protocol_list_is_every_protocol_with_a_table_shape() {
         })
         .map(|d| d.name)
         .collect();
-    expected.extend(["sql", "asn1"]);
+    expected.insert("asn1");
     let listed: BTreeSet<&str> = TABLE_PROTOCOLS.iter().copied().collect();
     assert_eq!(listed, expected);
 }

@@ -59,7 +59,7 @@ mod exact {
             );
             assert_eq!(
                 DecimalValue::parse(&d.to_string()),
-                Ok(d.clone()),
+                Ok(d),
                 "{text} re-reads"
             );
         }

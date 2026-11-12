@@ -2,229 +2,199 @@
 //!
 //! Rules are a declarative shorthand for common schema transformations:
 //! name remapping, attribute operations, and feature filtering. Each
-//! rule is translated into one or more [`Step`]s, which are then
-//! compiled via [`compile_steps`](crate::steps::compile_steps).
+//! rule is expanded into [`Step`]s, in a fixed order, and each step is
+//! compiled with [`compile_step`](crate::steps::compile_step).
+//!
+//! A rule `{ pattern: { name: n }, replace: r }` expands, in this order,
+//! to: a `rename_sort` from `n` to `r.name` when that is a literal other
+//! than `n`, or a `compute_field` of `name` when it is a template; a
+//! `rename_field` per `rename_attrs` entry, a `remove_field` per
+//! `drop_attrs` entry, an `add_field` per `add_attrs` entry and an
+//! `apply_expr` per `map_attr_value` entry, the map entries in the order
+//! of their keys. A rule without `replace` (or with `replace: null`)
+//! expands to a `drop_sort` of `n`. After every rule's steps come one
+//! `KeepFields` stage holding every rule's `keep_attrs`, in rule order,
+//! and, under `passthrough: drop`, one `KeepFields` stage holding the name
+//! each rule with a replacement keeps.
 
 use panproto_expr::{BuiltinOp, Expr, Literal, Pattern};
 
 use crate::document::{AddFieldSpec, Passthrough, RenameSpec, ReplacementName, Rule, Step};
 use crate::error::LensDslError;
+use crate::path::DocumentPath;
 use crate::steps::{self, CompiledSteps};
 
 /// Compile a set of rules into a [`CompiledSteps`].
 ///
-/// Rules are expanded into steps, then compiled via the step pipeline.
 /// The `body_vertex` is the parent vertex for field operations.
 ///
 /// # Errors
 ///
-/// Returns [`LensDslError::RuleCompile`] for invalid rules, or
-/// propagates errors from step compilation.
+/// Refusals located relative to the rule list: a refusal of a step that
+/// rule `i` expands to names the rule member the step came from (for
+/// instance `/i/replace/add_attrs/<key>`), and a malformed template is
+/// [`LensDslError::RuleCompile`] at `/i/replace/name`.
 pub fn compile_rules(
     rules: &[Rule],
     passthrough: Option<Passthrough>,
     body_vertex: &str,
 ) -> Result<CompiledSteps, LensDslError> {
-    let mut expanded_steps: Vec<Step> = Vec::new();
-
+    let mut parts = Vec::new();
     for (i, rule) in rules.iter().enumerate() {
-        expand_rule(rule, i, &mut expanded_steps)?;
-    }
-
-    // Collect keep_attrs from all rules (value-level, not schema-level).
-    let mut all_keep_attrs: Vec<String> = Vec::new();
-    for rule in rules {
-        if let Some(rep) = &rule.replace
-            && let Some(keep) = &rep.keep_attrs
-        {
-            all_keep_attrs.extend(keep.clone());
+        let rule_path = DocumentPath::root().index(i);
+        for (origin, step) in expand_rule(rule).map_err(|e| e.within(&rule_path))? {
+            let located = rule_path.join(&origin);
+            parts.push(
+                steps::compile_step(&step, body_vertex)
+                    .map_err(|e| e.into_unlocated().within(&located))?,
+            );
         }
     }
 
-    let mut compiled = steps::compile_steps(&expanded_steps, body_vertex)?;
-
-    // Emit KeepFields for per-rule keep_attrs.
-    if !all_keep_attrs.is_empty() {
-        let body_key = panproto_gat::Name::from(body_vertex);
-        let transform = panproto_inst::FieldTransform::KeepFields {
-            keys: all_keep_attrs,
-        };
-        compiled
-            .field_transforms
-            .entry(body_key.clone())
-            .or_default()
-            .push(transform.clone());
-        compiled.stages.push(steps::CompiledStage {
-            chain: panproto_lens::ProtolensChain::new(Vec::new()),
-            field_transforms: std::collections::HashMap::from([(body_key, vec![transform])]),
-        });
+    let keep_attrs: Vec<String> = rules
+        .iter()
+        .filter_map(|rule| rule.replace.as_ref()?.keep_attrs.clone())
+        .flatten()
+        .collect();
+    if !keep_attrs.is_empty() {
+        parts.push(keep_stage(body_vertex, keep_attrs));
     }
 
-    // If passthrough is "drop", emit a KeepFields transform that retains
-    // only the features explicitly mentioned in the rules. Unmatched features
-    // are filtered out at the value level via FieldTransform::KeepFields.
+    // Under `passthrough: drop`, keep only the features the rules name:
+    // the literal new name of a renaming rule, else the matched name.
     if passthrough == Some(Passthrough::Drop) {
         let kept: Vec<String> = rules
             .iter()
-            .filter_map(|r| {
-                if r.replace.is_some() {
-                    r.replace
-                        .as_ref()
-                        .and_then(|rep| {
-                            rep.name.as_ref().map(|n| match n {
-                                ReplacementName::Literal(s) => s.clone(),
-                                ReplacementName::Template { .. } => {
-                                    r.match_.name.clone().unwrap_or_default()
-                                }
-                            })
-                        })
-                        .or_else(|| r.match_.name.clone())
-                } else {
-                    None
-                }
+            .filter_map(|rule| {
+                let replacement = rule.replace.as_ref()?;
+                Some(match &replacement.name {
+                    Some(ReplacementName::Literal(name)) => name.clone(),
+                    Some(ReplacementName::Template { .. }) | None => rule.match_.name.clone(),
+                })
             })
             .collect();
-
         if !kept.is_empty() {
-            let body_key = panproto_gat::Name::from(body_vertex);
-            let transform = panproto_inst::FieldTransform::KeepFields { keys: kept };
-            compiled
-                .field_transforms
-                .entry(body_key.clone())
-                .or_default()
-                .push(transform.clone());
-            compiled.stages.push(steps::CompiledStage {
-                chain: panproto_lens::ProtolensChain::new(Vec::new()),
-                field_transforms: std::collections::HashMap::from([(body_key, vec![transform])]),
-            });
+            parts.push(keep_stage(body_vertex, kept));
         }
     }
 
-    Ok(compiled)
+    Ok(steps::concat(parts))
 }
 
-/// Expand a single rule into one or more steps.
-fn expand_rule(rule: &Rule, index: usize, steps: &mut Vec<Step>) -> Result<(), LensDslError> {
-    let match_name = rule.match_.name.as_deref();
-
-    let Some(replacement) = &rule.replace else {
-        // replace: null → drop the matched feature
-        let Some(name) = match_name else {
-            return Err(LensDslError::RuleCompile {
-                index,
-                message: "drop rule must have a match name".to_owned(),
-            });
-        };
-        steps.push(Step::DropSort {
-            drop_sort: name.to_owned(),
-        });
-        return Ok(());
+/// One stage holding a `KeepFields` transform at the body vertex.
+fn keep_stage(body_vertex: &str, keys: Vec<String>) -> CompiledSteps {
+    let body_key = panproto_gat::Name::from(body_vertex);
+    let transform = panproto_inst::FieldTransform::KeepFields { keys };
+    let stage = steps::CompiledStage {
+        chain: panproto_lens::ProtolensChain::new(Vec::new()),
+        field_transforms: std::collections::HashMap::from([(
+            body_key.clone(),
+            vec![transform.clone()],
+        )]),
     };
+    CompiledSteps {
+        chain: panproto_lens::ProtolensChain::new(Vec::new()),
+        field_transforms: std::collections::HashMap::from([(body_key, vec![transform])]),
+        stages: vec![stage],
+    }
+}
 
-    // Name remapping
-    if let Some(new_name) = &replacement.name
-        && let Some(old_name) = match_name
-    {
-        let new = match new_name {
-            ReplacementName::Literal(s) => s.clone(),
-            ReplacementName::Template { template } => {
-                // Template names are handled as compute_field expressions.
-                // Generate a compute step with string interpolation.
-                steps.push(Step::ComputeField {
+/// Expand a single rule into its steps, each with the path (relative to
+/// the rule) of the member it came from.
+fn expand_rule(rule: &Rule) -> Result<Vec<(DocumentPath, Step)>, LensDslError> {
+    let root = DocumentPath::root();
+    let name = &rule.match_.name;
+    let Some(replacement) = &rule.replace else {
+        return Ok(vec![(
+            root.key("pattern").key("name"),
+            Step::DropSort {
+                drop_sort: name.clone(),
+            },
+        )]);
+    };
+    let replace = root.key("replace");
+    let mut steps = Vec::new();
+
+    match &replacement.name {
+        Some(ReplacementName::Literal(new)) if new != name => steps.push((
+            replace.key("name"),
+            Step::RenameSort {
+                rename_sort: RenameSpec {
+                    old: name.clone(),
+                    new: new.clone(),
+                },
+            },
+        )),
+        Some(ReplacementName::Template { template }) => {
+            let expr = template_to_expr(template).map_err(|e| e.within(&replace.key("name")))?;
+            steps.push((
+                replace.key("name"),
+                Step::ComputeField {
                     compute_field: crate::document::ComputeFieldSpec {
                         target: "name".to_owned(),
-                        expr: template_to_expr(template)?.into(),
+                        expr: expr.into(),
                         inverse: None,
                         coercion: None,
                     },
-                });
-                // Don't add a rename step for templates.
-                expand_attr_ops(replacement, steps)?;
-                return Ok(());
-            }
-        };
-
-        if old_name != new {
-            steps.push(Step::RenameSort {
-                rename_sort: RenameSpec {
-                    old: old_name.to_owned(),
-                    new,
                 },
-            });
+            ));
         }
+        Some(ReplacementName::Literal(_)) | None => {}
     }
 
-    // Attribute operations
-    expand_attr_ops(replacement, steps)
-}
-
-/// Expand attribute operations from a replacement into steps.
-fn expand_attr_ops(
-    replacement: &crate::document::Replacement,
-    steps: &mut Vec<Step>,
-) -> Result<(), LensDslError> {
-    // rename_attrs → rename_field per entry
-    if let Some(renames) = &replacement.rename_attrs {
-        for (old, new) in renames {
-            steps.push(Step::RenameField {
+    for (old, new) in replacement.rename_attrs.iter().flatten() {
+        steps.push((
+            replace.key("rename_attrs").key(old),
+            Step::RenameField {
                 rename_field: RenameSpec {
                     old: old.clone(),
                     new: new.clone(),
                 },
-            });
-        }
+            },
+        ));
     }
-
-    // drop_attrs → remove_field per entry
-    if let Some(drops) = &replacement.drop_attrs {
-        for attr in drops {
-            steps.push(Step::RemoveField {
+    for (index, attr) in replacement.drop_attrs.iter().flatten().enumerate() {
+        steps.push((
+            replace.key("drop_attrs").index(index),
+            Step::RemoveField {
                 remove_field: attr.clone(),
-            });
-        }
+            },
+        ));
     }
-
-    // add_attrs → add_field per entry
-    if let Some(adds) = &replacement.add_attrs {
-        for (name, value) in adds {
-            let kind = json_value_kind(value);
-            steps.push(Step::AddField {
+    for (attr, value) in replacement.add_attrs.iter().flatten() {
+        steps.push((
+            replace.key("add_attrs").key(attr),
+            Step::AddField {
                 add_field: AddFieldSpec {
-                    name: name.clone(),
-                    kind,
+                    name: attr.clone(),
+                    kind: json_value_kind(value).to_owned(),
                     default: value.clone(),
                     expr: None,
                 },
-            });
-        }
+            },
+        ));
     }
-
-    // map_attr_value → apply_expr per entry
-    // Each value is an attrValueOp descriptor with "op" and optional "value".
-    if let Some(transforms) = &replacement.map_attr_value {
-        for (field, op_spec) in transforms {
-            let expr =
-                attr_value_op_to_expr(field, op_spec).ok_or_else(|| LensDslError::RuleCompile {
-                    index: 0,
-                    message: format!(
-                        "unsupported or malformed map_attr_value op for field '{field}': {op_spec}"
-                    ),
-                })?;
-            steps.push(Step::ApplyExpr {
+    for (field, op_spec) in replacement.map_attr_value.iter().flatten() {
+        let here = replace.key("map_attr_value").key(field);
+        let expr = attr_value_op_to_expr(field, op_spec).ok_or_else(|| {
+            LensDslError::RuleCompile {
+                message: format!("unsupported or malformed map_attr_value op: {op_spec}"),
+            }
+            .within(&here)
+        })?;
+        steps.push((
+            here,
+            Step::ApplyExpr {
                 apply_expr: crate::document::ApplyExprSpec {
                     field: field.clone(),
                     expr: expr.into(),
                     inverse: None,
                     coercion: None,
                 },
-            });
-        }
+            },
+        ));
     }
-
-    // keep_attrs is a value-level operation (FieldTransform::KeepFields)
-    // and cannot be expressed as a schema-level Step. It is collected
-    // by the rules compiler and added to field_transforms directly.
-    Ok(())
+    Ok(steps)
 }
 
 /// Convert a template string like `"h{level}"` into an expression.
@@ -255,7 +225,6 @@ fn template_to_expr(template: &str) -> Result<Expr, LensDslError> {
         }
         let Some(offset) = rest[open..].find('}') else {
             return Err(LensDslError::RuleCompile {
-                index: 0,
                 message: format!(
                     "template {template:?}: an interpolation is opened and never closed"
                 ),
@@ -265,7 +234,6 @@ fn template_to_expr(template: &str) -> Result<Expr, LensDslError> {
         let var = rest[open + 1..close].trim();
         if var.is_empty() {
             return Err(LensDslError::RuleCompile {
-                index: 0,
                 message: format!("template {template:?}: an interpolation names no variable"),
             });
         }
@@ -368,19 +336,24 @@ fn attr_value_op_to_expr(field: &str, op_spec: &serde_json::Value) -> Option<Exp
     Some(expr)
 }
 
-/// Infer a kind string from a JSON value for `add_field`.
-fn json_value_kind(value: &serde_json::Value) -> String {
+/// The kind of the `add_field` an `add_attrs` entry expands to, read off
+/// its value: `integer` for a number an `i64` holds, `number` for any other
+/// number, `boolean`, `string` (also for `null`), `array` or `object`.
+fn json_value_kind(value: &serde_json::Value) -> &'static str {
     match value {
-        serde_json::Value::Number(_) => "integer".to_owned(),
-        serde_json::Value::Bool(_) => "boolean".to_owned(),
-        _ => "string".to_owned(),
+        serde_json::Value::Number(n) if n.as_i64().is_some() => "integer",
+        serde_json::Value::Number(_) => "number",
+        serde_json::Value::Bool(_) => "boolean",
+        serde_json::Value::Null | serde_json::Value::String(_) => "string",
+        serde_json::Value::Array(_) => "array",
+        serde_json::Value::Object(_) => "object",
     }
 }
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
 
     use super::*;
     use crate::document::{FeaturePattern, Replacement};
@@ -389,8 +362,7 @@ mod tests {
 
     fn named_pattern(name: &str) -> FeaturePattern {
         FeaturePattern {
-            name: Some(name.to_owned()),
-            type_id: None,
+            name: name.to_owned(),
         }
     }
 
@@ -541,21 +513,6 @@ mod tests {
     }
 
     #[test]
-    fn drop_rule_requires_a_match_name() {
-        // `replace: None` on a pattern with no name cannot resolve to a
-        // sort to drop.
-        let rules = vec![Rule {
-            match_: FeaturePattern {
-                name: None,
-                type_id: Some("app.some.type".to_owned()),
-            },
-            replace: None,
-        }];
-        let err = compile_rules(&rules, None, BODY).unwrap_err();
-        assert!(matches!(err, LensDslError::RuleCompile { .. }));
-    }
-
-    #[test]
     fn drop_rule_with_name_compiles() {
         let rules = vec![Rule {
             match_: named_pattern("obsolete"),
@@ -591,7 +548,7 @@ mod tests {
 
     #[test]
     fn add_attrs_rule_emits_add_field() {
-        let mut add_attrs = HashMap::new();
+        let mut add_attrs = BTreeMap::new();
         add_attrs.insert("published".to_owned(), serde_json::Value::Bool(true));
         let rules = vec![Rule {
             match_: named_pattern("post"),

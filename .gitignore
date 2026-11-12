@@ -80,3 +80,8 @@ book/book/
 
 # cargo-cyclonedx writes one SBOM beside each workspace member
 *.cdx.json
+
+# Conformance corpora fetched at a pinned commit rather than vendored, for
+# their licences (see THIRD-PARTY.md)
+crates/panproto-io/tests/fixtures/conformance/bson-corpus/tests/
+crates/panproto-io/tests/fixtures/conformance/bson-corpus/tests.partial/

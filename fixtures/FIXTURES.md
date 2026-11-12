@@ -72,18 +72,6 @@ sorted keys and two-space indentation.
 | `post-embed-gallery.json` | `at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.post/3mnslrkd6ok2g` (an `app.bsky.embed.gallery` embed, a kind the committed lexicon's `embed` union does not name) |
 | `profile-record.json` | `profile-bsky.app.json` restricted to the `app.bsky.actor.profile` record fields (`displayName`, `description`, `avatar`, `banner`, `createdAt`) |
 
-## jsonschema/
-
-Fetched from `schemastore.org` on 2026-04-19.
-
-| File | Source |
-| --- | --- |
-| `package.json` | `https://json.schemastore.org/package.json` |
-| `tsconfig.json` | `https://json.schemastore.org/tsconfig.json` |
-| `github-workflow.json` | `https://json.schemastore.org/github-workflow.json` |
-
-License: Apache-2.0 (SchemaStore).
-
 ## protobuf/
 
 ### OpenTelemetry proto
@@ -115,18 +103,6 @@ Fetched from `github.com/graphql/swapi-graphql` at commit
 `48d66bcfe3368b1df660b4a24f87caf7b5028e36`: `schema.graphql`.
 
 License: BSD-3-Clause (graphql/swapi-graphql).
-
-## sql/
-
-Sakila sample database schemas, fetched from `github.com/jOOQ/sakila` at commit
-`aed53ce65404eac184f4134f34239a08c464df77`.
-
-| File | Source path |
-| --- | --- |
-| `sakila-postgres.sql` | `postgres-sakila-db/postgres-sakila-schema.sql` |
-| `sakila-sqlite.sql` | `sqlite-sakila-db/sqlite-sakila-schema.sql` |
-
-License: BSD-3-Clause (jOOQ/sakila).
 
 ## Refreshing fixtures
 

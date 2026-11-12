@@ -38,6 +38,7 @@ insta = { workspace = true }
 # protocol that parses it. Tests and benches only: `panproto-protocols` depends
 # on `panproto-schema` and not on this crate, so the dev-only edge is acyclic.
 panproto-protocols = { workspace = true }
+panproto-reference = { workspace = true }
 
 [[test]]
 name = "lexicon_oracle"

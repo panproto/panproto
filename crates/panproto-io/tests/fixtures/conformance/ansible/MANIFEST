@@ -1,0 +1,21 @@
+# The refusal cases of the Ansible corpus. Each playbook case under invalid/
+# is first-ansible-playbook/playbook.yml of ansible-for-devops changed to
+# break one rule of ansible-core 2.22; the variables-file cases are written
+# for one rule each.
+# Columns: file, class, path of the refusal, refusal class, the rule broken.
+invalid/no-hosts.yml	playbook	[0]	Missing	a play names its hosts
+invalid/unknown-play-key.yml	playbook	[0].hostz	UnknownField	a play has only its keywords
+invalid/two-modules.yml	playbook	[0].tasks[0].yum	Invalid	a task names one module
+invalid/no-module.yml	playbook	[1].tasks[0]	Missing	a task names a module
+invalid/two-loops.yml	playbook	[0].tasks[1].with_items	Invalid	a task has one loop
+invalid/action-keyword.yml	playbook	[1].tasks[0].action	Unsupported	the action keyword is out of scope
+invalid/variable-name.yml	playbook	[0].vars.bad-name	VariableName	variable names are identifiers
+invalid/register-name.yml	playbook	[0].tasks[1].register	VariableName	register names a variable
+invalid/block-key.yml	playbook	[1].tasks[0].dnf	UnknownField	a block has only its keywords
+invalid/tasks-not-sequence.yml	playbook	[1].tasks	WrongType	tasks are a sequence
+invalid/separated-number.yml	playbook	[0].tasks[0].dnf.size	Yaml11Scalar	a plain number with separators reads differently in YAML 1.1
+invalid/unknown-tag.yml	playbook	[0].tasks[0].dnf.state	UnknownTag	only !vault and !unsafe are Ansible tags
+invalid/empty-playbook.yml	playbook		Invalid	a playbook holds a play
+invalid/not-a-mapping.yml	vars		WrongType	a variables file is a mapping
+invalid/reserved-variable.yml	vars	none	VariableName	none is a Jinja singleton
+invalid/two-documents.yml	playbook		Syntax	one document is one file

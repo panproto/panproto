@@ -28,8 +28,8 @@ use arbitrary::Unstructured;
 use libfuzzer_sys::fuzz_target;
 use panproto_mig::{SearchOptions, check_migration_morphism, find_span};
 use panproto_protocols::{
-    api, config, data_schema, data_science, database, parse_schema_document, parse_schema_source,
-    serialization, web_document,
+    api, data_science, database, parse_schema_document, parse_schema_source, serialization,
+    web_document,
 };
 use panproto_schema::{Protocol, Schema, canonical_digest, validate};
 
@@ -47,27 +47,16 @@ type SourceEntry = (
     fn() -> Protocol,
 );
 
-const DOCUMENT_PROTOCOLS: [DocEntry; 7] = [
+const DOCUMENT_PROTOCOLS: &[DocEntry] = &[
     (
         "atproto",
         web_document::atproto::parse_lexicon,
         web_document::atproto::protocol,
     ),
     (
-        "json-schema",
-        data_schema::json_schema::parse_json_schema,
-        data_schema::json_schema::protocol,
-    ),
-    ("openapi", api::openapi::parse_openapi, api::openapi::protocol),
-    (
         "avro",
         serialization::avro::parse_avsc,
         serialization::avro::protocol,
-    ),
-    (
-        "k8s-crd",
-        config::k8s_crd::parse_k8s_crd_schema,
-        config::k8s_crd::protocol,
     ),
     (
         "mongodb",
@@ -81,8 +70,7 @@ const DOCUMENT_PROTOCOLS: [DocEntry; 7] = [
     ),
 ];
 
-const SOURCE_PROTOCOLS: [SourceEntry; 3] = [
-    ("sql", database::sql::parse_ddl, database::sql::protocol),
+const SOURCE_PROTOCOLS: &[SourceEntry] = &[
     ("graphql", api::graphql::parse_sdl, api::graphql::protocol),
     (
         "protobuf",

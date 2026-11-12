@@ -214,11 +214,21 @@ json_wtype_roundtrip!(
     "cddl",
     "../fixtures/data_schema/cddl_instance.json"
 );
-json_wtype_roundtrip!(
-    roundtrip_bson,
-    "bson",
-    "../fixtures/data_schema/bson_instance.json"
-);
+/// A binary BSON document holding one element of each of the 21 BSON 1.1
+/// types, the deprecated ones included, decodes into the BSON tree encoding
+/// and encodes back to the same bytes.
+#[test]
+fn roundtrip_bson() {
+    let reg = registry();
+    let schema = panproto_protocols::data_schema::bson::tree_schema().expect("bson tree schema");
+    let input = include_bytes!("../fixtures/data_schema/bson_instance.bson");
+    let instance = reg.parse_wtype("bson", &schema, input).expect("parse bson");
+    assert_eq!(instance.node_count(), 50);
+    let emitted = reg
+        .emit_wtype("bson", &schema, &instance)
+        .expect("emit bson");
+    assert_eq!(emitted, input);
+}
 
 // ═══════════════════════════════════════════════════════════════════════
 // Database (5)
@@ -518,12 +528,13 @@ tabular_functor_roundtrip!(
 fn all_protocols_have_roundtrip_tests() {
     // This test ensures we haven't missed any protocol.
     // The count of tests in this file must match the registry.
-    // The generic text-format protocols (yaml, toml, csv) are added
-    // only under the tree-sitter feature; their round-trip tests below
-    // are gated the same way.
+    // The generic text-format protocols (yaml, toml, csv, tsv), the
+    // PostgreSQL table codec and the RDF and edge-list graph codecs are
+    // added only under the tree-sitter feature; their round-trip tests
+    // below are gated the same way.
     let reg = registry();
     let expected = if cfg!(feature = "tree-sitter") {
-        53
+        60
     } else {
         50
     };
@@ -536,7 +547,7 @@ fn all_protocols_have_roundtrip_tests() {
 
 // ── Generic text-format protocols (tree-sitter only) ───────────────────
 //
-// The `yaml`, `toml`, and `csv` protocols wire the format-preserving
+// The `yaml`, `toml`, `csv` and `tsv` protocols wire the format-preserving
 // `UnifiedCodec` into `default_registry`. These round-trips go through
 // the registry's canonical `parse_wtype`/`parse_functor` path (matching
 // the other protocol tests here); the byte-preserving path is covered in
@@ -613,6 +624,122 @@ fn roundtrip_csv() {
         reparsed.table_count(),
         "csv: table count mismatch after round-trip"
     );
+}
+
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn roundtrip_tsv() {
+    let reg = registry();
+    let schema = tabular_schema("tsv", "table");
+    let input = b"name\tage\nAlice\t30\nBob\t25\n";
+
+    let instance = reg.parse_functor("tsv", &schema, input).expect("parse tsv");
+    let emitted = reg
+        .emit_functor("tsv", &schema, &instance)
+        .expect("emit tsv");
+    let reparsed = reg
+        .parse_functor("tsv", &schema, &emitted)
+        .expect("re-parse tsv");
+    assert_eq!(instance.row_count("table"), 2);
+    assert_eq!(
+        instance.row_count("table"),
+        reparsed.row_count("table"),
+        "tsv: row count mismatch after round-trip"
+    );
+}
+
+// ── Graph and SQL protocols (tree-sitter only) ─────────────────────────
+
+/// Read `input` as a graph under `schema`, write it, and read the output
+/// back as the same graph.
+#[cfg(feature = "tree-sitter")]
+fn graph_roundtrip(protocol: &str, schema: &panproto_schema::Schema, input: &[u8]) {
+    let reg = registry();
+    let graph = reg
+        .parse_graph(protocol, schema, input)
+        .unwrap_or_else(|e| panic!("parse {protocol}: {e}"));
+    assert!(graph.node_count() > 0, "{protocol}: empty graph");
+    let emitted = reg
+        .emit_graph(protocol, schema, &graph)
+        .unwrap_or_else(|e| panic!("emit {protocol}: {e}"));
+    let reparsed = reg
+        .parse_graph(protocol, schema, &emitted)
+        .unwrap_or_else(|e| panic!("re-parse {protocol}: {e}"));
+    assert_eq!(
+        reg.emit_graph(protocol, schema, &reparsed).unwrap(),
+        emitted,
+        "{protocol}: canonical text changed after round-trip"
+    );
+}
+
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn roundtrip_ntriples() {
+    graph_roundtrip(
+        "ntriples",
+        &panproto_protocols::rdf::ntriples::graph_schema().unwrap(),
+        b"<http://e/s> <http://e/p> \"x\"@en .\n_:b <http://e/p> <http://e/s> .\n",
+    );
+}
+
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn roundtrip_turtle() {
+    graph_roundtrip(
+        "turtle",
+        &panproto_protocols::rdf::turtle::graph_schema().unwrap(),
+        b"@prefix : <http://e/> .\n:s :p 1, ( :a ) ; a :C .\n",
+    );
+}
+
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn roundtrip_jsonld() {
+    graph_roundtrip(
+        "jsonld",
+        &panproto_protocols::rdf::jsonld::graph_schema().unwrap(),
+        br#"{"@context": {"@vocab": "http://e/", "l": {"@container": "@list"}},
+            "@id": "http://e/s", "@type": "C", "p": [1, 1.5, true, "x"], "l": ["a"]}"#,
+    );
+}
+
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn roundtrip_edgelist_csv() {
+    graph_roundtrip(
+        "edgelist-csv",
+        &panproto_protocols::edgelist::csv::graph_schema().unwrap(),
+        b"Source,Target,Label\na,b,x\na,b,x\nb,b,\"y,z\"\n",
+    );
+}
+
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn roundtrip_edgelist_tsv() {
+    graph_roundtrip(
+        "edgelist-tsv",
+        &panproto_protocols::edgelist::tsv::graph_schema().unwrap(),
+        b"target\tsource\nb\ta\na\ta\n",
+    );
+}
+
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn roundtrip_postgresql() {
+    let reg = registry();
+    let dump = panproto_io::postgresql::read_dump(
+        "CREATE TABLE t (a integer PRIMARY KEY, b text);\nINSERT INTO t VALUES (1, 'x'), (2, NULL);\n",
+        panproto_protocols::database::postgresql::OtherStatements::List,
+    )
+    .expect("read postgresql dump");
+    let bytes = reg
+        .emit_table("postgresql", &dump.schema, &dump.instance)
+        .expect("emit postgresql");
+    let back = reg
+        .parse_table("postgresql", &dump.schema, &bytes)
+        .expect("re-parse postgresql");
+    assert_eq!(back, dump.instance);
+    assert_eq!(back.row_count("t"), 2);
 }
 
 #[test]

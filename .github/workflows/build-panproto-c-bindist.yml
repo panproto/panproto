@@ -191,7 +191,7 @@ jobs:
     # The Swift binding is the only consumer that needs these, and it
     # consumes them through an XCFramework rather than a tarball.
     # Default features only: the `git` feature vendors libgit2 and
-    # OpenSSL, and `full-parse` compiles 261 tree-sitter grammars, so
+    # OpenSSL, and `full-parse` compiles 262 tree-sitter grammars, so
     # the gated tiers stay macOS-only by policy.
     strategy:
       fail-fast: false

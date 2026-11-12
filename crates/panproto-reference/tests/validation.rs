@@ -1298,7 +1298,7 @@ fn reserved_vocabulary_tree_arc_keeps_native_arc_structural_semantics() {
         );
         assert_eq!(
             scheduled_run(&schedule, CheckKind::OutDegree, Some(&ViewRef::Node(0))).reads,
-            vec![ViewRef::Node(0), arc.clone()],
+            vec![ViewRef::Node(0), arc],
             "the exact tree dependency trace reads the native Arc"
         );
         assert!(

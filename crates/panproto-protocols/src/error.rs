@@ -51,6 +51,11 @@ pub enum ProtocolError {
     #[error("parse error: {0}")]
     Parse(String),
 
+    /// The SQL DDL reader refused a script, naming the place and the
+    /// reason.
+    #[error(transparent)]
+    SqlDdl(Box<crate::database::postgresql::SqlDdlError>),
+
     /// A required field is missing in the input.
     #[error("missing field: {0}")]
     MissingField(String),

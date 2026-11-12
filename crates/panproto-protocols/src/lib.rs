@@ -31,7 +31,9 @@
 //! - **Data Science**: Parquet, Arrow, `DataFrame`
 //! - **Domain**: `GeoJSON`, FHIR, RSS/Atom, vCard/iCal, EDI X12, SWIFT MT
 //! - **Config**: K8s CRD, Docker Compose, `CloudFormation`, Ansible
-//! - **Text**: YAML, TOML, CSV
+//! - **Text**: YAML, TOML, CSV, TSV
+//! - **RDF**: N-Triples, Turtle, JSON-LD
+//! - **Edge lists**: CSV and TSV edge lists
 
 /// Linguistic annotation format protocol definitions.
 pub mod annotation;
@@ -47,6 +49,8 @@ pub mod data_science;
 pub mod database;
 /// Domain-specific protocol definitions.
 pub mod domain;
+/// Edge-list graph format protocols (CSV and TSV edge lists).
+pub mod edgelist;
 /// Shared emit helpers for protocol serialization.
 pub mod emit;
 /// Error types for protocol operations.
@@ -59,10 +63,13 @@ pub mod raw_file;
 /// The canonical record of what each protocol supports.
 pub mod registry;
 
+/// RDF graph format protocols (N-Triples, Turtle, JSON-LD).
+pub mod rdf;
+
 /// Per-protocol semantic declarations attached by every `protocol()`.
 pub mod semantics;
 
-/// Generic text format protocols (YAML, TOML, CSV).
+/// Generic text format protocols (YAML, TOML, CSV, TSV).
 pub mod text;
 
 /// A parsed document's size, for charging against an input allowance.
@@ -154,10 +161,16 @@ pub fn parse_schema_bundle_within(
         budget.charge(Resource::InputBytes, measure(doc))?;
     }
 
+    if let Some(registry::ProtocolDescriptor {
+        parser: registry::Parser::Grammar { reader },
+        ..
+    }) = registry::descriptor(protocol)
+    {
+        return Err(read_through_grammar(protocol, reader));
+    }
+
     match protocol.replace('_', "-").as_str() {
         "atproto" => atproto::parse_lexicon_bundle(docs),
-        "openapi" => api::openapi::parse_openapi_bundle(docs),
-        "json-schema" => data_schema::json_schema::parse_json_schema_bundle(docs),
         "avro" => serialization::avro::parse_avsc_bundle(docs),
         other => Err(ProtocolError::Parse(format!(
             "no bundle parser registered for protocol {other:?}; supported: {:?}",
@@ -166,10 +179,13 @@ pub fn parse_schema_bundle_within(
     }
 }
 
-/// The protocol names [`parse_schema_bundle`] accepts.
+/// The protocols whose documents can be read as a bundle.
 ///
 /// Lets a caller report or validate bundle support without hard-coding a
-/// protocol name outside this crate.
+/// protocol name outside this crate. A protocol read through a tree-sitter
+/// grammar is listed when its reader has a bundle form; its bundles are
+/// read by `panproto_io::schema_documents::parse_schema_bundle`, and
+/// [`parse_schema_bundle`] refuses it with an error that names its reader.
 #[must_use]
 pub fn bundle_parser_protocols() -> Vec<&'static str> {
     registry::names_where(|d| d.bundle)
@@ -271,6 +287,7 @@ pub fn parse_schema_document_within(
                 "protocol {protocol:?} is read from source text, not a JSON document; \
                  use parse_schema_source"
             ))),
+            registry::Parser::Grammar { reader } => Err(read_through_grammar(protocol, reader)),
             registry::Parser::Programmatic => Err(no_schema_documents(protocol)),
         },
         None => Err(ProtocolError::Parse(format!(
@@ -284,8 +301,7 @@ pub fn parse_schema_document_within(
 /// [`Schema`], dispatching on protocol name.
 ///
 /// The text counterpart to [`parse_schema_document`], for the protocols
-/// whose source is a language rather than a JSON document: SQL DDL,
-/// GraphQL SDL, Protocol Buffers `.proto`, CDDL, Cassandra CQL, Cypher,
+/// whose source is a language rather than a JSON document: GraphQL SDL, Protocol Buffers `.proto`, CDDL, Cassandra CQL, Cypher,
 /// `ASN.1`, Microsoft Bond, `FlatBuffers` `.fbs`, and `CoNLL-U`. Name matching
 /// is the same normalization as [`parse_schema_document`].
 ///
@@ -314,6 +330,7 @@ pub fn parse_schema_source_within(
     match registry::descriptor(protocol) {
         Some(d) => match d.parser {
             registry::Parser::Source(parse) => parse(source),
+            registry::Parser::Grammar { reader } => Err(read_through_grammar(protocol, reader)),
             registry::Parser::Document(_) => Err(ProtocolError::Parse(format!(
                 "protocol {protocol:?} is read from a JSON document, not source text; \
                  use parse_schema_document"
@@ -325,6 +342,15 @@ pub fn parse_schema_source_within(
             source_parser_protocols()
         ))),
     }
+}
+
+/// The refusal of a protocol whose source text is read through a
+/// tree-sitter grammar, which this crate does not link.
+fn read_through_grammar(protocol: &str, reader: &str) -> ProtocolError {
+    ProtocolError::Parse(format!(
+        "protocol {protocol:?} is read through its tree-sitter grammar by {reader}; \
+         panproto_io::schema_documents reads it by name (panproto-io, feature tree-sitter)"
+    ))
 }
 
 /// The refusal of a protocol that reads no schema documents.
@@ -355,36 +381,42 @@ mod dispatch_tests {
     use super::*;
 
     #[test]
-    fn document_dispatch_routes_json_schema() {
-        let doc = serde_json::json!({
-            "type": "object",
-            "properties": { "name": { "type": "string" }, "age": { "type": "integer" } }
-        });
-        let schema = parse_schema_document("json-schema", &doc).expect("json-schema should parse");
-        assert!(schema.has_vertex("root"));
-        assert!(schema.has_vertex("root.name"));
-        assert!(schema.has_vertex("root.age"));
+    fn document_dispatch_refuses_json_schema_and_names_its_reader() {
+        let doc = serde_json::json!({ "type": "object" });
+        let err = parse_schema_document("json-schema", &doc).expect_err("read through a grammar");
+        assert!(
+            err.to_string()
+                .contains("panproto_io::data_schema::json_schema::read_schema"),
+            "{err}"
+        );
     }
 
     #[test]
     fn document_dispatch_normalizes_underscore_to_hyphen() {
         // The underscore compatibility spelling resolves to the same
         // canonical hyphenated parser.
-        let doc = serde_json::json!({ "type": "object" });
-        let via_hyphen = parse_schema_document("json-schema", &doc).expect("hyphen form");
-        let via_underscore = parse_schema_document("json_schema", &doc).expect("underscore form");
-        assert_eq!(via_hyphen.vertex_count(), via_underscore.vertex_count());
+        let doc = serde_json::json!({});
+        let outcome = |name: &str| {
+            parse_schema_document(name, &doc)
+                .map(|schema| schema.vertex_count())
+                .map_err(|e| e.to_string())
+        };
+        let via_hyphen = outcome("msgpack-schema");
+        assert_eq!(via_hyphen, outcome("msgpack_schema"));
+        assert!(
+            via_hyphen
+                .as_ref()
+                .err()
+                .is_none_or(|m| !m.contains("no document parser")),
+            "{via_hyphen:?}"
+        );
     }
 
     #[test]
-    fn source_dispatch_routes_graphql_sql_protobuf() {
+    fn source_dispatch_routes_graphql_protobuf() {
         let g = parse_schema_source("graphql", "type Query { hello: String }")
             .expect("graphql sdl should parse");
         assert!(g.has_vertex("Query"));
-
-        let s = parse_schema_source("sql", "CREATE TABLE users (id INTEGER PRIMARY KEY);")
-            .expect("sql ddl should parse");
-        assert!(s.has_vertex("users"));
 
         let p = parse_schema_source("protobuf", "message User { string name = 1; }")
             .expect("proto should parse");
@@ -412,20 +444,23 @@ mod dispatch_tests {
         // A text-source protocol passed to the document dispatch is told
         // to use the source dispatch, and vice versa.
         let doc = serde_json::json!({});
-        let err = parse_schema_document("sql", &doc).expect_err("sql is text-source");
+        let err = parse_schema_document("graphql", &doc).expect_err("graphql is text-source");
         assert!(err.to_string().contains("parse_schema_source"));
 
-        let err = parse_schema_source("json-schema", "{}").expect_err("json-schema is a document");
+        let err = parse_schema_source("atproto", "{}").expect_err("atproto is a document");
         assert!(err.to_string().contains("parse_schema_document"));
     }
 
     #[test]
     fn parser_protocol_lists_have_expected_sizes() {
-        assert_eq!(document_parser_protocols().len(), 43);
-        assert_eq!(source_parser_protocols().len(), 11);
-        assert!(document_parser_protocols().contains(&"json-schema"));
+        assert_eq!(document_parser_protocols().len(), 36);
+        assert_eq!(source_parser_protocols().len(), 10);
+        assert!(document_parser_protocols().contains(&"atproto"));
+        assert!(!document_parser_protocols().contains(&"json-schema"));
+        assert!(!document_parser_protocols().contains(&"openapi"));
+        assert!(!document_parser_protocols().contains(&"asyncapi"));
         assert!(source_parser_protocols().contains(&"graphql"));
-        assert!(source_parser_protocols().contains(&"sql"));
+        assert!(!source_parser_protocols().contains(&"postgresql"));
         assert!(source_parser_protocols().contains(&"protobuf"));
     }
 }

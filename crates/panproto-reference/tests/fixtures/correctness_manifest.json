@@ -4939,8 +4939,12 @@
       "reference_files": [
         "crates/panproto-reference/src/pages/lenses.rs",
         "crates/panproto-reference/src/pages/lenses/alignment.rs",
+        "crates/panproto-reference/src/pages/lenses/coercion.rs",
+        "crates/panproto-reference/src/pages/lenses/composite.rs",
         "crates/panproto-reference/src/pages/lenses/constructions.rs",
         "crates/panproto-reference/src/pages/lenses/domain.rs",
+        "crates/panproto-reference/src/pages/lenses/elementary.rs",
+        "crates/panproto-reference/src/pages/lenses/field_program.rs",
         "crates/panproto-reference/src/pages/lenses/graph.rs",
         "crates/panproto-reference/src/pages/lenses/laws.rs",
         "crates/panproto-reference/src/pages/lenses/lens.rs",
@@ -5554,6 +5558,171 @@
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_lenses",
               "test": "randomized_protolens_instance_differential"
+            }
+          ]
+        },
+        {
+          "id": "lenses.elementary-protolens-instances",
+          "anchor": "L-lenses-21",
+          "references": [
+            "panproto_reference::lens::ElementaryProtolens::target_and_migration",
+            "panproto_reference::lens::relabel",
+            "panproto_reference::lens::restrict",
+            "panproto_reference::lens::extend",
+            "panproto_reference::lens::protolens_instance"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "elementary_protolens_kinds_agree_with_the_reference_exhaustively"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "randomized_elementary_protolens_differential"
+            }
+          ]
+        },
+        {
+          "id": "lenses.fused-protolens-instances",
+          "anchor": "L-lenses-22",
+          "references": [
+            "panproto_reference::lens::ProtolensTerm::at",
+            "panproto_reference::lens::ProtolensTerm::target",
+            "panproto_reference::lens::ProtolensTerm::surviving_vertices",
+            "panproto_reference::lens::ProtolensTerm::edge_images",
+            "panproto_reference::lens::structural_migration"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "fused_and_scoped_protolenses_agree_with_the_reference_exhaustively"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "fused_two_step_chains_of_elementary_protolenses_agree_with_the_reference_exhaustively"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "randomized_fused_and_scoped_protolens_differential"
+            }
+          ]
+        },
+        {
+          "id": "lenses.scoped-protolens-instances",
+          "anchor": "L-lenses-23",
+          "references": [
+            "panproto_reference::lens::ProtolensTerm::transform",
+            "panproto_reference::lens::ProtolensTerm::at"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "fused_and_scoped_protolenses_agree_with_the_reference_exhaustively"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "randomized_fused_and_scoped_protolens_differential"
+            }
+          ]
+        },
+        {
+          "id": "lenses.sequential-protolens-composites",
+          "anchor": "L-lenses-24",
+          "references": [
+            "panproto_reference::lens::CompositeLens::instantiate",
+            "panproto_reference::lens::CompositeLens::get",
+            "panproto_reference::lens::CompositeLens::put",
+            "panproto_reference::lens::CompositeLens::check_put_domain"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "sequential_composites_of_elementary_protolenses_agree_with_the_reference_exhaustively"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "randomized_sequential_composite_differential"
+            }
+          ]
+        },
+        {
+          "id": "lenses.sort-coercion-instances",
+          "anchor": "L-lenses-25",
+          "references": [
+            "panproto_reference::lens::SortCoercion::target_and_migration"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "sort_coercions_agree_with_the_reference_exhaustively"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "randomized_sort_coercion_differential"
+            }
+          ]
+        },
+        {
+          "id": "lenses.sort-merge-instances",
+          "anchor": "L-lenses-26",
+          "references": [
+            "panproto_reference::lens::ElementaryProtolens::target_and_migration"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "sort_merges_agree_with_the_reference_exhaustively"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "randomized_sort_merge_differential"
+            }
+          ]
+        },
+        {
+          "id": "lenses.value-level-step-instances",
+          "anchor": "L-lenses-27",
+          "references": [
+            "panproto_reference::lens::FieldProgram::output_fields"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "value_level_steps_agree_with_the_reference_exhaustively"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_lenses",
+              "test": "randomized_value_level_step_differential"
             }
           ]
         }
@@ -6242,6 +6411,1933 @@
               "crate": "panproto-io",
               "binary": "panproto-io::reference_resolution",
               "test": "preserving_registry_is_the_ordered_cartesian_product"
+            }
+          ]
+        }
+      ]
+    },
+    "text-formats": {
+      "reference_files": [
+        "crates/panproto-reference/src/pages/text_formats.rs",
+        "crates/panproto-reference/src/enumerate/text_formats.rs"
+      ],
+      "laws": [
+        {
+          "id": "text-formats.toml-key-resolution",
+          "anchor": "L-text-formats-1",
+          "references": [
+            "panproto_reference::pages::text_formats::toml::resolve_keys"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_text_formats",
+              "test": "toml_key_resolution_matches_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_text_formats",
+              "test": "randomized_toml_key_resolution_matches_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::text_formats",
+              "test": "toml_key_resolution_follows_the_toml_examples"
+            }
+          ]
+        },
+        {
+          "id": "text-formats.yaml-directive-acceptance",
+          "anchor": "L-text-formats-2",
+          "references": [
+            "panproto_reference::pages::text_formats::yaml::read_directives"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_text_formats",
+              "test": "yaml_directive_acceptance_matches_the_reference_on_every_bounded_sequence"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::text_formats",
+              "test": "yaml_directives_are_refused_in_source_order"
+            }
+          ]
+        },
+        {
+          "id": "text-formats.toml-document-reading",
+          "anchor": "L-text-formats-3",
+          "references": [
+            "panproto_reference::pages::text_formats::toml::read_document"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_text_formats",
+              "test": "toml_documents_read_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::text_formats",
+              "test": "toml_documents_read_their_tables_and_scalars"
+            }
+          ]
+        },
+        {
+          "id": "text-formats.yaml-block-document-reading",
+          "anchor": "L-text-formats-4",
+          "references": [
+            "panproto_reference::pages::text_formats::yaml::render_block",
+            "panproto_reference::pages::text_formats::yaml::read_block_document"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_text_formats",
+              "test": "yaml_block_documents_read_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::text_formats",
+              "test": "yaml_block_documents_render_and_read_as_written"
+            }
+          ]
+        }
+      ]
+    },
+    "postgresql-data": {
+      "reference_files": [
+        "crates/panproto-reference/src/pages/postgresql_data.rs",
+        "crates/panproto-reference/src/enumerate/postgresql_data.rs"
+      ],
+      "laws": [
+        {
+          "id": "postgresql-data.values",
+          "anchor": "L-postgresql-data-1",
+          "references": [
+            "panproto_reference::pages::postgresql_data::input_value"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_postgresql_data",
+              "test": "input_texts_read_as_the_reference_on_every_bounded_case"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::postgresql_data",
+              "test": "input_forms_read_as_the_type_documentation_gives_them"
+            }
+          ]
+        },
+        {
+          "id": "postgresql-data.rows",
+          "anchor": "L-postgresql-data-2",
+          "references": [
+            "panproto_reference::pages::postgresql_data::render",
+            "panproto_reference::pages::postgresql_data::read_script"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_postgresql_data",
+              "test": "rows_match_the_reference_on_every_bounded_script"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_postgresql_data",
+              "test": "randomized_scripts_read_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::postgresql_data",
+              "test": "an_insert_adds_rows_as_the_insert_page_defines_them"
+            }
+          ]
+        },
+        {
+          "id": "postgresql-data.canonical-text",
+          "anchor": "L-postgresql-data-3",
+          "references": [
+            "panproto_reference::pages::postgresql_data::canonical_text"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_postgresql_data",
+              "test": "canonical_text_matches_the_reference_on_every_bounded_script"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::postgresql_data",
+              "test": "the_scopes_have_their_closed_form_counts"
+            }
+          ]
+        },
+        {
+          "id": "postgresql-data.directory-fields",
+          "anchor": "L-postgresql-data-4",
+          "references": [
+            "panproto_reference::pages::postgresql_data::csv_field",
+            "panproto_reference::pages::postgresql_data::text_field"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_postgresql_data",
+              "test": "directory_fields_match_the_reference_on_every_bounded_field"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::postgresql_data",
+              "test": "directory_fields_are_written_as_copy_writes_them"
+            }
+          ]
+        }
+      ]
+    },
+    "postgresql-ddl": {
+      "reference_files": [
+        "crates/panproto-reference/src/pages/postgresql_ddl.rs",
+        "crates/panproto-reference/src/enumerate/postgresql_ddl.rs"
+      ],
+      "laws": [
+        {
+          "id": "postgresql-ddl.column-types",
+          "anchor": "L-postgresql-ddl-1",
+          "references": [
+            "panproto_reference::pages::postgresql_ddl::column_type"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_postgresql_ddl",
+              "test": "column_types_read_as_the_reference_on_every_bounded_spelling"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::postgresql_ddl",
+              "test": "column_types_read_as_table_8_1_names_them"
+            }
+          ]
+        },
+        {
+          "id": "postgresql-ddl.keys-and-references",
+          "anchor": "L-postgresql-ddl-2",
+          "references": [
+            "panproto_reference::pages::postgresql_ddl::render",
+            "panproto_reference::pages::postgresql_ddl::read_script"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_postgresql_ddl",
+              "test": "keys_and_references_match_the_reference_on_every_bounded_script"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_postgresql_ddl",
+              "test": "randomized_keys_and_references_match_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::postgresql_ddl",
+              "test": "keys_and_foreign_keys_resolve_as_create_table_defines_them"
+            }
+          ]
+        },
+        {
+          "id": "postgresql-ddl.canonical-text",
+          "anchor": "L-postgresql-ddl-3",
+          "references": [
+            "panproto_reference::pages::postgresql_ddl::canonical_text"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_postgresql_ddl",
+              "test": "canonical_text_matches_the_reference_on_every_bounded_script"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::postgresql_ddl",
+              "test": "the_script_scope_has_its_closed_form_count"
+            }
+          ]
+        }
+      ]
+    },
+    "rdf-formats": {
+      "reference_files": [
+        "crates/panproto-reference/src/pages/rdf_formats.rs",
+        "crates/panproto-reference/src/pages/rdf_formats/turtle.rs",
+        "crates/panproto-reference/src/pages/rdf_formats/jsonld.rs",
+        "crates/panproto-reference/src/enumerate/rdf_formats.rs"
+      ],
+      "laws": [
+        {
+          "id": "rdf-formats.ntriples-reading",
+          "anchor": "L-rdf-formats-1",
+          "references": [
+            "panproto_reference::pages::rdf_formats::ntriples::read_document"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_rdf_formats",
+              "test": "ntriples_documents_read_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_rdf_formats",
+              "test": "randomized_ntriples_documents_read_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::rdf_formats",
+              "test": "ntriples_reads_the_examples_of_the_recommendation"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::rdf_formats",
+              "test": "ntriples_refusals_name_the_line_of_the_first_fault"
+            }
+          ]
+        },
+        {
+          "id": "rdf-formats.graph-encoding",
+          "anchor": "L-rdf-formats-2",
+          "references": [
+            "panproto_reference::pages::rdf_formats::ntriples::encode"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_rdf_formats",
+              "test": "the_graph_encoding_matches_the_reference_on_every_bounded_triple_list"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::rdf_formats",
+              "test": "the_graph_encoding_numbers_nodes_by_first_mention_and_reads_a_set"
+            }
+          ]
+        },
+        {
+          "id": "rdf-formats.canonical-ntriples",
+          "anchor": "L-rdf-formats-3",
+          "references": [
+            "panproto_reference::pages::rdf_formats::ntriples::canonical_text",
+            "panproto_reference::pages::rdf_formats::ntriples::write_graph"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_rdf_formats",
+              "test": "canonical_ntriples_matches_the_reference_on_every_bounded_graph"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::rdf_formats",
+              "test": "canonical_text_sorts_lines_and_escapes_as_the_canonical_form_does"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::rdf_formats",
+              "test": "the_writer_refuses_what_no_document_reads_back_as"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::rdf_formats",
+              "test": "the_rdf_scopes_have_their_closed_form_counts"
+            }
+          ]
+        },
+        {
+          "id": "rdf-formats.turtle-reading",
+          "anchor": "L-rdf-formats-4",
+          "references": [
+            "panproto_reference::pages::rdf_formats::turtle::read_document"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_turtle",
+              "test": "turtle_documents_read_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_turtle",
+              "test": "randomized_turtle_documents_read_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::rdf_formats_turtle",
+              "test": "turtle_reads_each_abbreviation_as_its_triples"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::rdf_formats_turtle",
+              "test": "turtle_refusals_name_the_line_of_the_first_fault"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::rdf_formats_turtle",
+              "test": "fresh_labels_skip_the_labels_the_document_writes"
+            }
+          ]
+        },
+        {
+          "id": "rdf-formats.iri-resolution",
+          "anchor": "L-rdf-formats-5",
+          "references": [
+            "panproto_reference::pages::rdf_formats::turtle::resolve"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_turtle",
+              "test": "iri_resolution_matches_the_reference_on_every_bounded_pair"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_turtle",
+              "test": "randomized_references_resolve_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::rdf_formats_turtle",
+              "test": "resolution_follows_the_examples_of_rfc_3986"
+            }
+          ]
+        },
+        {
+          "id": "rdf-formats.canonical-turtle",
+          "anchor": "L-rdf-formats-6",
+          "references": [
+            "panproto_reference::pages::rdf_formats::turtle::canonical_text"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_turtle",
+              "test": "canonical_turtle_matches_the_reference_on_every_bounded_triple_list"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::rdf_formats_turtle",
+              "test": "canonical_turtle_groups_subjects_and_predicates"
+            }
+          ]
+        },
+        {
+          "id": "rdf-formats.turtle-preservation",
+          "anchor": "L-rdf-formats-7",
+          "references": [
+            "panproto_reference::pages::rdf_formats::turtle::edit",
+            "panproto_reference::pages::rdf_formats::turtle::edited_triples"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_turtle",
+              "test": "preserving_edits_match_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::rdf_formats_turtle",
+              "test": "edits_rewrite_the_terms_tokens_or_name_the_refusal"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::rdf_formats_turtle",
+              "test": "the_turtle_scopes_have_their_closed_form_counts"
+            }
+          ]
+        },
+        {
+          "id": "rdf-formats.jsonld-reading",
+          "anchor": "L-rdf-formats-8",
+          "references": [
+            "panproto_reference::pages::rdf_formats::jsonld::read_document"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_jsonld",
+              "test": "jsonld_documents_read_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_jsonld",
+              "test": "randomized_jsonld_documents_read_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::rdf_formats_jsonld",
+              "test": "jsonld_reads_contexts_values_lists_and_reverse_properties"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::rdf_formats_jsonld",
+              "test": "jsonld_refusals_name_the_kind_and_the_pointer_of_the_value"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::rdf_formats_jsonld",
+              "test": "keys_that_expand_to_no_iri_are_dropped_as_the_standard_requires"
+            }
+          ]
+        },
+        {
+          "id": "rdf-formats.jsonld-numbers",
+          "anchor": "L-rdf-formats-9",
+          "references": [
+            "panproto_reference::pages::rdf_formats::jsonld::number_form"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_jsonld",
+              "test": "native_numbers_convert_as_the_reference_on_every_bounded_numeral"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_jsonld",
+              "test": "randomized_numerals_convert_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::rdf_formats_jsonld",
+              "test": "numbers_take_the_api_forms_at_their_boundaries"
+            }
+          ]
+        },
+        {
+          "id": "rdf-formats.canonical-jsonld",
+          "anchor": "L-rdf-formats-10",
+          "references": [
+            "panproto_reference::pages::rdf_formats::jsonld::canonical_text"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_jsonld",
+              "test": "canonical_jsonld_matches_the_reference_on_every_bounded_triple_list"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::rdf_formats_jsonld",
+              "test": "canonical_jsonld_writes_one_node_object_per_subject"
+            }
+          ]
+        },
+        {
+          "id": "rdf-formats.jsonld-preservation",
+          "anchor": "L-rdf-formats-11",
+          "references": [
+            "panproto_reference::pages::rdf_formats::jsonld::read_document"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_jsonld",
+              "test": "preserving_edits_read_back_under_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::rdf_formats_jsonld",
+              "test": "the_jsonld_scopes_have_their_closed_form_counts"
+            }
+          ]
+        }
+      ]
+    },
+    "edge-lists": {
+      "reference_files": [
+        "crates/panproto-reference/src/pages/edge_lists.rs",
+        "crates/panproto-reference/src/enumerate/edge_lists.rs"
+      ],
+      "laws": [
+        {
+          "id": "edge-lists.reading",
+          "anchor": "L-edge-lists-1",
+          "references": [
+            "panproto_reference::pages::edge_lists::read_document"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_edge_lists",
+              "test": "edge_list_documents_read_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_edge_lists",
+              "test": "randomized_edge_list_documents_read_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::edge_lists",
+              "test": "edge_lists_read_records_as_directed_edges_and_keep_parallel_edges_and_loops"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::edge_lists",
+              "test": "edge_list_refusals_follow_the_order_the_page_states"
+            }
+          ]
+        },
+        {
+          "id": "edge-lists.graph-encoding",
+          "anchor": "L-edge-lists-2",
+          "references": [
+            "panproto_reference::pages::edge_lists::encode"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_edge_lists",
+              "test": "the_edge_list_encoding_matches_the_reference_on_every_bounded_list"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::edge_lists",
+              "test": "the_encoding_numbers_nodes_by_record_and_keeps_every_record"
+            }
+          ]
+        },
+        {
+          "id": "edge-lists.canonical-writing",
+          "anchor": "L-edge-lists-3",
+          "references": [
+            "panproto_reference::pages::edge_lists::canonical_text",
+            "panproto_reference::pages::edge_lists::write_graph"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_edge_lists",
+              "test": "canonical_edge_lists_match_the_reference_on_every_bounded_graph"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::edge_lists",
+              "test": "canonical_edge_lists_quote_and_refuse_as_the_page_states"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::edge_lists",
+              "test": "the_writer_refuses_what_no_edge_list_reads_back_as"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::edge_lists",
+              "test": "the_edge_list_scopes_have_their_closed_form_counts"
+            }
+          ]
+        }
+      ]
+    },
+    "migration-search": {
+      "laws": [
+        {
+          "anchor": "L-migration-search-1",
+          "consumers": [
+            {
+              "binary": "panproto-mig::reference_migration_search",
+              "crate": "panproto-mig",
+              "role": "differential",
+              "test": "total_search_returns_exactly_the_reference_optima_on_every_bounded_pair"
+            },
+            {
+              "binary": "panproto-mig::reference_migration_search",
+              "crate": "panproto-mig",
+              "role": "differential",
+              "test": "randomized_total_searches_return_the_reference_optima"
+            },
+            {
+              "binary": "panproto-reference::migration_search",
+              "crate": "panproto-reference",
+              "role": "reference",
+              "test": "requests_restrict_the_morphisms_ranged_over"
+            }
+          ],
+          "id": "migration-search.total-optima",
+          "references": [
+            "panproto_reference::pages::migration_search::optimal_total",
+            "panproto_reference::pages::migration_search::check_total",
+            "panproto_reference::pages::migration_search::cost"
+          ]
+        },
+        {
+          "anchor": "L-migration-search-2",
+          "consumers": [
+            {
+              "binary": "panproto-mig::reference_migration_search",
+              "crate": "panproto-mig",
+              "role": "differential",
+              "test": "span_search_returns_a_reference_optimum_on_every_bounded_pair"
+            },
+            {
+              "binary": "panproto-mig::reference_migration_search",
+              "crate": "panproto-mig",
+              "role": "differential",
+              "test": "randomized_span_searches_return_a_reference_optimum"
+            },
+            {
+              "binary": "panproto-reference::migration_search",
+              "crate": "panproto-reference",
+              "role": "reference",
+              "test": "a_missing_kind_leaves_no_total_morphism_and_a_span_that_drops"
+            }
+          ],
+          "id": "migration-search.span-optimum",
+          "references": [
+            "panproto_reference::pages::migration_search::optimal_span",
+            "panproto_reference::pages::migration_search::check_span",
+            "panproto_reference::pages::migration_search::paired_edge_images"
+          ]
+        },
+        {
+          "anchor": "L-migration-search-3",
+          "consumers": [
+            {
+              "binary": "panproto-mig::reference_migration_search",
+              "crate": "panproto-mig",
+              "role": "differential",
+              "test": "search_answers_are_the_same_in_every_process_and_insertion_order"
+            },
+            {
+              "binary": "panproto-mig::reference_migration_search",
+              "crate": "panproto-mig",
+              "role": "differential",
+              "test": "randomized_insertion_orders_give_the_same_answers"
+            },
+            {
+              "binary": "panproto-reference::migration_search",
+              "crate": "panproto-reference",
+              "role": "reference",
+              "test": "the_digest_is_fnv_1a"
+            }
+          ],
+          "id": "migration-search.determinism",
+          "references": [
+            "panproto_reference::pages::migration_search::digest"
+          ]
+        },
+        {
+          "anchor": "L-migration-search-4",
+          "consumers": [
+            {
+              "binary": "panproto-mig::reference_migration_search",
+              "crate": "panproto-mig",
+              "role": "differential",
+              "test": "a_bounded_search_answers_or_names_its_bound_on_every_bounded_pair"
+            },
+            {
+              "binary": "panproto-mig::reference_migration_search",
+              "crate": "panproto-mig",
+              "role": "differential",
+              "test": "randomized_bounded_searches_answer_or_name_their_bound"
+            },
+            {
+              "binary": "panproto-reference::migration_search",
+              "crate": "panproto-reference",
+              "role": "reference",
+              "test": "the_checker_finds_each_defect"
+            }
+          ],
+          "id": "migration-search.bounded-refusal",
+          "references": [
+            "panproto_reference::pages::migration_search::optimal_total",
+            "panproto_reference::pages::migration_search::check_total",
+            "panproto_reference::pages::migration_search::check_span",
+            "panproto_reference::pages::migration_search::cost"
+          ]
+        }
+      ],
+      "reference_files": [
+        "crates/panproto-reference/src/pages/migration_search.rs",
+        "crates/panproto-reference/src/enumerate/migration_search.rs"
+      ]
+    },
+    "schema-merge": {
+      "laws": [
+        {
+          "anchor": "L-schema-merge-1",
+          "consumers": [
+            {
+              "binary": "panproto-vcs::reference_schema_merge",
+              "crate": "panproto-vcs",
+              "role": "differential",
+              "test": "merge_agrees_with_the_reference_on_every_triple_of_the_scope"
+            },
+            {
+              "binary": "panproto-vcs::reference_schema_merge",
+              "crate": "panproto-vcs",
+              "role": "differential",
+              "test": "randomized_merges_agree_with_the_reference"
+            },
+            {
+              "binary": "panproto-reference::schema_merge",
+              "crate": "panproto-reference",
+              "role": "reference",
+              "test": "the_merge_rule_on_hand_computed_triples"
+            }
+          ],
+          "id": "schema-merge.per-element-merge",
+          "references": [
+            "panproto_reference::pages::schema_merge::merge",
+            "panproto_reference::pages::schema_merge::Schema::well_formed"
+          ]
+        },
+        {
+          "anchor": "L-schema-merge-2",
+          "consumers": [
+            {
+              "binary": "panproto-vcs::reference_schema_merge",
+              "crate": "panproto-vcs",
+              "role": "differential",
+              "test": "merges_are_the_same_in_every_process_and_insertion_order"
+            },
+            {
+              "binary": "panproto-vcs::reference_schema_merge",
+              "crate": "panproto-vcs",
+              "role": "differential",
+              "test": "randomized_insertion_orders_and_swapped_branches_give_the_same_merge"
+            },
+            {
+              "binary": "panproto-reference::schema_merge",
+              "crate": "panproto-reference",
+              "role": "reference",
+              "test": "swapping_the_branches_swaps_every_conflict"
+            }
+          ],
+          "id": "schema-merge.stable-order",
+          "references": [
+            "panproto_reference::pages::schema_merge::render",
+            "panproto_reference::pages::schema_merge::Conflict::order_key",
+            "panproto_reference::pages::schema_merge::Conflict::swapped"
+          ]
+        },
+        {
+          "anchor": "L-schema-merge-3",
+          "consumers": [
+            {
+              "binary": "panproto-vcs::reference_schema_merge",
+              "crate": "panproto-vcs",
+              "role": "differential",
+              "test": "derived_migrations_select_the_identity_on_what_the_pair_shares"
+            },
+            {
+              "binary": "panproto-vcs::reference_schema_merge",
+              "crate": "panproto-vcs",
+              "role": "differential",
+              "test": "randomized_derived_migrations_keep_every_survivor"
+            },
+            {
+              "binary": "panproto-reference::schema_merge",
+              "crate": "panproto-reference",
+              "role": "reference",
+              "test": "surviving_identity_on_hand_computed_pairs"
+            }
+          ],
+          "id": "schema-merge.migration-selection",
+          "references": [
+            "panproto_reference::pages::schema_merge::surviving_identity",
+            "panproto_reference::pages::schema_merge::may_rename"
+          ]
+        },
+        {
+          "anchor": "L-schema-merge-4",
+          "consumers": [
+            {
+              "binary": "panproto-vcs::reference_schema_merge",
+              "crate": "panproto-vcs",
+              "role": "differential",
+              "test": "a_repository_records_and_checks_its_format_version"
+            },
+            {
+              "binary": "panproto-vcs::reference_schema_merge",
+              "crate": "panproto-vcs",
+              "role": "differential",
+              "test": "randomized_format_markers_are_read_as_the_reference_reads_them"
+            },
+            {
+              "binary": "panproto-reference::schema_merge",
+              "crate": "panproto-reference",
+              "role": "reference",
+              "test": "the_format_marker_is_one_line_feed_terminated_numeral"
+            }
+          ],
+          "id": "schema-merge.repository-format",
+          "references": [
+            "panproto_reference::pages::schema_merge::repository_format"
+          ]
+        }
+      ],
+      "reference_files": [
+        "crates/panproto-reference/src/pages/schema_merge.rs",
+        "crates/panproto-reference/src/enumerate/schema_merge.rs"
+      ]
+    },
+    "kubernetes-crds": {
+      "reference_files": [
+        "crates/panproto-reference/src/pages/kubernetes_crds.rs",
+        "crates/panproto-reference/src/enumerate/kubernetes_crds.rs"
+      ],
+      "laws": [
+        {
+          "id": "kubernetes-crds.reading",
+          "anchor": "L-kubernetes-crds-1",
+          "references": [
+            "panproto_reference::pages::kubernetes_crds::read",
+            "panproto_reference::pages::kubernetes_crds::render_yaml"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_k8s_crd",
+              "test": "crd_reading_and_canonical_writing_match_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_k8s_crd",
+              "test": "randomized_crds_read_and_write_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::kubernetes_crds",
+              "test": "a_crd_reads_as_its_resource_versions_and_schema_nodes"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::kubernetes_crds",
+              "test": "crd_refusals_name_the_field_and_the_rule"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::kubernetes_crds",
+              "test": "unresolved_required_entries_are_reported_and_list_maps_declare_keys"
+            }
+          ]
+        },
+        {
+          "id": "kubernetes-crds.canonical-writing",
+          "anchor": "L-kubernetes-crds-2",
+          "references": [
+            "panproto_reference::pages::kubernetes_crds::canonical_text"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_k8s_crd",
+              "test": "crd_reading_and_canonical_writing_match_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_k8s_crd",
+              "test": "randomized_crds_read_and_write_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::kubernetes_crds",
+              "test": "the_canonical_crd_orders_fields_as_the_page_states"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::kubernetes_crds",
+              "test": "the_crd_document_scope_has_its_closed_form_count"
+            }
+          ]
+        }
+      ]
+    },
+    "cloudformation": {
+      "reference_files": [
+        "crates/panproto-reference/src/pages/cloudformation.rs",
+        "crates/panproto-reference/src/enumerate/cloudformation.rs"
+      ],
+      "laws": [
+        {
+          "id": "cloudformation.reading",
+          "anchor": "L-cloudformation-1",
+          "references": [
+            "panproto_reference::pages::cloudformation::read",
+            "panproto_reference::pages::cloudformation::render_yaml",
+            "panproto_reference::pages::cloudformation::json"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_cloudformation",
+              "test": "template_reading_and_canonical_writing_match_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_cloudformation",
+              "test": "randomized_templates_read_and_write_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::cloudformation",
+              "test": "a_template_reads_as_its_declarations_and_their_references"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::cloudformation",
+              "test": "template_refusals_name_the_field_and_the_rule"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::cloudformation",
+              "test": "sub_variables_skip_literals_and_stop_at_an_unclosed_variable"
+            }
+          ]
+        },
+        {
+          "id": "cloudformation.canonical-writing",
+          "anchor": "L-cloudformation-2",
+          "references": [
+            "panproto_reference::pages::cloudformation::canonical_text"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_cloudformation",
+              "test": "template_reading_and_canonical_writing_match_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_cloudformation",
+              "test": "randomized_templates_read_and_write_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::cloudformation",
+              "test": "the_canonical_template_orders_sections_and_attributes_as_the_page_states"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::cloudformation",
+              "test": "the_template_document_scope_has_its_closed_form_count"
+            }
+          ]
+        }
+      ]
+    },
+    "ansible": {
+      "reference_files": [
+        "crates/panproto-reference/src/pages/ansible.rs",
+        "crates/panproto-reference/src/enumerate/ansible.rs"
+      ],
+      "laws": [
+        {
+          "id": "ansible.reading",
+          "anchor": "L-ansible-1",
+          "references": [
+            "panproto_reference::pages::ansible::read",
+            "panproto_reference::pages::ansible::render_yaml"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_ansible",
+              "test": "ansible_reading_and_canonical_writing_match_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_ansible",
+              "test": "randomized_playbooks_read_and_write_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::ansible",
+              "test": "a_playbook_reads_as_its_plays_tasks_and_handlers"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::ansible",
+              "test": "ansible_refusals_name_the_field_and_the_rule"
+            }
+          ]
+        },
+        {
+          "id": "ansible.canonical-writing",
+          "anchor": "L-ansible-2",
+          "references": [
+            "panproto_reference::pages::ansible::canonical_text"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_ansible",
+              "test": "ansible_reading_and_canonical_writing_match_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_ansible",
+              "test": "randomized_playbooks_read_and_write_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::ansible",
+              "test": "the_canonical_file_writes_keywords_then_variables_then_sections"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::ansible",
+              "test": "the_ansible_document_scope_has_its_closed_form_count"
+            }
+          ]
+        }
+      ]
+    },
+    "theory-dsl": {
+      "reference_files": [
+        "crates/panproto-reference/src/pages/theory_dsl.rs",
+        "crates/panproto-reference/src/enumerate/theory_dsl.rs"
+      ],
+      "laws": [
+        {
+          "id": "theory-dsl.document-grammar",
+          "anchor": "L-theory-dsl-1",
+          "references": [
+            "panproto_reference::pages::theory_dsl::check_document"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-theory-dsl",
+              "binary": "panproto-theory-dsl::reference_theory_dsl",
+              "test": "the_grammar_refuses_as_the_reference_on_every_mutated_document"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::theory_dsl",
+              "test": "the_document_grammar_refuses_in_field_table_order"
+            }
+          ]
+        },
+        {
+          "id": "theory-dsl.elaboration",
+          "anchor": "L-theory-dsl-2",
+          "references": [
+            "panproto_reference::pages::theory_dsl::elaborate"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-theory-dsl",
+              "binary": "panproto-theory-dsl::reference_theory_dsl",
+              "test": "theory_documents_compile_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-theory-dsl",
+              "binary": "panproto-theory-dsl::reference_theory_dsl",
+              "test": "bundles_compile_their_theories_in_listed_order_as_the_reference"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-theory-dsl",
+              "binary": "panproto-theory-dsl::reference_theory_dsl",
+              "test": "dependent_theory_documents_compile_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-theory-dsl",
+              "binary": "panproto-theory-dsl::reference_theory_dsl",
+              "test": "longer_dependent_theory_documents_compile_as_the_reference"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-theory-dsl",
+              "binary": "panproto-theory-dsl::reference_theory_dsl",
+              "test": "longer_theory_documents_compile_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::theory_dsl",
+              "test": "imports_rename_and_parents_take_precedence_over_bare_imported_names"
+            }
+          ]
+        },
+        {
+          "id": "theory-dsl.morphism-documents",
+          "anchor": "L-theory-dsl-3",
+          "references": [
+            "panproto_reference::pages::theory_dsl::compile_morphism"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-theory-dsl",
+              "binary": "panproto-theory-dsl::reference_theory_dsl",
+              "test": "morphism_documents_compile_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::theory_dsl",
+              "test": "morphism_refusals_are_located_at_the_entry_they_concern"
+            }
+          ]
+        },
+        {
+          "id": "theory-dsl.protocol-documents",
+          "anchor": "L-theory-dsl-5",
+          "references": [
+            "panproto_reference::pages::theory_dsl::compile_protocol"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-theory-dsl",
+              "binary": "panproto-theory-dsl::reference_theory_dsl",
+              "test": "protocol_documents_compile_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-theory-dsl",
+              "binary": "panproto-theory-dsl::reference_theory_dsl",
+              "test": "bundled_protocols_record_their_inline_theories_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::theory_dsl",
+              "test": "protocol_references_resolve_compile_and_record_inline_theories"
+            }
+          ]
+        },
+        {
+          "id": "theory-dsl.composition-documents",
+          "anchor": "L-theory-dsl-6",
+          "references": [
+            "panproto_reference::pages::theory_dsl::compile_composition"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-theory-dsl",
+              "binary": "panproto-theory-dsl::reference_theory_dsl",
+              "test": "composition_documents_compile_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-theory-dsl",
+              "binary": "panproto-theory-dsl::reference_theory_dsl",
+              "test": "bundled_compositions_compile_in_listed_order_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::theory_dsl",
+              "test": "compositions_replay_their_colimit_steps_and_locate_refusals"
+            }
+          ]
+        },
+        {
+          "id": "theory-dsl.refusal-location",
+          "anchor": "L-theory-dsl-4",
+          "references": [
+            "panproto_reference::pages::theory_dsl::locate",
+            "panproto_reference::pages::theory_dsl::compile_document"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-theory-dsl",
+              "binary": "panproto-theory-dsl::reference_theory_dsl",
+              "test": "theory_documents_compile_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-theory-dsl",
+              "binary": "panproto-theory-dsl::reference_theory_dsl",
+              "test": "dependent_theory_documents_compile_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-theory-dsl",
+              "binary": "panproto-theory-dsl::reference_theory_dsl",
+              "test": "the_grammar_refuses_as_the_reference_on_every_mutated_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-theory-dsl",
+              "binary": "panproto-theory-dsl::reference_theory_dsl",
+              "test": "protocol_documents_compile_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-theory-dsl",
+              "binary": "panproto-theory-dsl::reference_theory_dsl",
+              "test": "composition_documents_compile_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::theory_dsl",
+              "test": "locate_finds_the_last_occurrence_of_a_member"
+            }
+          ]
+        }
+      ]
+    },
+    "json-schema": {
+      "reference_files": [
+        "crates/panproto-reference/src/pages/json_schema.rs",
+        "crates/panproto-reference/src/enumerate/json_schema.rs"
+      ],
+      "laws": [
+        {
+          "id": "json-schema.reading",
+          "anchor": "L-json-schema-1",
+          "references": [
+            "panproto_reference::pages::json_schema::read",
+            "panproto_reference::pages::json_schema::render",
+            "panproto_reference::pages::json_schema::resolve"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_json_schema",
+              "test": "json_schema_reading_and_canonical_writing_match_the_reference_on_every_bounded_bundle"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_json_schema",
+              "test": "randomized_json_schemas_read_and_write_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::json_schema",
+              "test": "a_document_reads_as_its_subschema_vertices_edges_and_constraints"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::json_schema",
+              "test": "json_schema_refusals_name_the_place_and_the_rule"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::json_schema",
+              "test": "references_resolve_through_ids_anchors_pointers_and_rfc_3986"
+            }
+          ]
+        },
+        {
+          "id": "json-schema.canonical-writing",
+          "anchor": "L-json-schema-2",
+          "references": [
+            "panproto_reference::pages::json_schema::canonical_text"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_json_schema",
+              "test": "json_schema_reading_and_canonical_writing_match_the_reference_on_every_bounded_bundle"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_json_schema",
+              "test": "randomized_json_schemas_read_and_write_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::json_schema",
+              "test": "the_canonical_document_orders_keywords_as_the_page_states"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::json_schema",
+              "test": "the_json_schema_bundle_scope_has_its_closed_form_count"
+            }
+          ]
+        }
+      ]
+    },
+    "lens-dsl": {
+      "reference_files": [
+        "crates/panproto-reference/src/pages/lens_dsl.rs",
+        "crates/panproto-reference/src/enumerate/lens_dsl.rs",
+        "crates/panproto-reference/src/dsl_path.rs"
+      ],
+      "laws": [
+        {
+          "id": "lens-dsl.document-grammar",
+          "anchor": "L-lens-dsl-1",
+          "references": [
+            "panproto_reference::pages::lens_dsl::check_document"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-lens-dsl",
+              "binary": "panproto-lens-dsl::reference_lens_dsl",
+              "test": "the_grammar_refuses_as_the_reference_on_every_mutated_document"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::lens_dsl",
+              "test": "the_lens_grammar_refuses_in_field_table_order"
+            }
+          ]
+        },
+        {
+          "id": "lens-dsl.step-compilation",
+          "anchor": "L-lens-dsl-2",
+          "references": [
+            "panproto_reference::pages::lens_dsl::step_stages",
+            "panproto_reference::pages::lens_dsl::compile_document"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-lens-dsl",
+              "binary": "panproto-lens-dsl::reference_lens_dsl",
+              "test": "step_lists_compile_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens-dsl",
+              "binary": "panproto-lens-dsl::reference_lens_dsl",
+              "test": "symmetric_bodies_compile_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens-dsl",
+              "binary": "panproto-lens-dsl::reference_lens_dsl",
+              "test": "longer_step_lists_compile_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::lens_dsl",
+              "test": "a_step_list_compiles_to_one_stage_per_step"
+            }
+          ]
+        },
+        {
+          "id": "lens-dsl.rule-compilation",
+          "anchor": "L-lens-dsl-3",
+          "references": [
+            "panproto_reference::pages::lens_dsl::rules_stages"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-lens-dsl",
+              "binary": "panproto-lens-dsl::reference_lens_dsl",
+              "test": "rules_compile_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::lens_dsl",
+              "test": "rule_maps_expand_in_key_order"
+            }
+          ]
+        },
+        {
+          "id": "lens-dsl.vertical-composition",
+          "anchor": "L-lens-dsl-4",
+          "references": [
+            "panproto_reference::pages::lens_dsl::vertical"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-lens-dsl",
+              "binary": "panproto-lens-dsl::reference_lens_dsl",
+              "test": "compositions_compile_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens-dsl",
+              "binary": "panproto-lens-dsl::reference_lens_dsl",
+              "test": "vertical_composition_is_concatenation_on_every_pair_of_short_step_lists"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens-dsl",
+              "binary": "panproto-lens-dsl::reference_lens_dsl",
+              "test": "vertical_composition_is_associative_with_the_empty_composition_as_identity"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens-dsl",
+              "binary": "panproto-lens-dsl::reference_lens_dsl",
+              "test": "longer_compositions_compile_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::lens_dsl",
+              "test": "vertical_composition_concatenates_and_resolves_references_transitively"
+            }
+          ]
+        },
+        {
+          "id": "lens-dsl.horizontal-composition",
+          "anchor": "L-lens-dsl-5",
+          "references": [
+            "panproto_reference::pages::lens_dsl::horizontal"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-lens-dsl",
+              "binary": "panproto-lens-dsl::reference_lens_dsl",
+              "test": "compositions_compile_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens-dsl",
+              "binary": "panproto-lens-dsl::reference_lens_dsl",
+              "test": "horizontal_composition_is_associative_up_to_its_elementary_structure"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens-dsl",
+              "binary": "panproto-lens-dsl::reference_lens_dsl",
+              "test": "longer_compositions_compile_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::lens_dsl",
+              "test": "horizontal_composition_folds_fused_parts_from_the_left"
+            }
+          ]
+        },
+        {
+          "id": "lens-dsl.refusal-location",
+          "anchor": "L-lens-dsl-6",
+          "references": [
+            "panproto_reference::dsl_path::locate",
+            "panproto_reference::pages::lens_dsl::compile_document"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-lens-dsl",
+              "binary": "panproto-lens-dsl::reference_lens_dsl",
+              "test": "step_lists_compile_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens-dsl",
+              "binary": "panproto-lens-dsl::reference_lens_dsl",
+              "test": "compositions_compile_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens-dsl",
+              "binary": "panproto-lens-dsl::reference_lens_dsl",
+              "test": "the_grammar_refuses_as_the_reference_on_every_mutated_document"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::lens_dsl",
+              "test": "refusals_are_located_at_the_member_they_concern"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::lens_dsl",
+              "test": "locate_finds_the_last_occurrence_of_a_member_in_a_lens_document"
+            }
+          ]
+        }
+      ]
+    },
+    "bson": {
+      "reference_files": [
+        "crates/panproto-reference/src/pages/bson.rs",
+        "crates/panproto-reference/src/enumerate/bson.rs"
+      ],
+      "laws": [
+        {
+          "id": "bson.decoding",
+          "anchor": "L-bson-1",
+          "references": [
+            "panproto_reference::pages::bson::decode"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_bson",
+              "test": "bson_decoding_matches_the_reference_on_every_bounded_byte_string"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_bson",
+              "test": "randomized_documents_encode_decode_and_write_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::bson",
+              "test": "a_binary_document_reads_by_the_bson_grammar_and_encodes_back"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::bson",
+              "test": "binary_refusals_follow_the_order_the_page_states"
+            }
+          ]
+        },
+        {
+          "id": "bson.binary-writing",
+          "anchor": "L-bson-2",
+          "references": [
+            "panproto_reference::pages::bson::encode",
+            "panproto_reference::pages::bson::tree"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_bson",
+              "test": "bson_writing_and_the_tree_encoding_match_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_bson",
+              "test": "randomized_documents_encode_decode_and_write_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::bson",
+              "test": "the_tree_encoding_numbers_nodes_in_document_order"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::bson",
+              "test": "the_bson_scopes_have_their_closed_form_counts"
+            }
+          ]
+        },
+        {
+          "id": "bson.extended-json",
+          "anchor": "L-bson-3",
+          "references": [
+            "panproto_reference::pages::bson::canonical_text",
+            "panproto_reference::pages::bson::relaxed_text",
+            "panproto_reference::pages::bson::read_text"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_bson",
+              "test": "extended_json_matches_the_reference_on_every_bounded_document_and_text"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_bson",
+              "test": "randomized_documents_encode_decode_and_write_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::bson",
+              "test": "extended_json_writes_both_formats_and_refuses_what_does_not_read_back"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::bson",
+              "test": "extended_json_reads_by_the_conversion_table_and_names_the_place"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::bson",
+              "test": "decimal128_and_double_strings_follow_the_page"
+            }
+          ]
+        }
+      ]
+    },
+    "openapi": {
+      "reference_files": [
+        "crates/panproto-reference/src/pages/openapi.rs",
+        "crates/panproto-reference/src/enumerate/openapi.rs"
+      ],
+      "laws": [
+        {
+          "id": "openapi.reading",
+          "anchor": "L-openapi-1",
+          "references": [
+            "panproto_reference::pages::openapi::read",
+            "panproto_reference::pages::json_schema::read_embedded"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_openapi",
+              "test": "openapi_reading_and_canonical_writing_match_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_openapi",
+              "test": "randomized_openapi_documents_read_and_write_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::openapi",
+              "test": "a_document_reads_as_its_object_vertices_edges_and_constraints"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::openapi",
+              "test": "openapi_references_resolve_to_their_targets"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::openapi",
+              "test": "openapi_refusals_name_the_place_and_the_rule"
+            }
+          ]
+        },
+        {
+          "id": "openapi.canonical-writing",
+          "anchor": "L-openapi-2",
+          "references": [
+            "panproto_reference::pages::openapi::canonical_text"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_openapi",
+              "test": "openapi_reading_and_canonical_writing_match_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_openapi",
+              "test": "randomized_openapi_documents_read_and_write_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::openapi",
+              "test": "the_canonical_openapi_document_orders_fields_as_the_page_states"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::openapi",
+              "test": "the_openapi_document_scope_has_its_closed_form_count"
+            }
+          ]
+        }
+      ]
+    },
+    "asyncapi": {
+      "reference_files": [
+        "crates/panproto-reference/src/pages/asyncapi.rs",
+        "crates/panproto-reference/src/enumerate/asyncapi.rs"
+      ],
+      "laws": [
+        {
+          "id": "asyncapi.reading",
+          "anchor": "L-asyncapi-1",
+          "references": [
+            "panproto_reference::pages::asyncapi::read",
+            "panproto_reference::pages::json_schema::read_draft07"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_asyncapi",
+              "test": "asyncapi_reading_and_canonical_writing_match_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_asyncapi",
+              "test": "randomized_asyncapi_documents_read_and_write_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::asyncapi",
+              "test": "an_asyncapi_document_reads_as_its_object_vertices_edges_and_constraints"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::asyncapi",
+              "test": "asyncapi_references_resolve_to_their_targets"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::asyncapi",
+              "test": "asyncapi_refusals_name_the_place_and_the_rule"
+            }
+          ]
+        },
+        {
+          "id": "asyncapi.canonical-writing",
+          "anchor": "L-asyncapi-2",
+          "references": [
+            "panproto_reference::pages::asyncapi::canonical_text"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_asyncapi",
+              "test": "asyncapi_reading_and_canonical_writing_match_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_asyncapi",
+              "test": "randomized_asyncapi_documents_read_and_write_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::asyncapi",
+              "test": "the_canonical_asyncapi_document_orders_fields_as_the_page_states"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::asyncapi",
+              "test": "the_asyncapi_document_scope_has_its_closed_form_count"
             }
           ]
         }

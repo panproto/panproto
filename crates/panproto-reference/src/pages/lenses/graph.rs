@@ -256,6 +256,58 @@ fn id_collisions(view: &Graph, c: &Complement) -> Vec<PutDomainError> {
         .collect()
 }
 
+/// The clause (5) refusal of a view whose restored source get refuses:
+/// `SurvivalPredicateRefused` at the element the refusal names (an edge at
+/// the edge stage, a node otherwise, node 0 when it names none), carrying a
+/// predicate's typed refusal as it is and any other refusal as
+/// `EvaluationFailed` with that refusal's message. A malformed fan is
+/// clause (8)'s, which reports it on its own, so it gives nothing here.
+/// An incoherent edge image, a plan refusal, a pruned root and a
+/// multiple-arc refusal do not arise on a restored source: every restored
+/// edge carries a source schema label, the plan is the lens's own, and
+/// graph get has no root and holds parallel arcs. They are carried with
+/// the reference's own description.
+fn next_get_refusal(refusal: crate::restrict::RestrictError) -> Option<PutDomainError> {
+    use crate::restrict::{EngineError, PredicateRefusal, RestrictError};
+    let evaluation = |message: String| PredicateRefusal::EvaluationFailed { message };
+    let (elem, refusal) = match refusal {
+        RestrictError::MalformedFan { .. } => return None,
+        RestrictError::At { key, error } => {
+            let elem = if key.stage == 1 {
+                ViewRef::Edge(key.id)
+            } else {
+                ViewRef::Node(key.id)
+            };
+            let refusal = match error {
+                EngineError::Predicate(refusal) => refusal,
+                EngineError::NoEdgeFound { src, tgt } => evaluation(format!(
+                    "no edge found between {src} and {tgt} in target schema"
+                )),
+                EngineError::AmbiguousEdge { src, tgt, count } => evaluation(format!(
+                    "ambiguous edge between {src} and {tgt}: {count} candidates"
+                )),
+                EngineError::Layer(layer) => evaluation(layer.detail),
+                EngineError::IdsExhausted { nodes } => evaluation(format!(
+                    "no {} id is free for a synthesized element",
+                    if nodes { "node" } else { "edge" }
+                )),
+                EngineError::ExpansionTooLong { src, tgt, hops } => evaluation(format!(
+                    "the expansion from `{src}` to `{tgt}` has {hops} hops, more than the 65536 a synthesized key can number"
+                )),
+                EngineError::FanReconstructionFailed { hyper_edge, label } => evaluation(format!(
+                    "fan reconstruction failed for hyper-edge {hyper_edge}: two children are relabelled `{label}`"
+                )),
+                incoherent @ EngineError::IncoherentEdgeImage { .. } => {
+                    evaluation(format!("{incoherent:?}"))
+                }
+            };
+            (elem, refusal)
+        }
+        other => (ViewRef::Node(0), evaluation(format!("{other:?}"))),
+    };
+    Some(PutDomainError::SurvivalPredicateRefused { elem, refusal })
+}
+
 /// The put-domain error of a value layer's field refusal at `elem`.
 fn field_refusal(elem: ViewRef, refusal: PutFieldRefusal) -> PutDomainError {
     match refusal {
@@ -749,16 +801,18 @@ impl GraphLens<'_> {
     /// the next get of the restored source would not keep is
     /// `SurvivalPredicateFails`, whether a survival predicate or the
     /// restriction itself (for instance a fan with no surviving child)
-    /// drops it. A get that refuses reports nothing here; its predicate
-    /// refusals are those of [`Self::source_violations`].
+    /// drops it. A get that refuses the restored source puts the view
+    /// outside the domain, since `PutGet` asks that get return the view:
+    /// its refusal is [`next_get_refusal`].
     fn hidden_by_the_next_get(
         &self,
         view: &Graph,
         c: &Complement,
         out: &Graph,
     ) -> Vec<PutDomainError> {
-        let Ok((next, _)) = self.get(out) else {
-            return Vec::new();
+        let next = match self.get(out) {
+            Ok((next, _)) => next,
+            Err(refusal) => return next_get_refusal(refusal).into_iter().collect(),
         };
         view.nodes
             .keys()

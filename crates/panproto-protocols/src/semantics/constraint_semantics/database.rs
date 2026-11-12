@@ -1,5 +1,5 @@
-//! Constraint-semantics rows for the database protocols other than `sql`,
-//! whose rows are in `sql.rs` (`mongodb`, `dynamodb`, `cassandra`, `neo4j`).
+//! Constraint-semantics rows for the database protocols other than `postgresql`,
+//! whose rows are in `postgresql.rs` (`mongodb`, `dynamodb`, `cassandra`, `neo4j`).
 //!
 //! The `mongodb` `$jsonSchema` keywords are JSON Schema's (lengths in code
 //! points, inclusive bounds); `bsonType` is the vertex kind itself and

@@ -319,11 +319,20 @@ pub fn compose_complement(
 pub use super::alignment::{
     ViewAlignmentRefusal, ViewPosition, align_tree_view, tree_view_positions,
 };
+pub use super::coercion::{SortCoercion, ValueMap};
+pub use super::composite::{
+    CompositeInstantiationError, CompositeLens, CompositePutError, CompositeRefusal, EdgeImages,
+    ProtolensTerm, TermRefusal, structural_migration,
+};
 pub use super::constructions::{
     ConstructionFeature, ConstructionObstruction, ConstructionShape, construction_obstruction,
     span_has_shared_middle,
 };
 pub use super::domain::{PutDomainError, ViewRef};
+pub use super::elementary::{
+    ElementaryProtolens, ElementaryRefusal, ElementaryShape, extend, relabel, restrict,
+};
+pub use super::field_program::{FieldProgram, FieldStep};
 pub use super::graph::{
     GraphLens, IdentityError, IdentityStatus, LensError, cascade_universal_property,
     graph_lens_identity, is_subinstance, largest_exact_preimage, on_delta_fragment, present,

@@ -1750,7 +1750,7 @@ fn tree_lowering_and_application_match_reference_for_every_primitive() {
             "apply: {name}"
         );
 
-        let mut expected_graph = reference_graph.clone();
+        let mut expected_graph = reference_graph;
         expected_graph = reference::apply(&expected_delta, &expected_graph)
             .unwrap_or_else(|error| panic!("reference graph application {name}: {error:?}"));
         let mut actual_graph = production_graph.clone();
@@ -1917,7 +1917,7 @@ fn independent_deltas_commute_and_merge_on_every_carrier_graph() {
                     .expect("production applies the second after the first");
                 let production_two_one = production_applied(first, &production_second)
                     .expect("production applies the first after the second");
-                let mut production_at_once = production_graph.clone();
+                let mut production_at_once = production_graph;
                 production_merged
                     .apply(&mut production_at_once)
                     .expect("production applies the merge");
@@ -2302,7 +2302,7 @@ fn surface_table_steps(table: &reference_model::Table) -> Vec<reference::TableEd
         for (table_name, row, listed) in [
             (name.clone(), cells.clone(), incident.clone()),
             ("b".to_owned(), cells.clone(), incident.clone()),
-            (name.clone(), flipped, incident.clone()),
+            (name.clone(), flipped, incident),
             (name.clone(), cells.clone(), stale_incidence),
         ] {
             out.push(reference::TableEdit::DeleteRow {

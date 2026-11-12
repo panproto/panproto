@@ -21,11 +21,11 @@ panproto is a Rust workspace for parsing and comparing schemas, constructing mig
 
 ## Features
 
-The protocol crate currently dispatches 43 JSON-document schema parsers and 11 text-source parsers. These include ATProto, OpenAPI, JSON Schema, Avro, GraphQL, Protobuf, SQL DDL, FHIR, and a range of annotation, database, configuration, and serialization formats. ATProto additionally has bundle parsing that resolves references across a set of lexicon files.
+The protocol crate currently dispatches 36 JSON-document schema parsers and 10 text-source parsers, and `panproto-io` reads seven more formats through the tree-sitter JSON, YAML and PostgreSQL grammars: PostgreSQL DDL, JSON Schema 2020-12, OpenAPI 3.1, AsyncAPI 3, CloudFormation templates, Ansible playbooks and Kubernetes CRDs. The `schema` CLI and the Python package read all seven by protocol name; the published WebAssembly module leaves their grammars out and refuses them by name. These include ATProto, OpenAPI, AsyncAPI, JSON Schema, Avro, GraphQL, Protobuf, PostgreSQL DDL, FHIR, and a range of annotation, database, configuration, and serialization formats. ATProto additionally has bundle parsing that resolves references across a set of lexicon files.
 
 Instances come in three shapes: trees, tables, and graphs. The three share one engine for exact values, validation, restriction, edits, lenses, and reference resolution. The laws this engine satisfies are stated, with proofs, in the [Correctness part of the book](book/src/correctness/index.md).
 
-The tree-sitter layer can compile as many as 261 vendored grammars. The grammars available in a particular binary depend on its Cargo features or installed companion packs.
+The tree-sitter layer can compile as many as 262 vendored grammars. The grammars available in a particular binary depend on its Cargo features or installed companion packs.
 
 Schema search either finds a map covering every source element (a total morphism) or a partial overlap (a span). It may return no total map or an empty overlap; bounded results include a certificate stating whether optimality was proved. A generated lens saves discarded source information in a complement for reconstruction. Law checks cover only the supplied or generated cases. See [The vocabulary in plain terms](book/src/explanation/decoder-ring.md).
 

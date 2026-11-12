@@ -17,7 +17,7 @@ struct ProtocolAPITests {
 
         #expect(listed == captured)
         #expect(listed.contains("atproto"))
-        #expect(listed.contains("sql"))
+        #expect(listed.contains("postgresql"))
         #expect(Set(listed).count == listed.count, "a protocol is listed twice")
     }
 
@@ -70,7 +70,7 @@ struct ProtocolAPITests {
 
     @Test(
         "a protocol defined from a specification serializes back unchanged",
-        arguments: ["protocol-atproto", "protocol-sql", "protocol-json-schema"]
+        arguments: ["protocol-atproto", "protocol-postgresql", "protocol-json-schema"]
     )
     func definedProtocolSerializesUnchanged(_ fixture: String) async throws {
         let specification = try CBORDecoder().decode(
@@ -104,7 +104,7 @@ struct ProtocolAPITests {
     @Test("two handles on the same built-in are separate slab entries")
     func builtinHandlesAreDistinct() async throws {
         let both = try await PanprotoEngine.run { () throws -> (ProtocolHandle, ProtocolHandle) in
-            (try ProtocolHandle.builtin("sql"), try ProtocolHandle.builtin("sql"))
+            (try ProtocolHandle.builtin("postgresql"), try ProtocolHandle.builtin("postgresql"))
         }
 
         #expect(both.0 != both.1)

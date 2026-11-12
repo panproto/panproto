@@ -137,14 +137,19 @@ pub fn protocol_named(name: &str) -> Protocol {
 pub fn load_schema(entry: &SchemaEntry) -> Schema {
     let path = repo_root().join(&entry.source);
     let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-    let parsed =
-        if panproto_protocols::document_parser_protocols().contains(&entry.protocol.as_str()) {
-            let doc: serde_json::Value =
-                serde_json::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-            panproto_protocols::parse_schema_document(&entry.protocol, &doc)
-        } else {
-            panproto_protocols::parse_schema_source(&entry.protocol, &text)
-        };
+    let parsed = if entry.protocol == "postgresql" {
+        panproto_io::postgresql::parse_ddl(&text).map_err(panproto_protocols::ProtocolError::from)
+    } else if entry.protocol == "json-schema" {
+        panproto_io::data_schema::json_schema::read_schema(text.as_bytes())
+            .map(|reading| reading.schema)
+            .map_err(|e| panproto_protocols::ProtocolError::Parse(e.to_string()))
+    } else if panproto_protocols::document_parser_protocols().contains(&entry.protocol.as_str()) {
+        let doc: serde_json::Value =
+            serde_json::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        panproto_protocols::parse_schema_document(&entry.protocol, &doc)
+    } else {
+        panproto_protocols::parse_schema_source(&entry.protocol, &text)
+    };
     parsed.unwrap_or_else(|e| panic!("{}: {e}", entry.name))
 }
 

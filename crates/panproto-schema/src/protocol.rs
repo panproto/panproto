@@ -38,7 +38,7 @@ pub struct EdgeRule {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct Protocol {
-    /// Human-readable protocol name (e.g., `"atproto"`, `"sql"`).
+    /// Human-readable protocol name (e.g., `"atproto"`, `"postgresql"`).
     pub name: String,
     /// Name of the schema theory GAT in the theory registry.
     pub schema_theory: String,

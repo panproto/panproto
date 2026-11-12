@@ -1016,9 +1016,11 @@ pub(crate) fn greedy_edge_map(
 /// land on target edges between the images of that pair, so the problem
 /// decomposes into one bipartite matching per pair, and within a pair the only
 /// constraint is the arc kind. Equal counts per pair is therefore exactly the
-/// solvability condition, and any pairing within a kind is a witness; name
-/// agreement is preferred so that the answer is the expected one where names do
-/// agree.
+/// solvability condition, and any pairing within a kind is a witness. The
+/// pairing chosen is canonical: within each vertex pair, every apex edge that
+/// a free target edge of its kind and name awaits is paired with it, and the
+/// remaining apex edges, least first, each take the least remaining target
+/// edge of their kind, comparing edges by value.
 pub(crate) fn bijective_edge_map(
     apex: &Schema,
     tgt: &Schema,
@@ -1045,20 +1047,36 @@ pub(crate) fn bijective_edge_map(
         }
         covered += pool.len();
 
+        // Both sides are paired by value, never by position: the slice
+        // `edges_between` returns is in the order the target was built in.
+        let mut pool: Vec<&Edge> = pool.iter().collect();
+        pool.sort_unstable();
         let mut taken = vec![false; pool.len()];
+        let mut unmatched: Vec<&Edge> = Vec::with_capacity(sources.len());
+        // Name agreement first, over the whole group, so that a source edge
+        // whose name no target edge carries cannot take the one a later
+        // source edge agrees with.
         for edge in sources {
             let named = pool.iter().enumerate().find_map(|(slot, candidate)| {
                 let free = taken.get(slot).copied() == Some(false);
                 (free && candidate.kind == edge.kind && candidate.name == edge.name).then_some(slot)
             });
-            let slot = named.or_else(|| {
-                pool.iter().enumerate().find_map(|(slot, candidate)| {
-                    let free = taken.get(slot).copied() == Some(false);
-                    (free && candidate.kind == edge.kind).then_some(slot)
-                })
+            if let Some(slot) = named {
+                *taken.get_mut(slot)? = true;
+                edge_map.insert(edge.clone(), (*pool.get(slot)?).clone());
+            } else {
+                unmatched.push(edge);
+            }
+        }
+        // Then the remaining source edges, least first, each with the least
+        // remaining target edge of its kind.
+        for edge in unmatched {
+            let slot = pool.iter().enumerate().find_map(|(slot, candidate)| {
+                let free = taken.get(slot).copied() == Some(false);
+                (free && candidate.kind == edge.kind).then_some(slot)
             })?;
             *taken.get_mut(slot)? = true;
-            edge_map.insert(edge.clone(), pool.get(slot)?.clone());
+            edge_map.insert(edge.clone(), (*pool.get(slot)?).clone());
         }
     }
 

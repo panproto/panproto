@@ -1,6 +1,17 @@
-//! Instance codecs for API specification protocols.
+//! Instance codecs and schema readers for API specification protocols.
 //!
-//! All API protocols use JSON instance encoding (responses/payloads are JSON).
+//! All API protocols use JSON instance encoding (responses/payloads are
+//! JSON). Under the `tree-sitter` feature, `openapi::read_openapi` reads an
+//! `OpenAPI` 3.1 document, and `openapi::read_openapi_bundle` a description
+//! split over several documents, through the shared JSON and YAML routes
+//! into an `openapi` schema, and `asyncapi::read_asyncapi` an `AsyncAPI` 3
+//! document, with `asyncapi::read_asyncapi_bundle` for a description split
+//! over several documents, into an `asyncapi` schema.
+
+#[cfg(feature = "tree-sitter")]
+pub mod asyncapi;
+#[cfg(feature = "tree-sitter")]
+pub mod openapi;
 
 use crate::registry::ProtocolRegistry;
 

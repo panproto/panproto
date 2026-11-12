@@ -4,7 +4,7 @@ A [protocol](../glossary.md#protocol) names a schema language together with its 
 
 ## Semantic protocols
 
-The protocol registry lists 57 semantic protocols. Names in this table are the canonical hyphenated strings the registry and the generic dispatch functions accept; underscore spellings are normalized before lookup. Of these, 54 read schema documents through [`parse_schema_document`](https://docs.rs/panproto-protocols/latest/panproto_protocols/fn.parse_schema_document.html) or [`parse_schema_source`](https://docs.rs/panproto-protocols/latest/panproto_protocols/fn.parse_schema_source.html). The three generic text formats, `csv`, `toml` and `yaml`, carry data and no schema of their own, so they read no schema documents: a schema for one is built in code, and both dispatch functions refuse them with an error that says so. Their instance codecs are registered under the `tree-sitter` feature of `panproto-io`.
+The protocol registry lists 63 semantic protocols. Names in this table are the canonical hyphenated strings the registry and the generic dispatch functions accept; underscore spellings are normalized before lookup. Of these, 46 read schema documents through [`parse_schema_document`](https://docs.rs/panproto-protocols/latest/panproto_protocols/fn.parse_schema_document.html) or [`parse_schema_source`](https://docs.rs/panproto-protocols/latest/panproto_protocols/fn.parse_schema_source.html). The four generic text formats, `csv`, `toml`, `tsv` and `yaml`, carry data and no schema of their own, so they read no schema documents: a schema for one is built in code, and both dispatch functions refuse them with an error that says so. Their instance codecs are registered under the `tree-sitter` feature of `panproto-io`. The RDF formats `ntriples`, `turtle` and `jsonld` likewise read no schema documents: every N-Triples, Turtle or JSON-LD document is read under the one RDF graph schema that [`rdf::ntriples::graph_schema`](https://docs.rs/panproto-protocols/latest/panproto_protocols/rdf/ntriples/fn.graph_schema.html), [`rdf::turtle::graph_schema`](https://docs.rs/panproto-protocols/latest/panproto_protocols/rdf/turtle/fn.graph_schema.html) and [`rdf::jsonld::graph_schema`](https://docs.rs/panproto-protocols/latest/panproto_protocols/rdf/jsonld/fn.graph_schema.html) build, and their graph codecs are registered under the same feature. The edge-list formats `edgelist-csv` and `edgelist-tsv` likewise read every document under the one graph schema [`edgelist::csv::graph_schema`](https://docs.rs/panproto-protocols/latest/panproto_protocols/edgelist/csv/fn.graph_schema.html) and [`edgelist::tsv::graph_schema`](https://docs.rs/panproto-protocols/latest/panproto_protocols/edgelist/tsv/fn.graph_schema.html) build, and their graph codecs are registered under the same feature. The `bson` protocol likewise reads every BSON document, in its binary form or in [MongoDB Extended JSON](https://www.mongodb.com/docs/manual/reference/mongodb-extended-json/), under the one tree schema [`data_schema::bson::tree_schema`](https://docs.rs/panproto-protocols/latest/panproto_protocols/data_schema/bson/fn.tree_schema.html) builds; its binary instance codec is registered in every build.
 
 | Category module | Protocol names |
 |---|---|
@@ -13,10 +13,12 @@ The protocol registry lists 57 semantic protocols. Names in this table are the c
 | `config` | `ansible`, `cloudformation`, `k8s-crd` |
 | `data_schema` | `bson`, `cddl`, `json-schema` |
 | `data_science` | `arrow`, `dataframe`, `parquet` |
-| `database` | `cassandra`, `dynamodb`, `mongodb`, `neo4j`, `redis`, `sql` |
+| `database` | `cassandra`, `dynamodb`, `mongodb`, `neo4j`, `redis`, `postgresql` |
 | `domain` | `edi-x12`, `fhir`, `geojson`, `rss-atom`, `swift-mt`, `vcard-ical` |
+| `edgelist` | `edgelist-csv`, `edgelist-tsv` |
+| `rdf` | `jsonld`, `ntriples`, `turtle` |
 | `serialization` | `asn1`, `avro`, `bond`, `flatbuffers`, `msgpack-schema`, `protobuf` |
-| `text` | `csv`, `toml`, `yaml` |
+| `text` | `csv`, `toml`, `tsv`, `yaml` |
 | `web_document` | `atproto`, `docx`, `odf` |
 
 The `raw_file` module is the text-or-binary fallback used during project assembly. It is a protocol implementation, but is not listed by either generic schema-dispatch function.
@@ -25,14 +27,16 @@ The `raw_file` module is the text-or-binary fallback used during project assembl
 
 | Entry point | Accepted input | Registered protocols |
 |---|---|---|
-| `parse_schema_document` | `serde_json::Value` | 43 protocols |
-| `parse_schema_source` | text IDL, DDL, or annotation source | 11 protocols |
-| `parse_schema_bundle` | JSON document bundle | `atproto` only |
+| `parse_schema_document` | `serde_json::Value` | 36 protocols |
+| `parse_schema_source` | text IDL, DDL, or annotation source | 10 protocols |
+| `parse_schema_bundle` | JSON document bundle | `atproto` and `avro` |
 | `parse_schema_bundle_project` | path and JSON pairs with per-file provenance | `atproto` only |
 
 The exported `document_parser_protocols`, `source_parser_protocols`, `bundle_parser_protocols`, and `bundle_project_protocols` listings are the lookup sources for these sets.
 
-The `schema` CLI and the C and WebAssembly theory-registry helpers resolve every descriptor through the shared registry by canonical name or alias. The generic document and source parser listings expose the 54 protocols that read schema documents.
+The `schema` CLI and the C and WebAssembly theory-registry helpers resolve every descriptor through the shared registry by canonical name or alias. The generic document and source parser listings expose the 46 protocols that read schema documents. Seven more are read through tree-sitter grammars by readers in `panproto-io`, and both dispatch functions refuse them with an error that names the reader: `ansible` ([`read_ansible`](https://docs.rs/panproto-io/latest/panproto_io/config/ansible/fn.read_ansible.html)), `asyncapi` ([`read_asyncapi`](https://docs.rs/panproto-io/latest/panproto_io/api/asyncapi/fn.read_asyncapi.html), with [`read_asyncapi_bundle`](https://docs.rs/panproto-io/latest/panproto_io/api/asyncapi/fn.read_asyncapi_bundle.html) for a description split over several documents), `cloudformation` ([`read_template`](https://docs.rs/panproto-io/latest/panproto_io/config/cloudformation/fn.read_template.html)), `json-schema` ([`read_schema`](https://docs.rs/panproto-io/latest/panproto_io/data_schema/json_schema/fn.read_schema.html), with [`read_bundle`](https://docs.rs/panproto-io/latest/panproto_io/data_schema/json_schema/fn.read_bundle.html) for a bundle of documents), `k8s-crd` ([`read_crd`](https://docs.rs/panproto-io/latest/panproto_io/config/k8s_crd/fn.read_crd.html)), `openapi` ([`read_openapi`](https://docs.rs/panproto-io/latest/panproto_io/api/openapi/fn.read_openapi.html), with [`read_openapi_bundle`](https://docs.rs/panproto-io/latest/panproto_io/api/openapi/fn.read_openapi_bundle.html) for a description split over several documents) and `postgresql` ([`read_ddl`](https://docs.rs/panproto-io/latest/panproto_io/postgresql/fn.read_ddl.html)). [`panproto_io::schema_documents`](https://docs.rs/panproto-io/latest/panproto_io/schema_documents/index.html) reads every protocol's schema documents by name, sending a grammar protocol to its reader by the path the registry records, and is what the `schema` CLI, the Python package and the WebAssembly module call; the [upgrade notes](../how-to/upgrade-0.78.md#the-bindings-and-the-schema-cli) state what each of them reads. The `openapi`, `asyncapi` and `json-schema` readers have bundle forms, so `bundle_parser_protocols` lists them.
+
+[Supported formats](formats.md) lists which of these protocols are read under the format contract, with the standard version, conformance corpus and correctness page of each, and which formats are not supported.
 
 ## Registration behavior
 
@@ -51,7 +55,7 @@ The source tree is the catalog authority:
 
 ## Source-code grammars
 
-`panproto-grammars` defines 261 individual `lang-*` features under `group-all`. A selected feature contributes a tree-sitter `Language` and its vendored AST metadata to [`ParserRegistry`](https://docs.rs/panproto-parse/latest/panproto_parse/struct.ParserRegistry.html). The default `group-core` is a subset. Callers do not receive all grammars unless their selected feature set includes them.
+`panproto-grammars` defines 262 individual `lang-*` features under `group-all`. A selected feature contributes a tree-sitter `Language` and its vendored AST metadata to [`ParserRegistry`](https://docs.rs/panproto-parse/latest/panproto_parse/struct.ParserRegistry.html). The default `group-core` is a subset. Callers do not receive all grammars unless their selected feature set includes them.
 
 [`emit_verification_status`](https://docs.rs/panproto-parse/latest/panproto_parse/struct.ParserRegistry.html#method.emit_verification_status) reports test coverage for the registered parser, not a proof about all inputs:
 

@@ -19,6 +19,7 @@ import { resolve } from 'node:path';
 import { packToWasm } from '../src/msgpack.js';
 import {
   Panproto,
+  PROTOCOL_CATEGORIES,
   ExprBuilder,
   TheoryBuilder,
   checkMorphism,
@@ -915,27 +916,34 @@ describe('parseSchemaBundle', () => {
     schema[Symbol.dispose]();
   });
 
-  it('resolves a JSON Schema $ref against a sibling document $id', () => {
-    const common = {
-      $id: 'https://example.com/common.json',
-      $defs: {
-        Address: { type: 'object', properties: { street: { type: 'string' } } },
-      },
-    };
-    const user = {
-      $id: 'https://example.com/user.json',
-      type: 'object',
-      properties: {
-        home: { $ref: 'https://example.com/common.json#/$defs/Address' },
-      },
-    };
-
-    const schema = pp.parseSchemaBundle('json-schema', [common, user]);
-    // The referenced definition carries its own fields, which the
-    // placeholder never did.
-    const address = 'https://example.com/common.json:$defs/Address';
-    expect(schema.vertices[address]).toBeDefined();
-    schema[Symbol.dispose]();
+  it('refuses the grammar protocols and names the reader and the feature', () => {
+    // The published module leaves the tree-sitter grammars out, so every
+    // protocol read through one is refused with an error that names its
+    // panproto-io reader and the build feature that provides it.
+    const doc = { $id: 'https://example.com/user.json', type: 'object' };
+    expect(() => pp.parseSchemaDocument('json-schema', doc)).toThrow(
+      /panproto_io::data_schema::json_schema::read_schema.*format-preserving/,
+    );
+    expect(() => pp.parseSchemaBundle('json-schema', [doc])).toThrow(
+      /panproto_io::data_schema::json_schema::read_schema.*format-preserving/,
+    );
+    expect(pp.listBundleParserProtocols()).toContain('json-schema');
+    const readers: Array<[string, string, RegExp]> = [
+      ['openapi', '{"openapi": "3.1.0"}', /panproto_io::api::openapi::read_openapi/],
+      ['asyncapi', 'asyncapi: 3.0.0', /panproto_io::api::asyncapi::read_asyncapi/],
+      ['k8s-crd', 'kind: CustomResourceDefinition', /panproto_io::config::k8s_crd::read_crd/],
+      [
+        'cloudformation',
+        '{"Resources": {}}',
+        /panproto_io::config::cloudformation::read_template/,
+      ],
+      ['ansible', '- hosts: all', /panproto_io::config::ansible::read_ansible/],
+      ['postgresql', 'CREATE TABLE t (id integer);', /panproto_io::postgresql::read_ddl/],
+    ];
+    for (const [protocol, source, reader] of readers) {
+      expect(() => pp.parseSchemaSource(protocol, source)).toThrow(reader);
+      expect(() => pp.parseSchemaSource(protocol, source)).toThrow(/format-preserving/);
+    }
   });
 });
 
@@ -970,11 +978,27 @@ describe('protocol resolution', () => {
     expect(atp.hasCausal).toBe(false);
     expect(atp.nominalIdentity).toBe(false);
 
-    // SQL sets `nominal_identity` but no coproducts: a spec that copied
+    // PostgreSQL sets `nominal_identity` but no coproducts: a spec that copied
     // ATProto's flags, or dropped them all, fails here.
-    const sql = pp.protocol('sql').spec;
-    expect(sql.nominalIdentity).toBe(true);
-    expect(sql.hasCoproducts).toBe(false);
+    const postgresql = pp.protocol('postgresql').spec;
+    expect(postgresql.nominalIdentity).toBe(true);
+    expect(postgresql.hasCoproducts).toBe(false);
+  });
+
+  it('lists every instance codec under a category, by its canonical name', () => {
+    const categorized = Object.values(PROTOCOL_CATEGORIES).flat();
+    const io = pp.io();
+    try {
+      for (const name of io.protocols) {
+        expect(categorized, `${name} has a codec but no category`).toContain(name);
+      }
+    } finally {
+      io[Symbol.dispose]();
+    }
+    const canonical = pp.listProtocols();
+    for (const name of categorized) {
+      expect(canonical, `${name} is not a canonical protocol name`).toContain(name);
+    }
   });
 
   it('resolves every built-in protocol to exactly what the registry holds', () => {
@@ -1016,7 +1040,7 @@ describe('protocol resolution', () => {
   });
 
   it('agrees with the standalone registry accessor', () => {
-    for (const name of ['atproto', 'sql', 'protobuf', 'graphql', 'json-schema']) {
+    for (const name of ['atproto', 'postgresql', 'protobuf', 'graphql', 'json-schema']) {
       expect(pp.protocol(name).spec).toEqual(getBuiltinProtocol(name, pp._wasm));
     }
   });
@@ -1076,15 +1100,24 @@ describe('bundle validation against the resolved protocol', () => {
     schema[Symbol.dispose]();
   });
 
-  it('reports no issues for a JSON Schema document', () => {
-    const schema = pp.parseSchemaDocument('json-schema', {
-      type: 'object',
-      required: ['id'],
-      properties: {
-        id: { type: 'string', format: 'uuid' },
-        count: { type: 'integer', minimum: 0 },
-      },
-    });
+  it('reports no issues for the schema the JSON Schema reader builds', () => {
+    // The schema panproto-io's JSON Schema reader builds from
+    // {"type": "object", "required": ["id"], "properties": {"id":
+    // {"type": "string", "format": "uuid"}, "count": {"type": "integer",
+    // "minimum": 0}}}.
+    const schema = pp.protocol('json-schema').schema()
+      .vertex('#', 'object')
+      .vertex('#/properties/id', 'string')
+      .vertex('#/properties/count', 'integer')
+      .edge('#', '#/properties/id', 'prop', { name: 'id' })
+      .edge('#', '#/properties/count', 'prop', { name: 'count' })
+      .constraint('#', 'type', '"object"')
+      .constraint('#', 'required', '["id"]')
+      .constraint('#/properties/id', 'type', '"string"')
+      .constraint('#/properties/id', 'format', '"uuid"')
+      .constraint('#/properties/count', 'type', '"integer"')
+      .constraint('#/properties/count', 'minimum', '0')
+      .build();
     const result = pp.validateSchema(schema, pp.protocol('json-schema'));
 
     expect(result.issues).toEqual([]);

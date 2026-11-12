@@ -1066,7 +1066,7 @@ fn train_benchmark() -> R<Vec<Case>> {
         inject_case.record_violation_tuples = true;
         cases.push(inject_case);
 
-        let mut invalid = valid.clone();
+        let mut invalid = valid;
         inject.apply(&mut invalid)?;
         let external = train_external();
         let protocol = fixture_protocol(InstanceShapeKind::Graph);

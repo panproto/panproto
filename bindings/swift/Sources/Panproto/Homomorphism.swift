@@ -65,7 +65,9 @@ extension SchemaHandle {
     /// - Returns: The optimal total morphisms, or an empty array when
     ///   none exists.
     /// - Throws: ``PanprotoError/migration(_:)`` when either handle is
-    ///   not a schema, or when the options will not encode.
+    ///   not a schema, when the options will not encode, when the
+    ///   search could not be posed, or when a budget stopped the search
+    ///   before it proved an answer optimal.
     @PanprotoEngine
     public func findMorphisms(
         to target: SchemaHandle,
@@ -93,7 +95,9 @@ extension SchemaHandle {
     ///   - options: The shape the search is asked for.
     /// - Returns: The best total morphism, or `nil` when none exists.
     /// - Throws: ``PanprotoError/migration(_:)`` when either handle is
-    ///   not a schema, or when the options will not encode.
+    ///   not a schema, when the options will not encode, when the
+    ///   search could not be posed, or when a budget stopped the search
+    ///   before it proved an answer optimal.
     @PanprotoEngine
     public func findBestMorphism(
         to target: SchemaHandle,
