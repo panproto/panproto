@@ -67,10 +67,6 @@ const ERROR_ONLY_ALLOWLIST: &[(&str, &str)] = &[
         r#"format!( "XML element {element_vertex:?} has no start tag for xsi:nil" )"#,
     ),
     (
-        "src/cst_extract.rs",
-        r#"format!( "data row {} at byte {:?} has {} fields but {} header fields are declared", row_idx + 1, cst_byte_offset(cst, row_name), field_count, headers )"#,
-    ),
-    (
         "src/json_pathway.rs",
         r#"format!("root vertex {root_vertex:?} does not exist")"#,
     ),
