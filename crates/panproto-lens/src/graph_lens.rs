@@ -1549,6 +1549,8 @@ fn id_collisions(view: &GInstance, complement: &GraphComplement) -> Vec<PutDomai
     found
 }
 
+/// Clause 2: every synthesized node or edge the view changed, or left out
+/// while every endpoint of its chain remains in the view.
 fn synthesized_edits(
     view: &GInstance,
     complement: &GraphComplement,
@@ -1564,7 +1566,8 @@ fn synthesized_edits(
     let mut found: Vec<PutDomainError> = removed_nodes
         .iter()
         .filter(|&&id| {
-            !chain_endpoint_removed(view, complement, &complement.synthesized_nodes[&id])
+            view.node(id).is_some()
+                || !chain_endpoint_removed(view, complement, &complement.synthesized_nodes[&id])
         })
         .map(|&id| PutDomainError::SynthesizedEdited {
             elem: ViewRef::Node(id),
@@ -1572,7 +1575,7 @@ fn synthesized_edits(
         .collect();
     for (&id, key) in &complement.synthesized_edges {
         if !synth_edge_matches(view, complement, plan, id, key)
-            && !chain_endpoint_removed(view, complement, key)
+            && (view.edge(id).is_some() || !chain_endpoint_removed(view, complement, key))
         {
             found.push(PutDomainError::SynthesizedEdited {
                 elem: ViewRef::Edge(id),
