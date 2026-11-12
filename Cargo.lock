@@ -2155,6 +2155,7 @@ dependencies = [
  "bumpalo",
  "divan",
  "memchr",
+ "panproto-expr",
  "panproto-gat",
  "panproto-grammars",
  "panproto-inst",

@@ -257,7 +257,7 @@ static DESCRIPTORS: &[ProtocolDescriptor] = &[
     ProtocolDescriptor {
         name: "bson",
         aliases: &[],
-        parser: Parser::Document(data_schema::bson::parse_bson_schema),
+        parser: Parser::Programmatic,
         protocol: data_schema::bson::protocol,
         register_theories: |r| {
             data_schema::bson::register_theories(r);

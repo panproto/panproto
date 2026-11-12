@@ -443,7 +443,7 @@ mod dispatch_tests {
 
     #[test]
     fn parser_protocol_lists_have_expected_sizes() {
-        assert_eq!(document_parser_protocols().len(), 39);
+        assert_eq!(document_parser_protocols().len(), 38);
         assert_eq!(source_parser_protocols().len(), 10);
         assert!(document_parser_protocols().contains(&"atproto"));
         assert!(!document_parser_protocols().contains(&"json-schema"));

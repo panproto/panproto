@@ -36,7 +36,7 @@ const DECLARED: &[(&str, InstanceShapeKind, InstanceShapeKind)] = &[
     ("bead", Tree, Graph),
     ("bond", Tree, Tree),
     ("brat", Tree, Graph),
-    ("bson", Tree, Graph),
+    ("bson", Tree, Tree),
     ("cassandra", Tree, Table),
     ("cddl", Tree, Tree),
     ("cloudformation", Tree, Graph),

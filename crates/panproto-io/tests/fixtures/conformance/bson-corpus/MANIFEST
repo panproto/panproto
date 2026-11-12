@@ -1,0 +1,35 @@
+# The vendored files of source/bson-corpus/tests of mongodb/specifications,
+# each with its BSON type byte and its numbers of valid, decodeErrors and
+# parseErrors cases.
+# Columns: file, type, valid, decodeErrors, parseErrors.
+array.json	0x04	5	3	0
+binary.json	0x05	20	5	5
+boolean.json	0x08	2	2	0
+code.json	0x0D	6	7	0
+code_w_scope.json	0x0F	5	11	0
+datetime.json	0x09	5	1	0
+dbpointer.json	0x0C	3	6	0
+dbref.json	0x03	12	0	0
+decimal128-1.json	0x13	60	0	0
+decimal128-2.json	0x13	157	0	0
+decimal128-3.json	0x13	308	0	0
+decimal128-4.json	0x13	13	0	20
+decimal128-5.json	0x13	67	0	0
+decimal128-6.json	0x13	0	0	31
+decimal128-7.json	0x13	0	0	80
+document.json	0x03	7	4	0
+double.json	0x01	12	1	0
+int32.json	0x10	5	1	0
+int64.json	0x12	5	1	0
+maxkey.json	0x7F	1	0	0
+minkey.json	0xFF	1	0	0
+multi-type-deprecated.json	0x00	1	0	0
+multi-type.json	0x00	1	0	0
+null.json	0x0A	1	0	0
+oid.json	0x07	3	1	0
+regex.json	0x0B	9	2	0
+string.json	0x02	7	7	0
+symbol.json	0x0E	6	7	0
+timestamp.json	0x11	4	1	0
+top.json	0x00	4	15	44
+undefined.json	0x06	1	0	0

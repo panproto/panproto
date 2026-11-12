@@ -1550,7 +1550,11 @@ fn extract_json_array(
 }
 
 /// Find the value vertex of a JSON pair with the given key name.
-fn find_json_pair_value(cst: &Schema, object_vertex: &Name, key_name: &str) -> Option<Name> {
+pub(crate) fn find_json_pair_value(
+    cst: &Schema,
+    object_vertex: &Name,
+    key_name: &str,
+) -> Option<Name> {
     let pairs = cst_children_by_edge_kind(cst, object_vertex, "child_of");
     for pair_name in pairs {
         if cst_vertex_kind(cst, pair_name).as_deref() != Some("pair") {
@@ -2065,13 +2069,12 @@ fn validate_json_cst_number_tokens(cst: &Schema) -> Result<(), CstCodecError> {
         })
         .map(|(name, _)| cst_byte_offset(cst, name))
         .min_by_key(|offset| offset.unwrap_or(u64::MAX));
-    match fault {
-        None => Ok(()),
-        Some(offset) => Err(CstCodecError::Structure(offset.map_or_else(
+    fault.map_or(Ok(()), |offset| {
+        Err(CstCodecError::Structure(offset.map_or_else(
             || "JSON number at an unrecorded byte has no digit after its decimal point; RFC 8259 requires one".to_owned(),
             |start| format!("JSON number at byte {start} has no digit after its decimal point; RFC 8259 requires one"),
-        ))),
-    }
+        )))
+    })
 }
 
 fn validate_json_cst_string_tokens(cst: &Schema) -> Result<(), CstCodecError> {

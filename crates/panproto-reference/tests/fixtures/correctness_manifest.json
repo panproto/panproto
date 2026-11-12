@@ -7862,6 +7862,122 @@
           ]
         }
       ]
+    },
+    "bson": {
+      "reference_files": [
+        "crates/panproto-reference/src/pages/bson.rs",
+        "crates/panproto-reference/src/enumerate/bson.rs"
+      ],
+      "laws": [
+        {
+          "id": "bson.decoding",
+          "anchor": "L-bson-1",
+          "references": [
+            "panproto_reference::pages::bson::decode"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_bson",
+              "test": "bson_decoding_matches_the_reference_on_every_bounded_byte_string"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_bson",
+              "test": "randomized_documents_encode_decode_and_write_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::bson",
+              "test": "a_binary_document_reads_by_the_bson_grammar_and_encodes_back"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::bson",
+              "test": "binary_refusals_follow_the_order_the_page_states"
+            }
+          ]
+        },
+        {
+          "id": "bson.binary-writing",
+          "anchor": "L-bson-2",
+          "references": [
+            "panproto_reference::pages::bson::encode",
+            "panproto_reference::pages::bson::tree"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_bson",
+              "test": "bson_writing_and_the_tree_encoding_match_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_bson",
+              "test": "randomized_documents_encode_decode_and_write_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::bson",
+              "test": "the_tree_encoding_numbers_nodes_in_document_order"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::bson",
+              "test": "the_bson_scopes_have_their_closed_form_counts"
+            }
+          ]
+        },
+        {
+          "id": "bson.extended-json",
+          "anchor": "L-bson-3",
+          "references": [
+            "panproto_reference::pages::bson::canonical_text",
+            "panproto_reference::pages::bson::relaxed_text",
+            "panproto_reference::pages::bson::read_text"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_bson",
+              "test": "extended_json_matches_the_reference_on_every_bounded_document_and_text"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_bson",
+              "test": "randomized_documents_encode_decode_and_write_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::bson",
+              "test": "extended_json_writes_both_formats_and_refuses_what_does_not_read_back"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::bson",
+              "test": "extended_json_reads_by_the_conversion_table_and_names_the_place"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::bson",
+              "test": "decimal128_and_double_strings_follow_the_page"
+            }
+          ]
+        }
+      ]
     }
   }
 }
