@@ -17440,7 +17440,7 @@ fn production_elementary_alphabet() -> Vec<panproto_lens::Protolens> {
 enum ElementaryApplication {
     Inapplicable,
     IdentifiesEdges,
-    Applied(RefSchema, RefGraph, Box<RefComplement>),
+    Applied(Box<RefSchema>, Box<RefGraph>, Box<RefComplement>),
     Refused(String),
 }
 
@@ -17458,8 +17458,8 @@ fn production_elementary_application(
         &prod_graph(source),
     ) {
         Ok(applied) => ElementaryApplication::Applied(
-            ref_schema(&applied.lens.tgt_schema),
-            ref_graph(&applied.view),
+            Box::new(ref_schema(&applied.lens.tgt_schema)),
+            Box::new(ref_graph(&applied.view)),
             Box::new(ref_complement(&applied.complement)),
         ),
         Err(LensError::ProtolensInapplicable { .. }) => ElementaryApplication::Inapplicable,
@@ -17486,8 +17486,8 @@ fn reference_elementary_application(
     };
     match panproto_reference::lens::protolens_instance(&protolens, schema, source) {
         Ok(application) => ElementaryApplication::Applied(
-            application.lens.target().clone(),
-            application.view,
+            Box::new(application.lens.target().clone()),
+            Box::new(application.view),
             Box::new(without_identity(&application.complement)),
         ),
         Err(RefProtolensError::FalsePrecondition { .. }) => ElementaryApplication::Inapplicable,
@@ -17598,17 +17598,19 @@ fn production_elementary_case(
     case: &ElementaryCase,
 ) -> ElementaryObservation {
     let source = &context.sources[case.schema][case.source];
-    match case.view {
-        None => ElementaryObservation::Application(production_elementary_application(
-            &context.production[case.kind],
-            &context.schemas[case.schema],
-            source,
-        )),
-        Some(view) => {
+    case.view.map_or_else(
+        || {
+            ElementaryObservation::Application(production_elementary_application(
+                &context.production[case.kind],
+                &context.schemas[case.schema],
+                source,
+            ))
+        },
+        |view| {
             let (pair, views) = &context.pairs[&(case.kind, case.schema)];
             ElementaryObservation::Put(production_put(pair, source, &views[view]))
-        }
-    }
+        },
+    )
 }
 
 fn reference_elementary_case(
@@ -17616,17 +17618,19 @@ fn reference_elementary_case(
     case: &ElementaryCase,
 ) -> ElementaryObservation {
     let source = &context.sources[case.schema][case.source];
-    match case.view {
-        None => ElementaryObservation::Application(reference_elementary_application(
-            &context.reference[case.kind],
-            &context.schemas[case.schema],
-            source,
-        )),
-        Some(view) => {
+    case.view.map_or_else(
+        || {
+            ElementaryObservation::Application(reference_elementary_application(
+                &context.reference[case.kind],
+                &context.schemas[case.schema],
+                source,
+            ))
+        },
+        |view| {
             let (pair, views) = &context.pairs[&(case.kind, case.schema)];
             ElementaryObservation::Put(reference_put(pair, source, &views[view]))
-        }
-    }
+        },
+    )
 }
 
 #[test]
@@ -17764,8 +17768,8 @@ proptest! {
             let edited =
                 random_elementary_graph(&elementary_view_schema(schema_ref, &target), view_seed);
             let pair =
-                Pair::with_production(schema_ref.clone(), target, migration, &NoValueLayer, lens);
-            for put_view in [&view, &edited] {
+                Pair::with_production(schema_ref.clone(), *target, migration, &NoValueLayer, lens);
+            for put_view in [&*view, &edited] {
                 prop_assert_eq!(
                     production_put(&pair, &source, put_view),
                     reference_put(&pair, &source, put_view)
