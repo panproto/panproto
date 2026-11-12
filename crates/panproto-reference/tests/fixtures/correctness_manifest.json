@@ -8093,6 +8093,88 @@
           ]
         }
       ]
+    },
+    "json-schema": {
+      "reference_files": [
+        "crates/panproto-reference/src/pages/json_schema.rs",
+        "crates/panproto-reference/src/enumerate/json_schema.rs"
+      ],
+      "laws": [
+        {
+          "id": "json-schema.reading",
+          "anchor": "L-json-schema-1",
+          "references": [
+            "panproto_reference::pages::json_schema::read",
+            "panproto_reference::pages::json_schema::render",
+            "panproto_reference::pages::json_schema::resolve"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_json_schema",
+              "test": "json_schema_reading_and_canonical_writing_match_the_reference_on_every_bounded_bundle"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_json_schema",
+              "test": "randomized_json_schemas_read_and_write_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::json_schema",
+              "test": "a_document_reads_as_its_subschema_vertices_edges_and_constraints"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::json_schema",
+              "test": "json_schema_refusals_name_the_place_and_the_rule"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::json_schema",
+              "test": "references_resolve_through_ids_anchors_pointers_and_rfc_3986"
+            }
+          ]
+        },
+        {
+          "id": "json-schema.canonical-writing",
+          "anchor": "L-json-schema-2",
+          "references": [
+            "panproto_reference::pages::json_schema::canonical_text"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_json_schema",
+              "test": "json_schema_reading_and_canonical_writing_match_the_reference_on_every_bounded_bundle"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_json_schema",
+              "test": "randomized_json_schemas_read_and_write_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::json_schema",
+              "test": "the_canonical_document_orders_keywords_as_the_page_states"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::json_schema",
+              "test": "the_json_schema_bundle_scope_has_its_closed_form_count"
+            }
+          ]
+        }
+      ]
     }
   }
 }

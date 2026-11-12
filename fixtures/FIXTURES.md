@@ -72,18 +72,6 @@ sorted keys and two-space indentation.
 | `post-embed-gallery.json` | `at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.post/3mnslrkd6ok2g` (an `app.bsky.embed.gallery` embed, a kind the committed lexicon's `embed` union does not name) |
 | `profile-record.json` | `profile-bsky.app.json` restricted to the `app.bsky.actor.profile` record fields (`displayName`, `description`, `avatar`, `banner`, `createdAt`) |
 
-## jsonschema/
-
-Fetched from `schemastore.org` on 2026-04-19.
-
-| File | Source |
-| --- | --- |
-| `package.json` | `https://json.schemastore.org/package.json` |
-| `tsconfig.json` | `https://json.schemastore.org/tsconfig.json` |
-| `github-workflow.json` | `https://json.schemastore.org/github-workflow.json` |
-
-License: Apache-2.0 (SchemaStore).
-
 ## protobuf/
 
 ### OpenTelemetry proto

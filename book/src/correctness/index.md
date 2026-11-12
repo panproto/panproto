@@ -63,5 +63,6 @@ The table lists each correctness page and the number of laws it proves for the t
 | [Kubernetes CRDs](kubernetes-crds.md) | 2 |
 | [CloudFormation](cloudformation.md) | 2 |
 | [Ansible](ansible.md) | 2 |
+| [JSON Schema](json-schema.md) | 2 |
 | [Migration search](migration-search.md) | 4 |
 | [Schema merge](schema-merge.md) | 4 |

@@ -118,6 +118,7 @@
   - [Kubernetes CRDs](./correctness/kubernetes-crds.md)
   - [CloudFormation](./correctness/cloudformation.md)
   - [Ansible](./correctness/ansible.md)
+  - [JSON Schema](./correctness/json-schema.md)
   - [Migration search](./correctness/migration-search.md)
   - [Schema merge](./correctness/schema-merge.md)
 

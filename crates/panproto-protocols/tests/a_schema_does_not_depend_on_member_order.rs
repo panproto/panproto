@@ -234,22 +234,6 @@ fn a_lexicon_bundle_reads_to_one_schema_in_any_member_order() {
 }
 
 #[test]
-fn every_json_schema_fixture_reads_to_one_schema_in_any_member_order() {
-    let docs: Vec<(String, Value)> = ["github-workflow.json", "package.json", "tsconfig.json"]
-        .into_iter()
-        .map(|name| (name.to_owned(), read(&format!("jsonschema/{name}"))))
-        .collect();
-    let wrong = order_dependent(
-        docs.iter()
-            .map(|(name, doc)| ("json-schema", name.clone(), doc)),
-    );
-    assert!(
-        wrong.is_empty(),
-        "member order changed the schema of: {wrong:?}"
-    );
-}
-
-#[test]
 fn every_sample_reads_to_one_schema_in_any_member_order() {
     let docs = samples();
     let wrong = order_dependent(

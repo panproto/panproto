@@ -1,20 +1,16 @@
 //! Every schema fixture under the repository's `fixtures/` directory
 //! parses with its protocol's parser, into the schema the file declares.
 //!
-//! The fixtures are real-world schemas (the GitHub workflow, npm
-//! `package.json` and `tsconfig.json` JSON Schemas, and protobuf's own
-//! `descriptor.proto`), so each one exercises constructs the parsers' unit
-//! tests do not: references to definitions declared later, `type` lists
-//! next to `properties`, JSON pointer references into nested subschemas,
-//! and option values spanning lines. Each construct has a minimal case of
+//! The fixtures are real-world schemas (protobuf's own `descriptor.proto`
+//! among them), so each one exercises constructs the parsers' unit tests do
+//! not, such as option values spanning lines. Each construct has a minimal case of
 //! its own below, and the parse is checked against what
 //! the file declares, not only for success.
 
 use std::path::{Path, PathBuf};
 
-use panproto_protocols::{parse_schema_document, parse_schema_source};
+use panproto_protocols::parse_schema_source;
 use panproto_schema::Schema;
-use serde_json::json;
 
 /// A result a test requires to be `Ok`.
 trait Required<T> {
@@ -32,13 +28,6 @@ fn fixture(relative: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../fixtures")
         .join(relative)
-}
-
-fn document(protocol: &str, relative: &str) -> Schema {
-    let path = fixture(relative);
-    let text = std::fs::read_to_string(&path).required("the fixture exists");
-    let doc: serde_json::Value = serde_json::from_str(&text).required("the fixture is JSON");
-    parse_schema_document(protocol, &doc).unwrap_or_else(|e| panic!("{relative}: {e}"))
 }
 
 fn source(protocol: &str, relative: &str) -> Schema {
@@ -61,221 +50,6 @@ fn constraint<'a>(schema: &'a Schema, vertex: &str, sort: &str) -> Option<&'a st
         .iter()
         .find(|c| c.sort == sort)
         .map(|c| c.value.as_str())
-}
-
-fn kind<'a>(schema: &'a Schema, vertex: &str) -> &'a str {
-    schema
-        .vertices
-        .get(vertex)
-        .unwrap_or_else(|| panic!("no vertex {vertex}"))
-        .kind
-        .as_ref()
-}
-
-// JSON Schema.
-
-#[test]
-fn a_ref_to_a_definition_declared_later_resolves() {
-    let schema = parse_schema_document(
-        "json-schema",
-        &json!({
-            "definitions": {
-                "a": { "$ref": "#/definitions/b" },
-                "b": { "type": "string" }
-            }
-        }),
-    )
-    .required("a forward ref parses");
-    assert!(has_edge(
-        &schema,
-        "root:definitions/a",
-        "root:definitions/b",
-        "ref"
-    ));
-}
-
-#[test]
-fn properties_of_a_type_list_belong_to_its_object_variant() {
-    let schema = parse_schema_document(
-        "json-schema",
-        &json!({
-            "type": ["object", "null"],
-            "properties": { "x": { "type": ["array", "null"], "items": { "type": "string" } } }
-        }),
-    )
-    .required("a type list with properties parses");
-    assert_eq!(kind(&schema, "root"), "union");
-    assert_eq!(kind(&schema, "root:type0"), "object");
-    assert!(has_edge(&schema, "root:type0", "root.x", "prop"));
-    assert!(has_edge(&schema, "root.x:type0", "root.x:items", "items"));
-}
-
-#[test]
-fn a_pointer_ref_lands_on_the_subschema_it_points_at() {
-    let schema = parse_schema_document(
-        "json-schema",
-        &json!({
-            "definitions": { "a": { "properties": { "b": { "type": "integer" } } } },
-            "properties": {
-                "c": { "$ref": "#/definitions/a/properties/b" },
-                "d": { "$ref": "#" }
-            }
-        }),
-    )
-    .required("pointer refs parse");
-    assert!(has_edge(&schema, "root.c", "root:definitions/a.b", "ref"));
-    assert!(has_edge(&schema, "root.d", "root", "ref"));
-}
-
-#[test]
-fn the_github_workflow_schema_parses() {
-    let schema = document("json-schema", "jsonschema/github-workflow.json");
-    let id = "https://json.schemastore.org/github-workflow.json";
-    // `branch` refers to `globs`, which the file declares after it.
-    let globs = format!("{id}:definitions/globs");
-    assert!(
-        schema
-            .edges
-            .keys()
-            .any(|e| e.kind == "ref" && e.tgt == globs.as_str()),
-        "a ref reaches the later definition"
-    );
-}
-
-#[test]
-fn the_package_json_schema_parses() {
-    let schema = document("json-schema", "jsonschema/package.json");
-    let id = "https://json.schemastore.org/package.json";
-    // `person` is `{"type": ["object", "string"], "properties": ...}`.
-    let person = format!("{id}:definitions/person");
-    assert_eq!(kind(&schema, &person), "union");
-    assert!(has_edge(
-        &schema,
-        &format!("{person}:type0"),
-        &format!("{person}.name"),
-        "prop"
-    ));
-}
-
-#[test]
-fn the_tsconfig_schema_parses() {
-    let schema = document("json-schema", "jsonschema/tsconfig.json");
-    // The draft-04 document names itself with `id`.
-    let options = "https://json.schemastore.org/tsconfig:definitions/compilerOptionsDefinition.compilerOptions";
-    assert_eq!(kind(&schema, options), "union");
-    // A pointer into the definition's properties lands on the property.
-    assert!(
-        schema
-            .edges
-            .keys()
-            .any(|e| e.kind == "ref" && e.tgt == options),
-        "a pointer ref reaches compilerOptions"
-    );
-}
-
-#[test]
-fn an_untyped_schema_keeps_its_array_keywords() {
-    let schema = parse_schema_document(
-        "json-schema",
-        &json!({
-            "properties": {
-                "x": { "items": { "type": "string" }, "minItems": 1 },
-                "t": {
-                    "items": [{ "type": "string" }, { "type": "integer" }],
-                    "additionalItems": { "type": "boolean" }
-                },
-                "both": { "properties": { "p": {} }, "items": {} }
-            }
-        }),
-    )
-    .required("untyped schemas parse");
-    assert_eq!(kind(&schema, "root.x"), "array");
-    assert!(has_edge(&schema, "root.x", "root.x:items", "items"));
-    assert_eq!(kind(&schema, "root.x:items"), "string");
-
-    // A tuple `items` gives each position its own item, and
-    // `additionalItems` the item past them.
-    assert_eq!(kind(&schema, "root.t"), "array");
-    assert_eq!(kind(&schema, "root.t:items0"), "string");
-    assert_eq!(kind(&schema, "root.t:items1"), "integer");
-    assert_eq!(kind(&schema, "root.t:additionalItems"), "boolean");
-    assert!(has_edge(&schema, "root.t", "root.t:items1", "items"));
-    assert!(has_edge(
-        &schema,
-        "root.t",
-        "root.t:additionalItems",
-        "items"
-    ));
-
-    // Object and array keywords together: each goes to its variant.
-    assert_eq!(kind(&schema, "root.both"), "union");
-    assert!(has_edge(&schema, "root.both:object", "root.both.p", "prop"));
-    assert!(has_edge(
-        &schema,
-        "root.both:array",
-        "root.both:items",
-        "items"
-    ));
-}
-
-#[test]
-fn a_ref_spelled_against_the_documents_id_or_percent_encoded_resolves() {
-    let schema = parse_schema_document(
-        "json-schema",
-        &json!({
-            "$id": "https://x.test/s.json",
-            "definitions": {
-                "a": { "properties": { "b": { "type": "integer" } } },
-                "c d": { "type": "string" }
-            },
-            "properties": {
-                "c": { "$ref": "https://x.test/s.json#/definitions/a/properties/b" },
-                "q": { "$ref": "#/definitions/c%20d" },
-                "r": { "$ref": "https://x.test/s.json#/definitions/c%20d" },
-                "s": { "$ref": "https://x.test/s.json" }
-            }
-        }),
-    )
-    .required("in-document refs parse");
-    let id = "https://x.test/s.json";
-    assert!(has_edge(
-        &schema,
-        &format!("{id}.c"),
-        &format!("{id}:definitions/a.b"),
-        "ref"
-    ));
-    assert!(has_edge(
-        &schema,
-        &format!("{id}.q"),
-        &format!("{id}:definitions/c d"),
-        "ref"
-    ));
-    assert!(has_edge(
-        &schema,
-        &format!("{id}.r"),
-        &format!("{id}:definitions/c d"),
-        "ref"
-    ));
-    assert!(has_edge(&schema, &format!("{id}.s"), id, "ref"));
-    assert!(
-        !schema.vertices.keys().any(|v| v.contains(":ref")),
-        "no ref falls back to a placeholder"
-    );
-}
-
-#[test]
-fn the_github_workflow_runner_list_is_an_array() {
-    let schema = document("json-schema", "jsonschema/github-workflow.json");
-    let id = "https://json.schemastore.org/github-workflow.json";
-    // `runs-on` admits a tuple of labels: `{"items": [{"type": "string"}],
-    // "additionalItems": {"type": "string"}}` under an `anyOf`.
-    let runners = format!("{id}:definitions/normalJob.runs-on:anyOf1:anyOf0");
-    assert_eq!(kind(&schema, &runners), "array");
-    assert_eq!(kind(&schema, &format!("{runners}:items0")), "string");
-    assert_eq!(
-        kind(&schema, &format!("{runners}:additionalItems")),
-        "string"
-    );
 }
 
 // Protobuf.

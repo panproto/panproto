@@ -28,8 +28,8 @@ use arbitrary::Unstructured;
 use libfuzzer_sys::fuzz_target;
 use panproto_mig::{SearchOptions, check_migration_morphism, find_span};
 use panproto_protocols::{
-    api, data_schema, data_science, database, parse_schema_document, parse_schema_source,
-    serialization, web_document,
+    api, data_science, database, parse_schema_document, parse_schema_source, serialization,
+    web_document,
 };
 use panproto_schema::{Protocol, Schema, canonical_digest, validate};
 
@@ -52,11 +52,6 @@ const DOCUMENT_PROTOCOLS: &[DocEntry] = &[
         "atproto",
         web_document::atproto::parse_lexicon,
         web_document::atproto::protocol,
-    ),
-    (
-        "json-schema",
-        data_schema::json_schema::parse_json_schema,
-        data_schema::json_schema::protocol,
     ),
     (
         "openapi",

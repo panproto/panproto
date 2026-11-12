@@ -164,7 +164,6 @@ pub fn parse_schema_bundle_within(
     match protocol.replace('_', "-").as_str() {
         "atproto" => atproto::parse_lexicon_bundle(docs),
         "openapi" => api::openapi::parse_openapi_bundle(docs),
-        "json-schema" => data_schema::json_schema::parse_json_schema_bundle(docs),
         "avro" => serialization::avro::parse_avsc_bundle(docs),
         other => Err(ProtocolError::Parse(format!(
             "no bundle parser registered for protocol {other:?}; supported: {:?}",
@@ -372,25 +371,35 @@ mod dispatch_tests {
     use super::*;
 
     #[test]
-    fn document_dispatch_routes_json_schema() {
-        let doc = serde_json::json!({
-            "type": "object",
-            "properties": { "name": { "type": "string" }, "age": { "type": "integer" } }
-        });
-        let schema = parse_schema_document("json-schema", &doc).expect("json-schema should parse");
-        assert!(schema.has_vertex("root"));
-        assert!(schema.has_vertex("root.name"));
-        assert!(schema.has_vertex("root.age"));
+    fn document_dispatch_refuses_json_schema_and_names_its_reader() {
+        let doc = serde_json::json!({ "type": "object" });
+        let err = parse_schema_document("json-schema", &doc).expect_err("read through a grammar");
+        assert!(
+            err.to_string()
+                .contains("panproto_io::data_schema::json_schema::read_schema"),
+            "{err}"
+        );
     }
 
     #[test]
     fn document_dispatch_normalizes_underscore_to_hyphen() {
         // The underscore compatibility spelling resolves to the same
         // canonical hyphenated parser.
-        let doc = serde_json::json!({ "type": "object" });
-        let via_hyphen = parse_schema_document("json-schema", &doc).expect("hyphen form");
-        let via_underscore = parse_schema_document("json_schema", &doc).expect("underscore form");
-        assert_eq!(via_hyphen.vertex_count(), via_underscore.vertex_count());
+        let doc = serde_json::json!({});
+        let outcome = |name: &str| {
+            parse_schema_document(name, &doc)
+                .map(|schema| schema.vertex_count())
+                .map_err(|e| e.to_string())
+        };
+        let via_hyphen = outcome("msgpack-schema");
+        assert_eq!(via_hyphen, outcome("msgpack_schema"));
+        assert!(
+            via_hyphen
+                .as_ref()
+                .err()
+                .is_none_or(|m| !m.contains("no document parser")),
+            "{via_hyphen:?}"
+        );
     }
 
     #[test]
@@ -428,15 +437,16 @@ mod dispatch_tests {
         let err = parse_schema_document("graphql", &doc).expect_err("graphql is text-source");
         assert!(err.to_string().contains("parse_schema_source"));
 
-        let err = parse_schema_source("json-schema", "{}").expect_err("json-schema is a document");
+        let err = parse_schema_source("atproto", "{}").expect_err("atproto is a document");
         assert!(err.to_string().contains("parse_schema_document"));
     }
 
     #[test]
     fn parser_protocol_lists_have_expected_sizes() {
-        assert_eq!(document_parser_protocols().len(), 43);
+        assert_eq!(document_parser_protocols().len(), 39);
         assert_eq!(source_parser_protocols().len(), 10);
-        assert!(document_parser_protocols().contains(&"json-schema"));
+        assert!(document_parser_protocols().contains(&"atproto"));
+        assert!(!document_parser_protocols().contains(&"json-schema"));
         assert!(source_parser_protocols().contains(&"graphql"));
         assert!(!source_parser_protocols().contains(&"postgresql"));
         assert!(source_parser_protocols().contains(&"protobuf"));
