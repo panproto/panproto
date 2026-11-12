@@ -18601,6 +18601,98 @@ fn fused_two_step_chains_of_elementary_protolenses_agree_with_the_reference_exha
     );
 }
 
+/// One case of the fused and scoped protolens property differential.
+fn fused_and_scoped_case(
+    kind: usize,
+    schema: usize,
+    source_seed: u64,
+    view_seed: u64,
+) -> Result<(), proptest::test_runner::TestCaseError> {
+    let production = production_fused_alphabet();
+    let reference = fused_protolens_alphabet();
+    let schemas = fused_protolens_schemas();
+    let schema_ref = &schemas[schema];
+    let term = &reference[kind];
+    let layer = fused_protolens_layer(term);
+    let source = random_elementary_graph(schema_ref, source_seed);
+    let production_application =
+        production_term_application(&production[kind], schema_ref, &source);
+    let reference_application = reference_term_application(term, layer, schema_ref, &source);
+    prop_assert_eq!(&production_application, &reference_application);
+    if let ElementaryApplication::Applied(applied) = reference_application {
+        let (target, view, _) = *applied;
+        let protolens = term
+            .at(schema_ref)
+            .expect("an applied term has a protolens");
+        let lens = production[kind]
+            .instantiate(&prod_schema(schema_ref), &Protocol::default())
+            .expect("an applied chain instantiates");
+        let edited =
+            random_elementary_graph(&elementary_view_schema(schema_ref, &target), view_seed);
+        let pair = Pair::with_production(
+            schema_ref.clone(),
+            protolens.target,
+            protolens.migration,
+            layer,
+            lens,
+        );
+        for put_view in [&view, &edited] {
+            prop_assert_eq!(
+                production_put(&pair, &source, put_view),
+                reference_put(&pair, &source, put_view)
+            );
+        }
+    }
+    Ok(())
+}
+
+/// One case of the sequential composite property differential.
+fn sequential_composite_case(
+    steps: &[usize],
+    schema: usize,
+    source_seed: u64,
+    view_seed: u64,
+) -> Result<(), proptest::test_runner::TestCaseError> {
+    let production_alphabet = production_elementary_alphabet();
+    let reference_alphabet = elementary_protolens_alphabet();
+    let schemas = elementary_protolens_schemas();
+    let schema_ref = &schemas[schema];
+    let production_parts: Vec<&panproto_lens::Protolens> = steps
+        .iter()
+        .map(|step| &production_alphabet[*step])
+        .collect();
+    let reference_parts: Vec<&ElementaryProtolens> = steps
+        .iter()
+        .map(|step| &reference_alphabet[*step])
+        .collect();
+    let path = production_composite(&production_parts, schema_ref);
+    let composite = reference_composite(&reference_parts, schema_ref);
+    let source = random_elementary_graph(schema_ref, source_seed);
+    let production_application = production_composite_application(&path, &source);
+    let reference_application = reference_composite_application(&composite, &source);
+    prop_assert!(
+        composite_observations_agree(
+            &CompositeObservation::Application(production_application),
+            &CompositeObservation::Application(reference_application),
+        ),
+        "the composite applications differ"
+    );
+    if let (Ok(path), Ok(composite)) = (&path, &composite)
+        && let Ok((view, _)) = composite.get(&source)
+    {
+        let target = composite.target().expect("a composite has a target");
+        let edited =
+            random_elementary_graph(&elementary_view_schema(schema_ref, target), view_seed);
+        for put_view in [&view, &edited] {
+            prop_assert_eq!(
+                production_composite_put(path, &source, put_view),
+                reference_composite_put(composite, &source, put_view)
+            );
+        }
+    }
+    Ok(())
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(512))]
     #[test]
@@ -18610,40 +18702,7 @@ proptest! {
         source_seed in any::<u64>(),
         view_seed in any::<u64>(),
     ) {
-        let production = production_fused_alphabet();
-        let reference = fused_protolens_alphabet();
-        let schemas = fused_protolens_schemas();
-        let schema_ref = &schemas[schema];
-        let term = &reference[kind];
-        let layer = fused_protolens_layer(term);
-        let source = random_elementary_graph(schema_ref, source_seed);
-        let production_application =
-            production_term_application(&production[kind], schema_ref, &source);
-        let reference_application =
-            reference_term_application(term, layer, schema_ref, &source);
-        prop_assert_eq!(&production_application, &reference_application);
-        if let ElementaryApplication::Applied(applied) = reference_application {
-            let (target, view, _) = *applied;
-            let protolens = term.at(schema_ref).expect("an applied term has a protolens");
-            let lens = production[kind]
-                .instantiate(&prod_schema(schema_ref), &Protocol::default())
-                .expect("an applied chain instantiates");
-            let edited =
-                random_elementary_graph(&elementary_view_schema(schema_ref, &target), view_seed);
-            let pair = Pair::with_production(
-                schema_ref.clone(),
-                protolens.target,
-                protolens.migration,
-                layer,
-                lens,
-            );
-            for put_view in [&view, &edited] {
-                prop_assert_eq!(
-                    production_put(&pair, &source, put_view),
-                    reference_put(&pair, &source, put_view)
-                );
-            }
-        }
+        fused_and_scoped_case(kind, schema, source_seed, view_seed)?;
     }
 
     #[test]
@@ -18653,40 +18712,19 @@ proptest! {
         source_seed in any::<u64>(),
         view_seed in any::<u64>(),
     ) {
-        let production_alphabet = production_elementary_alphabet();
-        let reference_alphabet = elementary_protolens_alphabet();
-        let schemas = elementary_protolens_schemas();
-        let schema_ref = &schemas[schema];
-        let production_parts: Vec<&panproto_lens::Protolens> =
-            steps.iter().map(|step| &production_alphabet[*step]).collect();
-        let reference_parts: Vec<&ElementaryProtolens> =
-            steps.iter().map(|step| &reference_alphabet[*step]).collect();
-        let path = production_composite(&production_parts, schema_ref);
-        let composite = reference_composite(&reference_parts, schema_ref);
-        let source = random_elementary_graph(schema_ref, source_seed);
-        let production_application = production_composite_application(&path, &source);
-        let reference_application = reference_composite_application(&composite, &source);
-        prop_assert!(
-            composite_observations_agree(
-                &CompositeObservation::Application(production_application),
-                &CompositeObservation::Application(reference_application),
-            ),
-            "the composite applications differ"
-        );
-        if let (Ok(path), Ok(composite)) = (&path, &composite)
-            && let Ok((view, _)) = composite.get(&source)
-        {
-            let target = composite.target().expect("a composite has a target");
-            let edited =
-                random_elementary_graph(&elementary_view_schema(schema_ref, target), view_seed);
-            for put_view in [&view, &edited] {
-                prop_assert_eq!(
-                    production_composite_put(path, &source, put_view),
-                    reference_composite_put(composite, &source, put_view)
-                );
-            }
-        }
+        sequential_composite_case(&steps, schema, source_seed, view_seed)?;
     }
+}
+
+/// The two property cases that found a view edge mapped back between
+/// restored anchors and a synthesized edge left unchecked, kept as fixed
+/// cases.
+#[test]
+fn the_fused_and_sequential_property_cases_found_on_ci_agree_with_the_reference() {
+    fused_and_scoped_case(8, 3, 13_441_363_339_738_864_164, 15_836_754_594_278_096_309)
+        .unwrap_or_else(|error| panic!("{error}"));
+    sequential_composite_case(&[4, 15, 4], 4, 0, 5_140_339_549_472_419_083)
+        .unwrap_or_else(|error| panic!("{error}"));
 }
 
 // ---------------------------------------------------------------------------
@@ -19584,7 +19622,7 @@ fn value_level_steps_agree_with_the_reference_exhaustively() {
     assert_eq!(certificate.identifying, 0);
     assert_eq!(certificate.instantiated, 16);
     assert_eq!(certificate.get_refusals, 192);
-    assert_eq!(certificate.put_cases, 19_076);
+    assert_eq!(certificate.put_cases, 144_992);
 
     let context = ValueStepContext::new();
     assert_eq!(VALUE_STEP_FIELDS.len(), 2);
@@ -19601,6 +19639,7 @@ fn value_level_steps_agree_with_the_reference_exhaustively() {
         certificate.instantiated
     );
     assert_eq!(value_step_view_count(0), 2);
+    assert_eq!(value_step_view_count(2), 128);
     let units = context.units();
     assert_eq!(units.len(), certificate.get_cases);
     let bound = format!("L-lenses-27 value-level steps: {certificate:?}");
@@ -19617,6 +19656,65 @@ fn value_level_steps_agree_with_the_reference_exhaustively() {
         compared,
         u64::try_from(certificate.get_cases + certificate.put_cases).unwrap()
     );
+}
+
+/// A put of a view edited at two nodes reports every node's edit beside the
+/// one refusal of the replay get, and of several nodes whose computation
+/// lacks its read field only the first, as one get refuses once.
+#[test]
+fn a_view_edited_at_two_nodes_reports_each_edit_and_the_first_replay_refusal() {
+    let context = ValueStepContext::new();
+    // `compute_field` of `d` as the successor of `n`, with no inverse.
+    let pair = context.applications[&(2, 1)]
+        .as_ref()
+        .expect("the computation applies where `d` is declared");
+    let mut source = RefGraph::default();
+    for id in 0..2 {
+        let mut node = RefNode::new(id, VALUE_STEP_PARENT);
+        node.fields.insert("n".to_owned(), RefValue::Int(0));
+        source.nodes.insert(id, node);
+    }
+    let (view, _) = reference_get_of(&context, 2, 1, &source).expect("get computes `d`");
+    let edit = |edits: &[(u32, Option<i64>, &str)]| {
+        let mut edited = view.clone();
+        for (id, value, field) in edits {
+            let fields = &mut edited.nodes.get_mut(id).expect("a view node").fields;
+            match value {
+                Some(value) => {
+                    fields.insert((*field).to_owned(), RefValue::Int(*value));
+                }
+                None => {
+                    fields.remove(*field);
+                }
+            }
+        }
+        edited
+    };
+    let cases = [
+        (
+            edit(&[(0, Some(2), "d"), (1, None, "n")]),
+            vec![
+                "DerivedCellEdited Node(0) d",
+                "SurvivalPredicateRefused Node(1) EvaluationFailed",
+            ],
+        ),
+        (
+            edit(&[(0, None, "n"), (1, None, "n")]),
+            vec!["SurvivalPredicateRefused Node(0) EvaluationFailed"],
+        ),
+    ];
+    for (edited, expected) in cases {
+        let production = production_put(pair, &source, &edited).map(without_evaluator_messages);
+        assert_eq!(
+            production,
+            reference_put(pair, &source, &edited).map(without_evaluator_messages)
+        );
+        let domain = production
+            .expect("get succeeds")
+            .domain
+            .expect_err("the view is outside the domain");
+        assert_eq!(domain, expected);
+    }
 }
 
 /// The reference's get of a value-level source, when it succeeds.
@@ -19681,7 +19779,8 @@ proptest! {
             &context.applications[&(kind, schema)],
             reference_get_of(&context, kind, schema, &source),
         ) {
-            // A view of the law's domain differs from get's view at one node.
+            // A view of the law's domain differs from get's view at any set
+            // of nodes.
             let views = value_step_views(&view, &complement);
             let edited = &views[usize::try_from(view_seed % u64::try_from(views.len()).unwrap()).unwrap()];
             prop_assert_eq!(

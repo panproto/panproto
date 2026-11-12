@@ -6801,10 +6801,12 @@ pub fn value_step_sources() -> Vec<Graph> {
 
 /// The views a value-level put case puts back.
 ///
-/// They are the get view itself, then for each view node in id order each
-/// field set to each other choice (absent or a value of
-/// [`VALUE_STEP_EDIT_VALUES`]) and the node removed, then a fresh node at
-/// the parent.
+/// Each view node is left as it is or takes one of its edits: a field set
+/// to another choice (absent or a value of [`VALUE_STEP_EDIT_VALUES`]), in
+/// field and choice order, or the node removed. The views are every
+/// combination of these per-node alternatives, in lexicographic order over
+/// the nodes in id order, first without and then with a fresh node at the
+/// parent; the first is the get view itself.
 #[must_use]
 pub fn value_step_views(view: &Graph, complement: &crate::restrict::Complement) -> Vec<Graph> {
     let choices: Vec<Option<Value>> = std::iter::once(None)
@@ -6814,36 +6816,44 @@ pub fn value_step_views(view: &Graph, complement: &crate::restrict::Complement) 
                 .map(|value| Some(Value::Int(*value))),
         )
         .collect();
-    let mut out = vec![view.clone()];
+    let mut edited = vec![view.clone()];
     for (id, node) in &view.nodes {
+        let mut alternatives: Vec<Option<Node>> = vec![Some(node.clone())];
         for field in VALUE_STEP_FIELDS {
             for choice in &choices {
                 if node.fields.get(field) == choice.as_ref() {
                     continue;
                 }
-                let mut edited = view.clone();
-                let fields = &mut edited
-                    .nodes
-                    .get_mut(id)
-                    .unwrap_or_else(|| unreachable!("the node is in the view"))
-                    .fields;
+                let mut changed = node.clone();
                 match choice {
                     Some(value) => {
-                        fields.insert(field.to_owned(), value.clone());
+                        changed.fields.insert(field.to_owned(), value.clone());
                     }
                     None => {
-                        fields.remove(field);
+                        changed.fields.remove(field);
                     }
                 }
-                out.push(edited);
+                alternatives.push(Some(changed));
             }
         }
-        let mut removed = view.clone();
-        removed.nodes.remove(id);
-        removed
-            .edges
-            .retain(|_, edge| edge.src != *id && edge.tgt != *id);
-        out.push(removed);
+        alternatives.push(None);
+        edited = edited
+            .into_iter()
+            .flat_map(|graph| {
+                alternatives.iter().map(move |alternative| {
+                    let mut graph = graph.clone();
+                    if let Some(changed) = alternative {
+                        graph.nodes.insert(*id, changed.clone());
+                    } else {
+                        graph.nodes.remove(id);
+                        graph
+                            .edges
+                            .retain(|_, edge| edge.src != *id && edge.tgt != *id);
+                    }
+                    graph
+                })
+            })
+            .collect();
     }
     let fresh = fresh_id(
         view.nodes
@@ -6852,20 +6862,29 @@ pub fn value_step_views(view: &Graph, complement: &crate::restrict::Complement) 
             .chain(complement.synthesized_nodes.keys()),
         complement.floor.0,
     );
-    let mut added = view.clone();
-    added
-        .nodes
-        .insert(fresh, Node::new(fresh, VALUE_STEP_PARENT));
-    out.push(added);
-    out
+    let added: Vec<Graph> = edited
+        .iter()
+        .map(|graph| {
+            let mut graph = graph.clone();
+            graph
+                .nodes
+                .insert(fresh, Node::new(fresh, VALUE_STEP_PARENT));
+            graph
+        })
+        .collect();
+    edited.extend(added);
+    edited
 }
 
 /// The number of views [`value_step_views`] lists for a view of `nodes`
-/// nodes: the view, three other choices for each of two fields and a
-/// removal per node, and the fresh node.
+/// nodes.
+///
+/// Each node is unchanged, takes one of three other choices for each of two
+/// fields or is removed, so eight alternatives per node, with and without
+/// the fresh node.
 #[must_use]
-pub const fn value_step_view_count(nodes: usize) -> usize {
-    2 + nodes * (VALUE_STEP_FIELDS.len() * VALUE_STEP_EDIT_VALUES.len() + 1)
+pub const fn value_step_view_count(nodes: u32) -> usize {
+    2 * (VALUE_STEP_FIELDS.len() * VALUE_STEP_EDIT_VALUES.len() + 2).pow(nodes)
 }
 
 /// A value-level step as the lens DSL compiles it, on the reference.
@@ -7042,7 +7061,10 @@ pub fn value_step_count_certificate() -> ProtolensCarrierCertificate {
             for source in &sources {
                 match lens.get(source) {
                     Ok((view, _)) => {
-                        certificate.put_cases += value_step_view_count(view.nodes.len());
+                        certificate.put_cases +=
+                            value_step_view_count(u32::try_from(view.nodes.len()).unwrap_or_else(
+                                |_| unreachable!("a carrier view has at most two nodes"),
+                            ));
                     }
                     Err(_) => certificate.get_refusals += 1,
                 }
