@@ -99,6 +99,20 @@ pub struct DecodedDataSet {
     pub key: Option<String>,
 }
 
+/// An instance a commit tracks under a key.
+#[derive(Clone, Debug)]
+pub struct CommittedInstance {
+    /// The data set holding it.
+    pub data_id: ObjectId,
+    /// The schema it conforms to.
+    pub schema_id: ObjectId,
+    /// Whether that schema is not the commit's: the instance was recorded
+    /// against an earlier schema and has not been migrated.
+    pub stale: bool,
+    /// The instance.
+    pub instance: crate::payload::Instance,
+}
+
 /// A panproto repository backed by a filesystem store.
 #[allow(dead_code)]
 pub struct Repository {
@@ -1080,6 +1094,193 @@ impl Repository {
         Ok(updated_index)
     }
 
+    /// Stage an instance of any shape for the next commit under `key`.
+    ///
+    /// The schema is chosen as [`add_data_with_options`](Self::add_data_with_options)
+    /// chooses it: [`AddDataOptions::schema_id`], else the staged schema,
+    /// else HEAD's. Each tree of a tree instance, or the table or graph, is
+    /// validated against that schema under its resolved protocol, and the
+    /// instance is refused when a required check fails or does not
+    /// complete. The data set records the schema's identifier and `key`,
+    /// and replaces any data set staged under `key`; from the next commit
+    /// on, it is the instance tracked under `key`
+    /// ([`instance_vc::tracked`](crate::instance_vc::tracked)).
+    ///
+    /// With [`AddDataOptions::skip_verify`] the instance is staged without
+    /// validation and left pending, which a default commit refuses.
+    ///
+    /// # Errors
+    ///
+    /// [`VcsError::NothingStaged`] when no schema is available,
+    /// [`VcsError::UnknownProtocol`] when the schema's protocol does not
+    /// resolve, and [`VcsError::InstanceValidationFailed`] with the report
+    /// of every failing record.
+    pub fn add_instance(
+        &mut self,
+        key: &str,
+        instance: &crate::payload::Instance,
+        options: &AddDataOptions,
+    ) -> Result<Index, VcsError> {
+        let index = self.read_index()?;
+        let schema_id = if let Some(schema_id) = options.schema_id {
+            schema_id
+        } else if let Some(ref staged) = index.staged {
+            staged.schema_id
+        } else {
+            let head_id = store::resolve_head(&self.store)?.ok_or(VcsError::NothingStaged)?;
+            self.load_commit(head_id)?.schema_id
+        };
+        if !options.skip_verify {
+            let schema = self.load_schema(schema_id)?;
+            let protocol =
+                self.resolved_protocol(&schema)?
+                    .ok_or_else(|| VcsError::UnknownProtocol {
+                        name: schema.protocol.clone(),
+                    })?;
+            let failing = instance_failures(&schema, &protocol, instance);
+            if !failing.is_empty() {
+                return Err(VcsError::InstanceValidationFailed {
+                    key: key.to_owned(),
+                    failing,
+                });
+            }
+        }
+        let dataset = DataSetObject::from_instance(schema_id, instance, Some(key.to_owned()))?;
+        let data_id = self.store.put(&Object::DataSet(dataset))?;
+
+        let mut updated = index;
+        updated
+            .staged_data
+            .retain(|staged| staged.source_path != Path::new(key));
+        updated.staged_data.push(StagedData {
+            source_path: PathBuf::from(key),
+            data_id,
+            schema_id,
+            validation: if options.skip_verify {
+                ValidationStatus::Pending
+            } else {
+                ValidationStatus::Valid
+            },
+        });
+        self.write_index(&updated)?;
+        Ok(updated)
+    }
+
+    /// The instance the commit `reference` names tracks under `key`.
+    ///
+    /// # Errors
+    ///
+    /// [`VcsError::RefNotFound`] when `key` is not tracked there, the
+    /// errors of [`instance_vc::tracked`](crate::instance_vc::tracked), and
+    /// those of decoding the payload.
+    pub fn committed_instance(
+        &self,
+        reference: &str,
+        key: &str,
+    ) -> Result<CommittedInstance, VcsError> {
+        let commit = self.load_commit(refs::resolve_ref(&self.store, reference)?)?;
+        let mut tracked = crate::instance_vc::tracked(&self.store, &commit)?;
+        let (data_id, dataset) = tracked.remove(key).ok_or_else(|| VcsError::RefNotFound {
+            name: format!("{reference}:{key}"),
+        })?;
+        Ok(CommittedInstance {
+            data_id,
+            schema_id: dataset.schema_id,
+            stale: dataset.schema_id != commit.schema_id,
+            instance: self.load_instance(&dataset)?,
+        })
+    }
+
+    /// The changes between the instances the commits `from` and `to`
+    /// track, one per key whose data set differs, in key order.
+    ///
+    /// A key both commits track with different data sets is a
+    /// [`InstanceChange::Changed`] carrying the shape's delta
+    /// ([`instance_vc::diff`](crate::instance_vc::diff)), which
+    /// [`instance_vc::apply`](crate::instance_vc::apply) applies to the
+    /// first instance to give the second.
+    ///
+    /// # Errors
+    ///
+    /// The errors of [`instance_vc::tracked`](crate::instance_vc::tracked),
+    /// [`VcsError::SchemaMismatch`] when the two data sets of a key conform
+    /// to different schemas, [`VcsError::ShapeMismatch`] when they hold
+    /// different shapes, and those of decoding a payload or loading a schema.
+    pub fn diff_data(
+        &self,
+        from: &str,
+        to: &str,
+    ) -> Result<Vec<crate::instance_vc::InstanceChange>, VcsError> {
+        use crate::instance_vc::InstanceChange;
+        let before = crate::instance_vc::tracked(
+            &self.store,
+            &self.load_commit(refs::resolve_ref(&self.store, from)?)?,
+        )?;
+        let mut after = crate::instance_vc::tracked(
+            &self.store,
+            &self.load_commit(refs::resolve_ref(&self.store, to)?)?,
+        )?;
+        let mut changes = Vec::new();
+        for (key, (from_id, from_set)) in before {
+            match after.remove(&key) {
+                None => changes.push(InstanceChange::Removed {
+                    key,
+                    data_id: from_id,
+                }),
+                Some((to_id, _)) if to_id == from_id => {}
+                Some((to_id, to_set)) => {
+                    if from_set.schema_id != to_set.schema_id {
+                        return Err(VcsError::SchemaMismatch {
+                            key,
+                            from: from_set.schema_id,
+                            to: to_set.schema_id,
+                        });
+                    }
+                    let schema = self.load_schema(from_set.schema_id)?;
+                    let delta = crate::instance_vc::diff(
+                        &schema,
+                        &self.load_instance(&from_set)?,
+                        &self.load_instance(&to_set)?,
+                    )?;
+                    changes.push(InstanceChange::Changed {
+                        key,
+                        from: from_id,
+                        to: to_id,
+                        delta,
+                    });
+                }
+            }
+        }
+        changes.extend(
+            after
+                .into_iter()
+                .map(|(key, (data_id, _))| InstanceChange::Added { key, data_id }),
+        );
+        changes.sort_by(|a, b| a.key().cmp(b.key()));
+        Ok(changes)
+    }
+
+    /// Decode the instance a data set holds, reading a tree payload of
+    /// source JSON through the schema it names.
+    fn load_instance(&self, dataset: &DataSetObject) -> Result<crate::payload::Instance, VcsError> {
+        let legacy = dataset.encoding == crate::object::PayloadEncoding::TREE
+            && serde_json::from_slice::<serde_json::Value>(&dataset.data).is_ok();
+        if !legacy {
+            return dataset.decode();
+        }
+        let schema = self.load_schema(dataset.schema_id)?;
+        let protocol = self.resolved_protocol(&schema)?;
+        let display = dataset.key.clone().unwrap_or_default();
+        lift_records(
+            &dataset.data,
+            Path::new(&display),
+            &schema,
+            protocol.as_ref(),
+            true,
+        )
+        .map(crate::payload::Instance::Tree)
+    }
+
     /// Stage a protocol definition for the next commit.
     ///
     /// Stores the protocol as a `Protocol` object and records it in the
@@ -1538,6 +1739,34 @@ fn lift_records(
 /// required check left undecided. Advisory entries never decide the status
 /// and give no reason. An unresolved protocol name is the one reason
 /// `unknown protocol "{name}"`.
+/// The failing records of `instance` under `schema` and `protocol`: each
+/// record (tree, or the one table or graph) whose report has a required
+/// check that failed or did not complete, with its index.
+fn instance_failures(
+    schema: &Schema,
+    protocol: &Protocol,
+    instance: &crate::payload::Instance,
+) -> Vec<(usize, panproto_inst::ValidationReport)> {
+    use crate::payload::Instance;
+    let reports = match instance {
+        Instance::Tree(trees) => trees
+            .iter()
+            .map(|tree| panproto_inst::validate_wtype(tree, schema, protocol))
+            .collect(),
+        Instance::Table(table) => vec![panproto_inst::validate_table(table, schema, protocol)],
+        Instance::Graph(graph) => vec![panproto_inst::validate_graph(graph, schema, protocol)],
+    };
+    let required = panproto_inst::validation::Requirement::Required;
+    reports
+        .into_iter()
+        .enumerate()
+        .filter(|(_, report)| {
+            report.diagnostics.iter().any(|d| d.requirement == required)
+                || report.incomplete.iter().any(|i| i.requirement == required)
+        })
+        .collect()
+}
+
 fn record_violations(
     schema: &Schema,
     protocol: Option<&Protocol>,

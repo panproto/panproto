@@ -12,7 +12,7 @@
 //! - **Object store**: [`hash`], [`object`], [`payload`], [`store`], [`fs_store`],
 //!   [`mem_store`]
 //! - **Refs + DAG**: [`refs`], [`dag`], [`blame`], [`bisect`]
-//! - **Staging + commit**: [`index`], [`auto_mig`], [`status`]
+//! - **Staging + commit**: [`index`], [`auto_mig`], [`status`], [`instance_vc`]
 //! - **Merge + rewrite**: [`merge`], [`rebase`], [`cherry_pick`], [`reset`], [`stash`]
 //! - **Orchestration**: [`repo`] (composes all of the above), [`gc`]
 //!
@@ -39,6 +39,7 @@ pub mod gat_validate;
 pub mod gc;
 pub mod hash;
 pub mod index;
+pub mod instance_vc;
 pub mod mem_store;
 pub mod merge;
 pub mod object;
@@ -64,6 +65,7 @@ pub use expr::{load_expr, store_expr};
 pub use fs_store::{FsStore, REPOSITORY_FORMAT_VERSION};
 pub use hash::ObjectId;
 pub use index::Index;
+pub use instance_vc::{InstanceChange, InstanceDelta, TreeRecordsDelta};
 pub use mem_store::MemStore;
 pub use object::{
     CommitObject, CommitObjectBuilder, ComplementObject, DataSetObject, EditLogObject,
@@ -71,7 +73,9 @@ pub use object::{
     TagObject,
 };
 pub use payload::{ComplementPayload, EditLogPayload, Instance};
-pub use repo::{AddDataOptions, AddOptions, CommitOptions, DecodedDataSet, Repository};
+pub use repo::{
+    AddDataOptions, AddOptions, CommitOptions, CommittedInstance, DecodedDataSet, Repository,
+};
 pub use store::{HeadState, ReflogEntry, Store};
 pub use tree::{
     assemble_from_files, assemble_schema, build_schema_tree, build_tree_from_leaves,

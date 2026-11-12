@@ -344,6 +344,54 @@ pub enum VcsError {
         encoding: crate::object::PayloadEncoding,
     },
 
+    /// A delta or an instance has another shape than the instance it is
+    /// paired with.
+    #[error("expected a {expected:?} instance, found a {found:?} one")]
+    ShapeMismatch {
+        /// The shape required.
+        expected: crate::object::InstanceShape,
+        /// The shape found.
+        found: crate::object::InstanceShape,
+    },
+
+    /// A delta between instances does not apply: its checked reads do not
+    /// hold of the instance, or a tree record is no longer a tree.
+    #[error("the delta does not apply: {reason}")]
+    DeltaDoesNotApply {
+        /// The shape's refusal.
+        reason: String,
+    },
+
+    /// Two data sets of one commit share a key.
+    #[error("two data sets are tracked under the key {key:?}")]
+    DuplicateDataKey {
+        /// The key.
+        key: String,
+    },
+
+    /// Two data sets tracked under one key conform to different schemas,
+    /// so their instances are not comparable until one is migrated.
+    #[error("the data sets under {key:?} conform to different schemas ({from} and {to})")]
+    SchemaMismatch {
+        /// The key.
+        key: String,
+        /// The first data set's schema.
+        from: crate::ObjectId,
+        /// The second data set's schema.
+        to: crate::ObjectId,
+    },
+
+    /// An instance fails its shape's validation against the schema it
+    /// would be recorded under.
+    #[error("{key}: {} record(s) fail validation", failing.len())]
+    InstanceValidationFailed {
+        /// The key the instance was staged under.
+        key: String,
+        /// The record index and validation report of each failing record:
+        /// each tree of a tree instance, and the one table or graph.
+        failing: Vec<(usize, panproto_inst::ValidationReport)>,
+    },
+
     /// A schema names a protocol that resolves neither to the staged or
     /// committed protocol object, nor to a protocol registered with
     /// [`Repository::set_protocol`](crate::Repository::set_protocol), nor
