@@ -520,7 +520,7 @@ fn block_named_tests_are_exactly_the_manifest_consumers() {
             }
         }
     }
-    assert_eq!(strict_laws, 20, "the lenses page registers twenty laws");
+    assert_eq!(strict_laws, 21, "the lenses page registers twenty-one laws");
     assert!(
         strict_drift.is_empty(),
         "block-named tests differ from manifest consumers:\n{}",

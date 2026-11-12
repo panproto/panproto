@@ -2551,12 +2551,9 @@ mod tests {
             name: Some("x".into()),
         };
         view.insert_edge(EdgeId(0), GEdge::new(0, 1, label))?;
-        let Err(found) = check_put_domain(&lens, &view, &complement) else {
-            panic!("the view is outside the put domain");
-        };
         assert_eq!(
-            found,
-            vec![
+            check_put_domain(&lens, &view, &complement),
+            Err(vec![
                 PutDomainError::UnrepresentableViewEdge {
                     elem: ViewRef::Edge(EdgeId(0)),
                 },
@@ -2564,7 +2561,7 @@ mod tests {
                     elem: ViewRef::Node(1),
                     candidates: Vec::new(),
                 },
-            ]
+            ])
         );
         assert!(matches!(
             put(&lens, &view, &complement),

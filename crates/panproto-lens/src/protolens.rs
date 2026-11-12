@@ -6075,34 +6075,36 @@ mod rewritten_schemas_are_seed_independent {
 /// Renames of operations keep every renamed edge, refuse a renaming that
 /// identifies two edges, and a pullback renames simultaneously.
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod renames_keep_every_edge {
     use std::collections::HashMap;
+    use std::error::Error;
 
-    use panproto_inst::{EdgeId, GInstance, Node};
-    use panproto_schema::{Edge, Protocol, SchemaBuilder};
+    use panproto_gat::Name;
+    use panproto_inst::{EdgeId, GEdge, GInstance, Node};
+    use panproto_schema::{Edge, Protocol, Schema, SchemaBuilder};
 
     use super::elementary;
+    use crate::LensError;
+
+    type TestResult = Result<(), Box<dyn Error>>;
 
     /// The two-vertex schema `a -> b` with one edge per `(kind, name)`.
-    fn pair_schema(kinds: [&str; 2], edges: &[(&str, &str)]) -> panproto_schema::Schema {
+    fn pair_schema(kinds: [&str; 2], edges: &[(&str, &str)]) -> Result<Schema, Box<dyn Error>> {
         let mut builder = SchemaBuilder::new(&Protocol::default())
-            .vertex("a", kinds[0], None)
-            .unwrap()
-            .vertex("b", kinds[1], None)
-            .unwrap();
+            .vertex("a", kinds[0], None)?
+            .vertex("b", kinds[1], None)?;
         for (kind, name) in edges {
-            builder = builder.edge("a", "b", kind, Some(name)).unwrap();
+            builder = builder.edge("a", "b", kind, Some(name))?;
         }
-        builder.build().unwrap()
+        Ok(builder.build()?)
     }
 
     /// One `a` node, one `b` node, and one `a -> b` edge per schema edge in
     /// the listed order.
-    fn pair_instance(edges: &[(&str, &str)]) -> GInstance {
+    fn pair_instance(edges: &[(&str, &str)]) -> Result<GInstance, Box<dyn Error>> {
         let mut instance = GInstance::new();
-        instance.insert_node(Node::new(0, "a")).unwrap();
-        instance.insert_node(Node::new(1, "b")).unwrap();
+        instance.insert_node(Node::new(0, "a"))?;
+        instance.insert_node(Node::new(1, "b"))?;
         for (id, (kind, name)) in (0_u32..).zip(edges) {
             let label = Edge {
                 src: "a".into(),
@@ -6110,11 +6112,9 @@ mod renames_keep_every_edge {
                 kind: (*kind).into(),
                 name: Some((*name).into()),
             };
-            instance
-                .insert_edge(EdgeId(id), panproto_inst::GEdge::new(0, 1, label))
-                .unwrap();
+            instance.insert_edge(EdgeId(id), GEdge::new(0, 1, label))?;
         }
-        instance
+        Ok(instance)
     }
 
     fn view_edge_kinds(view: &GInstance) -> Vec<(u32, String)> {
@@ -6124,34 +6124,34 @@ mod renames_keep_every_edge {
     }
 
     #[test]
-    fn renaming_an_operation_keeps_parallel_edges_in_the_view() {
+    fn renaming_an_operation_keeps_parallel_edges_in_the_view() -> TestResult {
         let edges = [("prop", "x"), ("prop", "y")];
-        let schema = pair_schema(["obj", "obj"], &edges);
-        let source = pair_instance(&edges);
+        let schema = pair_schema(["obj", "obj"], &edges)?;
+        let source = pair_instance(&edges)?;
         let lens = elementary::rename_op("prop", "field")
-            .instantiate_checked(&schema, &Protocol::default())
-            .unwrap();
-        let (view, complement) = crate::graph_lens::get(&lens, &source).unwrap();
+            .instantiate_checked(&schema, &Protocol::default())?;
+        let (view, complement) = crate::graph_lens::get(&lens, &source)?;
         assert_eq!(
             view_edge_kinds(&view),
             vec![(0, "field".to_owned()), (1, "field".to_owned())]
         );
-        assert!(complement.dropped_edges.is_empty());
-        let restored = crate::graph_lens::put(&lens, &view, &complement).unwrap();
+        assert_eq!(complement.dropped_edges.len(), 0);
+        let restored = crate::graph_lens::put(&lens, &view, &complement)?;
         assert!(GInstance::identical(&restored, &source));
+        Ok(())
     }
 
     #[test]
-    fn renaming_an_operation_onto_an_existing_edge_is_refused() {
-        let schema = pair_schema(["obj", "obj"], &[("prop", "x"), ("field", "x")]);
+    fn renaming_an_operation_onto_an_existing_edge_is_refused() -> TestResult {
+        let schema = pair_schema(["obj", "obj"], &[("prop", "x"), ("field", "x")])?;
         let refused = elementary::rename_op("prop", "field")
-            .instantiate_checked(&schema, &Protocol::default())
-            .unwrap_err();
+            .instantiate_checked(&schema, &Protocol::default());
         assert!(
-            matches!(&refused, crate::LensError::ProtolensError(message)
+            matches!(&refused, Err(LensError::ProtolensError(message))
                 if message.starts_with("renaming operations sends the edges")),
             "{refused:?}"
         );
+        Ok(())
     }
 
     fn swap_morphism(sorts: [&str; 2], ops: [&str; 2]) -> panproto_gat::TheoryMorphism {
@@ -6164,62 +6164,65 @@ mod renames_keep_every_edge {
         panproto_gat::TheoryMorphism::new("swap", "domain", "codomain", swap(sorts), swap(ops))
     }
 
+    fn vertex_kind(schema: &Schema, id: &str) -> Option<String> {
+        schema
+            .vertices
+            .get(&Name::from(id))
+            .map(|vertex| vertex.kind.to_string())
+    }
+
     #[test]
-    fn pullback_along_a_swap_swaps_sorts_and_operations() {
+    fn pullback_along_a_swap_swaps_sorts_and_operations() -> TestResult {
         let edges = [("p", "x"), ("q", "y")];
-        let schema = pair_schema(["s", "t"], &edges);
-        let source = pair_instance(&edges);
+        let schema = pair_schema(["s", "t"], &edges)?;
+        let source = pair_instance(&edges)?;
         let protolens = elementary::pullback(swap_morphism(["s", "t"], ["p", "q"]));
         for _ in 0..8 {
-            let lens = protolens
-                .instantiate_checked(&schema, &Protocol::default())
-                .unwrap();
-            let kinds = |id: &str| {
-                lens.tgt_schema.vertices[&panproto_gat::Name::from(id)]
-                    .kind
-                    .to_string()
-            };
-            assert_eq!((kinds("a"), kinds("b")), ("t".to_owned(), "s".to_owned()));
-            let (view, complement) = crate::graph_lens::get(&lens, &source).unwrap();
+            let lens = protolens.instantiate_checked(&schema, &Protocol::default())?;
+            assert_eq!(
+                (
+                    vertex_kind(&lens.tgt_schema, "a"),
+                    vertex_kind(&lens.tgt_schema, "b")
+                ),
+                (Some("t".to_owned()), Some("s".to_owned()))
+            );
+            let (view, complement) = crate::graph_lens::get(&lens, &source)?;
             assert_eq!(
                 view_edge_kinds(&view),
                 vec![(0, "q".to_owned()), (1, "p".to_owned())]
             );
-            assert!(complement.dropped_edges.is_empty());
-            let restored = crate::graph_lens::put(&lens, &view, &complement).unwrap();
+            assert_eq!(complement.dropped_edges.len(), 0);
+            let restored = crate::graph_lens::put(&lens, &view, &complement)?;
             assert!(GInstance::identical(&restored, &source));
         }
+        Ok(())
     }
 
     #[test]
-    fn renaming_a_sort_keeps_the_vertex_ids_a_hyper_edge_names() {
+    fn renaming_a_sort_keeps_the_vertex_ids_a_hyper_edge_names() -> TestResult {
         let schema = SchemaBuilder::new(&Protocol::default())
-            .vertex("obj", "obj", None)
-            .unwrap()
-            .vertex("row", "row", None)
-            .unwrap()
+            .vertex("obj", "obj", None)?
+            .vertex("row", "row", None)?
             .hyper_edge(
                 "fan",
                 "fan",
                 HashMap::from([("l".to_owned(), "obj".to_owned())]),
                 "l",
-            )
-            .unwrap()
-            .build()
-            .unwrap();
+            )?
+            .build()?;
         let lens = elementary::rename_sort("obj", "thing")
-            .instantiate_checked(&schema, &Protocol::default())
-            .unwrap();
-        let fan = &lens.tgt_schema.hyper_edges[&panproto_gat::Name::from("fan")];
+            .instantiate_checked(&schema, &Protocol::default())?;
+        let signature = lens
+            .tgt_schema
+            .hyper_edges
+            .get(&Name::from("fan"))
+            .and_then(|fan| fan.signature.get(&Name::from("l")))
+            .map(ToString::to_string);
+        assert_eq!(signature.as_deref(), Some("obj"));
         assert_eq!(
-            fan.signature[&panproto_gat::Name::from("l")].as_str(),
-            "obj"
+            vertex_kind(&lens.tgt_schema, "obj").as_deref(),
+            Some("thing")
         );
-        assert_eq!(
-            lens.tgt_schema.vertices[&panproto_gat::Name::from("obj")]
-                .kind
-                .as_str(),
-            "thing"
-        );
+        Ok(())
     }
 }
