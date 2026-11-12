@@ -874,10 +874,10 @@ fn parse_number_value(text: &str) -> Result<Value, ValueFidelityError> {
 /// Name a delimited data row for a refusal: its one-based number and, when
 /// the parse tree recorded it, the byte offset at which the row starts.
 fn data_row_place(cst: &Schema, row_name: &Name, row_idx: usize) -> String {
-    match cst_byte_offset(cst, row_name) {
-        Some(offset) => format!("data row {} at byte {offset}", row_idx + 1),
-        None => format!("data row {}", row_idx + 1),
-    }
+    cst_byte_offset(cst, row_name).map_or_else(
+        || format!("data row {}", row_idx + 1),
+        |offset| format!("data row {} at byte {offset}", row_idx + 1),
+    )
 }
 
 pub(crate) fn cst_byte_offset(cst: &Schema, vertex: &Name) -> Option<u64> {
