@@ -8141,7 +8141,7 @@ pub mod segment {
         }
     }
 
-    fn pipeline_failed(error: SegmentError) -> PutStop {
+    const fn pipeline_failed(error: SegmentError) -> PutStop {
         PutStop::Pipeline(PipelineStop::Failed(error))
     }
 

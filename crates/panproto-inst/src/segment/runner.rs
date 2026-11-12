@@ -2184,10 +2184,11 @@ pub fn run_segmented<O: PhaseOperation, Src: SegmentSource, St: SegmentStore>(
     }
 }
 
-/// Run segmented graph restriction along `plan` over the graph the input
-/// manifest `input` seals, reading its segments from `source`, as a
-/// checkpointed run in `store`: [`run_segmented`] of [`GraphRestrict`],
-/// whose phases the module documentation describes.
+/// Run segmented graph restriction along `plan` as a checkpointed run.
+///
+/// The run is [`run_segmented`] of [`GraphRestrict`] over the graph the
+/// input manifest `input` seals, reading its segments from `source` and
+/// committing to `store`; the module documentation describes its phases.
 ///
 /// The view segments and complement segments of a complete run are the
 /// output of [`graph_restrict_segmented`] on the input segments, with the

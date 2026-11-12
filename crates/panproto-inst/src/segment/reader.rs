@@ -40,6 +40,7 @@ pub struct Reader<'a> {
 impl<'a> Reader<'a> {
     /// A reader at the start of `bytes`, which hold an artifact of
     /// `artifact`'s kind.
+    #[must_use]
     pub const fn new(bytes: &'a [u8], artifact: ArtifactKind) -> Self {
         Self {
             bytes,
@@ -57,11 +58,17 @@ impl<'a> Reader<'a> {
     }
 
     /// Whether every byte has been read.
+    #[must_use]
     pub const fn finished(&self) -> bool {
         self.at == self.bytes.len()
     }
 
     /// Fail unless every byte has been read.
+    ///
+    /// # Errors
+    ///
+    /// [`SegmentError::Decode`] when the bytes end early or do not hold
+    /// what this reads.
     pub fn finish(&self) -> Result<(), SegmentError> {
         if self.finished() {
             Ok(())
@@ -71,6 +78,11 @@ impl<'a> Reader<'a> {
     }
 
     /// The next `n` bytes.
+    ///
+    /// # Errors
+    ///
+    /// [`SegmentError::Decode`] when the bytes end early or do not hold
+    /// what this reads.
     pub fn take(&mut self, n: usize) -> Result<&'a [u8], SegmentError> {
         let end = self
             .at
@@ -90,11 +102,21 @@ impl<'a> Reader<'a> {
     }
 
     /// One byte.
+    ///
+    /// # Errors
+    ///
+    /// [`SegmentError::Decode`] when the bytes end early or do not hold
+    /// what this reads.
     pub fn u8(&mut self) -> Result<u8, SegmentError> {
         Ok(self.array::<1>()?[0])
     }
 
     /// A boolean byte, refused unless it is 0 or 1.
+    ///
+    /// # Errors
+    ///
+    /// [`SegmentError::Decode`] when the bytes end early or do not hold
+    /// what this reads.
     pub fn bool(&mut self) -> Result<bool, SegmentError> {
         match self.u8()? {
             0 => Ok(false),
@@ -104,27 +126,52 @@ impl<'a> Reader<'a> {
     }
 
     /// A little-endian `u16`.
+    ///
+    /// # Errors
+    ///
+    /// [`SegmentError::Decode`] when the bytes end early or do not hold
+    /// what this reads.
     pub fn u16(&mut self) -> Result<u16, SegmentError> {
         Ok(u16::from_le_bytes(self.array()?))
     }
 
     /// A little-endian `u32`.
+    ///
+    /// # Errors
+    ///
+    /// [`SegmentError::Decode`] when the bytes end early or do not hold
+    /// what this reads.
     pub fn u32(&mut self) -> Result<u32, SegmentError> {
         Ok(u32::from_le_bytes(self.array()?))
     }
 
     /// A little-endian `u64`.
+    ///
+    /// # Errors
+    ///
+    /// [`SegmentError::Decode`] when the bytes end early or do not hold
+    /// what this reads.
     pub fn u64(&mut self) -> Result<u64, SegmentError> {
         Ok(u64::from_le_bytes(self.array()?))
     }
 
     /// A little-endian `i64`.
+    ///
+    /// # Errors
+    ///
+    /// [`SegmentError::Decode`] when the bytes end early or do not hold
+    /// what this reads.
     pub fn i64(&mut self) -> Result<i64, SegmentError> {
         Ok(i64::from_le_bytes(self.array()?))
     }
 
     /// A count of items each at least `min_item` bytes long: refused when
     /// the bytes left cannot hold that many.
+    ///
+    /// # Errors
+    ///
+    /// [`SegmentError::Decode`] when the bytes end early or do not hold
+    /// what this reads.
     pub fn count(&mut self, min_item: usize) -> Result<usize, SegmentError> {
         let raw = self.u64()?;
         let left = self.bytes.len() - self.at;
@@ -135,12 +182,22 @@ impl<'a> Reader<'a> {
     }
 
     /// A length-prefixed byte string.
+    ///
+    /// # Errors
+    ///
+    /// [`SegmentError::Decode`] when the bytes end early or do not hold
+    /// what this reads.
     pub fn byte_string(&mut self) -> Result<&'a [u8], SegmentError> {
         let n = self.count(1)?;
         self.take(n)
     }
 
     /// A length-prefixed UTF-8 string.
+    ///
+    /// # Errors
+    ///
+    /// [`SegmentError::Decode`] when the bytes end early or do not hold
+    /// what this reads.
     pub fn string(&mut self) -> Result<String, SegmentError> {
         let raw = self.byte_string()?;
         std::str::from_utf8(raw)
@@ -149,11 +206,21 @@ impl<'a> Reader<'a> {
     }
 
     /// A name, written as a string.
+    ///
+    /// # Errors
+    ///
+    /// [`SegmentError::Decode`] when the bytes end early or do not hold
+    /// what this reads.
     pub fn name(&mut self) -> Result<Name, SegmentError> {
         self.string().map(Name::from)
     }
 
     /// A presence byte and, when present, a name.
+    ///
+    /// # Errors
+    ///
+    /// [`SegmentError::Decode`] when the bytes end early or do not hold
+    /// what this reads.
     pub fn opt_name(&mut self) -> Result<Option<Name>, SegmentError> {
         if self.bool()? {
             self.name().map(Some)
@@ -163,6 +230,11 @@ impl<'a> Reader<'a> {
     }
 
     /// A presence byte and, when present, a `u32`.
+    ///
+    /// # Errors
+    ///
+    /// [`SegmentError::Decode`] when the bytes end early or do not hold
+    /// what this reads.
     pub fn opt_u32(&mut self) -> Result<Option<u32>, SegmentError> {
         if self.bool()? {
             self.u32().map(Some)
@@ -172,11 +244,21 @@ impl<'a> Reader<'a> {
     }
 
     /// A 32-byte digest.
+    ///
+    /// # Errors
+    ///
+    /// [`SegmentError::Decode`] when the bytes end early or do not hold
+    /// what this reads.
     pub fn digest(&mut self) -> Result<Digest, SegmentError> {
         self.array().map(Digest)
     }
 
     /// A schema edge label.
+    ///
+    /// # Errors
+    ///
+    /// [`SegmentError::Decode`] when the bytes end early or do not hold
+    /// what this reads.
     pub fn edge(&mut self) -> Result<Edge, SegmentError> {
         Ok(Edge {
             src: self.name()?,
@@ -187,6 +269,11 @@ impl<'a> Reader<'a> {
     }
 
     /// A range, refused when it is inverted (`segment` names its owner).
+    ///
+    /// # Errors
+    ///
+    /// [`SegmentError::Decode`] when the bytes end early or do not hold
+    /// what this reads.
     pub fn range(&mut self, segment: SegmentId) -> Result<IdRange, SegmentError> {
         IdRange {
             lo: self.u32()?,
@@ -196,12 +283,22 @@ impl<'a> Reader<'a> {
     }
 
     /// Counted id ranges of `segment`.
+    ///
+    /// # Errors
+    ///
+    /// [`SegmentError::Decode`] when the bytes end early or do not hold
+    /// what this reads.
     pub fn ranges(&mut self, segment: SegmentId) -> Result<Vec<IdRange>, SegmentError> {
         let n = self.count(8)?;
         (0..n).map(|_| self.range(segment)).collect()
     }
 
     /// A presence byte and, when present, an id range of `segment`.
+    ///
+    /// # Errors
+    ///
+    /// [`SegmentError::Decode`] when the bytes end early or do not hold
+    /// what this reads.
     pub fn opt_range(&mut self, segment: SegmentId) -> Result<Option<IdRange>, SegmentError> {
         if self.bool()? {
             self.range(segment).map(Some)
@@ -211,6 +308,11 @@ impl<'a> Reader<'a> {
     }
 
     /// An element reference, as [`write_view_ref`](super::write_view_ref) writes it.
+    ///
+    /// # Errors
+    ///
+    /// [`SegmentError::Decode`] when the bytes end early or do not hold
+    /// what this reads.
     pub fn view_ref(&mut self) -> Result<ViewRef, SegmentError> {
         match self.u8()? {
             0 => Ok(ViewRef::Node(self.u32()?)),
@@ -230,6 +332,11 @@ impl<'a> Reader<'a> {
     }
 
     /// A value map whose values nest at most `depth` deep.
+    ///
+    /// # Errors
+    ///
+    /// [`SegmentError::Decode`] when the bytes end early or do not hold
+    /// what this reads.
     pub fn value_map(&mut self, depth: usize) -> Result<HashMap<String, Value>, SegmentError> {
         Ok(self.value_entries(depth)?.into_iter().collect())
     }
@@ -237,6 +344,11 @@ impl<'a> Reader<'a> {
     /// The entries of a value map, as [`CanonicalSink::value`] writes a
     /// record's fields: a count, then each key and its value, refused unless
     /// the keys strictly ascend.
+    ///
+    /// # Errors
+    ///
+    /// [`SegmentError::Decode`] when the bytes end early or do not hold
+    /// what this reads.
     pub fn value_entries(&mut self, depth: usize) -> Result<Vec<(String, Value)>, SegmentError> {
         let n = self.count(9)?;
         let mut entries: Vec<(String, Value)> = Vec::with_capacity(n);
@@ -253,6 +365,11 @@ impl<'a> Reader<'a> {
 
     /// An optional value presence: a tag (`0` none, `1` present and the
     /// value, `2` null, `3` absent).
+    ///
+    /// # Errors
+    ///
+    /// [`SegmentError::Decode`] when the bytes end early or do not hold
+    /// what this reads.
     pub fn presence(&mut self) -> Result<Option<FieldPresence>, SegmentError> {
         match self.u8()? {
             0 => Ok(None),
@@ -265,6 +382,11 @@ impl<'a> Reader<'a> {
 
     /// An instance value, as [`CanonicalSink::value`]
     /// writes it.
+    ///
+    /// # Errors
+    ///
+    /// [`SegmentError::Decode`] when the bytes end early or do not hold
+    /// what this reads.
     pub fn value(&mut self, depth: usize) -> Result<Value, SegmentError> {
         if depth > MAX_VALUE_DEPTH {
             return Err(self.error("a value is nested too deeply"));
@@ -572,6 +694,11 @@ impl<'a> Reader<'a> {
 
     /// A node record, as [`write_node_record`](crate::write_node_record)
     /// writes it.
+    ///
+    /// # Errors
+    ///
+    /// [`SegmentError::Decode`] when the bytes end early or do not hold
+    /// what this reads.
     pub fn node(&mut self) -> Result<Node, SegmentError> {
         let id = self.u32()?;
         let anchor = self.name()?;
@@ -600,6 +727,11 @@ impl<'a> Reader<'a> {
 
     /// An edge record, as [`write_edge_record`](crate::write_edge_record)
     /// writes it: its id, endpoints, label and position.
+    ///
+    /// # Errors
+    ///
+    /// [`SegmentError::Decode`] when the bytes end early or do not hold
+    /// what this reads.
     pub fn edge_record(&mut self) -> Result<(EdgeId, GEdge), SegmentError> {
         Ok((
             EdgeId(self.u32()?),
@@ -614,12 +746,22 @@ impl<'a> Reader<'a> {
 
     /// A row record, as [`write_row_record`](crate::write_row_record)
     /// writes it: its id, its table and its cells.
+    ///
+    /// # Errors
+    ///
+    /// [`SegmentError::Decode`] when the bytes end early or do not hold
+    /// what this reads.
     pub fn row_record(&mut self) -> Result<(RowId, Name, Row), SegmentError> {
         Ok((RowId(self.u32()?), self.name()?, self.value_map(0)?))
     }
 
     /// A pair record, as [`write_pair_record`](crate::write_pair_record)
     /// writes it: its edge, then its source and target rows.
+    ///
+    /// # Errors
+    ///
+    /// [`SegmentError::Decode`] when the bytes end early or do not hold
+    /// what this reads.
     pub fn pair_record(&mut self) -> Result<(Edge, RowId, RowId), SegmentError> {
         Ok((self.edge()?, RowId(self.u32()?), RowId(self.u32()?)))
     }
@@ -627,12 +769,22 @@ impl<'a> Reader<'a> {
     /// An arc record, as
     /// [`write_arc_record`](super::tree_bytes::write_arc_record) writes it:
     /// parent, child and label.
+    ///
+    /// # Errors
+    ///
+    /// [`SegmentError::Decode`] when the bytes end early or do not hold
+    /// what this reads.
     pub fn arc_record(&mut self) -> Result<(u32, u32, Edge), SegmentError> {
         Ok((self.u32()?, self.u32()?, self.edge()?))
     }
 
     /// A fan record, as [`FanRecord::write`] writes it: parent, hyper-edge,
     /// then the children, refused unless they strictly ascend.
+    ///
+    /// # Errors
+    ///
+    /// [`SegmentError::Decode`] when the bytes end early or do not hold
+    /// what this reads.
     pub fn fan_record(&mut self) -> Result<FanRecord, SegmentError> {
         let parent = self.u32()?;
         let hyper_edge_id = self.string()?;

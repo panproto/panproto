@@ -721,13 +721,13 @@ pub enum StreamStop<E> {
 /// A caller's source of the segments of a family, one at a time.
 pub type FetchSegment<'f, 's, E> = dyn FnMut(SegmentId) -> Result<Cow<'s, GraphSegment>, E> + 'f;
 
-/// Run the stages of [`graph_restrict_segmented_nodes`] over the family
-/// whose segments `ids` names (segment `i` at position `i`, in id order),
-/// reading each segment from `fetch` whenever a pass reaches it and never
-/// holding two at once, and give `visit` each segment's surviving nodes as
-/// the last pass reaches it.
+/// Run the stages of [`graph_restrict_segmented_nodes`] over a family read
+/// one segment at a time.
 ///
-/// Three passes read the family: the fan domain and stage 0 in every
+/// The family's segments are those `ids` names (segment `i` at position
+/// `i`, in id order). Each segment is read from `fetch` whenever a pass
+/// reaches it, never two at once, and `visit` is given each segment's
+/// surviving nodes as the last pass reaches it. Three passes read the family: the fan domain and stage 0 in every
 /// segment, with the fates of in-stub targets exported to the owners of the
 /// in-stubs' sources; the reach summaries; and stages 1 to 3 in every
 /// segment, after the coordinator closes the summaries over the boundary.
@@ -748,10 +748,10 @@ pub type FetchSegment<'f, 's, E> = dyn FnMut(SegmentId) -> Result<Cow<'s, GraphS
 /// [`SegmentedRestrictError::Restrict`] with the refusal whole-state
 /// restriction returns, in the segment owning its element, a stage 5
 /// exhaustion in the segment holding the greatest id of its kind.
-pub fn graph_restrict_segmented_nodes_with<'s, E>(
+pub fn graph_restrict_segmented_nodes_with<E>(
     plan: &RestrictPlan,
     ids: &[SegmentId],
-    fetch: &mut FetchSegment<'_, 's, E>,
+    fetch: &mut FetchSegment<'_, '_, E>,
     visit: &mut dyn FnMut(SegmentId, BTreeMap<u32, Node>) -> Result<(), E>,
 ) -> Result<(), StreamStop<E>> {
     let mut node_max: Option<(u32, SegmentId)> = None;

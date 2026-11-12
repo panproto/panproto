@@ -885,11 +885,15 @@ fn restored_segment(
         ));
     }
     for (_, _, stub, owner, anchor) in &crossings {
-        restored.boundary.ghosts.entry(stub.tgt).or_insert(Ghost {
-            node: stub.tgt,
-            owner: *owner,
-            anchor: anchor.clone(),
-        });
+        restored
+            .boundary
+            .ghosts
+            .entry(stub.tgt)
+            .or_insert_with(|| Ghost {
+                node: stub.tgt,
+                owner: *owner,
+                anchor: anchor.clone(),
+            });
     }
     Ok((restored, crossings))
 }
@@ -1358,10 +1362,10 @@ impl<C: SegmentSource> PhaseOperation for GraphPut<'_, C> {
             };
             found.extend(source_clauses(self.lens, self.plan, &rerun)?);
         }
-        match least(found) {
-            Some(error) => Err(PutStop::Failed(refused(error))),
-            None => Ok(boundaries_bytes(&boundaries)),
-        }
+        least(found).map_or_else(
+            || Ok(boundaries_bytes(&boundaries)),
+            |error| Err(PutStop::Failed(refused(error))),
+        )
     }
 
     fn emit(&self, cx: &PhaseContext<'_>, segment: SegmentId) -> Result<Emission, PutStop> {
@@ -1415,7 +1419,9 @@ impl<Src, C> Clone for HeldView<'_, Src, C> {
 impl<Src, C> Copy for HeldView<'_, Src, C> {}
 
 /// Backward graph-lens direction over a view held as segments, as a
-/// checkpointed run of [`GraphPut`]. The run's lens identity is
+/// checkpointed run of [`GraphPut`].
+///
+/// The run's lens identity is
 /// the graph identity of `lens` ([`Lens::identity`]) and the restored
 /// segments are written under its source schema digest, so the run identity
 /// is a function of the lens and the view; it stops once

@@ -19531,9 +19531,20 @@ mod segmented_graph_put_run {
             }
             RunStatus::Incomplete { reason } => panic!("an uninterrupted put stopped: {reason:?}"),
         }
-        if !every_point {
-            return;
+        if every_point {
+            check_cancellations(case, budget, &baseline, run, tally);
         }
+    }
+
+    /// Stopping the put of `case` at every cancellation point and resuming
+    /// it reports what the reference runner reports, and ends as `baseline`.
+    fn check_cancellations(
+        case: &Case<'_>,
+        budget: Budget,
+        baseline: &GraphPutRun,
+        run: Digest,
+        tally: &mut Tally,
+    ) {
         let total = baseline.report.progress.tasks_total;
         let done = baseline.report.progress.tasks_done;
         for cancel in 0..=total {
