@@ -281,16 +281,17 @@ fn a_json_syntax_error_points_at_the_byte_the_reader_stopped_at() {
 }
 
 #[test]
-fn a_yaml_refusal_names_its_path_without_a_span() {
+fn a_yaml_refusal_points_at_the_first_character_of_the_refused_value() {
     let source = "id: x\nsource: s\ntarget: t\nsteps:\n  - remove_field: a\n    bogus: 1\n";
     let Err(error) = read_source(source, SourceFormat::Yaml) else {
         panic!("an unknown step member must be refused");
     };
     assert!(
-        matches!(&error, LensDslError::Shape { path, problem: ShapeProblem::UnknownVariant { .. } }
+        matches!(error.unlocated(), LensDslError::Shape { path, problem: ShapeProblem::UnknownVariant { .. } }
             if path.to_string() == "/steps/0/bogus"),
         "{error:?}"
     );
+    assert_eq!(pointed_text(&error), Some("1"), "{error:?}");
 }
 
 fn on_big_stack<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> T {

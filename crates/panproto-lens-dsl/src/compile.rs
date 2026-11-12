@@ -38,8 +38,9 @@ fn member(key: &str) -> DocumentPath {
 }
 
 /// Attach the source text and the byte range of the refused element to a
-/// refusal that names a document path, when `source` is JSON text in which
-/// the path names a value; any other refusal is returned as it is.
+/// refusal that names a document path, when `source` is JSON or YAML text
+/// in which the path names a value (the whole value in JSON, its first
+/// character in YAML); any other refusal is returned as it is.
 fn spanned(error: LensDslError, source: &str, format: SourceFormat) -> LensDslError {
     let Some(path) = error.path().cloned() else {
         return error;
@@ -66,11 +67,13 @@ fn spanned(error: LensDslError, source: &str, format: SourceFormat) -> LensDslEr
 /// A JSON syntax error is [`LensDslError::Spanned`] around a
 /// [`LensDslError::Json`], its span the one byte at which the JSON reader
 /// stopped (empty at the end of the text). A YAML syntax error is
-/// [`LensDslError::Yaml`]. A Nickel evaluation error is
+/// [`LensDslError::Spanned`] around a [`LensDslError::Yaml`], its span the
+/// character at which the YAML reader stopped. A Nickel evaluation error is
 /// [`LensDslError::NickelEvalSpanned`] when Nickel's diagnostic locates it
 /// in `source` and [`LensDslError::NickelEval`] otherwise. A value the
 /// grammar refuses is [`LensDslError::Shape`], wrapped in
-/// [`LensDslError::Spanned`] for JSON text.
+/// [`LensDslError::Spanned`] for JSON and YAML text: the byte range of the
+/// refused value in JSON text, its first character in YAML text.
 pub fn read_source(source: &str, format: SourceFormat) -> Result<LensDocument, LensDslError> {
     let value = match format {
         SourceFormat::Json => serde_json::from_str::<serde_json::Value>(source).map_err(|e| {
@@ -82,7 +85,17 @@ pub fn read_source(source: &str, format: SourceFormat) -> Result<LensDocument, L
                 error: Box::new(LensDslError::Json(e)),
             }
         })?,
-        SourceFormat::Yaml => crate::eval::yaml_value(source)?,
+        SourceFormat::Yaml => crate::eval::yaml_value(source).map_err(|e| {
+            match panproto_dsl_eval::source::yaml_syntax_span(source) {
+                Some((offset, length)) => LensDslError::Spanned {
+                    path: None,
+                    src: source.to_owned(),
+                    span: miette::SourceSpan::new(offset.into(), length),
+                    error: Box::new(e),
+                },
+                None => e,
+            }
+        })?,
         SourceFormat::Nickel => crate::eval::nickel_value(source, &[])?,
     };
     crate::shape::read_document(&value).map_err(|e| spanned(e, source, format))
@@ -93,9 +106,10 @@ pub fn read_source(source: &str, format: SourceFormat) -> Result<LensDocument, L
 ///
 /// # Errors
 ///
-/// The errors of [`read_source`] and of [`compile`]; for JSON text a
-/// compile refusal is wrapped in [`LensDslError::Spanned`] whose span is the
-/// byte range of the refused element's value as written.
+/// The errors of [`read_source`] and of [`compile`]; for JSON and YAML text
+/// a compile refusal is wrapped in [`LensDslError::Spanned`] whose span is
+/// the byte range of the refused element's value as written in JSON, and
+/// its first character in YAML.
 pub fn compile_source(
     source: &str,
     format: SourceFormat,
@@ -110,9 +124,10 @@ pub fn compile_source(
 ///
 /// # Errors
 ///
-/// The errors of [`compile`]; for JSON text a refusal that names a
+/// The errors of [`compile`]; for JSON and YAML text a refusal that names a
 /// document path is wrapped in [`LensDslError::Spanned`] whose span is the
-/// byte range of that element's value in `source`.
+/// byte range of that element's value in JSON `source`, and its first
+/// character in YAML `source`.
 pub fn compile_with_source(
     doc: &LensDocument,
     source: &str,

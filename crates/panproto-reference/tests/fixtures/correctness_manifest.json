@@ -7472,6 +7472,18 @@
               "role": "differential",
               "crate": "panproto-theory-dsl",
               "binary": "panproto-theory-dsl::reference_theory_dsl",
+              "test": "dependent_theory_documents_compile_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-theory-dsl",
+              "binary": "panproto-theory-dsl::reference_theory_dsl",
+              "test": "longer_dependent_theory_documents_compile_as_the_reference"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-theory-dsl",
+              "binary": "panproto-theory-dsl::reference_theory_dsl",
               "test": "longer_theory_documents_compile_as_the_reference"
             },
             {
@@ -7504,6 +7516,33 @@
           ]
         },
         {
+          "id": "theory-dsl.protocol-documents",
+          "anchor": "L-theory-dsl-5",
+          "references": [
+            "panproto_reference::pages::theory_dsl::compile_protocol"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-theory-dsl",
+              "binary": "panproto-theory-dsl::reference_theory_dsl",
+              "test": "protocol_documents_compile_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-theory-dsl",
+              "binary": "panproto-theory-dsl::reference_theory_dsl",
+              "test": "bundled_protocols_record_their_inline_theories_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::theory_dsl",
+              "test": "protocol_references_resolve_compile_and_record_inline_theories"
+            }
+          ]
+        },
+        {
           "id": "theory-dsl.refusal-location",
           "anchor": "L-theory-dsl-4",
           "references": [
@@ -7521,7 +7560,19 @@
               "role": "differential",
               "crate": "panproto-theory-dsl",
               "binary": "panproto-theory-dsl::reference_theory_dsl",
+              "test": "dependent_theory_documents_compile_as_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-theory-dsl",
+              "binary": "panproto-theory-dsl::reference_theory_dsl",
               "test": "the_grammar_refuses_as_the_reference_on_every_mutated_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-theory-dsl",
+              "binary": "panproto-theory-dsl::reference_theory_dsl",
+              "test": "protocol_documents_compile_as_the_reference_on_every_bounded_document"
             },
             {
               "role": "reference",

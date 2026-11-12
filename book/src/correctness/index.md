@@ -66,5 +66,5 @@ The table lists each correctness page and the number of laws it proves for the t
 | [JSON Schema](json-schema.md) | 2 |
 | [Migration search](migration-search.md) | 4 |
 | [Schema merge](schema-merge.md) | 4 |
-| [Theory DSL](theory-dsl.md) | 4 |
+| [Theory DSL](theory-dsl.md) | 5 |
 | [Lens DSL](lens-dsl.md) | 6 |

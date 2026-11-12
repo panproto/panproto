@@ -181,3 +181,44 @@ fn compile_rejects_dsl_theory_with_ill_typed_equation() {
         "DSL compile should reject sort-mismatched equation",
     );
 }
+
+/// A closed sort `Nat` of constructors `zero` and `succ`, with `double`
+/// into `Nat` and, when `defined`, the equation defining it.
+fn closed_nat(defined: bool) -> String {
+    let equations = if defined {
+        r#","equations":[{"name":"d","lhs":"double(n)","rhs":"succ(succ(n))"}]"#
+    } else {
+        ""
+    };
+    format!(
+        r#"{{"id":"n","description":"","theory":"N","sorts":[{{"name":"Nat","closed":["zero","succ"]}}],"ops":[{{"name":"zero","output":"Nat"}},{{"name":"succ","input":"Nat","output":"Nat"}},{{"name":"double","input":"Nat","output":"Nat"}}]{equations}}}"#
+    )
+}
+
+#[test]
+fn an_operation_into_a_closed_sort_that_an_equation_defines_compiles() {
+    use panproto_theory_dsl::{SourceFormat, compile_source};
+    let compiled = compile_source(&closed_nat(true), SourceFormat::Json, &|_| None)
+        .expect("double is defined by its equation, so Nat stays closed");
+    let theory = &compiled.theories["N"];
+    assert_eq!(theory.eqs.len(), 1);
+    assert!(panproto_gat::typecheck_theory(theory).is_ok());
+}
+
+#[test]
+fn an_undefined_operation_into_a_closed_sort_is_refused_at_the_closed_list() {
+    use panproto_theory_dsl::{DocumentPath, SourceFormat, TheoryDslError, compile_source};
+    let error = compile_source(&closed_nat(false), SourceFormat::Json, &|_| None)
+        .expect_err("double is neither a constructor nor defined");
+    assert_eq!(
+        error.path(),
+        Some(&DocumentPath::root().key("sorts").index(0).key("closed"))
+    );
+    assert!(matches!(
+        error.unlocated(),
+        TheoryDslError::TypeCheck {
+            error: panproto_gat::GatError::InvalidClosedSortConstructor { .. },
+            ..
+        }
+    ));
+}

@@ -178,15 +178,15 @@ $\mathsf{horizontal}(\pi_1, \ldots, \pi_k)$ is no stage when $k = 0$; otherwise 
 - File: `crates/panproto-lens/src/protolens.rs`
 - File: `crates/panproto-reference/src/pages/lens_dsl.rs`
 
-## Every refusal of JSON text points at the refused value {#L-lens-dsl-6}
+## Every refusal of JSON or YAML text points at the refused value {#L-lens-dsl-6}
 
 ### Statement
 
-For every document $d$ of the five scopes that the reference refuses at path $p$, the production refusal of `read_source` or `compile_source` on $d$ is `LensDslError::Spanned` with path $p$ and span $(o, \ell)$, where $(o, \ell)$ is the reference's `locate(d, p)`: the byte offset and length of the value at $p$ in $d$, from its first byte to its last, the last occurrence when a member is named twice. For a document of the composition scope, compiled with `compile_with_refs`, the refusal names $p$ and `locate_json` finds the same range.
+For every document $d$ of the five scopes that the reference refuses at path $p$, the production refusal of `read_source` or `compile_source` on $d$ is `LensDslError::Spanned` with path $p$ and span $(o, \ell)$, where $(o, \ell)$ is the reference's `locate(d, p)`: the byte offset and length of the value at $p$ in $d$, from its first byte to its last, the last occurrence when a member is named twice. Such a document compiled with `compile_source` from YAML text, which JSON text also is, is refused at the same path with span $(o, c)$, where $c$ is the byte length of the character at $o$: the first character of the refused value. For a document of the composition scope, compiled with `compile_with_refs`, the refusal names $p$ and `locate_json` finds the same range.
 
 ### Outside the domain
 
-YAML and Nickel sources: a YAML refusal carries its path without a span, and a Nickel evaluation error keeps Nickel's own span. A JSON syntax error is located at the byte where the JSON reader stopped, which the reference does not model.
+Nickel sources: a Nickel evaluation error keeps Nickel's own span. A JSON syntax error is located at the byte where the JSON reader stopped, and a YAML syntax error at the character where the YAML reader stopped, which the reference does not model. The extent of a refused value in YAML text: `yaml_serde`, the YAML reader, reports a position only through an error, as the start of the node it was reading when the error was raised, and reports no end position for any node; the event parser beneath it, which does carry end positions, is exposed only through an `unsafe` C-style interface that the workspace's `unsafe_code = "deny"` lint excludes. A YAML refusal is therefore located by the first character of the refused value and not by its whole range.
 
 ### Definitions used
 
@@ -194,8 +194,8 @@ YAML and Nickel sources: a YAML refusal carries its path without a span, and a N
 
 ### Proof
 
-1. Every refusal names a path (laws 1 to 5 state which), and `compile_source` and `read_source` wrap a refusal whose path names a value of $d$ in `Spanned` with the range `locate_json` computes.
-2. `locate_json` and `locate` read the same JSON grammar, start a value at its first non-blank byte and end it after its last byte, and both keep the last occurrence of a member.
+1. Every refusal names a path (laws 1 to 5 state which), and `compile_source` and `read_source` wrap a refusal whose path names a value of $d$ in `Spanned` with the range `locate_json` computes for JSON text, and with the first character `locate_yaml` finds for YAML text.
+2. `locate_json` and `locate` read the same JSON grammar, start a value at its first non-blank byte and end it after its last byte, and both keep the last occurrence of a member. `locate_yaml` reads the text with the YAML reader, follows $p$ to the last occurrence of each member, and refuses the node it reaches; the reader reports the start of that node, which in JSON text is the node's first non-blank byte, the start `locate` gives.
 3. Every path the laws name is the path of a value present in $d$, except that of a missing field, which is the path of the object lacking it; so a span exists for every refusal, and the differentials compare it with `locate` on every refused document of the five scopes.
 
 ### Executable counterpart

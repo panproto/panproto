@@ -2,7 +2,7 @@
 
 use panproto_reference::enumerate::theory_dsl::library;
 use panproto_reference::json::{Value, parse};
-use panproto_reference::pages::theories::theory::{MorphismError, SortExpr};
+use panproto_reference::pages::theories::theory::{Defect, MorphismError, Site, SortExpr};
 use panproto_reference::pages::theory_dsl::{
     Outcome, Path, Refusal, ShapeProblem, check_document, compile_document, compile_morphism,
     locate,
@@ -101,6 +101,60 @@ fn imports_rename_and_parents_take_precedence_over_bare_imported_names() {
 }
 
 #[test]
+fn implicit_inputs_are_inferred_and_equation_variables_stay_fixed() {
+    let with_equation = |lhs: &str, rhs: &str| {
+        compiled(&format!(
+            r#"{{"id":"x","description":"","theory":"T","imports":[{{"from":"C","alias":"D","expose":["Hom","Ob","id","comp"]}}],"equations":[{{"name":"e","lhs":"{lhs}","rhs":"{rhs}"}}]}}"#
+        ))
+    };
+    let Outcome::Accepted(out) = with_equation("comp(id(a), f)", "f") else {
+        panic!("comp(id(a), f) = f types f at Hom(x, a)");
+    };
+    let hom = out.theories["T"]
+        .sorts
+        .iter()
+        .find(|s| s.name == "Hom")
+        .map(|s| s.params.len());
+    assert_eq!(hom, Some(2));
+    assert_eq!(
+        with_equation("comp(id(a), id(b))", "id(a)"),
+        Outcome::Refused(
+            Path::root().key("equations").index(0),
+            Refusal::Equation("e".to_owned())
+        )
+    );
+    assert_eq!(
+        compiled(
+            r#"{"id":"x","description":"","theory":"T","sorts":[{"name":"Ob"}],"ops":[{"name":"g","inputs":[{"name":"a","sort":"Ob","implicit":true},{"name":"x","sort":"Ob"}],"output":"Ob"}]}"#
+        ),
+        Outcome::Refused(
+            Path::root().key("ops").index(0),
+            Refusal::NonInferableImplicit("g".to_owned())
+        )
+    );
+    assert_eq!(
+        compiled(
+            r#"{"id":"x","description":"","theory":"T","imports":[{"from":"C"}],"sorts":[{"name":"Sq","params":[{"name":"x","sort":"Ob"},{"name":"f","sort":"Hom(x, id(x))"}]}]}"#
+        ),
+        Outcome::Refused(
+            Path::root()
+                .key("sorts")
+                .index(0)
+                .key("params")
+                .index(1)
+                .key("sort"),
+            Refusal::Signature(Defect::ParamIllTyped(
+                Site::SortParam("Sq".to_owned(), 1),
+                "C_Hom".to_owned(),
+                1,
+                "C_Ob".to_owned(),
+                "C_Hom(x, x)".to_owned()
+            ))
+        )
+    );
+}
+
+#[test]
 fn morphism_refusals_are_located_at_the_entry_they_concern() {
     let morphism = |sorts: &str, ops: &str| {
         compile_morphism(
@@ -143,4 +197,61 @@ fn locate_finds_the_last_occurrence_of_a_member() {
     assert_eq!(locate(text, &Path::root().key("a").key("c")), Some((36, 4)));
     assert_eq!(locate(text, &Path::root().key("a").index(1)), None);
     assert_eq!(locate("{", &Path::root()), None);
+}
+
+#[test]
+fn protocol_references_resolve_compile_and_record_inline_theories() {
+    let protocol = |schema: &str, instance: &str| {
+        compiled(&format!(
+            r#"{{"id":"p","description":"","protocol":"P","schema_theory":{schema},"instance_theory":{instance},"edge_rules":[{{"edge_kind":"prop","src_kind":"object","tgt_kind":"string"}}]}}"#
+        ))
+    };
+    let Outcome::Accepted(out) = protocol(r#"{"theory":"S","extends":["L"]}"#, r#""K""#) else {
+        panic!("an inline theory extending a library theory compiles");
+    };
+    let p = &out.protocols["P"];
+    assert_eq!(
+        (p.schema_theory.as_str(), p.instance_theory.as_str()),
+        ("S", "K")
+    );
+    assert_eq!(
+        p.edge_rules,
+        [("prop".to_owned(), "object".to_owned(), "string".to_owned())]
+    );
+    assert_eq!(out.theories["S"].sorts.len(), 2);
+    assert_eq!(
+        protocol(r#""L""#, r#""M""#),
+        Outcome::Refused(
+            Path::root().key("instance_theory"),
+            Refusal::TheoryNotFound("M".to_owned())
+        )
+    );
+    assert_eq!(
+        protocol(
+            r#"{"theory":"S","ops":[{"name":"f","output":"Q"}]}"#,
+            r#""K""#
+        ),
+        Outcome::Refused(
+            Path::root()
+                .key("schema_theory")
+                .key("ops")
+                .index(0)
+                .key("output"),
+            Refusal::Signature(Defect::UndeclaredSort(
+                Site::OpOutput("f".to_owned()),
+                "Q".to_owned()
+            ))
+        )
+    );
+    assert_eq!(
+        protocol(
+            r#"{"theory":"S","sorts":[{"name":"X"}]}"#,
+            r#"{"theory":"S","sorts":[{"name":"Y"}]}"#
+        ),
+        Outcome::Refused(Path::root(), Refusal::Duplicate("S".to_owned()))
+    );
+    assert!(matches!(
+        protocol(r#"{"result":"R","steps":[]}"#, r#""K""#),
+        Outcome::OutsideDomain(_)
+    ));
 }

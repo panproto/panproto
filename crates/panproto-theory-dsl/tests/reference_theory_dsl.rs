@@ -3,9 +3,12 @@
 //! Every document of the finite scopes of `panproto_reference::enumerate::
 //! theory_dsl` is compiled from its JSON text by [`compile_source`] and by the
 //! reference's `compile_document`. The two must agree: on an accepted
-//! document, every compiled theory and morphism; on a refused one, the
-//! refusal, its document path, and the byte range the production refusal
+//! document, every compiled theory, morphism and protocol; on a refused one,
+//! the refusal, its document path, and the byte range the production refusal
 //! carries, which must be the reference's location of that path in the text.
+//! A refused document is also read as YAML, which JSON text is: production
+//! must refuse it at the same path, its span the first character of the
+//! value the reference locates there.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -22,9 +25,10 @@ use proptest::prelude::*;
 
 mod convert {
     //! Conversions between the reference model and production types, over
-    //! the first-order fragment the scopes use.
+    //! the fragment the scopes use: structural open sorts with parameters,
+    //! operations with implicit inputs, first-order terms.
 
-    use super::{Arc, BTreeMap, p, r};
+    use super::{Arc, BTreeMap, p, r, rd};
 
     fn sort_expr(s: &r::SortExpr) -> p::SortExpr {
         match s {
@@ -54,8 +58,14 @@ mod convert {
             t.sorts
                 .iter()
                 .map(|s| {
-                    assert!(s.params.is_empty() && s.kind == r::SortKind::Structural);
-                    p::Sort::simple(s.name.as_str())
+                    assert!(s.kind == r::SortKind::Structural && s.constructors.is_none());
+                    p::Sort::dependent(
+                        s.name.as_str(),
+                        s.params
+                            .iter()
+                            .map(|(x, q)| p::SortParam::new(x.as_str(), sort_expr(q)))
+                            .collect(),
+                    )
                 })
                 .collect(),
             t.ops
@@ -245,6 +255,27 @@ mod convert {
         }
     }
 
+    /// The production protocol a reference protocol denotes: its names and
+    /// edge rules, every feature flag off, no vertex kinds, constraint sorts
+    /// or composition recipes.
+    pub fn protocol(p: &rd::Protocol) -> panproto_schema::Protocol {
+        panproto_schema::Protocol {
+            name: p.name.clone(),
+            schema_theory: p.schema_theory.clone(),
+            instance_theory: p.instance_theory.clone(),
+            edge_rules: p
+                .edge_rules
+                .iter()
+                .map(|(edge, src, tgt)| panproto_schema::EdgeRule {
+                    edge_kind: edge.clone(),
+                    src_kinds: vec![src.clone()],
+                    tgt_kinds: vec![tgt.clone()],
+                })
+                .collect(),
+            ..panproto_schema::Protocol::default()
+        }
+    }
+
     /// The variant of a morphism refusal, by name, in either model.
     pub fn morphism_error(e: &p::GatError) -> String {
         let text = format!("{e:?}");
@@ -314,9 +345,17 @@ fn same_refusal(production: &TheoryDslError, reference: &rd::Refusal) -> bool {
             },
             rd::Refusal::Signature(expected),
         ) => defects.first().map(convert::defect).as_ref() == Some(expected),
-        (TheoryDslError::TypeCheck { error, .. }, rd::Refusal::Equation(_)) => {
-            !matches!(error, p::GatError::IllTypedSignature { .. })
-        }
+        (
+            TheoryDslError::TypeCheck {
+                error: p::GatError::NonInferrableImplicit { op, .. },
+                ..
+            },
+            rd::Refusal::NonInferableImplicit(expected),
+        ) => op == expected,
+        (TheoryDslError::TypeCheck { error, .. }, rd::Refusal::Equation(_)) => !matches!(
+            error,
+            p::GatError::IllTypedSignature { .. } | p::GatError::NonInferrableImplicit { .. }
+        ),
         (
             TheoryDslError::UnknownMapKey { kind, name, .. },
             rd::Refusal::UnknownMapKey(expected_kind, expected_name),
@@ -355,23 +394,35 @@ fn disagreement(text: &str, outside: &mut usize) -> Option<String> {
                 .iter()
                 .map(|(k, m)| (k.clone(), convert::back_morphism(m)))
                 .collect();
-            (theories != expected.theories || morphisms != expected.morphisms).then(|| {
-                format!(
-                    "{text}\n  reference {:?} {:?}\n  production {theories:?} {morphisms:?}",
-                    expected.theories, expected.morphisms
-                )
-            })
+            let protocols: BTreeMap<String, panproto_schema::Protocol> = compiled
+                .protocols
+                .iter()
+                .map(|(k, p)| (k.clone(), p.clone()))
+                .collect();
+            let expected_protocols: BTreeMap<String, panproto_schema::Protocol> = expected
+                .protocols
+                .iter()
+                .map(|(k, p)| (k.clone(), convert::protocol(p)))
+                .collect();
+            (theories != expected.theories
+                || morphisms != expected.morphisms
+                || protocols != expected_protocols)
+                .then(|| {
+                    format!(
+                        "{text}\n  reference {:?} {:?} {expected_protocols:?}\n  production {theories:?} {morphisms:?} {protocols:?}",
+                        expected.theories, expected.morphisms
+                    )
+                })
         }
         (rd::Outcome::Refused(at, refusal), Err(error)) => {
             let located = error.path().map(path);
-            let span = match &error {
-                TheoryDslError::Spanned { span, .. } => Some((span.offset(), span.len())),
-                _ => None,
-            };
+            let span = span_of(&error);
             let expected_span = rd::locate(text, &at);
+            let yaml = compile_source(text, SourceFormat::Yaml, &production_library);
             let agrees = located.as_ref() == Some(&at)
                 && same_refusal(error.unlocated(), &refusal)
-                && span == expected_span;
+                && span == expected_span
+                && yaml_refusal_agrees(yaml, text, &at, &refusal);
             (!agrees).then(|| {
                 format!(
                     "{text}\n  reference {refusal:?} at {at:?} span {expected_span:?}\n  production {error:?}"
@@ -382,6 +433,39 @@ fn disagreement(text: &str, outside: &mut usize) -> Option<String> {
             "{text}\n  reference {reference:?}\n  production {production:?}"
         )),
     }
+}
+
+/// The span of a spanned refusal.
+const fn span_of(error: &TheoryDslError) -> Option<(usize, usize)> {
+    match error {
+        TheoryDslError::Spanned { span, .. } => Some((span.offset(), span.len())),
+        _ => None,
+    }
+}
+
+/// The span production gives a refusal of YAML text: the first character
+/// of the value the reference locates in the same text read as JSON, which
+/// JSON text also is as YAML.
+fn yaml_span(text: &str, at: &rd::Path) -> Option<(usize, usize)> {
+    rd::locate(text, at).map(|(offset, _)| {
+        let length = text[offset..].chars().next().map_or(0, char::len_utf8);
+        (offset, length)
+    })
+}
+
+/// Whether production refuses the JSON text `text`, read as YAML, at `at`
+/// with the reference's refusal and the YAML span of `at`.
+fn yaml_refusal_agrees<T>(
+    production: Result<T, TheoryDslError>,
+    text: &str,
+    at: &rd::Path,
+    refusal: &rd::Refusal,
+) -> bool {
+    production.err().is_some_and(|error| {
+        error.path().map(path).as_ref() == Some(at)
+            && same_refusal(error.unlocated(), refusal)
+            && span_of(&error) == yaml_span(text, at)
+    })
 }
 
 /// Run `f` on a thread with a 32 MiB stack: the reference's equation
@@ -438,6 +522,19 @@ fn theory_documents_compile_as_the_reference_on_every_bounded_document() {
 }
 
 #[test]
+fn dependent_theory_documents_compile_as_the_reference_on_every_bounded_document() {
+    assert_agreement(
+        scope::dependent_documents(),
+        scope::DEPENDENT_EXTENDS.len()
+            * scope::DEPENDENT_IMPORTS.len()
+            * scope::DEPENDENT_SORTS.len()
+            * scope::DEPENDENT_OPS.len()
+            * scope::DEPENDENT_EQUATIONS.len(),
+        0,
+    );
+}
+
+#[test]
 fn morphism_documents_compile_as_the_reference_on_every_bounded_document() {
     assert_agreement(
         scope::morphism_documents(),
@@ -454,6 +551,22 @@ fn bundles_compile_their_theories_in_listed_order_as_the_reference() {
     assert_agreement(scope::bundle_documents(), 1 + 4 + 16 + 64, 0);
 }
 
+#[test]
+fn protocol_documents_compile_as_the_reference_on_every_bounded_document() {
+    assert_agreement(
+        scope::protocol_documents(),
+        scope::PROTOCOL_SCHEMAS.len()
+            * scope::PROTOCOL_INSTANCES.len()
+            * scope::PROTOCOL_EDGE_RULES.len(),
+        0,
+    );
+}
+
+#[test]
+fn bundled_protocols_record_their_inline_theories_as_the_reference() {
+    assert_agreement(scope::protocol_bundle_documents(), 1 + 4 + 16 + 64, 0);
+}
+
 /// The grammar check of every mutated document: production's reading of
 /// the text against the reference's grammar, refusal, path and span.
 fn grammar_disagreement(text: &str) -> Option<String> {
@@ -465,13 +578,11 @@ fn grammar_disagreement(text: &str) -> Option<String> {
     match (reference, production) {
         (Ok(_), Ok(_)) => None,
         (Err((at, problem)), Err(error)) => {
-            let span = match &error {
-                TheoryDslError::Spanned { span, .. } => Some((span.offset(), span.len())),
-                _ => None,
-            };
+            let refusal = rd::Refusal::Shape(problem.clone());
             let agrees = error.path().map(path).as_ref() == Some(&at)
-                && same_refusal(error.unlocated(), &rd::Refusal::Shape(problem.clone()))
-                && span == rd::locate(text, &at);
+                && same_refusal(error.unlocated(), &refusal)
+                && span_of(&error) == rd::locate(text, &at)
+                && yaml_refusal_agrees(read_source(text, SourceFormat::Yaml), text, &at, &refusal);
             (!agrees).then(|| {
                 format!("{text}\n  reference {problem:?} at {at:?}\n  production {error:?}")
             })
@@ -545,8 +656,62 @@ fn longer_theory() -> impl Strategy<Value = String> {
         })
 }
 
+/// The members of a scope axis as list elements: `,"key":[a]` becomes `a`.
+fn axis_elements(axis: &[&str], key: &str) -> Vec<String> {
+    let prefix = format!(",\"{key}\":[");
+    axis[1..]
+        .iter()
+        .map(|member| {
+            member
+                .trim_start_matches(prefix.as_str())
+                .trim_end_matches(']')
+                .to_owned()
+        })
+        .collect()
+}
+
+/// A dependent theory document of several operations and equations drawn
+/// from the dependent scope's axes.
+fn longer_dependent_theory() -> impl Strategy<Value = String> {
+    (
+        0..scope::DEPENDENT_EXTENDS.len(),
+        0..scope::DEPENDENT_IMPORTS.len(),
+        0..scope::DEPENDENT_SORTS.len(),
+        prop::collection::vec(
+            prop::sample::select(axis_elements(scope::DEPENDENT_OPS, "ops")),
+            0..5,
+        ),
+        prop::collection::vec(
+            prop::sample::select(axis_elements(scope::DEPENDENT_EQUATIONS, "equations")),
+            0..5,
+        ),
+    )
+        .prop_map(|(e, i, s, ops, eqs)| {
+            format!(
+                r#"{{"id":"t","description":"","theory":"T",{}{}{},"ops":[{}],"equations":[{}]}}"#,
+                scope::DEPENDENT_EXTENDS[e],
+                scope::DEPENDENT_IMPORTS[i],
+                scope::DEPENDENT_SORTS[s],
+                ops.join(","),
+                eqs.join(",")
+            )
+        })
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(512))]
+
+    #[test]
+    fn longer_dependent_theory_documents_compile_as_the_reference(
+        text in longer_dependent_theory()
+    ) {
+        let (found, outside) = on_a_large_stack(move || {
+            let mut outside = 0;
+            (disagreement(&text, &mut outside), outside)
+        });
+        prop_assert!(found.is_none(), "{}", found.unwrap_or_default());
+        prop_assert_eq!(outside, 0);
+    }
 
     #[test]
     fn longer_theory_documents_compile_as_the_reference(text in longer_theory()) {

@@ -2,7 +2,8 @@
 //!
 //! Every scope is a cartesian product of short axes, so its size is the
 //! product of the axis lengths. Documents are JSON text; the library holds
-//! the two theories `L` and `K` the documents name, and `M` names no theory.
+//! the theories `L`, `K` and `C` the documents name, and `M` names no
+//! theory.
 
 use crate::json::Value;
 use crate::pages::theories::theory::{
@@ -75,12 +76,83 @@ pub fn theory_k() -> Theory {
     }
 }
 
-/// The library: `L` and `K`; every other name is unresolved.
+fn var(name: &str) -> Term {
+    Term::Var(name.to_owned())
+}
+
+fn app(op: &str, args: Vec<Term>) -> Term {
+    Term::App(op.to_owned(), args)
+}
+
+fn hom(a: &str, b: &str) -> SortExpr {
+    SortExpr::App("Hom".to_owned(), vec![var(a), var(b)])
+}
+
+fn ob() -> SortExpr {
+    SortExpr::Name("Ob".to_owned())
+}
+
+/// The library theory `C` of categories with implicit objects.
+///
+/// Sorts `Ob` and `Hom(a : Ob, b : Ob)`; `id(x : Ob) : Hom(x, x)` and
+/// `comp({a b c : Ob}, g : Hom(b, c), f : Hom(a, b)) : Hom(a, c)` with `a`,
+/// `b`, `c` implicit; `idl : comp(id(b), f) = f` and `idr : comp(f, id(a))
+/// = f`.
+#[must_use]
+pub fn theory_c() -> Theory {
+    let implicit = |n: &str| (n.to_owned(), ob(), Implicit::Yes);
+    Theory {
+        name: "C".to_owned(),
+        sorts: vec![
+            simple_sort("Ob"),
+            Sort {
+                name: "Hom".to_owned(),
+                params: vec![("a".to_owned(), ob()), ("b".to_owned(), ob())],
+                kind: SortKind::Structural,
+                constructors: None,
+            },
+        ],
+        ops: vec![
+            Op {
+                name: "id".to_owned(),
+                inputs: vec![("x".to_owned(), ob(), Implicit::No)],
+                output: hom("x", "x"),
+            },
+            Op {
+                name: "comp".to_owned(),
+                inputs: vec![
+                    implicit("a"),
+                    implicit("b"),
+                    implicit("c"),
+                    ("g".to_owned(), hom("b", "c"), Implicit::No),
+                    ("f".to_owned(), hom("a", "b"), Implicit::No),
+                ],
+                output: hom("a", "c"),
+            },
+        ],
+        eqs: vec![
+            Equation {
+                name: "idl".to_owned(),
+                lhs: app("comp", vec![app("id", vec![var("b")]), var("f")]),
+                rhs: var("f"),
+            },
+            Equation {
+                name: "idr".to_owned(),
+                lhs: app("comp", vec![var("f"), app("id", vec![var("a")])]),
+                rhs: var("f"),
+            },
+        ],
+        ..Theory::default()
+    }
+}
+
+/// The library: `L`, `K` and `C`; every other name is unresolved.
 #[must_use]
 pub fn library(name: &str) -> Option<Theory> {
     match name {
         "L" => Some(theory_l()),
         "K" => Some(theory_k()),
+        "C" => Some(theory_c()),
         _ => None,
     }
 }
@@ -147,6 +219,79 @@ pub fn theory_documents() -> Vec<String> {
             for sorts in SORTS {
                 for ops in OPS {
                     for equations in EQUATIONS {
+                        out.push(format!(
+                            r#"{{"id":"t","description":"","theory":"T",{extends}{imports}{sorts}{ops}{equations}}}"#
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// `extends` members of the dependent scope: none, or the category theory.
+pub const DEPENDENT_EXTENDS: &[&str] = &["", r#""extends":["C"],"#];
+
+/// `imports` members of the dependent scope: none, or `C` imported bare,
+/// aliased, or aliased with `Hom` exposed.
+pub const DEPENDENT_IMPORTS: &[&str] = &[
+    "",
+    r#""imports":[{"from":"C"}],"#,
+    r#""imports":[{"from":"C","alias":"D"}],"#,
+    r#""imports":[{"from":"C","alias":"D","expose":["Hom"]}],"#,
+];
+
+/// `sorts` lists of the dependent scope.
+pub const DEPENDENT_SORTS: &[&str] = &[
+    r#""sorts":[]"#,
+    r#""sorts":[{"name":"Ob"},{"name":"Hom","params":[{"name":"a","sort":"Ob"},{"name":"b","sort":"Ob"}]}]"#,
+    r#""sorts":[{"name":"Ob"},{"name":"Hom","params":[{"name":"a","sort":"Ob"},{"name":"b","sort":"Ob"}]},{"name":"Sq","params":[{"name":"x","sort":"Ob"},{"name":"f","sort":"Hom(x, x)"}]}]"#,
+    r#""sorts":[{"name":"Cell","params":[{"name":"f","sort":"Hom(a, b)"}]}]"#,
+    r#""sorts":[{"name":"Sq","params":[{"name":"x","sort":"Ob"},{"name":"f","sort":"D.Hom(x, x)"}]}]"#,
+    r#""sorts":[{"name":"Ob"},{"name":"P","params":[{"name":"a","sort":"Ob"},{"name":"a","sort":"Ob"}]}]"#,
+    r#""sorts":[{"name":"Ob"},{"name":"P","params":[{"name":"a","sort":"Ob("}]}]"#,
+    r#""sorts":[{"name":"Ob"},{"name":"P","params":[{"name":"a","sort":"Ob(a)"}]}]"#,
+];
+
+/// `ops` members of the dependent scope: none, or one operation.
+pub const DEPENDENT_OPS: &[&str] = &[
+    "",
+    r#","ops":[{"name":"f","inputs":[{"name":"x","sort":"Ob"}],"output":"Hom(x, x)"}]"#,
+    r#","ops":[{"name":"g","inputs":[{"name":"a","sort":"Ob","implicit":true},{"name":"b","sort":"Ob","implicit":true},{"name":"h","sort":"Hom(a, b)"}],"output":"Hom(b, a)"}]"#,
+    r#","ops":[{"name":"g","inputs":[{"name":"a","sort":"Ob","implicit":true},{"name":"x","sort":"Ob"}],"output":"Ob"}]"#,
+    r#","ops":[{"name":"u","inputs":[{"name":"a","sort":"Ob","implicit":true}],"output":"Hom(a, a)"}]"#,
+    r#","ops":[{"name":"f","inputs":[{"name":"x","sort":"Ob"}],"output":"Hom(x)"}]"#,
+    r#","ops":[{"name":"f","inputs":[{"name":"x","sort":"Ob"}],"output":"Hom(x, y)"}]"#,
+    r#","ops":[{"name":"f","inputs":[{"name":"x","sort":"Ob"},{"name":"h","sort":"Hom(x, x)"}],"output":"Hom(h, x)"}]"#,
+    r#","ops":[{"name":"f","inputs":[{"name":"x","sort":"C.Ob"}],"output":"C.Hom( x , x )"}]"#,
+    r#","ops":[{"name":"f","input":"Hom(a, b)","output":"Ob"}]"#,
+    r#","ops":[{"name":"f","inputs":[{"name":"x","sort":"Ob"}],"output":"Hom(x,)"}]"#,
+    r#","ops":[{"name":"f","inputs":[{"name":"x","sort":"Ob"}],"output":"Hom(x, id(x))"}]"#,
+];
+
+/// `equations` members of the dependent scope: none, or one equation.
+pub const DEPENDENT_EQUATIONS: &[&str] = &[
+    "",
+    r#","equations":[{"name":"e","lhs":"comp(id(b), h)","rhs":"h"}]"#,
+    r#","equations":[{"name":"e","lhs":"comp(id(a), id(b))","rhs":"id(a)"}]"#,
+    r#","equations":[{"name":"e","lhs":"comp(h, comp(g, f))","rhs":"comp(comp(h, g), f)"}]"#,
+    r#","equations":[{"name":"e","lhs":"f(x)","rhs":"id(x)"}]"#,
+    r#","equations":[{"name":"e","lhs":"g(h)","rhs":"g(h)"}]"#,
+    r#","equations":[{"name":"e","lhs":"comp(f(x), id(y))","rhs":"f(x)"}]"#,
+];
+
+/// Every theory document of the dependent scope, `|DEPENDENT_EXTENDS|·
+/// |DEPENDENT_IMPORTS|·|DEPENDENT_SORTS|·|DEPENDENT_OPS|·
+/// |DEPENDENT_EQUATIONS|` of them.
+#[must_use]
+pub fn dependent_documents() -> Vec<String> {
+    let mut out = Vec::new();
+    for extends in DEPENDENT_EXTENDS {
+        for imports in DEPENDENT_IMPORTS {
+            for sorts in DEPENDENT_SORTS {
+                for ops in DEPENDENT_OPS {
+                    for equations in DEPENDENT_EQUATIONS {
                         out.push(format!(
                             r#"{{"id":"t","description":"","theory":"T",{extends}{imports}{sorts}{ops}{equations}}}"#
                         ));
@@ -228,6 +373,84 @@ pub fn bundle_documents() -> Vec<String> {
             format!(
                 r#"{{"id":"b","description":"","bundle":"B","theories":[{}]}}"#,
                 theories.join(",")
+            )
+        })
+        .collect()
+}
+
+/// Schema theory references of the protocol scope: library and missing
+/// names, and inline theories (plain, extending `L`, ill formed, and named
+/// as the library theory `L`).
+pub const PROTOCOL_SCHEMAS: &[&str] = &[
+    r#""L""#,
+    r#""M""#,
+    r#"{"theory":"S","sorts":[{"name":"X"}]}"#,
+    r#"{"theory":"S","extends":["L"],"ops":[{"name":"f","input":"V","output":"E"}]}"#,
+    r#"{"theory":"S","ops":[{"name":"f","output":"Q"}]}"#,
+    r#"{"theory":"L","sorts":[{"name":"X"}]}"#,
+];
+
+/// Instance theory references of the protocol scope.
+///
+/// Library and missing names, an inline theory equal to the first inline
+/// schema theory, an inline theory with an aliased import, and one
+/// importing a missing theory.
+pub const PROTOCOL_INSTANCES: &[&str] = &[
+    r#""K""#,
+    r#""M""#,
+    r#"{"theory":"S","sorts":[{"name":"X"}]}"#,
+    r#"{"theory":"I","imports":[{"from":"L","alias":"A"}]}"#,
+    r#"{"theory":"I","imports":[{"from":"M"}]}"#,
+];
+
+/// Edge-rule members of the protocol scope: none, one rule, two rules.
+pub const PROTOCOL_EDGE_RULES: &[&str] = &[
+    "",
+    r#","edge_rules":[{"edge_kind":"prop","src_kind":"object","tgt_kind":"string"}]"#,
+    r#","edge_rules":[{"edge_kind":"prop","src_kind":"object","tgt_kind":"string"},{"edge_kind":"item","src_kind":"array","tgt_kind":"object"}]"#,
+];
+
+/// Every protocol document of the scope, `|PROTOCOL_SCHEMAS|·
+/// |PROTOCOL_INSTANCES|·|PROTOCOL_EDGE_RULES|` of them.
+#[must_use]
+pub fn protocol_documents() -> Vec<String> {
+    let mut out = Vec::new();
+    for schema in PROTOCOL_SCHEMAS {
+        for instance in PROTOCOL_INSTANCES {
+            for rules in PROTOCOL_EDGE_RULES {
+                out.push(format!(
+                    r#"{{"id":"p","description":"","protocol":"P","schema_theory":{schema},"instance_theory":{instance}{rules}}}"#
+                ));
+            }
+        }
+    }
+    out
+}
+
+/// The protocol specs a bundle of the protocol bundle scope lists.
+///
+/// After the bundle's theory `A` with sort `X`: one naming `A`, one whose
+/// inline theory is `A` again, one whose inline theory is another `A`, and
+/// one naming the theory its own schema reference builds inline.
+pub const BUNDLE_PROTOCOLS: &[&str] = &[
+    r#"{"protocol":"P","schema_theory":"A","instance_theory":"L"}"#,
+    r#"{"protocol":"Q","schema_theory":{"theory":"A","sorts":[{"name":"X"}]},"instance_theory":"A"}"#,
+    r#"{"protocol":"R","schema_theory":{"theory":"A","sorts":[{"name":"Y"}]},"instance_theory":"K"}"#,
+    r#"{"protocol":"T","schema_theory":{"theory":"B","sorts":[{"name":"X"}]},"instance_theory":"B"}"#,
+];
+
+/// Every bundle document of the protocol bundle scope: the theory `A` and
+/// each sequence of at most three of [`BUNDLE_PROTOCOLS`], `1 + 4 + 16 +
+/// 64` of them.
+#[must_use]
+pub fn protocol_bundle_documents() -> Vec<String> {
+    crate::enumerate::sequences(&(0..BUNDLE_PROTOCOLS.len()).collect::<Vec<_>>(), 3)
+        .into_iter()
+        .map(|sequence| {
+            let protocols: Vec<&str> = sequence.iter().map(|i| BUNDLE_PROTOCOLS[*i]).collect();
+            format!(
+                r#"{{"id":"b","description":"","bundle":"B","theories":[{{"theory":"A","sorts":[{{"name":"X"}}]}}],"protocols":[{}]}}"#,
+                protocols.join(",")
             )
         })
         .collect()

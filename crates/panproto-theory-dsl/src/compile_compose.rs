@@ -52,6 +52,7 @@ use panproto_gat::{
 
 use crate::document::{ColimitStepSpec, CompositionBody, CompositionSpec_, IdentifyKind};
 use crate::error::TheoryDslError;
+use crate::path::DocumentPath;
 
 /// A compiled composition: the theory, the recipe that replays it, and the
 /// report of each step in step order.
@@ -118,6 +119,11 @@ pub fn compile_composition_spec<S: BuildHasher>(
 
 /// [`compile_composition_spec`], also returning the report of every step.
 ///
+/// Every refusal is located relative to the composition spec: an unresolved
+/// base at its `bases` entry, an unresolved side at the step's `left` or
+/// `right`, a step that cannot be composed at the step, and a composition
+/// without steps at `steps`.
+///
 /// # Errors
 ///
 /// As [`compile_composition_spec`].
@@ -127,6 +133,7 @@ pub fn compile_composition_spec_with_report<S: BuildHasher>(
     local_theories: &HashMap<String, Theory, S>,
 ) -> Result<ComposedTheory, TheoryDslError> {
     let mut registry: HashMap<String, Theory> = HashMap::new();
+    let root = DocumentPath::root();
 
     // Seed registry with local theories.
     for (name, theory) in local_theories {
@@ -134,11 +141,14 @@ pub fn compile_composition_spec_with_report<S: BuildHasher>(
     }
 
     // Resolve and register base theories.
-    for base_name in &spec.bases {
+    for (index, base_name) in spec.bases.iter().enumerate() {
         if !registry.contains_key(base_name) {
-            let theory = resolver(base_name).ok_or_else(|| TheoryDslError::TheoryNotFound {
-                name: base_name.clone(),
-                context: format!("composition '{}' bases", spec.result),
+            let theory = resolver(base_name).ok_or_else(|| {
+                TheoryDslError::TheoryNotFound {
+                    name: base_name.clone(),
+                    context: format!("composition '{}' bases", spec.result),
+                }
+                .within(&root.key("bases").index(index))
             })?;
             registry.insert(base_name.clone(), theory);
         }
@@ -160,27 +170,31 @@ pub fn compile_composition_spec_with_report<S: BuildHasher>(
     let mut reports = Vec::with_capacity(spec.steps.len());
     let mut last: Option<Theory> = None;
     for (index, step) in spec.steps.iter().enumerate() {
-        let lookup = |name: &String| {
-            registry
-                .get(name)
-                .cloned()
-                .ok_or_else(|| TheoryDslError::TheoryNotFound {
+        let at = root.key("steps").index(index);
+        let lookup = |name: &String, side: &str| {
+            registry.get(name).cloned().ok_or_else(|| {
+                TheoryDslError::TheoryNotFound {
                     name: name.clone(),
                     context: format!("composition '{}' step {index}", spec.result),
-                })
+                }
+                .within(&at.key(side))
+            })
         };
-        let left = lookup(&step.left)?;
-        let right = lookup(&step.right)?;
-        let composed = compose_step(index, step, &left, &right)?;
+        let left = lookup(&step.left, "left")?;
+        let right = lookup(&step.right, "right")?;
+        let composed = compose_step(index, step, &left, &right).map_err(|e| e.within(&at))?;
         registry.insert(format!("step_{index}"), composed.theory.clone());
         steps.push(composed.step);
         reports.push(composed.report);
         last = Some(composed.theory);
     }
 
-    let mut theory = last.ok_or_else(|| TheoryDslError::ColimitFailed {
-        step: 0,
-        message: format!("composition '{}' has no steps", spec.result),
+    let mut theory = last.ok_or_else(|| {
+        TheoryDslError::ColimitFailed {
+            step: 0,
+            message: format!("composition '{}' has no steps", spec.result),
+        }
+        .within(&root.key("steps"))
     })?;
     theory.name = spec.result.clone().into();
     Ok(ComposedTheory {
@@ -1503,10 +1517,14 @@ mod tests {
         else {
             panic!("src needs Edge shared");
         };
-        let TheoryDslError::ColimitFailed { step, message } = error else {
+        assert_eq!(
+            error.path(),
+            Some(&DocumentPath::root().key("steps").index(0))
+        );
+        let TheoryDslError::ColimitFailed { step, message } = error.unlocated() else {
             panic!("expected ColimitFailed, got {error:?}");
         };
-        assert_eq!(step, 0);
+        assert_eq!(*step, 0);
         // The message names what the user wrote, not a node or edge of the
         // step's diagram.
         assert!(
@@ -1541,10 +1559,14 @@ mod tests {
         let Err(error) = compile_composition_with_report(&body, &builtin_resolver(), &local) else {
             panic!("Edge clashes");
         };
-        let TheoryDslError::ColimitFailed { step, message } = error else {
+        assert_eq!(
+            error.path(),
+            Some(&DocumentPath::root().key("steps").index(0))
+        );
+        let TheoryDslError::ColimitFailed { step, message } = error.unlocated() else {
             panic!("expected ColimitFailed, got {error:?}");
         };
-        assert_eq!(step, 0);
+        assert_eq!(*step, 0);
         assert!(message.contains("Edge"), "{message}");
         // The recorded recipe step says the same.
         let spec = CompositionSpec::new(
@@ -1615,16 +1637,20 @@ mod tests {
 
     /// The message of a step-0 `ColimitFailed` error, checked to name no
     /// node or edge of the step's diagram.
-    fn user_message(error: TheoryDslError) -> String {
-        let TheoryDslError::ColimitFailed { step, message } = error else {
+    fn user_message(error: &TheoryDslError) -> String {
+        assert_eq!(
+            error.path(),
+            Some(&DocumentPath::root().key("steps").index(0))
+        );
+        let TheoryDslError::ColimitFailed { step, message } = error.unlocated() else {
             panic!("expected ColimitFailed, got {error:?}");
         };
-        assert_eq!(step, 0);
+        assert_eq!(*step, 0);
         assert!(
             !message.contains("step_0") && !message.contains("edge "),
             "{message}"
         );
-        message
+        message.clone()
     }
 
     #[test]
@@ -1684,7 +1710,7 @@ mod tests {
             let Err(error) = compile("explicit_identity", &[], identify) else {
                 panic!("explicit, {identify:?}: the unshared operations clash");
             };
-            let message = user_message(error);
+            let message = user_message(&error);
             assert!(message.contains("src"), "explicit, {identify:?}: {message}");
         }
     }
@@ -1709,7 +1735,7 @@ mod tests {
             panic!("src~tgt needs Vertex~Vertex");
         };
         assert_eq!(
-            user_message(error),
+            user_message(&error),
             "operation 'src', shared or identified with 'tgt', needs the sort 'Vertex' to be \
              one symbol with the right sort 'Vertex', but the step neither shares 'Vertex' \
              nor identifies it with 'Vertex'"
@@ -1778,7 +1804,7 @@ mod tests {
             ) else {
                 panic!("{mode}: src and {other} differ in arity");
             };
-            let message = user_message(error);
+            let message = user_message(&error);
             assert!(
                 message
                     == format!(
@@ -1807,7 +1833,7 @@ mod tests {
                 ) else {
                     panic!("{mode}, {identify:?}: Nope is in neither theory");
                 };
-                let message = user_message(error);
+                let message = user_message(&error);
                 assert_eq!(
                     message, "shared sort 'Nope' not found in left theory 'ThGraph'",
                     "{mode}, {identify:?}"
@@ -1827,7 +1853,7 @@ mod tests {
             ) else {
                 panic!("{mode}: Edge is not in ThHypergraph");
             };
-            let message = user_message(error);
+            let message = user_message(&error);
             assert_eq!(
                 message, "shared sort 'Edge' not found in right theory 'ThHypergraph'",
                 "{mode}"
@@ -1894,7 +1920,7 @@ mod tests {
                     ) else {
                         panic!("{mode}, {identify:?}: E differs in arity");
                     };
-                    let message = user_message(error);
+                    let message = user_message(&error);
                     assert_eq!(message, *expected, "{mode}, {identify:?}");
                 }
             }
@@ -1959,7 +1985,7 @@ mod tests {
                     panic!("{mode}, {identify:?}: V and N are not one symbol");
                 };
                 assert_eq!(
-                    user_message(error),
+                    user_message(&error),
                     "sort 'E', shared or identified with 'E', mentions the sort 'V' in its \
                      declaration, but 'V' is neither shared nor identified",
                     "{mode}, {identify:?}"
@@ -1990,7 +2016,7 @@ mod tests {
                 panic!("{identify:?}: V is not shared");
             };
             assert_eq!(
-                user_message(error),
+                user_message(&error),
                 "sort 'E', shared or identified with 'E', mentions the sort 'V' in its \
                  declaration, but 'V' is neither shared nor identified",
                 "{identify:?}"
@@ -2081,7 +2107,7 @@ mod tests {
             panic!("the two Vs differ in arity");
         };
         assert_eq!(
-            user_message(error),
+            user_message(&error),
             "amalgamated sort 'V' has arity 0 in left theory 'L', but 'V' has arity 1 in right \
              theory 'R'"
         );
