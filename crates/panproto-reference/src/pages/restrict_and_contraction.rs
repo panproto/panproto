@@ -1963,7 +1963,9 @@ pub mod restrict {
 
     /// Internal put helper: map a non-synthesized view edge back to a source
     /// label without recorded originals. `source_anchor` gives the source
-    /// anchor of a view node.
+    /// anchor of a view node; a non-fan label runs between the source anchors
+    /// of the edge's endpoints where they are known, which singles out one
+    /// label where a migration merges several source vertices into one.
     ///
     /// # Errors
     ///
@@ -2017,6 +2019,8 @@ pub mod restrict {
                 matches!(f, EdgeFate::Keep(i) if *i == e.label)
                     && m.vertex_image(&p.src) == vs.anchor
                     && m.vertex_image(&p.tgt) == vt.anchor
+                    && source_anchor(e.src).is_none_or(|anchor| anchor == p.src)
+                    && source_anchor(e.tgt).is_none_or(|anchor| anchor == p.tgt)
             })
             .map(|(p, _)| p)
             .collect();

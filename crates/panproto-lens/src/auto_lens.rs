@@ -1613,43 +1613,10 @@ fn derive_field_transforms(
                 }
             }
             TheoryTransform::AddDirectedEquation(deq) => {
-                // For a pattern `f(x) ⇒ g(x)` the field being rewritten is
-                // the op `f`, not the bound variable `x`. A bare `Var` LHS
-                // is not a meaningful rewrite target at the instance
-                // level, so we skip it rather than plumb the variable
-                // name through as a phantom field key.
-                let Some(key) = (match &deq.lhs {
-                    panproto_gat::Term::App { op, .. } => Some(op.to_string()),
-                    panproto_gat::Term::Var(_)
-                    | panproto_gat::Term::Case { .. }
-                    | panproto_gat::Term::Hole { .. }
-                    | panproto_gat::Term::Let { .. } => None,
-                }) else {
-                    continue;
-                };
-                // Apply the rewrite only to vertices that actually have
-                // an outgoing edge with this name. The previous
-                // implementation pushed the transform onto *every*
-                // vertex in the schema, including ones that never
-                // mention the op — which both ballooned the complement
-                // and ran the equation on unrelated field values.
-                for vid in src.vertices.keys() {
-                    let has_edge = src
-                        .outgoing_edges(vid)
-                        .iter()
-                        .any(|e| e.name.as_deref() == Some(key.as_str()));
-                    if !has_edge {
-                        continue;
-                    }
-                    transforms
-                        .entry(vid.clone())
-                        .or_default()
-                        .push(FieldTransform::ApplyExpr {
-                            key: key.clone(),
-                            expr: deq.impl_term.clone(),
-                            inverse: deq.inverse.clone(),
-                            coercion_class: deq.coercion_class,
-                        });
+                for (vertex, transform) in
+                    crate::protolens::directed_equation_transforms(deq, src)
+                {
+                    transforms.entry(vertex).or_default().push(transform);
                 }
             }
             TheoryTransform::CoerceSort {

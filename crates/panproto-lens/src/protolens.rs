@@ -314,7 +314,7 @@ impl Protolens {
             src_schema,
             tgt_schema,
         };
-        attach_exact_vertex_kind_coercions(&mut lens, &self.target.transform)?;
+        attach_declared_value_transforms(&mut lens, &self.target.transform)?;
         let defaults =
             crate::default_synthesis::constructor_defaults(&self.complement_constructor)?;
         let target_schema = lens.tgt_schema.clone();
@@ -419,13 +419,18 @@ impl Protolens {
     }
 }
 
-/// Install value transforms for exact per-vertex kind changes.
+/// Install the value transforms a transform declares: exact per-vertex kind
+/// changes, sort coercions and directed equations.
 ///
 /// A schema kind mutation is not a value coercion by itself. The target
 /// schema must register the coercion for the old/new kind pair; otherwise
 /// instantiation fails instead of emitting values that violate the target
-/// schema. Composite transforms preserve step order.
-fn attach_exact_vertex_kind_coercions(
+/// schema. A sort coercion applies its forward expression to the value of
+/// every node of every vertex of the coerced kind that survives, with its
+/// inverse and class. A directed equation rewrites the field its left-hand
+/// side names ([`directed_equation_transforms`]). Composite transforms
+/// preserve step order.
+fn attach_declared_value_transforms(
     lens: &mut Lens,
     transform: &TheoryTransform,
 ) -> Result<(), LensError> {
@@ -457,15 +462,109 @@ fn attach_exact_vertex_kind_coercions(
             );
             Ok(())
         }
+        TheoryTransform::CoerceSort {
+            sort_name,
+            coercion_expr,
+            inverse_expr,
+            coercion_class,
+            ..
+        } => {
+            let mut coerced: Vec<Name> = lens
+                .src_schema
+                .vertices
+                .values()
+                .filter(|vertex| {
+                    *vertex.kind == **sort_name && lens.tgt_schema.vertices.contains_key(&vertex.id)
+                })
+                .map(|vertex| vertex.id.clone())
+                .collect();
+            coerced.sort();
+            for id in coerced {
+                lens.compiled.field_transforms.entry(id).or_default().push(
+                    panproto_inst::FieldTransform::ApplyExpr {
+                        key: "__value__".to_owned(),
+                        expr: coercion_expr.clone(),
+                        inverse: inverse_expr.clone(),
+                        coercion_class: *coercion_class,
+                    },
+                );
+            }
+            Ok(())
+        }
+        TheoryTransform::AddDirectedEquation(equation) => {
+            for (vertex, transform) in directed_equation_transforms(equation, &lens.src_schema) {
+                if lens.tgt_schema.vertices.contains_key(&vertex) {
+                    lens.compiled
+                        .field_transforms
+                        .entry(vertex)
+                        .or_default()
+                        .push(transform);
+                }
+            }
+            Ok(())
+        }
         TheoryTransform::Compose(first, second) => {
-            attach_exact_vertex_kind_coercions(lens, first)?;
-            attach_exact_vertex_kind_coercions(lens, second)
+            attach_declared_value_transforms(lens, first)?;
+            attach_declared_value_transforms(lens, second)
         }
         TheoryTransform::ScopedTransform { inner, .. } => {
-            attach_exact_vertex_kind_coercions(lens, inner)
+            attach_declared_value_transforms(lens, inner)
         }
         _ => Ok(()),
     }
+}
+
+/// The value transforms a directed equation declares at a schema.
+///
+/// A left-hand side `f(t, ...)` names the field `f`: at every vertex with an
+/// outgoing edge labelled `f`, in id order, the field's value is rewritten
+/// by the equation's implementation and an edit is taken back by its
+/// inverse, each evaluated with the field's value bound to `x`, the variable
+/// the equation's honesty check binds for an application, under the
+/// equation's class. A left-hand side that is no application names no
+/// field, and declares no value transform.
+#[must_use]
+pub(crate) fn directed_equation_transforms(
+    equation: &panproto_gat::DirectedEquation,
+    schema: &Schema,
+) -> Vec<(Name, panproto_inst::FieldTransform)> {
+    let panproto_gat::Term::App { op, .. } = &equation.lhs else {
+        return Vec::new();
+    };
+    let field = Name::from(&**op);
+    let bound: Arc<str> = Arc::from("x");
+    let bind = |expr: &panproto_expr::Expr| {
+        panproto_expr::Expr::let_in(
+            Arc::clone(&bound),
+            panproto_expr::Expr::Var(Arc::from(&**op)),
+            expr.clone(),
+        )
+    };
+    let mut vertices: Vec<&Name> = schema
+        .vertices
+        .keys()
+        .filter(|vertex| {
+            schema
+                .outgoing_edges(vertex)
+                .iter()
+                .any(|edge| edge.name.as_ref() == Some(&field))
+        })
+        .collect();
+    vertices.sort();
+    vertices
+        .into_iter()
+        .map(|vertex| {
+            (
+                vertex.clone(),
+                panproto_inst::FieldTransform::ApplyExpr {
+                    key: field.to_string(),
+                    expr: bind(&equation.impl_term),
+                    inverse: equation.inverse.as_ref().map(bind),
+                    coercion_class: equation.coercion_class,
+                },
+            )
+        })
+        .collect()
 }
 
 /// The composite of `transforms` in order, as a `Compose` tree split at
@@ -2066,6 +2165,54 @@ pub mod elementary {
         }
     }
 
+    /// `η : Id ⟹ MergeSorts(a, b, m)`: identify the sorts `a` and `b` as the
+    /// sort `m`.
+    ///
+    /// At a schema with a vertex of each kind, every vertex of kind `a` or
+    /// `b` takes the kind `m`; vertex ids, edges and data are unchanged, so
+    /// the instantiated lens is a relabelling. The complement constructor
+    /// records the data of both sorts, since the theory-level merge is not
+    /// injective on sorts.
+    #[must_use]
+    pub fn merge_sorts(
+        sort_a: impl Into<Name>,
+        sort_b: impl Into<Name>,
+        merged: impl Into<Name>,
+        merger_expr: panproto_expr::Expr,
+    ) -> Protolens {
+        let sort_a = sort_a.into();
+        let sort_b = sort_b.into();
+        let merged = merged.into();
+        let first = name_arc_clone(&sort_a);
+        let second = name_arc_clone(&sort_b);
+        let precondition = TheoryConstraint::All(vec![
+            TheoryConstraint::HasSort(Arc::clone(&first)),
+            TheoryConstraint::HasSort(Arc::clone(&second)),
+        ]);
+        Protolens {
+            name: Name::from(format!("merge_{sort_a}_{sort_b}_{merged}")),
+            source: TheoryEndofunctor {
+                name: Arc::from("id"),
+                precondition: precondition.clone(),
+                transform: TheoryTransform::Identity,
+            },
+            target: TheoryEndofunctor {
+                name: Arc::from(&*format!("merge_{sort_a}_{sort_b}")),
+                precondition,
+                transform: TheoryTransform::MergeSorts {
+                    sort_a: first,
+                    sort_b: second,
+                    merged_name: name_arc_clone(&merged),
+                    merger_expr,
+                },
+            },
+            complement_constructor: ComplementConstructor::Composite(vec![
+                ComplementConstructor::DroppedSortData { sort: sort_a },
+                ComplementConstructor::DroppedSortData { sort: sort_b },
+            ]),
+        }
+    }
+
     /// Honesty-checked [`directed_eq`].
     ///
     /// Verifies the directed equation's declared
@@ -2990,13 +3137,12 @@ fn apply_theory_transform_to_schema(
             sort_a,
             sort_b,
             merged_name,
-            merger_expr,
+            ..
         } => Ok(apply_merge_sorts_to_schema(
             schema,
             sort_a,
             sort_b,
             merged_name,
-            merger_expr,
         )),
         TheoryTransform::RenameSort { old, new } => Ok(apply_sort_renames(
             schema,
@@ -3459,44 +3605,33 @@ fn apply_add_op(schema: &Schema, op: &panproto_gat::Operation) -> Schema {
         return new_schema;
     }
     let edge = Edge {
-        src: src.clone(),
-        tgt: tgt.clone(),
+        src,
+        tgt,
         kind: Name::from(&*op.name),
         name: Some(Name::from(&*op.name)),
     };
-    new_schema.edges.insert(edge.clone(), Name::from(&*op.name));
-    new_schema
-        .outgoing
-        .entry(src)
-        .or_default()
-        .push(edge.clone());
-    new_schema.incoming.entry(tgt).or_default().push(edge);
+    new_schema.edges.insert(edge, Name::from(&*op.name));
+    rebuild_indices(&mut new_schema);
     new_schema
 }
 
-/// Merge two sort-vertices into a single vertex with the supplied merger
-/// expression installed.
+/// Merge two sorts into one: every vertex of either kind takes the merged
+/// kind, all at once, as the theory-level merge renames both sorts to the
+/// merged one. Vertex ids, edges and data are unchanged, so no two nodes
+/// are ever identified and the merger expression has no values to combine.
 fn apply_merge_sorts_to_schema(
     schema: &Schema,
     sort_a: &Arc<str>,
     sort_b: &Arc<str>,
     merged_name: &Arc<str>,
-    merger_expr: &panproto_expr::Expr,
 ) -> Schema {
-    let mut new_schema = apply_drop_sort_from_schema(schema, sort_a);
-    new_schema = apply_drop_sort_from_schema(&new_schema, sort_b);
-    let vertex = Vertex {
-        id: Name::from(&**merged_name),
-        kind: Name::from(&**merged_name),
-        nsid: None,
-    };
-    new_schema
-        .vertices
-        .insert(Name::from(&**merged_name), vertex);
-    new_schema
-        .mergers
-        .insert(Name::from(&**merged_name), merger_expr.clone());
-    new_schema
+    apply_sort_renames(
+        schema,
+        &HashMap::from([
+            (Arc::clone(sort_a), Arc::clone(merged_name)),
+            (Arc::clone(sort_b), Arc::clone(merged_name)),
+        ]),
+    )
 }
 
 /// Rebuild `outgoing`, `incoming`, and `between` adjacency indices from
@@ -5994,12 +6129,13 @@ mod step_laws {
 
     #[test]
     fn step_law_coerce_sort() {
-        // An Iso identity coercion on the `string` sort is lossless.
+        // An Iso identity coercion on the `string` sort is lossless. The
+        // coerced value is bound as `v`.
         assert_step_law(elementary::sort_coerce(
             "string",
             ValueKind::Str,
-            panproto_expr::Expr::var("x"),
-            Some(panproto_expr::Expr::var("x")),
+            panproto_expr::Expr::var("v"),
+            Some(panproto_expr::Expr::var("v")),
             CoercionClass::Iso,
         ));
     }
@@ -6439,6 +6575,193 @@ mod fused_edges_follow_their_steps {
         assert_eq!(
             lens.compiled.edge_remap.get(&edge("p", "y")),
             Some(&edge("r", "y"))
+        );
+        Ok(())
+    }
+}
+
+/// A sort coercion rewrites the values of its sort's nodes at get and takes
+/// an edited value back by its inverse at put.
+#[cfg(test)]
+mod sort_coercions_rewrite_values {
+    use std::error::Error;
+    use std::sync::Arc;
+
+    use panproto_expr::{BuiltinOp, Expr};
+    use panproto_gat::{CoercionClass, ValueKind};
+    use panproto_inst::{FieldPresence, GInstance, Node, Value};
+    use panproto_schema::{Protocol, SchemaBuilder};
+
+    use super::elementary;
+
+    type TestResult = Result<(), Box<dyn Error>>;
+
+    #[test]
+    fn an_integer_to_string_coercion_rewrites_the_value_and_puts_an_edit_back() -> TestResult {
+        let protocol = Protocol::default();
+        let schema = SchemaBuilder::new(&protocol)
+            .vertex("a", "integer", None)?
+            .build()?;
+        let v = || Expr::Var(Arc::from("v"));
+        let lens = elementary::sort_coerce(
+            "integer",
+            ValueKind::Str,
+            Expr::Builtin(BuiltinOp::IntToStr, vec![v()]),
+            Some(Expr::Builtin(BuiltinOp::StrToInt, vec![v()])),
+            CoercionClass::Iso,
+        )
+        .instantiate_checked(&schema, &protocol)?;
+        let mut source = GInstance::new();
+        let mut node = Node::new(0, "a");
+        node.value = Some(FieldPresence::Present(Value::Int(5)));
+        source.insert_node(node)?;
+        let (mut view, complement) = crate::graph_lens::get(&lens, &source)?;
+        assert_eq!(
+            view.node(0).and_then(|node| node.value.clone()),
+            Some(FieldPresence::Present(Value::Str("5".to_owned())))
+        );
+        if let Some(node) = view.node_mut(0) {
+            node.value = Some(FieldPresence::Present(Value::Str("9".to_owned())));
+        }
+        let restored = crate::graph_lens::put(&lens, &view, &complement)?;
+        assert_eq!(
+            restored.node(0).and_then(|node| node.value.clone()),
+            Some(FieldPresence::Present(Value::Int(9)))
+        );
+        Ok(())
+    }
+}
+
+/// Adding an operation indexes its edge between its endpoints, so a lens
+/// instantiated at the extended schema maps a view edge of that operation
+/// back.
+#[cfg(test)]
+mod added_operations_are_indexed {
+    use std::error::Error;
+
+    use panproto_schema::{Edge, Protocol, SchemaBuilder};
+
+    use super::elementary;
+
+    type TestResult = Result<(), Box<dyn Error>>;
+
+    #[test]
+    fn an_added_operation_edge_is_indexed_between_its_endpoints() -> TestResult {
+        let protocol = Protocol::default();
+        let schema = SchemaBuilder::new(&protocol)
+            .vertex("a", "s", None)?
+            .vertex("b", "s", None)?
+            .build()?;
+        let lens =
+            elementary::add_op("o", "a", "b", "o").instantiate_checked(&schema, &protocol)?;
+        let edge = Edge {
+            src: "a".into(),
+            tgt: "b".into(),
+            kind: "o".into(),
+            name: Some("o".into()),
+        };
+        assert!(
+            lens.tgt_schema
+                .between
+                .get(&("a".into(), "b".into()))
+                .is_some_and(|edges| edges.contains(&edge))
+        );
+        Ok(())
+    }
+}
+
+/// A sort merge relabels both sorts as the merged one and keeps every node,
+/// and a directed equation rewrites the field its left-hand side names.
+#[cfg(test)]
+mod merges_and_directed_equations_keep_and_rewrite_data {
+    use std::error::Error;
+    use std::sync::Arc;
+
+    use panproto_expr::{BuiltinOp, Expr, Literal};
+    use panproto_gat::{CoercionClass, DirectedEquation, Term};
+    use panproto_inst::{FieldPresence, GInstance, Node, Value};
+    use panproto_schema::{Protocol, SchemaBuilder};
+
+    use super::elementary;
+
+    type TestResult = Result<(), Box<dyn Error>>;
+
+    #[test]
+    fn a_merge_relabels_both_sorts_and_keeps_their_nodes() -> TestResult {
+        let protocol = Protocol::default();
+        let schema = SchemaBuilder::new(&protocol)
+            .vertex("x", "s", None)?
+            .vertex("y", "t", None)?
+            .edge("x", "y", "prop", Some("e"))?
+            .build()?;
+        let lens = elementary::merge_sorts("s", "t", "m", Expr::Var(Arc::from("v")))
+            .instantiate_checked(&schema, &protocol)?;
+        let kinds: Vec<(&str, &str)> = {
+            let mut kinds: Vec<_> = lens
+                .tgt_schema
+                .vertices
+                .values()
+                .map(|vertex| (vertex.id.as_str(), vertex.kind.as_str()))
+                .collect();
+            kinds.sort_unstable();
+            kinds
+        };
+        assert_eq!(kinds, vec![("x", "m"), ("y", "m")]);
+        assert_eq!(lens.tgt_schema.edges.len(), 1);
+        let mut source = GInstance::new();
+        let mut node = Node::new(0, "x");
+        node.value = Some(FieldPresence::Present(Value::Int(1)));
+        source.insert_node(node)?;
+        source.insert_node(Node::new(1, "y"))?;
+        let (view, complement) = crate::graph_lens::get(&lens, &source)?;
+        assert_eq!(view.nodes().len(), 2);
+        assert!(complement.dropped_nodes.is_empty());
+        assert_eq!(
+            view.node(0).and_then(|node| node.value.clone()),
+            Some(FieldPresence::Present(Value::Int(1)))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_directed_equation_rewrites_its_field_and_puts_an_edit_back() -> TestResult {
+        let protocol = Protocol::default();
+        let schema = SchemaBuilder::new(&protocol)
+            .vertex("p", "object", None)?
+            .vertex("p.n", "integer", None)?
+            .edge("p", "p.n", "prop", Some("n"))?
+            .build()?;
+        let x = || Expr::Var(Arc::from("x"));
+        let one = || Expr::Lit(Literal::Int(1));
+        let lens = elementary::directed_eq(DirectedEquation {
+            name: Arc::from("succ_n"),
+            lhs: Term::app("n", vec![Term::var("x")]),
+            rhs: Term::app("n", vec![Term::var("x")]),
+            impl_term: Expr::Builtin(BuiltinOp::Add, vec![x(), one()]),
+            inverse: Some(Expr::Builtin(BuiltinOp::Sub, vec![x(), one()])),
+            source_kind: None,
+            target_kind: None,
+            coercion_class: CoercionClass::Iso,
+        })
+        .instantiate_checked(&schema, &protocol)?;
+        let mut source = GInstance::new();
+        let mut node = Node::new(0, "p");
+        node.extra_fields.insert("n".to_owned(), Value::Int(5));
+        source.insert_node(node)?;
+        let (mut view, complement) = crate::graph_lens::get(&lens, &source)?;
+        assert_eq!(
+            view.node(0).and_then(|node| node.extra_fields.get("n").cloned()),
+            Some(Value::Int(6))
+        );
+        if let Some(node) = view.node_mut(0) {
+            node.extra_fields.insert("n".to_owned(), Value::Int(9));
+        }
+        let restored = crate::graph_lens::put(&lens, &view, &complement)?;
+        assert_eq!(
+            restored
+                .node(0)
+                .and_then(|node| node.extra_fields.get("n").cloned()),
+            Some(Value::Int(8))
         );
         Ok(())
     }

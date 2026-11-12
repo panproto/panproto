@@ -3,7 +3,8 @@
 //!
 //! Each kind is one of three shapes on a schema: a relabelling of vertex
 //! kinds and edges, a restriction to a subschema, or an extension by new
-//! vertices and edges. Each shape is defined once, directly on the reference
+//! vertices and edges. A sort merge is a relabelling that sends two kinds to
+//! one. Each shape is defined once, directly on the reference
 //! schema, as a target boundary and a migration from the source. The
 //! instance semantics of a kind at a schema is the graph lens of that
 //! boundary and migration: get, put, the complement and every put-domain
@@ -52,6 +53,16 @@ pub enum ElementaryProtolens {
         sorts: BTreeMap<Name, Name>,
         /// Edge kind renaming.
         ops: BTreeMap<Name, Name>,
+    },
+    /// Identify the vertex kinds `first` and `second` as `merged`: every
+    /// vertex of either kind takes the kind `merged`, all at once.
+    MergeSorts {
+        /// One merged kind.
+        first: Name,
+        /// The other merged kind.
+        second: Name,
+        /// The kind both become.
+        merged: Name,
     },
     /// Add an equation to the theory; a schema records no equations.
     AddEquation,
@@ -117,6 +128,7 @@ impl ElementaryProtolens {
     pub const fn shape(&self) -> ElementaryShape {
         match self {
             Self::RenameSort { .. }
+            | Self::MergeSorts { .. }
             | Self::RenameOp { .. }
             | Self::RenameEdgeName { .. }
             | Self::Pullback { .. }
@@ -134,6 +146,10 @@ impl ElementaryProtolens {
     pub fn precondition(&self) -> SchemaPrecondition {
         match self {
             Self::RenameSort { old, .. } => SchemaPrecondition::HasVertexKind(old.clone()),
+            Self::MergeSorts { first, second, .. } => SchemaPrecondition::All(vec![
+                SchemaPrecondition::HasVertexKind(first.clone()),
+                SchemaPrecondition::HasVertexKind(second.clone()),
+            ]),
             Self::RenameOp { old, .. } | Self::DropOp(old) => {
                 SchemaPrecondition::HasEdgeKind(old.clone())
             }
@@ -159,7 +175,7 @@ impl ElementaryProtolens {
     /// [`ElementaryRefusal::IdentifiesEdges`] when a relabelling is not
     /// injective on the schema's edges.
     ///
-    /// Book anchors: `L-lenses-21`.
+    /// Book anchors: `L-lenses-21`, `L-lenses-26`.
     pub fn target_and_migration(
         &self,
         schema: &Schema,
@@ -168,6 +184,18 @@ impl ElementaryProtolens {
             Self::RenameSort { old, new } => relabel(
                 schema,
                 &BTreeMap::from([(old.clone(), new.clone())]),
+                SEdge::clone,
+            ),
+            Self::MergeSorts {
+                first,
+                second,
+                merged,
+            } => relabel(
+                schema,
+                &BTreeMap::from([
+                    (first.clone(), merged.clone()),
+                    (second.clone(), merged.clone()),
+                ]),
                 SEdge::clone,
             ),
             Self::RenameOp { old, new } => {

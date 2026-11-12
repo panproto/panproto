@@ -2,8 +2,12 @@
 
 // Structural alignment of a tree view read from a serialization.
 mod alignment;
+// The sort coercion protolens's value layer.
+mod coercion;
 // Fused chains, scoped protolenses and sequential composites.
 mod composite;
+// The value-level steps' field programs.
+mod field_program;
 mod constructions;
 // The elementary protolens kinds of the lens DSL's step alphabet.
 mod elementary;

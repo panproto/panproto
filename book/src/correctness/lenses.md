@@ -164,7 +164,7 @@ For a lens $\ell$, a complement $c$ produced by $\operatorname{get}_\ell$ and a 
 
 1. `IdCollision`, a view node or edge whose id is a dropped id;
 2. `SynthesizedEdited`, a synthesized object missing from the view or changed, unless an endpoint of its chain was removed;
-3. the edge back-mapping: a non-synthesized view edge maps back to its recorded label when `original_edges` records it with the same endpoints, else to the unique source edge whose fate keeps its label between preimages of its endpoints' anchors, and otherwise refuses with `ContractedEdgeInserted` (when the endpoints form a planned pair resolving to its label) or `UnrepresentableViewEdge`; a fan edge maps back through its hyper-edge's labels;
+3. the edge back-mapping: a non-synthesized view edge maps back to its recorded label when `original_edges` records it with the same endpoints, else to the unique source edge whose fate keeps its label and which runs from the restored anchor of its source endpoint to the restored anchor of its target endpoint (each a preimage of that endpoint's view anchor: the recorded anchor when its image is the view anchor, else the anchor's unique preimage), so that the restored edge is an edge of the source schema between its restored endpoints even where a migration merges several source vertices into one, and otherwise refuses with `ContractedEdgeInserted` (when the endpoints form a planned pair resolving to its label) or `UnrepresentableViewEdge`; a fan edge maps back through its hyper-edge's labels;
 4. `AmbiguousReverseAnchor`, a view-added or re-anchored node whose anchor has more than one preimage;
 5. `SurvivalPredicateFails` and `SurvivalPredicateRefused`, read on the get of the restored source: a restored view node that get does not keep is `SurvivalPredicateFails`, and a restored source that get refuses is `SurvivalPredicateRefused` at the element the refusal names (an edge for a refusal at the edge stage, a node otherwise, node `0` when it names none), carrying a survival predicate's typed refusal as it is and any other refusal as `EvaluationFailed` with that refusal's message;
 6. `TransformNotInvertible` and `DerivedCellEdited`, comparing presence exactly and present values under value equivalence;
@@ -1000,7 +1000,7 @@ A schema that fails the precondition is refused before instantiation with `LensE
 
 ### Definitions used
 
-Lens, get, put, put domain and the Delta fragment are defined at the head of this page; restoration and the cascade are those of [L-lenses-4](#L-lenses-4), and checked instantiation is that of [L-lenses-19](#L-lenses-19). Three choices fix the kinds where the theory leaves the schema operation open, and the reference makes the same choices. A rename of an edge name onto a name that an edge between the same vertices already carries leaves that edge unrenamed, so the rename stays injective. A pullback renames every vertex kind at once and then every edge kind at once, so a morphism that swaps two sorts swaps them. Add sort with the id of a vertex already in $S$ replaces that vertex's kind, and add edge or add operation with an endpoint that is not a vertex of $S$ leaves the schema unchanged. Protolenses that carry a value-level transform (sort coercion, sort merging, directed equations, `add_field`, `apply_expr` and `compute_field`), fused chains of several kinds (`add_field`, `hoist_field` and `nest_field`) and scoped protolenses are not in this law's domain.
+Lens, get, put, put domain and the Delta fragment are defined at the head of this page; restoration and the cascade are those of [L-lenses-4](#L-lenses-4), and checked instantiation is that of [L-lenses-19](#L-lenses-19). Three choices fix the kinds where the theory leaves the schema operation open, and the reference makes the same choices. A rename of an edge name onto a name that an edge between the same vertices already carries leaves that edge unrenamed, so the rename stays injective. A pullback renames every vertex kind at once and then every edge kind at once, so a morphism that swaps two sorts swaps them. Add sort with the id of a vertex already in $S$ replaces that vertex's kind, and add edge or add operation with an endpoint that is not a vertex of $S$ leaves the schema unchanged. Protolenses that carry a value-level transform (sort coercion, directed equations, `add_field`, `apply_expr` and `compute_field`), the sort merge, fused chains of several kinds (`add_field`, `hoist_field` and `nest_field`) and scoped protolenses are not in this law's domain; [L-lenses-22](#L-lenses-22) to [L-lenses-27](#L-lenses-27) state them.
 
 ### Proof
 
@@ -1147,4 +1147,119 @@ Lens paths, their groups and located refusals are those of [L-lenses-13](#L-lens
 - File: `crates/panproto-lens/src/protolens.rs`
 - File: `crates/panproto-lens/src/lens_path.rs`
 - File: `crates/panproto-reference/src/pages/lenses/composite.rs`
+- File: `crates/panproto-reference/src/enumerate/lenses.rs`
+
+## A sort coercion rewrites every value of its sort and puts an edit back by its inverse {#L-lenses-25}
+
+### Statement
+
+The lens DSL compiles `coerce_sort` to a sort coercion with a forward expression $f$, an optional inverse $g$ and a declared class. At a schema $S$ with a vertex of the coerced kind, the target is $S$ (the coercion is recorded beside the schema, its vertices and edges unchanged), every vertex and edge survives under its own name, and every vertex of the coerced kind is transformed. Get replaces the value $x$ of each node of such a vertex by $f(x)$ when $x$ is present, and leaves an absent or null value as it is; the complement records the source value of each node whose value get changed. Put restores each such node's value from its view value $y$ and the recorded source value $x$:
+
+1. when $y = f(x)$, put returns $x$, so an unedited value comes back exactly whatever the class;
+2. when get recorded nothing and $f$ fixes $y$, put returns $y$;
+3. otherwise $y$ is an edit: a coercion with no inverse refuses it with `TransformNotInvertible`, and one with an inverse returns $g(y)$ for a present $y$ (refusing a $y$ outside $g$'s domain the same way) and $y$ itself for an absent or null one.
+
+A node at a vertex of another kind keeps its view value. GetPut holds on every source whose get succeeds. PutGet holds on the views whose edited values $y$ satisfy $f(g(y)) = y$, which is what the declared class promises: an isomorphism or a retraction declares $f \circ g = \mathrm{id}$ on the view's values, so every edit within $g$'s domain round-trips, while a projection or an opaque coercion has no inverse and its put domain is the views that edit no coerced value. The class decides what the complement must keep: an isomorphism keeps nothing it needs (its recorded values equal $g$ of the view's), a retraction keeps what $g$ cannot recover, and a projection or opaque coercion keeps every source value, which is why `invertible: true` refuses those classes.
+
+The carrier enumerates four coercions of the kind `integer` (integer to string with its parse as inverse, declared an isomorphism; successor with predecessor as inverse, declared a retraction; successor with no inverse, declared a projection, and declared opaque) over three schemas: 324 applications and 3,624 puts.
+
+### Outside the domain
+
+A schema with no vertex of the coerced kind is refused before instantiation with `LensError::ProtolensInapplicable`. A source value outside $f$'s domain is refused by get with the field transform's failure. A view outside the put domain is refused by put with `TransformNotInvertible` at the edited node, or with the first other violation of [L-lenses-4](#L-lenses-4).
+
+### Definitions used
+
+The value layer and its restoration are those of [L-lenses-3](#L-lenses-3) and [L-lenses-4](#L-lenses-4). The reference's `SortCoercion` takes $f$ and $g$ as functions on its own values. The carrier's maps are written beside the reference on its values, not evaluated by the expression language; for an arbitrary coercion the expression evaluator, checked on the [Values](values.md) page, is the trusted boundary between a document's expressions and these maps. A coercion's declared class is checked against samples when the lens DSL compiles the step ([Lens DSL](lens-dsl.md)); this law takes the declaration as given, so an isomorphism whose $f \circ g$ is not the identity on some view value loses PutGet there.
+
+### Proof
+
+1. Production instantiates the coercion by recording the coercion beside the schema and attaching to every surviving vertex of the coerced kind a value transform with $f$, $g$ and the class; the reference's `SortCoercion::target_and_migration` marks the same vertices transformed. The differential compares the targets, views and complements.
+2. GetPut: get records $x$ whenever $f(x) \ne x$, so clause 1 or 2 returns the source value of every node.
+3. PutGet: for an edit $y$ in the domain, put returns $g(y)$ and get then shows $f(g(y)) = y$; for an unedited value it returns $x$ and get shows $f(x) = y$.
+4. Refusals: an edit with no inverse has no source value whose image is $y$ that put could choose without guessing, so it is refused, which keeps PutGet on the domain.
+
+### Executable counterpart
+
+- Law ID: `lenses.sort-coercion-instances`
+- Reference: `panproto_reference::lens::SortCoercion::target_and_migration`
+- Enumerator: `panproto_reference::enumerate::lenses::coercion_count_certificate; bound: kinds=4, schemas=3, source_states=81, get_cases=324, inapplicable=0, identifying=0, instantiated=12, get_refusals=0, put_cases=3624`
+- Exhaustive differential test: `sort_coercions_agree_with_the_reference_exhaustively; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=sort_coercions_agree_with_the_reference_exhaustively)'`
+- Property differential test: `randomized_sort_coercion_differential; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_sort_coercion_differential)'`
+- File: `crates/panproto-lens/src/protolens.rs`
+- File: `crates/panproto-reference/src/pages/lenses/coercion.rs`
+- File: `crates/panproto-reference/src/enumerate/lenses.rs`
+
+## A sort merge relabels both sorts as the merged sort and keeps every node {#L-lenses-26}
+
+### Statement
+
+Merging two sorts identifies them: the lens DSL compiles `merge_sorts` with sorts $a$ and $b$ and merged name $m$ to one protolens, and the theory-level transform it denotes renames both $a$ and $b$ to $m$. At a schema $S$ with a vertex of kind $a$ and a vertex of kind $b$, the target $T$ is $S$ with every vertex of kind $a$ or $b$ given the kind $m$, all at once; vertex ids and edges are unchanged. The merge is thus a relabelling of [L-lenses-21](#L-lenses-21) with the kind map $a \mapsto m$, $b \mapsto m$ and the identity on edges, and its instance semantics is that relabelling's graph lens: get returns the source as the view, the complement records nothing, GetPut holds on every source, and PutGet holds on every view in $D(c)$. No two nodes are identified, since every node keeps its vertex, so the merger expression the step carries has no pair of values to combine and does not act on data.
+
+The carrier enumerates four merges (of `s` and `t` into the fresh `m`, of `s` and `t` into `s`, of `s` with itself into `m`, and of `s` with the absent `u`) over the fourteen two-vertex schemas of [L-lenses-21](#L-lenses-21): 2,712 applications and 45,276 puts.
+
+### Outside the domain
+
+A schema without a vertex of kind $a$, or without one of kind $b$, is refused before instantiation with `LensError::ProtolensInapplicable`. A view outside $D(c)$ is refused by put with the first violation of [L-lenses-4](#L-lenses-4).
+
+### Definitions used
+
+Relabelling, its graph lens and its put domain are those of [L-lenses-21](#L-lenses-21). The protolens records the data of both sorts in its complement constructor and declares itself lossy, since the theory map that identifies two sorts is not injective; at the instance level every vertex keeps its id, so a view node's anchor names its source vertex and the complement of every application is empty.
+
+### Proof
+
+1. Production instantiates the merge by the simultaneous sort renaming that `rename_sort` uses, with both sorts sent to $m$, and compares $S$ with $T$; the reference's `ElementaryProtolens::target_and_migration` builds the relabelling with the same kind map. The differential compares the targets, then the views, complements and puts.
+2. A kind map acts on vertices only, so the edge map is the identity, which is injective, and the relabelling never identifies two edges; the laws follow from [L-lenses-21](#L-lenses-21), step 3.
+3. The certificate's counts are derived without the generators: the merges of `s` and `t` apply at the seven schemas whose vertices have kinds `s` and `t`, the merge of `s` with itself at all fourteen, and the merge with `u` at none, leaving 28 instantiated pairs of 56. A relabelling's view schema is its source schema, so a schema with $k$ edges contributes $(21 + 8k + 8k^2)(21 + 8k)$ puts, from the source and view counts of [L-lenses-21](#L-lenses-21) step 7; over the seven edge sets of a kind assignment that is $441 + 3 \cdot 1{,}073 + 3 \cdot 2{,}553 = 11{,}319$, and the four merges give $11{,}319 \cdot 4 = 45{,}276$ puts.
+
+### Executable counterpart
+
+- Law ID: `lenses.sort-merge-instances`
+- Reference: `panproto_reference::lens::ElementaryProtolens::target_and_migration`
+- Enumerator: `panproto_reference::enumerate::lenses::merge_sorts_count_certificate; bound: kinds=4, schemas=14, source_states=678, get_cases=2712, inapplicable=28, identifying=0, instantiated=28, put_cases=45276`
+- Exhaustive differential test: `sort_merges_agree_with_the_reference_exhaustively; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=sort_merges_agree_with_the_reference_exhaustively)'`
+- Property differential test: `randomized_sort_merge_differential; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_sort_merge_differential)'`
+- File: `crates/panproto-lens/src/protolens.rs`
+- File: `crates/panproto-reference/src/pages/lenses/elementary.rs`
+- File: `crates/panproto-reference/src/enumerate/lenses.rs`
+
+## A value-level step rewrites the fields it names and puts an edit back through its inverse {#L-lenses-27}
+
+### Statement
+
+The value-level steps change data without changing the schema's shape. The lens DSL compiles `apply_expr` of a field $k$ by an expression $f$ with optional inverse $g$ to a rewrite of $k$ at the body vertex, `compute_field` of a target $t$ by an expression $f$ over a field $r$ to a computation of $t$, and an `add_field` of $t$ with a default $d$ to the fused addition of the field's vertex and edge ([L-lenses-22](#L-lenses-22)) together with the default, followed by a computation of $t$ when the step has an expression; a step with no declared class is a projection. A directed equation whose left side is an application $o(\dots)$ is a rewrite of the field $o$ at every vertex with an outgoing edge labelled $o$, with the equation's implementation as $f$ and its inverse as $g$, both reading the field's value as $x$; an equation whose left side is a variable names no field and leaves the data as it is. The schema transform of each step is that of its structure: the identity, or the field addition. At every node of the vertex the step runs at, get runs the step's program on the node's fields:
+
+1. a rewrite replaces a present $k$ by $f(k)$ and leaves an absent $k$ absent;
+2. a computation writes $f(r)$ under $t$, and refuses a node without $r$;
+3. a default writes $d$ under $t$ when the node lacks $t$, and only where the step adds the field's vertex.
+
+The complement records the source fields of every node whose fields get changed. Put follows the baseline-and-pullback rule of [L-lenses-4](#L-lenses-4): the baseline is the recorded fields with every view field no step writes (the view's fields when nothing was recorded); a field no executed step writes takes the view's presence and value; an output the view changed is taken back through the inverse of the step that wrote it, the latest first, a rewrite's inverse to $k$ and a computation's to $r$ when the view no longer shows $r$; the program is then replayed, and a written field the replay does not reproduce is refused, with `DerivedCellEdited` when a computation or a default wrote it last and `TransformNotInvertible` otherwise. Thus a rewrite with an inverse accepts any edit of $k$; a rewrite without one accepts only the edits that leave $k$ as get showed it; a computed field is derived from $r$, so an edit of $t$ is accepted only together with the edit of $r$ that reproduces it; and a written default must stay as written. GetPut holds on every source whose get succeeds and PutGet on every view in $D(c)$.
+
+The carrier runs nine steps (`apply_expr` with and without an inverse, `compute_field` with and without one, `add_field` with and without an expression, and three directed equations) at the vertex `p` of two schemas, `p` with the attribute `n` and with the attributes `n` and `d`, over sources of at most two nodes at `p` whose fields `n` and `d` are each absent, `0` or `1`, putting back the view and its edits that set a field of a node absent or to `0`, `1` or `2`, remove a node or add one: 1,638 applications and 19,076 puts.
+
+### Outside the domain
+
+A step whose written field is not an attribute of its vertex in the target schema is refused at instantiation with the plan refusal `UndeclaredTransformField`: of the carrier's eighteen pairs, the two computations on the schema without `d`. A source whose get runs a computation at a node without its read field, or a map outside its domain, is refused by get with `FieldTransformFailed` naming the written field: 192 sources of the carrier, at the four pairs that compute `d`. A view outside the put domain is refused by put with `DerivedCellEdited` or `TransformNotInvertible` at the node and field the replay does not reproduce, with `SurvivalPredicateRefused` at a node whose replay get refuses, or with the first other violation of [L-lenses-4](#L-lenses-4).
+
+### Definitions used
+
+The value layer, restoration and the baseline-and-pullback rule are those of [L-lenses-3](#L-lenses-3) and [L-lenses-4](#L-lenses-4), and the fused addition that of [L-lenses-22](#L-lenses-22). The reference's `FieldProgram` takes each step's maps as functions on its own values, written beside the reference and not evaluated by the expression language; for an arbitrary document the expression evaluator, checked on the [Values](values.md) page, is the trusted boundary between a step's expressions and these maps. The differential compares an evaluation failure's location and kind and not the evaluator's message. A field held by a child node rather than by the node itself is outside this law's domain.
+
+### Proof
+
+1. Production instantiates the structural part of each step (the empty chain, the fused field addition, or the directed equation's protolens, which attaches its rewrite at instantiation) and appends the step's field transforms at the body vertex, as a compiled stage is instantiated; the reference's `ValueStepTerm::at` builds the same target and migration with a `FieldProgram`. The differential compares the targets, views, complements, puts and domain reports.
+2. GetPut: get records the source fields of every node it changes, so the baseline is the source's fields, every output is unchanged, nothing is pulled back, and the replay reproduces the view.
+3. PutGet: on a view in the domain the replay reproduces every written field by the refusal clause, and every other field is the view's, so get of the restored source returns the view.
+4. Refusals: a written field the replay cannot reproduce has no restored source whose get shows the view, so put refuses it rather than return a source whose view differs, which keeps PutGet on the domain.
+5. The certificate's counts are derived without the generators. A node's fields take $3 \cdot 3 = 9$ maps, so each schema has $1 + 9 + 81 = 91$ sources, and the two schemas $182$; nine steps give $1{,}638$ applications. A view with $m$ nodes has $2 + 7m$ put views (itself, three other choices for each of two fields and a removal per node, and the added node). A step that computes nothing succeeds at every source, giving $2 + 9 \cdot 9 + 81 \cdot 16 = 1{,}379$ puts at each of its twelve pairs; a step that computes $d$ refuses the $91 - 43 = 48$ sources with a node lacking `n` and gives $2 + 6 \cdot 9 + 36 \cdot 16 = 632$ puts at each of its four pairs, so $12 \cdot 1{,}379 + 4 \cdot 632 = 19{,}076$.
+
+### Executable counterpart
+
+- Law ID: `lenses.value-level-step-instances`
+- Reference: `panproto_reference::lens::FieldProgram::output_fields`
+- Enumerator: `panproto_reference::enumerate::lenses::value_step_count_certificate; bound: kinds=9, schemas=2, source_states=182, get_cases=1638, inapplicable=2, identifying=0, instantiated=16, get_refusals=192, put_cases=19076`
+- Exhaustive differential test: `value_level_steps_agree_with_the_reference_exhaustively; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=value_level_steps_agree_with_the_reference_exhaustively)'`
+- Property differential test: `randomized_value_level_step_differential; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_value_level_step_differential)'`
+- File: `crates/panproto-lens/src/protolens.rs`
+- File: `crates/panproto-lens/src/auto_lens.rs`
+- File: `crates/panproto-reference/src/pages/lenses/field_program.rs`
 - File: `crates/panproto-reference/src/enumerate/lenses.rs`
