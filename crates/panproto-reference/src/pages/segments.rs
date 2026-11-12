@@ -5767,6 +5767,8 @@ pub mod segment {
         pub get: Locality,
         /// Locality of lens put.
         pub put: Locality,
+        /// Locality of graph extension.
+        pub extend: Locality,
         /// Locality of forward edit transport.
         pub get_edit: Locality,
         /// Locality of backward edit transport.
@@ -5782,6 +5784,7 @@ pub mod segment {
                 shape,
                 get: Locality::Local,
                 put: Locality::Local,
+                extend: Locality::Local,
                 get_edit: Locality::Local,
                 put_edit: Locality::Local,
                 validate: Locality::Summary(SummaryKind::Fold),
@@ -8442,6 +8445,353 @@ pub mod segment {
         }
     }
 
+    /// Inputs naming a reference run of segmented graph extension.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct ExtendRunSpec {
+        /// Lens identity.
+        pub lens: Digest,
+        /// Schema digest of the input segments.
+        pub source_schema: Digest,
+        /// Schema digest of the extended segments.
+        pub target_schema: Digest,
+        /// Binding digest of the input and output manifests.
+        pub binding: Option<Digest>,
+        /// Optional cancellation boundary measured in committed or reused tasks.
+        pub cancel_after_tasks: Option<u32>,
+    }
+
+    /// A reference run of segmented graph extension.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct ExtendRun {
+        /// Run identity naming the artifacts in the store.
+        pub run: Digest,
+        /// The extended segments when complete.
+        pub output: Option<Vec<GraphSegment>>,
+        /// Output manifest when complete.
+        pub manifest: Option<SegmentManifest>,
+        /// Deterministic execution report.
+        pub report: SegmentRunReport<super::segmented_extend::SegmentedExtendRefusal>,
+    }
+
+    /// The extension a reference extend run applies: its target schema
+    /// and migration.
+    #[derive(Clone, Copy)]
+    pub struct ExtendLens<'a> {
+        /// Target schema.
+        pub tgt: &'a crate::schema::Schema,
+        /// Migration.
+        pub m: &'a crate::migration::Migration,
+    }
+
+    /// Operation bytes of graph extension in a run identity.
+    pub const GRAPH_EXTEND_OP: &[u8] = b"graph extend";
+
+    type ExtendOutcome = Result<Vec<GraphSegment>, super::segmented_extend::SegmentedExtendRefusal>;
+
+    fn extend_report(
+        report: SegmentRunReport,
+    ) -> SegmentRunReport<super::segmented_extend::SegmentedExtendRefusal> {
+        use super::segmented_extend::SegmentedExtendRefusal;
+        let status = match report.status {
+            RunStatus::Complete { manifest } => RunStatus::Complete { manifest },
+            RunStatus::Incomplete { reason } => RunStatus::Incomplete { reason },
+            RunStatus::Residual(residual) => RunStatus::Residual(residual),
+            RunStatus::Failed(error) => RunStatus::Failed(SegmentedExtendRefusal::Segment(error)),
+        };
+        SegmentRunReport {
+            status,
+            locality: report.locality,
+            budget: report.budget,
+            progress: report.progress,
+            peak_estimated_bytes: report.peak_estimated_bytes,
+            observed_peak_bytes: report.observed_peak_bytes,
+            complement: report.complement,
+            tasks_run: report.tasks_run,
+            tasks_reused: report.tasks_reused,
+            orphans: report.orphans,
+            phases: report.phases,
+        }
+    }
+
+    /// Definition: the Summarize artifact of an extension: one zero byte
+    /// when the segment's own elements all have images, and otherwise the
+    /// byte `1`, the stage byte and the four-byte id of the segment's first
+    /// refusal ([`super::segmented_extend::first_refusal_in`]).
+    fn extend_summary_bytes(segment: &GraphSegment, lens: ExtendLens<'_>) -> Vec<u8> {
+        let mut w = Canonical::default();
+        match super::segmented_extend::first_refusal_in(segment, lens.tgt, lens.m) {
+            None => w.tag(0),
+            Some((stage, id)) => {
+                w.tag(1);
+                w.tag(stage);
+                w.u32(id);
+            }
+        }
+        w.0
+    }
+
+    /// The checks before the first task of an extension: the number of
+    /// segments, then each segment's working-set estimate; the peak
+    /// estimate and each segment's Validate input (its canonical bytes).
+    fn extend_preflight(
+        segments: &[AnySegment],
+        p: &Partition,
+        schema: Digest,
+        budget: Budget,
+    ) -> Result<(u64, Vec<Vec<u8>>), PipelineStop> {
+        let affected = u64::try_from(segments.len()).unwrap_or(u64::MAX);
+        if affected > u64::from(budget.affected_segments) {
+            return Err(PipelineStop::Residual(Residual::BudgetExceeded {
+                resource: Resource::AffectedSegments,
+                phase: Phase::Validate,
+                segment: None,
+                needed: affected,
+                budget: u64::from(budget.affected_segments),
+            }));
+        }
+        let mut peak = 0;
+        let mut inputs = Vec::with_capacity(segments.len());
+        for segment in segments {
+            let estimate = MemoryModel::estimate(
+                &segment_summary(segment, p)
+                    .map_err(PipelineStop::Failed)?
+                    .stats,
+            );
+            if estimate > budget.working_set {
+                return Err(PipelineStop::Residual(Residual::BudgetExceeded {
+                    resource: Resource::WorkingSet,
+                    phase: Phase::Validate,
+                    segment: Some(segment.segment()),
+                    needed: estimate,
+                    budget: budget.working_set,
+                }));
+            }
+            peak = peak.max(estimate);
+            inputs.push(canonical_segment_bytes(segment, schema, p).map_err(PipelineStop::Failed)?);
+        }
+        Ok((peak, inputs))
+    }
+
+    enum ExtendStop {
+        Pipeline(PipelineStop),
+        Refused(super::segmented_extend::SegmentedExtendRefusal),
+    }
+
+    impl From<PipelineStop> for ExtendStop {
+        fn from(stop: PipelineStop) -> Self {
+            Self::Pipeline(stop)
+        }
+    }
+
+    /// Definition: the checkpointed run of segmented graph extension.
+    ///
+    /// The run seals `segments` under `p` into the source manifest (with
+    /// `spec.source_schema`, refusing an invalid family with that refusal),
+    /// names itself by the lens, that manifest's digest, the partition
+    /// bytes and [`GRAPH_EXTEND_OP`], and declines a family with more
+    /// segments than the budget or a segment whose [`MemoryModel`] estimate
+    /// exceeds the working set. It then commits `4n + 2` tasks: per segment
+    /// Validate, its canonical bytes; per segment Export, nothing; per
+    /// segment Summarize, the segment's first refusal position (written by
+    /// `extend_summary_bytes`); the coordinator's Assemble, which refuses
+    /// with the refusal of
+    /// [`super::segmented_extend::extend_graph_segmented`] and otherwise
+    /// declines when the summary bytes exceed the summary budget, writing
+    /// nothing; per segment Emit, the extended segment without a complement
+    /// in the Emit layout; and Seal, which seals the extended segments as a
+    /// source under `spec.target_schema`, its phase peak the bytes Seal
+    /// holds of the Emit artifacts. The locality reported is local. It stops
+    /// before any task once `cancel_after_tasks` tasks are done, and reuses
+    /// every committed task whose inputs and artifact are unchanged.
+    pub fn segmented_extend_with_progress<S: SegmentStore>(
+        lens: ExtendLens<'_>,
+        segments: &[GraphSegment],
+        p: &Partition,
+        spec: &ExtendRunSpec,
+        budget: Budget,
+        store: &mut S,
+        progress: &mut dyn FnMut(&Progress),
+    ) -> ExtendRun {
+        let per = u32::try_from(segments.len()).unwrap_or(u32::MAX);
+        let total = per.saturating_mul(4).saturating_add(2);
+        let report = base_report(InstanceShapeKind::Graph, budget, total);
+        let any: Vec<AnySegment> = segments.iter().cloned().map(AnySegment::Graph).collect();
+        let input = match seal_manifest(
+            &any,
+            p,
+            spec.source_schema,
+            ManifestRole::Source,
+            spec.binding,
+        ) {
+            Ok(manifest) => Digest::derive(MANIFEST_CONTEXT, &canonical_manifest_bytes(&manifest)),
+            Err(error) => {
+                return ExtendRun {
+                    run: Digest::default(),
+                    output: None,
+                    manifest: None,
+                    report: extend_report(failed::<()>(report, error).report),
+                };
+            }
+        };
+        let run = restrict_run_identity(spec.lens, input, p, GRAPH_EXTEND_OP);
+        let mut state = RunnerState {
+            p,
+            spec: RunSpec {
+                operation: spec.lens,
+                schema: spec.target_schema,
+                binding: spec.binding,
+                cancel_after_tasks: spec.cancel_after_tasks,
+            },
+            budget,
+            store,
+            progress,
+            run,
+            peak: 0,
+            segment_inputs: Vec::new(),
+            preflight_summaries: Vec::new(),
+            restrict_source_schema: spec.source_schema,
+            report,
+        };
+        match extend_preflight(&any, p, spec.source_schema, budget) {
+            Ok((peak, inputs)) => {
+                state.peak = peak;
+                state.segment_inputs = inputs;
+            }
+            Err(stop) => {
+                return ExtendRun {
+                    run,
+                    output: None,
+                    manifest: None,
+                    report: extend_report(stop_run::<(), S>(state, stop).report),
+                };
+            }
+        }
+        let whole = super::segmented_extend::extend_graph_segmented(lens.tgt, lens.m, segments, p);
+        let outcome = state.extend_phases(segments, lens, &whole);
+        let run = state.run;
+        state.report.peak_estimated_bytes = state.peak;
+        let stopped = |report| ExtendRun {
+            run,
+            output: None,
+            manifest: None,
+            report,
+        };
+        match outcome {
+            Ok((bytes, manifest)) => match state.store.staged_uncommitted(&state.run) {
+                Ok(orphans) => {
+                    state.report.orphans = orphans;
+                    state.report.status = RunStatus::Complete {
+                        manifest: Digest::derive(MANIFEST_CONTEXT, &bytes),
+                    };
+                    ExtendRun {
+                        run,
+                        output: whole.ok(),
+                        manifest: Some(manifest),
+                        report: extend_report(state.report),
+                    }
+                }
+                Err(error) => {
+                    state.report.status = RunStatus::Incomplete {
+                        reason: RunIncompleteReason::Store {
+                            message: error.to_string(),
+                        },
+                    };
+                    stopped(extend_report(state.report))
+                }
+            },
+            Err(ExtendStop::Pipeline(stop)) => {
+                stopped(extend_report(stop_run::<(), S>(state, stop).report))
+            }
+            Err(ExtendStop::Refused(refusal)) => {
+                let mut report = extend_report(state.report);
+                report.status = RunStatus::Failed(refusal);
+                stopped(report)
+            }
+        }
+    }
+
+    impl<S: SegmentStore> RunnerState<'_, '_, S> {
+        /// The phases of an extension run over `segments`, whose in-memory
+        /// outcome is `whole`.
+        fn extend_phases(
+            &mut self,
+            segments: &[GraphSegment],
+            lens: ExtendLens<'_>,
+            whole: &ExtendOutcome,
+        ) -> Result<(Vec<u8>, SegmentManifest), ExtendStop> {
+            let mut summaries = Canonical::default();
+            let mut summary_total: u64 = 0;
+            for phase in [Phase::Validate, Phase::Export, Phase::Summarize] {
+                let (run_before, reuse_before) = (self.report.tasks_run, self.report.tasks_reused);
+                for (position, segment) in segments.iter().enumerate() {
+                    if self.cancelled() {
+                        return Err(PipelineStop::Cancelled.into());
+                    }
+                    let input = self.segment_inputs[position].clone();
+                    let (kind, output) = match phase {
+                        Phase::Validate => (ArtifactKind::Segment, input.clone()),
+                        Phase::Export => (ArtifactKind::Export, Vec::new()),
+                        _ => (ArtifactKind::Summary, extend_summary_bytes(segment, lens)),
+                    };
+                    let stored = self.task(phase, Some(segment.segment), kind, &input, || {
+                        Ok(output.clone())
+                    })?;
+                    if phase == Phase::Summarize {
+                        summaries.bytes(&stored);
+                        summary_total = summary_total
+                            .saturating_add(u64::try_from(stored.len()).unwrap_or(u64::MAX));
+                    }
+                }
+                finish_phase(&mut self.report, phase, run_before, reuse_before, self.peak);
+            }
+            if self.cancelled() {
+                return Err(PipelineStop::Cancelled.into());
+            }
+            let outputs = whole
+                .as_ref()
+                .map_err(|refusal| ExtendStop::Refused(refusal.clone()))?;
+            if summary_total > self.budget.summary {
+                return Err(PipelineStop::Residual(Residual::BudgetExceeded {
+                    resource: Resource::Summary,
+                    phase: Phase::Assemble,
+                    segment: None,
+                    needed: summary_total,
+                    budget: self.budget.summary,
+                })
+                .into());
+            }
+            let (run_before, reuse_before) = (self.report.tasks_run, self.report.tasks_reused);
+            self.task(
+                Phase::Assemble,
+                None,
+                ArtifactKind::Assembly,
+                &summaries.0,
+                || Ok(Vec::new()),
+            )?;
+            finish_phase(
+                &mut self.report,
+                Phase::Assemble,
+                run_before,
+                reuse_before,
+                self.peak,
+            );
+            let emitted = self.put_emit(outputs, &[]).map_err(|stop| match stop {
+                PutStop::Pipeline(stop) => ExtendStop::Pipeline(stop),
+                PutStop::Refused(_) => ExtendStop::Pipeline(PipelineStop::Failed(decode_error(
+                    ArtifactKind::ComplementSegment,
+                    "an extension emit refused",
+                ))),
+            })?;
+            self.put_seal(outputs, emitted).map_err(|stop| match stop {
+                PutStop::Pipeline(stop) => ExtendStop::Pipeline(stop),
+                PutStop::Refused(_) => ExtendStop::Pipeline(PipelineStop::Failed(decode_error(
+                    ArtifactKind::Manifest,
+                    "an extension seal refused",
+                ))),
+            })
+        }
+    }
+
     /// Run validate/export/summarize/assemble/emit/seal, with deterministic
     /// artifacts and restart reuse, then observe the assembled whole value.
     pub fn segmented_with<T, S: SegmentStore>(
@@ -8890,6 +9240,191 @@ pub mod segmented_put {
             .put(&view, &complement)
             .map_err(SegmentedPutRefusal::Put)?;
         partition_graph(&source, p).map_err(SegmentedPutRefusal::Segment)
+    }
+}
+
+pub mod segmented_extend {
+    //! Segmented graph extension, defined by extending the glued graph and
+    //! laying the result out again.
+    //!
+    //! This is the executable definition of L-segments-18. It never runs
+    //! segment by segment: it glues the segments, runs the whole-state
+    //! extension [`extend_graph`] defined here, and splits the extended
+    //! graph by owner.
+
+    use super::segment::{
+        GraphSegment, Partition, SegmentError, SegmentId, assemble_graph, partition_graph,
+    };
+    use crate::migration::Migration;
+    use crate::model::{GEdge, Graph, Name, SEdge};
+    use crate::schema::Schema;
+
+    /// Why whole-state graph extension returns no graph.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum ExtendRefusal {
+        /// Node `node` has an anchor with no image.
+        UnmappedAnchor {
+            /// The anchor.
+            anchor: Name,
+            /// The node.
+            node: u32,
+        },
+        /// Edge `element` has a label with no image.
+        UnmappedEdge {
+            /// The label.
+            edge: SEdge,
+            /// The edge id.
+            element: u32,
+        },
+    }
+
+    /// Why a segmented graph extension returns no output.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum SegmentedExtendRefusal {
+        /// The family is invalid.
+        Segment(SegmentError),
+        /// Whole-state extension refuses the glued graph; `segment` owns the
+        /// element the refusal is about.
+        Extend {
+            /// The owning segment.
+            segment: SegmentId,
+            /// The whole-state refusal.
+            error: ExtendRefusal,
+        },
+    }
+
+    /// Definition: the image of a source vertex. An explicit remap wins;
+    /// otherwise the vertex is its own image exactly when the target schema
+    /// has it.
+    #[must_use]
+    pub fn vertex_image(tgt: &Schema, m: &Migration, vertex: &str) -> Option<Name> {
+        m.vertex_remap
+            .get(vertex)
+            .cloned()
+            .or_else(|| tgt.vertices.contains_key(vertex).then(|| vertex.to_owned()))
+    }
+
+    /// Definition: the image of a source edge. An explicit remap wins;
+    /// otherwise the image is the one target edge between the images of its
+    /// endpoints, when there is exactly one.
+    #[must_use]
+    pub fn edge_image(tgt: &Schema, m: &Migration, edge: &SEdge) -> Option<SEdge> {
+        if let Some(image) = m.edge_remap.get(edge) {
+            return Some(image.clone());
+        }
+        let src = vertex_image(tgt, m, &edge.src)?;
+        let target = vertex_image(tgt, m, &edge.tgt)?;
+        let mut between = tgt
+            .edges
+            .iter()
+            .filter(|candidate| candidate.src == src && candidate.tgt == target);
+        match (between.next(), between.next()) {
+            (Some(only), None) => Some(only.clone()),
+            _ => None,
+        }
+    }
+
+    /// Definition: whole-state total graph extension.
+    ///
+    /// Refuse the least node whose anchor has no image, then the least edge
+    /// whose label has no image. Otherwise move every node to the image of
+    /// its anchor and every edge to the image of its label, keeping every
+    /// id, value, endpoint and position.
+    ///
+    /// # Errors
+    ///
+    /// As stated above.
+    pub fn extend_graph(tgt: &Schema, m: &Migration, g: &Graph) -> Result<Graph, ExtendRefusal> {
+        let mut out = Graph::default();
+        for (id, node) in &g.nodes {
+            let anchor = vertex_image(tgt, m, &node.anchor).ok_or_else(|| {
+                ExtendRefusal::UnmappedAnchor {
+                    anchor: node.anchor.clone(),
+                    node: *id,
+                }
+            })?;
+            let mut moved = node.clone();
+            moved.anchor = anchor;
+            out.nodes.insert(*id, moved);
+        }
+        for (id, edge) in &g.edges {
+            let label =
+                edge_image(tgt, m, &edge.label).ok_or_else(|| ExtendRefusal::UnmappedEdge {
+                    edge: edge.label.clone(),
+                    element: *id,
+                })?;
+            out.edges.insert(
+                *id,
+                GEdge {
+                    label,
+                    ..edge.clone()
+                },
+            );
+        }
+        Ok(out)
+    }
+
+    /// Definition: the first refusal of extension among a segment's own
+    /// elements.
+    ///
+    /// It is a stage and an id: `(0, n)` for the segment's least node `n`
+    /// whose anchor has no image, otherwise `(1, e)` for its least owned
+    /// edge `e` whose label has no image.
+    #[must_use]
+    pub fn first_refusal_in(
+        segment: &GraphSegment,
+        tgt: &Schema,
+        m: &Migration,
+    ) -> Option<(u8, u32)> {
+        segment
+            .nodes
+            .iter()
+            .find(|(_, node)| vertex_image(tgt, m, &node.anchor).is_none())
+            .map(|(id, _)| (0, *id))
+            .or_else(|| {
+                segment
+                    .edges
+                    .iter()
+                    .find(|(_, edge)| edge_image(tgt, m, &edge.label).is_none())
+                    .map(|(id, _)| (1, *id))
+            })
+    }
+
+    /// Definition: segmented graph extension, by whole-state extension of
+    /// the glued graph.
+    ///
+    /// Glue `segments` under `p` and refuse an invalid family with the glue
+    /// refusal; run [`extend_graph`] and return its refusal in the segment
+    /// owning the element it is about (a node's owner, an edge's source's
+    /// owner); otherwise split the extended graph with [`partition_graph`].
+    ///
+    /// # Errors
+    ///
+    /// As stated above.
+    pub fn extend_graph_segmented(
+        tgt: &Schema,
+        m: &Migration,
+        segments: &[GraphSegment],
+        p: &Partition,
+    ) -> Result<Vec<GraphSegment>, SegmentedExtendRefusal> {
+        let g = assemble_graph(segments, p).map_err(SegmentedExtendRefusal::Segment)?;
+        let extended = extend_graph(tgt, m, &g).map_err(|error| {
+            let node = match &error {
+                ExtendRefusal::UnmappedAnchor { node, .. } => *node,
+                ExtendRefusal::UnmappedEdge { element, .. } => {
+                    g.edges.get(element).map_or(0, |edge| edge.src)
+                }
+            };
+            p.owner_of_node(node).map_or_else(
+                || {
+                    SegmentedExtendRefusal::Segment(SegmentError::Unowned {
+                        elem: super::segment::ViewRef::Node(node),
+                    })
+                },
+                |segment| SegmentedExtendRefusal::Extend { segment, error },
+            )
+        })?;
+        partition_graph(&extended, p).map_err(SegmentedExtendRefusal::Segment)
     }
 }
 

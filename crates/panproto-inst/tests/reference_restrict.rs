@@ -3549,7 +3549,8 @@ mod segmented_runner {
     use panproto_reference::segment as reference;
     use std::collections::BTreeMap;
 
-    const SOURCE_SCHEMA: [u8; 32] = [1; 32];
+    /// The schema digest of a run's source segments.
+    pub const SOURCE_SCHEMA: [u8; 32] = [1; 32];
     /// The schema digest of a run's view segments.
     pub const VIEW_SCHEMA: [u8; 32] = [2; 32];
     const LENS: [u8; 32] = [3; 32];
@@ -3570,9 +3571,6 @@ mod segmented_runner {
 
     fn seen_production(report: &SegmentRunReport<SegmentedRestrictError>) -> Seen {
         let status = match &report.status {
-            RunStatus::Complete { manifest } => format!("complete {:?}", manifest.0),
-            RunStatus::Incomplete { reason } => format!("incomplete {reason:?}"),
-            RunStatus::Residual(residual) => format!("residual {residual:?}"),
             RunStatus::Failed(SegmentedRestrictError::Restrict { segment, error }) => {
                 format!("restrict {} {}", segment.0, production_error(error))
             }
@@ -3580,6 +3578,19 @@ mod segmented_runner {
                 format!("segment {error:?}")
             }
             RunStatus::Failed(other) => format!("other {other:?}"),
+            _ => String::new(),
+        };
+        production_report(report, status)
+    }
+
+    /// The production report `report` as both implementations project it,
+    /// a failed status written as `failed`.
+    pub fn production_report<E>(report: &SegmentRunReport<E>, failed: String) -> Seen {
+        let status = match &report.status {
+            RunStatus::Complete { manifest } => format!("complete {:?}", manifest.0),
+            RunStatus::Incomplete { reason } => format!("incomplete {reason:?}"),
+            RunStatus::Residual(residual) => format!("residual {residual:?}"),
+            RunStatus::Failed(_) => failed,
         };
         Seen {
             status,
@@ -3641,9 +3652,6 @@ mod segmented_runner {
         report: &reference::SegmentRunReport<reference::SegmentedRestrictRefusal>,
     ) -> Seen {
         let status = match &report.status {
-            reference::RunStatus::Complete { manifest } => format!("complete {:?}", manifest.0),
-            reference::RunStatus::Incomplete { reason } => format!("incomplete {reason:?}"),
-            reference::RunStatus::Residual(residual) => format!("residual {residual:?}"),
             reference::RunStatus::Failed(reference::SegmentedRestrictRefusal::Restrict {
                 segment,
                 error,
@@ -3652,10 +3660,27 @@ mod segmented_runner {
                 format!("segment {error:?}")
             }
             reference::RunStatus::Failed(other) => format!("other {other:?}"),
+            _ => String::new(),
+        };
+        reference_report(report, status, format!("{:?}", report.locality.get))
+    }
+
+    /// The reference report `report` as both implementations project it, a
+    /// failed status written as `failed` and its locality as `locality`.
+    pub fn reference_report<E>(
+        report: &reference::SegmentRunReport<E>,
+        failed: String,
+        locality: String,
+    ) -> Seen {
+        let status = match &report.status {
+            reference::RunStatus::Complete { manifest } => format!("complete {:?}", manifest.0),
+            reference::RunStatus::Incomplete { reason } => format!("incomplete {reason:?}"),
+            reference::RunStatus::Residual(residual) => format!("residual {residual:?}"),
+            reference::RunStatus::Failed(_) => failed,
         };
         Seen {
             status,
-            locality: format!("{:?}", report.locality.get),
+            locality,
             budget: (
                 report.budget.working_set,
                 report.budget.complement,
@@ -4612,14 +4637,18 @@ mod segmented_witnesses {
     }
 
     /// A store whose `fail_at`th commit fails, leaving its artifact staged.
-    struct FailingStore {
-        inner: MemoryStore,
-        commits: usize,
-        fail_at: Option<usize>,
+    pub struct FailingStore {
+        /// The store the commits that succeed reach.
+        pub inner: MemoryStore,
+        /// The commits so far.
+        pub commits: usize,
+        /// The commit that fails, counting from one.
+        pub fail_at: Option<usize>,
     }
 
+    /// The failure of a [`FailingStore`] commit.
     #[derive(Debug)]
-    struct CommitFailed;
+    pub struct CommitFailed;
 
     impl std::fmt::Display for CommitFailed {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -4894,7 +4923,9 @@ mod segmented_randomized {
 
     const ANCHORS: [&str; 3] = ["a", "b", "c"];
 
-    fn schema() -> RefSchema {
+    /// The schema of the generated cases: three record vertices with every
+    /// edge between them, loops included.
+    pub fn schema() -> RefSchema {
         let mut schema = RefSchema::default();
         for anchor in ANCHORS {
             schema = schema.vertex(anchor, "record");
@@ -4949,6 +4980,20 @@ mod segmented_randomized {
             &prod_migration(&migration),
         )
         .ok()?;
+        let (graph, partition) = generated_graph(anchors, edges, owners, segments);
+        Some((schema, migration, plan, graph, partition))
+    }
+
+    /// A generated graph over the anchors of [`schema`], each edge labelled
+    /// by the schema edge between its endpoints' anchors, and a partition
+    /// giving node `i` to segment `owners[i]` modulo `segments`, each segment
+    /// with ten allocation ids.
+    pub fn generated_graph(
+        anchors: &[usize],
+        edges: &[(usize, usize)],
+        owners: &[u32],
+        segments: u32,
+    ) -> (RefGraph, reference::Partition) {
         let n = anchors.len();
         let mut graph = RefGraph::default();
         for (id, anchor) in (0_u32..).zip(anchors) {
@@ -4989,7 +5034,7 @@ mod segmented_randomized {
                 })
                 .collect(),
         };
-        Some((schema, migration, plan, graph, partition))
+        (graph, partition)
     }
 
     proptest! {
@@ -5078,5 +5123,879 @@ mod segmented_randomized {
                 prefixes_and_trailing_bytes_are_refused(&bytes);
             }
         }
+    }
+}
+
+/// Segmented graph extension against the reference: the exhaustive
+/// carrier, generated graphs, transform witnesses, and the checkpointed run.
+mod segmented_extend {
+    use super::segmented::{prod_partition, ref_view};
+    use super::segmented_randomized::{generated_graph, schema as generated_schema};
+    use super::{
+        RefGraph, RefMigration, RefSchema, RestrictError, RestrictPlan, Value, prod_graph,
+        prod_migration, prod_schema, ref_edge, ref_graph,
+    };
+    use panproto_inst::locality::{GlobalReason, Locality, SegmentOp};
+    use panproto_inst::segment::{
+        GraphSegment, Residual, SegmentedExtendError, assemble_graph, graph_extend_locality,
+        graph_extend_segmented, partition_graph,
+    };
+    use panproto_inst::{
+        BoundaryProtocols, FieldTransform, ViewRef, compile_extension_plan, graph_extend_engine,
+        graph_extend_with_plan,
+    };
+    use panproto_reference::enumerate::segments::{
+        extension_map, segmented_extend_case_count, segmented_extend_cases,
+    };
+    use panproto_reference::segment as reference;
+    use panproto_schema::Protocol;
+
+    /// The extension plan of `migration` from `source` to `target`.
+    pub fn plan_of(
+        source: &RefSchema,
+        target: &RefSchema,
+        migration: &RefMigration,
+    ) -> RestrictPlan {
+        let protocol = Protocol::default();
+        compile_extension_plan(
+            &prod_schema(source),
+            &prod_schema(target),
+            &prod_migration(migration),
+            BoundaryProtocols {
+                src: &protocol,
+                tgt: &protocol,
+            },
+        )
+        .expect("the carrier's extension plans compile")
+    }
+
+    /// A production extension refusal as the reference writes it.
+    pub fn production_refusal(error: &RestrictError) -> String {
+        match error {
+            RestrictError::UnmappedAnchor { anchor, node_id } => {
+                format!("anchor {anchor} {node_id}")
+            }
+            RestrictError::UnmappedEdge {
+                edge,
+                element: ViewRef::Edge(id),
+            } => format!("edge {:?} {}", ref_edge(edge), id.0),
+            other => format!("other {other:?}"),
+        }
+    }
+
+    /// A reference extension refusal.
+    pub fn reference_refusal(error: &reference::ExtendRefusal) -> String {
+        match error {
+            reference::ExtendRefusal::UnmappedAnchor { anchor, node } => {
+                format!("anchor {anchor} {node}")
+            }
+            reference::ExtendRefusal::UnmappedEdge { edge, element } => {
+                format!("edge {edge:?} {element}")
+            }
+        }
+    }
+
+    /// What one case showed.
+    #[derive(Debug, PartialEq, Eq)]
+    pub enum Outcome {
+        /// Both sides extended alike, assembling to whole-state extension.
+        Agreed,
+        /// Both refused alike at an unmapped node.
+        RefusedNode,
+        /// Both refused alike at an unmapped edge.
+        RefusedEdge,
+    }
+
+    /// Run one case through production and reference and check the law:
+    /// the extended segments agree segment by segment, glue to production
+    /// whole-state extension of the glued input, which agrees with the
+    /// reference whole-state extension; or both refuse with the whole-state
+    /// refusal in the same segment.
+    pub fn check_case(
+        target: &RefSchema,
+        migration: &RefMigration,
+        plan: &RestrictPlan,
+        graph: &RefGraph,
+        partition: &reference::Partition,
+    ) -> Outcome {
+        let production_partition = prod_partition(partition);
+        let whole = prod_graph(graph);
+        let segments = partition_graph(&whole, &production_partition).expect("production split");
+        let reference_segments =
+            reference::partition_graph(graph, partition).expect("reference split");
+        let production = graph_extend_segmented(plan, &segments, &production_partition);
+        let expected =
+            reference::extend_graph_segmented(target, migration, &reference_segments, partition);
+        let whole_state = graph_extend_with_plan(&whole, plan);
+        match (production, expected) {
+            (Ok(output), Ok(expected)) => {
+                assert_eq!(output.len(), expected.len(), "{graph:?} {partition:?}");
+                for (segment, expected) in output.iter().zip(&expected) {
+                    assert_eq!(
+                        &ref_view(segment),
+                        expected,
+                        "extended segment of {graph:?} under {partition:?}"
+                    );
+                }
+                let glued =
+                    assemble_graph(output, &production_partition).expect("the output glues");
+                let whole_state = whole_state.expect("whole-state extension accepts");
+                assert_eq!(ref_graph(&glued), ref_graph(&whole_state), "{graph:?}");
+                assert_eq!(
+                    ref_graph(&whole_state),
+                    reference::extend_graph(target, migration, graph).expect("reference extends"),
+                    "whole-state extension of {graph:?}"
+                );
+                Outcome::Agreed
+            }
+            (
+                Err(SegmentedExtendError::Extend { segment, error }),
+                Err(reference::SegmentedExtendRefusal::Extend {
+                    segment: expected_segment,
+                    error: expected,
+                }),
+            ) => {
+                assert_eq!(
+                    segment.0, expected_segment.0,
+                    "refusing segment of {graph:?}"
+                );
+                assert_eq!(
+                    production_refusal(&error),
+                    reference_refusal(&expected),
+                    "refusal of {graph:?}"
+                );
+                let whole_error = whole_state.expect_err("whole-state extension refuses");
+                assert_eq!(production_refusal(&error), production_refusal(&whole_error));
+                if matches!(error, RestrictError::UnmappedAnchor { .. }) {
+                    Outcome::RefusedNode
+                } else {
+                    Outcome::RefusedEdge
+                }
+            }
+            (production, expected) => panic!(
+                "segmented extension disagrees on {graph:?} under {partition:?}: {production:?} / {expected:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn segmented_extend_agrees_with_the_reference_and_assembles_to_whole_state_extend() {
+        let mut counts = [0_u64; 3];
+        let mut plan: Option<(RefSchema, RefMigration, RestrictPlan)> = None;
+        for case in segmented_extend_cases() {
+            if !matches!(&plan, Some((s, m, _)) if *s == case.source && *m == case.migration) {
+                let compiled = plan_of(&case.source, &case.target, &case.migration);
+                plan = Some((case.source.clone(), case.migration.clone(), compiled));
+            }
+            let Some((_, _, compiled)) = &plan else {
+                unreachable!("a plan was just compiled")
+            };
+            let outcome = check_case(
+                &case.target,
+                &case.migration,
+                compiled,
+                &case.graph,
+                &case.partition,
+            );
+            counts[outcome as usize] += 1;
+        }
+        println!("agreed, refused at a node, refused at an edge: {counts:?}");
+        assert_eq!(counts.iter().sum::<u64>(), segmented_extend_case_count());
+        assert_eq!(segmented_extend_case_count(), 432_810);
+        assert!(
+            counts.iter().all(|count| *count > 0),
+            "every outcome occurs: {counts:?}"
+        );
+    }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(256))]
+
+        #[test]
+        fn segmented_extend_agrees_with_the_reference_on_generated_partitions(
+            anchors in proptest::collection::vec(0_usize..3, 1..=8),
+            edges in proptest::collection::vec((0_usize..8, 0_usize..8), 0..=12),
+            owners in proptest::collection::vec(0_u32..4, 8),
+            segments in 1_u32..=4,
+            code in 0_u8..27,
+        ) {
+            let source = generated_schema();
+            let (target, migration) = extension_map(&source, code);
+            let plan = plan_of(&source, &target, &migration);
+            let (graph, partition) = generated_graph(&anchors, &edges, &owners, segments);
+            check_case(&target, &migration, &plan, &graph, &partition);
+        }
+    }
+
+    /// The protocol of the transform witnesses: records and 64-bit integers.
+    fn attribute_protocol() -> Protocol {
+        Protocol {
+            value_kinds: std::collections::BTreeMap::from([(
+                "int".to_owned(),
+                panproto_schema::ScalarKind::Int {
+                    bits: 64,
+                    signed: true,
+                },
+            )]),
+            non_value_kinds: std::collections::BTreeSet::from(["record".to_owned()]),
+            ..Protocol::default()
+        }
+    }
+
+    /// A schema of three records joined in a cycle by the edges `ab`, `bc`
+    /// and `ca`, named `vertices`, with an integer attribute of each name in
+    /// `attributes` on the vertex it names.
+    fn cycle_schema(vertices: [&str; 3], attributes: &[(&str, &str)]) -> panproto_schema::Schema {
+        let protocol = attribute_protocol();
+        let mut builder = panproto_schema::SchemaBuilder::new(&protocol);
+        for vertex in vertices {
+            builder = builder.vertex(vertex, "record", None).expect("vertex");
+        }
+        for ((src, tgt), name) in [(0, 1), (1, 2), (2, 0)].into_iter().zip(["ab", "bc", "ca"]) {
+            builder = builder
+                .edge(vertices[src], vertices[tgt], "prop", Some(name))
+                .expect("edge");
+        }
+        for (vertex, field) in attributes {
+            let attribute = format!("{vertex}.{field}");
+            builder = builder
+                .vertex(&attribute, "int", None)
+                .and_then(|builder| builder.edge(vertex, &attribute, "prop", Some(field)))
+                .expect("attribute");
+        }
+        builder.build().expect("schema")
+    }
+
+    /// The witness migration from `cycle_schema([a, b, c])` onto
+    /// `cycle_schema([p, q, r])` with the value transforms `transforms`.
+    fn cycle_migration(
+        transforms: Vec<(&str, Vec<FieldTransform>)>,
+    ) -> panproto_inst::CompiledMigration {
+        let mut migration = panproto_inst::CompiledMigration::default();
+        for (source, target) in [("a", "p"), ("b", "q"), ("c", "r")] {
+            migration.vertex_remap.insert(source.into(), target.into());
+        }
+        for (vertex, list) in transforms {
+            migration.field_transforms.insert(vertex.into(), list);
+        }
+        migration
+    }
+
+    /// The three-node cycle over `a`, `b`, `c`, each node in its own
+    /// segment and carrying the field `x`, so every edge crosses segments.
+    fn cycle_family() -> (panproto_inst::GInstance, panproto_inst::segment::Partition) {
+        let anchors = ["a", "b", "c"];
+        let mut graph = RefGraph::default();
+        for (id, anchor) in (0_u32..).zip(anchors) {
+            graph.nodes.insert(id, super::RefNode::new(id, anchor));
+        }
+        for (id, (src, tgt)) in (0_u32..).zip([(0_u32, 1_u32), (1, 2), (2, 0)]) {
+            let (a, b) = (anchors[src as usize], anchors[tgt as usize]);
+            graph.edges.insert(
+                id,
+                super::RefGEdge {
+                    src,
+                    tgt,
+                    label: super::RefEdge::new(a, b, "prop", Some(&format!("{a}{b}"))),
+                    position: None,
+                },
+            );
+        }
+        let (_, partition) = generated_graph(&[0, 1, 2], &[], &[0, 1, 2], 3);
+        let mut whole = prod_graph(&graph);
+        for id in 0..3 {
+            if let Some(node) = whole.node_mut(id) {
+                node.extra_fields
+                    .insert("x".to_owned(), Value::Int(i64::from(id)));
+            }
+        }
+        (whole, prod_partition(&partition))
+    }
+
+    #[test]
+    fn field_transforms_that_evaluate_no_expression_extend_segment_by_segment_like_whole_state() {
+        let protocol = attribute_protocol();
+        let protocols = BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        };
+        let source = cycle_schema(["a", "b", "c"], &[("a", "x"), ("b", "x")]);
+        let target = cycle_schema(["p", "q", "r"], &[("p", "y"), ("q", "z")]);
+        let migration = cycle_migration(vec![
+            (
+                "a",
+                vec![FieldTransform::RenameField {
+                    old_key: "x".to_owned(),
+                    new_key: "y".to_owned(),
+                }],
+            ),
+            (
+                "b",
+                vec![
+                    FieldTransform::AddField {
+                        key: "z".to_owned(),
+                        value: Value::Int(7),
+                    },
+                    FieldTransform::DropField {
+                        key: "x".to_owned(),
+                    },
+                ],
+            ),
+        ]);
+        let plan = compile_extension_plan(&source, &target, &migration, protocols)
+            .expect("the plan compiles");
+        assert_eq!(graph_extend_locality(&plan), Locality::Local);
+        let (whole, partition) = cycle_family();
+        let segments = partition_graph(&whole, &partition).expect("split");
+        let output = graph_extend_segmented(&plan, &segments, &partition).expect("extends");
+        let glued = assemble_graph(output, &partition).expect("glues");
+        let expected = graph_extend_engine(&whole, &source, &target, &migration, protocols)
+            .expect("whole-state extension accepts");
+        assert_eq!(ref_graph(&glued), ref_graph(&expected));
+        let renamed = glued.node(0).expect("node 0");
+        assert_eq!(renamed.anchor.as_ref(), "p");
+        assert_eq!(renamed.extra_fields.get("y"), Some(&Value::Int(0)));
+        let added = glued.node(1).expect("node 1");
+        assert_eq!(added.extra_fields.get("z"), Some(&Value::Int(7)));
+        assert_eq!(added.extra_fields.get("x"), None);
+    }
+
+    #[test]
+    fn an_expression_transform_is_declined_as_a_global_expression_before_any_segment_is_read() {
+        let protocol = attribute_protocol();
+        let source = cycle_schema(["a", "b", "c"], &[("b", "x")]);
+        let target = cycle_schema(["p", "q", "r"], &[("q", "x")]);
+        let migration = cycle_migration(vec![(
+            "b",
+            vec![FieldTransform::ApplyExpr {
+                key: "x".to_owned(),
+                expr: panproto_expr::Expr::Var("x".into()),
+                inverse: None,
+                coercion_class: panproto_gat::CoercionClass::Iso,
+            }],
+        )]);
+        let plan = compile_extension_plan(
+            &source,
+            &target,
+            &migration,
+            BoundaryProtocols {
+                src: &protocol,
+                tgt: &protocol,
+            },
+        )
+        .expect("the plan compiles");
+        let reason = GlobalReason::ExpressionDemand { vertex: "b".into() };
+        assert_eq!(
+            graph_extend_locality(&plan),
+            Locality::Global(reason.clone())
+        );
+        let (whole, partition) = cycle_family();
+        let segments = partition_graph(&whole, &partition).expect("split");
+        // Segments out of order are no family: the residual comes before
+        // any segment is checked or read.
+        let unread: Vec<GraphSegment> = segments.iter().rev().cloned().collect();
+        match graph_extend_segmented(&plan, &unread, &partition) {
+            Err(SegmentedExtendError::Residual(Residual::Global { op, reason: found })) => {
+                assert_eq!(op, SegmentOp::Extend);
+                assert_eq!(found, reason);
+            }
+            other => panic!("an expression transform is declined: {other:?}"),
+        }
+    }
+}
+
+/// The checkpointed run of segmented graph extension against the reference
+/// runner.
+mod segmented_extend_run {
+    use super::segmented_extend::{plan_of, production_refusal, reference_refusal};
+    use super::segmented_randomized::{generated_graph, schema as generated_schema};
+    use super::segmented_runner::{
+        Input, SOURCE_SCHEMA, Seen, input, production_report, reference_report,
+    };
+    use super::segmented_witnesses::FailingStore;
+    use super::{RefGraph, RefMigration, RefSchema, RestrictPlan};
+    use panproto_inst::identity::Digest;
+    use panproto_inst::segment::{
+        AnySegment, ArtifactKey, Budget, GraphExtendRun, MemoryStore, Phase, Residual, Resource,
+        RunIncompleteReason, RunJournal, RunSpec, RunStatus, SegmentRunReport, SegmentStore,
+        SegmentedExtendError, graph_extend_run, graph_extend_segmented, partition_graph,
+        read_emitted, verify_manifest,
+    };
+    use panproto_reference::enumerate::segments::{extension_map, segmented_extend_cases};
+    use panproto_reference::segment as reference;
+
+    /// The schema digest of a run's extended segments.
+    const TARGET_SCHEMA: [u8; 32] = [24; 32];
+    const LENS: [u8; 32] = [25; 32];
+
+    fn seen_production(report: &SegmentRunReport<SegmentedExtendError>) -> Seen {
+        let failed = match &report.status {
+            RunStatus::Failed(SegmentedExtendError::Extend { segment, error }) => {
+                format!("extend {} {}", segment.0, production_refusal(error))
+            }
+            RunStatus::Failed(SegmentedExtendError::Segment(error)) => format!("segment {error:?}"),
+            RunStatus::Failed(other) => format!("other {other:?}"),
+            _ => String::new(),
+        };
+        production_report(report, failed)
+    }
+
+    fn seen_reference(
+        report: &reference::SegmentRunReport<reference::SegmentedExtendRefusal>,
+    ) -> Seen {
+        let failed = match &report.status {
+            reference::RunStatus::Failed(reference::SegmentedExtendRefusal::Extend {
+                segment,
+                error,
+            }) => format!("extend {} {}", segment.0, reference_refusal(error)),
+            reference::RunStatus::Failed(reference::SegmentedExtendRefusal::Segment(error)) => {
+                format!("segment {error:?}")
+            }
+            _ => String::new(),
+        };
+        reference_report(report, failed, format!("{:?}", report.locality.extend))
+    }
+
+    /// One extension of the carrier on both sides.
+    struct Case<'a> {
+        target: &'a RefSchema,
+        migration: &'a RefMigration,
+        plan: &'a RestrictPlan,
+        input: Input,
+        segments: Vec<reference::GraphSegment>,
+        partition: &'a reference::Partition,
+    }
+
+    impl<'a> Case<'a> {
+        fn new(
+            target: &'a RefSchema,
+            migration: &'a RefMigration,
+            plan: &'a RestrictPlan,
+            graph: &RefGraph,
+            partition: &'a reference::Partition,
+        ) -> Self {
+            Self {
+                target,
+                migration,
+                plan,
+                input: input(graph, partition),
+                segments: reference::partition_graph(graph, partition).expect("reference split"),
+                partition,
+            }
+        }
+
+        fn production<S: SegmentStore>(
+            &self,
+            budget: Budget,
+            store: &mut S,
+            cancel: Option<u32>,
+        ) -> GraphExtendRun {
+            graph_extend_run(
+                self.plan,
+                &self.input.manifest,
+                &self.input.bytes,
+                RunSpec {
+                    lens: Digest(LENS),
+                    input: self.input.manifest.digest(),
+                    output_schema: Digest(TARGET_SCHEMA),
+                    cancel_after_tasks: cancel,
+                },
+                budget,
+                store,
+                &mut |_| {},
+            )
+        }
+
+        fn reference(
+            &self,
+            budget: Budget,
+            store: &mut reference::MemoryStore,
+            cancel: Option<u32>,
+        ) -> reference::ExtendRun {
+            reference::segmented_extend_with_progress(
+                reference::ExtendLens {
+                    tgt: self.target,
+                    m: self.migration,
+                },
+                &self.segments,
+                self.partition,
+                &reference::ExtendRunSpec {
+                    lens: reference::Digest(LENS),
+                    source_schema: reference::Digest(SOURCE_SCHEMA),
+                    target_schema: reference::Digest(TARGET_SCHEMA),
+                    binding: None,
+                    cancel_after_tasks: cancel,
+                },
+                reference::Budget {
+                    working_set: budget.working_set,
+                    complement: budget.complement,
+                    summary: budget.summary,
+                    affected_segments: budget.affected_segments,
+                },
+                store,
+                &mut |_| {},
+            )
+        }
+    }
+
+    /// What the run law showed.
+    #[derive(Debug, Default)]
+    struct Tally {
+        complete: u64,
+        refused: u64,
+        declined: u64,
+        cancellations: u64,
+    }
+
+    /// The journal of a run holds no Emit or Seal task.
+    fn sealed_nothing(store: &MemoryStore, run: Digest) -> bool {
+        let journal: RunJournal = store.journal(&run).unwrap_or_else(|never| match never {});
+        journal
+            .tasks
+            .keys()
+            .all(|task| !matches!(task.phase, Phase::Emit | Phase::Seal))
+    }
+
+    /// Check the run law on one extension under `budget`: the production
+    /// report equals the reference runner's uninterrupted and, when
+    /// `every_point`, at every cancellation point and after resuming; a
+    /// complete run emits the reference's extended segments and those of
+    /// in-memory segmented extension with no complement, under a manifest
+    /// that verifies; a refused or declined run seals nothing.
+    fn check_run(case: &Case<'_>, budget: Budget, every_point: bool, tally: &mut Tally) {
+        let mut store = MemoryStore::default();
+        let baseline = case.production(budget, &mut store, None);
+        let mut reference_store = reference::MemoryStore::default();
+        let expected = case.reference(budget, &mut reference_store, None);
+        assert_eq!(
+            seen_production(&baseline.report),
+            seen_reference(&expected.report),
+            "uninterrupted extension under {:?}",
+            case.partition
+        );
+        let run = baseline.run.expect("a run identity");
+        assert_eq!(run.0, expected.run.0, "run identity");
+        match &baseline.report.status {
+            RunStatus::Complete { manifest } => {
+                tally.complete += 1;
+                check_emitted(case, &store, &baseline, *manifest, &expected);
+            }
+            RunStatus::Failed(_) => {
+                tally.refused += 1;
+                assert!(
+                    sealed_nothing(&store, run),
+                    "a refused extension seals nothing"
+                );
+            }
+            RunStatus::Residual(_) => {
+                tally.declined += 1;
+                assert!(
+                    sealed_nothing(&store, run),
+                    "a declined extension seals nothing"
+                );
+            }
+            RunStatus::Incomplete { reason } => {
+                panic!("an uninterrupted extension stopped: {reason:?}")
+            }
+        }
+        if every_point {
+            check_cancellations(case, budget, &baseline, run, tally);
+        }
+    }
+
+    /// The emitted segments of the complete run `baseline` in `store`
+    /// carry no complement and are the in-memory and reference extended
+    /// segments, under a manifest with digest `manifest` that verifies.
+    fn check_emitted(
+        case: &Case<'_>,
+        store: &MemoryStore,
+        baseline: &GraphExtendRun,
+        manifest: Digest,
+        expected: &reference::ExtendRun,
+    ) {
+        let run = baseline.run.expect("a run identity");
+        let sealed = baseline.manifest.as_ref().expect("a manifest");
+        assert_eq!(sealed.digest(), manifest);
+        assert_eq!(verify_manifest(sealed, manifest), Ok(()));
+        let partition = &case.input.partition;
+        let source = partition_graph(
+            &super::prod_graph(
+                &reference::assemble_graph(&case.segments, case.partition).expect("glued input"),
+            ),
+            partition,
+        )
+        .expect("split");
+        let in_memory = graph_extend_segmented(case.plan, &source, partition).expect("extends");
+        let schema = Digest(TARGET_SCHEMA);
+        for ((spec, held), expected) in partition
+            .specs()
+            .iter()
+            .zip(&in_memory)
+            .zip(expected.output.as_ref().expect("output"))
+        {
+            let emitted = read_emitted(store, run, partition, spec.id).expect("an emitted segment");
+            assert_eq!(
+                emitted.complement,
+                Vec::<u8>::new(),
+                "extension emits no complement"
+            );
+            let bytes = AnySegment::Graph(emitted.view)
+                .canonical_bytes(&schema, partition)
+                .expect("extended bytes");
+            assert_eq!(
+                bytes,
+                AnySegment::Graph(held.clone())
+                    .canonical_bytes(&schema, partition)
+                    .expect("in-memory bytes")
+            );
+            assert_eq!(
+                bytes,
+                reference::canonical_segment_bytes(
+                    &reference::AnySegment::Graph(expected.clone()),
+                    reference::Digest(TARGET_SCHEMA),
+                    case.partition,
+                )
+                .expect("reference extended bytes"),
+                "extended segment under {:?}",
+                case.partition
+            );
+        }
+    }
+
+    /// Stopping the run of `case` at every cancellation point and resuming
+    /// it reports what the reference runner reports, and ends as `baseline`.
+    fn check_cancellations(
+        case: &Case<'_>,
+        budget: Budget,
+        baseline: &GraphExtendRun,
+        run: Digest,
+        tally: &mut Tally,
+    ) {
+        let (total, done) = (
+            baseline.report.progress.tasks_total,
+            baseline.report.progress.tasks_done,
+        );
+        for cancel in 0..=total {
+            tally.cancellations += 1;
+            let mut store = MemoryStore::default();
+            let interrupted = case.production(budget, &mut store, Some(cancel));
+            let mut reference_store = reference::MemoryStore::default();
+            let stopped = case.reference(budget, &mut reference_store, Some(cancel));
+            assert_eq!(
+                seen_production(&interrupted.report),
+                seen_reference(&stopped.report),
+                "extension cancelled after {cancel} tasks"
+            );
+            let resumed = case.production(budget, &mut store, None);
+            let again = case.reference(budget, &mut reference_store, None);
+            assert_eq!(
+                seen_production(&resumed.report),
+                seen_reference(&again.report),
+                "extension resumed after {cancel} tasks"
+            );
+            assert_eq!(resumed.report.tasks_reused, cancel.min(done));
+            assert_eq!(
+                format!("{:?}", resumed.report.status),
+                format!("{:?}", baseline.report.status)
+            );
+            assert_eq!(resumed.manifest, baseline.manifest);
+            assert_eq!(
+                store
+                    .staged_uncommitted(&run)
+                    .unwrap_or_else(|never| match never {}),
+                Vec::<ArtifactKey>::new()
+            );
+        }
+    }
+
+    fn sweep(select: impl Fn(usize) -> bool) -> (usize, usize, Tally) {
+        let mut tally = Tally::default();
+        let (mut cases, mut selected) = (0, 0);
+        let mut plan: Option<(RefSchema, RefMigration, RestrictPlan)> = None;
+        for (position, case) in segmented_extend_cases().step_by(331).enumerate() {
+            cases += 1;
+            if !select(position) {
+                continue;
+            }
+            selected += 1;
+            if !matches!(&plan, Some((s, m, _)) if *s == case.source && *m == case.migration) {
+                let compiled = plan_of(&case.source, &case.target, &case.migration);
+                plan = Some((case.source.clone(), case.migration.clone(), compiled));
+            }
+            let Some((_, _, compiled)) = &plan else {
+                unreachable!("a plan was just compiled")
+            };
+            let run = Case::new(
+                &case.target,
+                &case.migration,
+                compiled,
+                &case.graph,
+                &case.partition,
+            );
+            check_run(&run, Budget::unlimited(), true, &mut tally);
+        }
+        (cases, selected, tally)
+    }
+
+    /// Every 331st case of the segmented extension carrier, run as a
+    /// checkpointed extension: the report equals the reference runner's
+    /// uninterrupted and at every cancellation point, a resumed run ends as
+    /// the uninterrupted one, a complete run emits the reference's and
+    /// in-memory segmented extension's segments, and a refused run seals
+    /// nothing.
+    #[test]
+    fn segmented_extend_run_matches_the_reference_runner_at_every_cancellation_point() {
+        let (cases, selected, tally) = sweep(|_| true);
+        assert_eq!((cases, selected), (1_308, 1_308));
+        println!("{tally:?}");
+        assert!(
+            tally.complete > 0 && tally.refused > 0 && tally.cancellations > 0,
+            "{tally:?}"
+        );
+    }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(32))]
+
+        #[test]
+        fn segmented_extend_run_matches_the_reference_runner_on_generated_partitions(
+            anchors in proptest::collection::vec(0_usize..3, 1..=6),
+            edges in proptest::collection::vec((0_usize..6, 0_usize..6), 0..=8),
+            owners in proptest::collection::vec(0_u32..4, 6),
+            segments in 1_u32..=3,
+            code in 0_u8..27,
+        ) {
+            let source = generated_schema();
+            let (target, migration) = extension_map(&source, code);
+            let plan = plan_of(&source, &target, &migration);
+            let (graph, partition) = generated_graph(&anchors, &edges, &owners, segments);
+            let case = Case::new(&target, &migration, &plan, &graph, &partition);
+            check_run(&case, Budget::unlimited(), true, &mut Tally::default());
+        }
+    }
+
+    /// The witness: `a` to `p`, `b` to `q` and `c` without an image, over
+    /// three nodes at `a`, `b`, `a` in three segments joined by the edges
+    /// `ab`, `ba` and `aa`, whose images `p` to `q`, `q` to `p` and `p` to
+    /// `p` are each the one target edge between their endpoints; every edge
+    /// crosses segments and the extension completes.
+    fn witness() -> (RefSchema, RefMigration, RefGraph, reference::Partition) {
+        let (target, migration) = extension_map(&generated_schema(), 1 + 2 * 3);
+        let (graph, partition) =
+            generated_graph(&[0, 1, 0], &[(0, 1), (1, 2), (2, 0)], &[0, 1, 2], 3);
+        (target, migration, graph, partition)
+    }
+
+    #[test]
+    fn an_extension_run_declines_each_exceeded_budget_like_the_reference() {
+        let (target, migration, graph, partition) = witness();
+        let plan = plan_of(&generated_schema(), &target, &migration);
+        let case = Case::new(&target, &migration, &plan, &graph, &partition);
+        let mut tally = Tally::default();
+        check_run(&case, Budget::unlimited(), true, &mut tally);
+        assert_eq!(tally.complete, 1, "the witness extends: {tally:?}");
+        let segments = Budget {
+            affected_segments: 2,
+            ..Budget::unlimited()
+        };
+        let working_set = Budget {
+            working_set: 0,
+            ..Budget::unlimited()
+        };
+        let summary = Budget {
+            summary: 2,
+            ..Budget::unlimited()
+        };
+        let complement = Budget {
+            complement: Some(0),
+            ..Budget::unlimited()
+        };
+        for (budget, resource) in [
+            (segments, Some(Resource::AffectedSegments)),
+            (working_set, Some(Resource::WorkingSet)),
+            (summary, Some(Resource::Summary)),
+            (complement, None),
+        ] {
+            let mut tally = Tally::default();
+            check_run(&case, budget, true, &mut tally);
+            let mut store = MemoryStore::default();
+            let run = case.production(budget, &mut store, None);
+            match (resource, &run.report.status) {
+                (
+                    Some(resource),
+                    RunStatus::Residual(Residual::BudgetExceeded {
+                        resource: found, ..
+                    }),
+                ) => assert_eq!(*found, resource),
+                (None, RunStatus::Complete { .. }) => {}
+                (resource, status) => panic!("{resource:?} under {budget:?}: {status:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn an_extension_run_stopped_by_a_failed_commit_at_any_task_resumes_to_the_uninterrupted_run() {
+        let (target, migration, graph, partition) = witness();
+        let plan = plan_of(&generated_schema(), &target, &migration);
+        let case = Case::new(&target, &migration, &plan, &graph, &partition);
+        let mut baseline_store = MemoryStore::default();
+        let baseline = case.production(Budget::unlimited(), &mut baseline_store, None);
+        assert!(
+            matches!(baseline.report.status, RunStatus::Complete { .. }),
+            "{:?}",
+            baseline.report.status
+        );
+        let total = baseline.report.progress.tasks_total;
+        for fail_at in 1..=total {
+            let mut store = FailingStore {
+                inner: MemoryStore::default(),
+                commits: 0,
+                fail_at: Some(usize::try_from(fail_at).unwrap_or(usize::MAX)),
+            };
+            let failed = case.production(Budget::unlimited(), &mut store, None);
+            assert!(
+                matches!(
+                    &failed.report.status,
+                    RunStatus::Incomplete {
+                        reason: RunIncompleteReason::Store { message }
+                    } if message == "commit failed"
+                ),
+                "{:?}",
+                failed.report.status
+            );
+            assert_eq!(failed.report.progress.tasks_done, fail_at - 1);
+            assert_eq!(failed.report.orphans.len(), 1, "the failed task's artifact");
+            store.fail_at = None;
+            let resumed = case.production(Budget::unlimited(), &mut store, None);
+            assert_eq!(resumed.report.tasks_reused, fail_at - 1);
+            assert_eq!(resumed.report.orphans, Vec::<ArtifactKey>::new());
+            assert_eq!(resumed.manifest, baseline.manifest);
+            assert_eq!(
+                format!("{:?}", resumed.report.status),
+                format!("{:?}", baseline.report.status)
+            );
+        }
+    }
+
+    #[test]
+    fn a_refused_extension_run_fails_at_assemble_with_the_whole_state_refusal_and_seals_nothing() {
+        let source = generated_schema();
+        // `c` has no image: node 2 is refused, in segment 2.
+        let (target, migration) = extension_map(&source, 1 + 2 * 3);
+        let plan = plan_of(&source, &target, &migration);
+        let (graph, partition) = generated_graph(&[0, 1, 2], &[(0, 1), (2, 0)], &[0, 1, 2], 3);
+        let case = Case::new(&target, &migration, &plan, &graph, &partition);
+        let mut store = MemoryStore::default();
+        let run = case.production(Budget::unlimited(), &mut store, None);
+        match &run.report.status {
+            RunStatus::Failed(SegmentedExtendError::Extend { segment, error }) => {
+                assert_eq!(segment.0, 2);
+                assert_eq!(production_refusal(error), "anchor c 2");
+            }
+            other => panic!("the extension is refused: {other:?}"),
+        }
+        assert_eq!(run.report.progress.phase, Phase::Summarize);
+        assert_eq!(run.report.progress.tasks_done, 9);
+        assert!(sealed_nothing(&store, run.run.expect("a run identity")));
     }
 }

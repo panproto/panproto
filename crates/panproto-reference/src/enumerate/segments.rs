@@ -740,3 +740,111 @@ pub fn allocated_splits(nodes: &[u32]) -> Vec<Partition> {
         .map(with_allocation)
         .collect()
 }
+
+/// One case of the segmented extension carrier.
+///
+/// A case is a release schema, a target schema and the migration whose
+/// vertex map sends the source onto it, a release graph of the source, and
+/// an ownership split of the graph's nodes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SegmentedExtendCase {
+    /// The source schema.
+    pub source: crate::schema::Schema,
+    /// The target schema.
+    pub target: crate::schema::Schema,
+    /// The migration.
+    pub migration: crate::migration::Migration,
+    /// The graph.
+    pub graph: Graph,
+    /// The partition of the graph's nodes, with allocation ranges.
+    pub partition: Partition,
+}
+
+/// The target vertices of the segmented extension carrier.
+pub const SEGMENTED_EXTEND_IMAGES: [&str; 2] = ["p", "q"];
+
+/// The target schema and migration of the vertex map `code` of `source`.
+///
+/// The code is read in base three, one digit per source vertex `a`, `b`,
+/// `c` in that order: `0` leaves the vertex without an image, `1` and `2`
+/// send it to the target vertex `p` and `q`. The target schema holds `p`
+/// and `q`, as records, and the image of every source
+/// edge whose endpoints are both mapped, the edge's endpoints replaced by
+/// their images (two source edges with one image are one target edge). The
+/// migration remaps each mapped vertex to its image and nothing else, so a
+/// source edge has an image exactly when one target edge joins the images
+/// of its endpoints.
+#[must_use]
+pub fn extension_map(
+    source: &crate::schema::Schema,
+    code: u8,
+) -> (crate::schema::Schema, crate::migration::Migration) {
+    let mut images = BTreeMap::new();
+    let mut digits = code;
+    for vertex in ["a", "b", "c"] {
+        match digits % 3 {
+            1 => {
+                images.insert(vertex.to_owned(), SEGMENTED_EXTEND_IMAGES[0].to_owned());
+            }
+            2 => {
+                images.insert(vertex.to_owned(), SEGMENTED_EXTEND_IMAGES[1].to_owned());
+            }
+            _ => {}
+        }
+        digits /= 3;
+    }
+    let mut target = crate::schema::Schema::default();
+    for image in SEGMENTED_EXTEND_IMAGES {
+        target = target.vertex(image, "record");
+    }
+    for edge in &source.edges {
+        if let (Some(src), Some(tgt)) = (images.get(&edge.src), images.get(&edge.tgt)) {
+            target = target.edge(src, tgt, &edge.kind, edge.name.as_deref());
+        }
+    }
+    let migration = crate::migration::Migration {
+        vertex_remap: images,
+        ..crate::migration::Migration::default()
+    };
+    (target, migration)
+}
+
+/// Every case of the segmented extension carrier.
+///
+/// The cases are each release schema
+/// ([`release_schemas`](crate::enumerate::restrict_and_contraction::release_schemas)),
+/// each of the 27 vertex maps of [`extension_map`], each release graph of
+/// the schema, and each labelled two- and three-segment ownership split of
+/// the graph's three nodes ([`allocated_splits`]).
+pub fn segmented_extend_cases() -> impl Iterator<Item = SegmentedExtendCase> {
+    use crate::enumerate::restrict_and_contraction::{release_graphs, release_schemas};
+    release_schemas().into_iter().flat_map(|source| {
+        let graphs = release_graphs(&source);
+        (0..27_u8).flat_map(move |code| {
+            let (target, migration) = extension_map(&source, code);
+            let source = source.clone();
+            graphs.clone().into_iter().flat_map(move |graph| {
+                let nodes: Vec<u32> = graph.nodes.keys().copied().collect();
+                let (source, target, migration) =
+                    (source.clone(), target.clone(), migration.clone());
+                allocated_splits(&nodes)
+                    .into_iter()
+                    .map(move |partition| SegmentedExtendCase {
+                        source: source.clone(),
+                        target: target.clone(),
+                        migration: migration.clone(),
+                        graph: graph.clone(),
+                        partition,
+                    })
+            })
+        })
+    })
+}
+
+/// Independent count of [`segmented_extend_cases`]: the 458 release graphs
+/// of [`segmented_restrict_case_count`], 27 vertex maps and 35 splits each,
+/// `458 * 27 * 35 = 432_810` cases.
+#[must_use]
+pub fn segmented_extend_case_count() -> u64 {
+    segmented_restrict_case_count() / 8 * 27
+}
