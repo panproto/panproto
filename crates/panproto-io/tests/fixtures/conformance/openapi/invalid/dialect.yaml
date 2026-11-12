@@ -1,0 +1,6 @@
+openapi: 3.1.1
+info:
+  title: Pets
+  version: 1.0.0
+jsonSchemaDialect: http://json-schema.org/draft-07/schema#
+paths: {}

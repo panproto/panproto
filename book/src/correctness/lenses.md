@@ -1023,3 +1023,128 @@ Lens, get, put, put domain and the Delta fragment are defined at the head of thi
 - File: `crates/panproto-lens/src/graph_protolens.rs`
 - File: `crates/panproto-reference/src/pages/lenses/elementary.rs`
 - File: `crates/panproto-reference/src/enumerate/lenses.rs`
+
+## A fused chain is the graph lens of its structural migration {#L-lenses-22}
+
+### Statement
+
+The lens DSL compiles `add_field`, `hoist_field` and `nest_field` to chains of elementary kinds that are fused into one protolens, and a horizontal composition fuses each part's chain the same way. A fused chain $P_1; \dots; P_n$ applies at a schema $S$ when each $P_i$'s precondition holds at $S_{i-1}$, where $S_0 = S$ and $S_i$ is the target of $P_i$ at $S_{i-1}$ ([L-lenses-21](#L-lenses-21)). Its target is $T = S_n$, and its instance semantics is the single graph lens $(m, S, T)$ of the *structural migration* $m$, so get, put, the complement and every put-domain refusal are those of [L-lenses-3](#L-lenses-3) and [L-lenses-4](#L-lenses-4). The structural migration is defined from $S$, $T$ and the image $\rho$ of each source vertex and edge, which follows it through each step's own map, each step at its running schema, and is undefined once a step drops it:
+
+1. a vertex survives when every step keeps it (no kind renames a vertex id, so $\rho$ is the identity on the vertices it keeps);
+2. an edge $e$ with $\rho(e)$ defined survives with image $\rho(e)$, is remapped when $\rho(e) \ne e$, and the surviving edges are both ends of every surviving edge;
+3. the contraction resolver sends each pair $(u, v)$ of surviving vertices that no edge of $S$ joins, and that exactly one edge of $T$ joins from $u$ to $v$, to that edge;
+4. an edge of $S$ from $u$ to $v$, where $u$ and $v$ are vertices of $T$ that no edge of $T$ joins, expands along the unique shortest path of $T$ from $u$ to $v$ whose interior vertices are vertices of $T$ absent from $S$, when that interior is nonempty.
+
+For `hoist_field` (add an edge from the parent to the child, then drop the intermediate), clause 3 contracts each path from a parent node through an intermediate node to a child node onto the new edge: get synthesizes that edge, the complement records it under its contraction key with the intermediate node and both path edges as dropped, and put of a view that deletes or rewires a synthesized edge is refused with `SynthesizedEdited`. For `nest_field` (add the intermediate vertex and the two edges through it, then drop the direct edge), clause 4 expands each direct edge into a synthesized intermediate node and two synthesized edges, and put of a view that deletes or edits one of them is refused with `SynthesizedEdited`. For `add_field`, the added field vertex has no node, and get writes the field's default under the field's name on every node of the parent that lacks that field; put removes a default it wrote and refuses a view that changes or removes it with `DerivedCellEdited`, while a field the source already carried stays an ordinary editable field. GetPut holds on every source whose get succeeds, and PutGet on every view in $D(c)$.
+
+The fused carrier enumerates the three fused DSL chains and seven scoped protolenses ([L-lenses-23](#L-lenses-23)) over the eight schemas on the vertices `p`, `i` and `c` with each subset of the edges `p -> i`, `i -> c` and `p -> c`: 74,480 applications and 1,534,344 puts. The fused two-step carrier enumerates every ordered pair of the sixteen elementary parameterizations of [L-lenses-21](#L-lenses-21) as one fused chain over the fourteen two-vertex schemas: 112,128 applications and 961,969 puts.
+
+### Outside the domain
+
+A schema at which some step's precondition fails is refused before instantiation with `LensError::ProtolensInapplicable`, its reasons naming the step; a step whose relabelling would identify two edges is refused the same way, its reason carrying the identification. A source whose get refuses is refused as in [L-lenses-3](#L-lenses-3): 192 sources of the fused carrier, each a `hoist_field` (plain, or scoped at `p`) on the schema that already has the direct edge `p -> c`, at a source holding a path from a `p` node through an `i` node to a `c` node: the target then has two edges from `p` to `c`, the hoisted one and the direct one, so the resolver resolves neither and get refuses the contraction with `AmbiguousEdge`. A view outside $D(c)$ is refused by put with the first violation of [L-lenses-4](#L-lenses-4).
+
+### Definitions used
+
+Lens, get, put, put domain and the complement are defined at the head of this page, the graph lens's contraction and expansion keys in [L-lenses-2](#L-lenses-2) and [L-lenses-4](#L-lenses-4), and the elementary kinds in [L-lenses-21](#L-lenses-21). A fused chain is one lens, not the composite of its steps' lenses ([L-lenses-24](#L-lenses-24)); the two differ exactly where clause 3 or 4 contracts or expands a path. Clauses 1 and 2 are the composite's: a vertex or edge a step drops stays dropped even when a later step adds one under its name, so a fused drop and re-add loses the data as the sequential composite does. Clauses 3 and 4 are what make `hoist_field` and `nest_field` move data rather than drop it. The reference's `FusedAddFieldDefault` value layer is the `add_field` default at the parent `p` with the field `f` and the default `0`, written once beside the reference rather than derived from production's transform.
+
+### Proof
+
+1. Production instantiates a fused chain by composing its steps' schema transforms into one transform, computing $T$, and comparing $S$ with $T$; it then follows each source vertex and edge through the steps' own instantiated maps, each at its running schema, and keeps the resolver on surviving vertices. The reference computes $T$ by recursion on the steps and $\rho$ by composing the steps' images ([L-lenses-21](#L-lenses-21)), and builds $m$ by clauses 1 to 4. The differential compares the targets and then the instance outputs.
+2. Clauses 1 and 2 make $m$ a migration whose edge map is the composite of the steps' edge maps restricted to what survives to $T$; on a chain with no contraction or expansion, get is therefore restriction along that composite ([L-lenses-3](#L-lenses-3)), and GetPut and PutGet hold on $D(c)$ by [L-lenses-4](#L-lenses-4).
+3. Clause 3 resolves a pair only when no source edge joins it. A source edge between surviving vertices therefore keeps its own image or is dropped, and is never carried onto another target edge; a path through a dropped vertex is contracted onto the resolved edge, which is the edge `hoist_field` adds when the schema has no other edge from the parent to the child.
+4. Clause 4 expands a direct edge that a chain dropped while adding a path through new vertices, which is `nest_field`'s shape; the synthesized nodes and edges are keyed by the source edge and hop, so put restores the direct edge and refuses an edit of a synthesized element ([L-lenses-4](#L-lenses-4)).
+5. The `add_field` default is a value-layer field writer whose restore removes a written default and refuses its edit, so PutGet holds on the views that leave a written default unchanged ([L-lenses-4](#L-lenses-4) clause on derived cells).
+6. The certificate counts are derived without the generators: a carrier schema's source states come from the anchor-multiplicity formula of [L-lenses-21](#L-lenses-21), here with three vertices, at most three nodes and at most two edges (7,448 sources over the eight schemas); the puts are, for every source whose get succeeds, the view and its one-step edits, counted by the closed-form per-view edit count of [L-lenses-8](#L-lenses-8)'s single-step basis.
+
+### Executable counterpart
+
+- Law ID: `lenses.fused-protolens-instances`
+- Reference: `panproto_reference::lens::ProtolensTerm::at`
+- Reference: `panproto_reference::lens::structural_migration`
+- Enumerator: `panproto_reference::enumerate::lenses::fused_protolens_count_certificate; bound: kinds=10, schemas=8, source_states=7448, get_cases=74480, inapplicable=0, identifying=0, instantiated=80, get_refusals=192, put_cases=1534344`
+- Enumerator: `panproto_reference::enumerate::lenses::composite_protolens_count_certificate; bound: kinds=256, schemas=14, source_states=438, get_cases=112128, inapplicable=777, identifying=54, instantiated=2753, get_refusals=0, put_cases=961969`
+- Exhaustive differential test: `fused_and_scoped_protolenses_agree_with_the_reference_exhaustively; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=fused_and_scoped_protolenses_agree_with_the_reference_exhaustively)'`
+- Exhaustive differential test: `fused_two_step_chains_of_elementary_protolenses_agree_with_the_reference_exhaustively; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=fused_two_step_chains_of_elementary_protolenses_agree_with_the_reference_exhaustively)'`
+- Property differential test: `randomized_fused_and_scoped_protolens_differential; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_fused_and_scoped_protolens_differential)'`
+- File: `crates/panproto-lens/src/protolens.rs`
+- File: `crates/panproto-lens/src/graph_protolens.rs`
+- File: `crates/panproto-reference/src/pages/lenses/composite.rs`
+- File: `crates/panproto-reference/src/enumerate/lenses.rs`
+
+## A scoped protolens applies its inner protolens to the part of the schema reachable from its focus {#L-lenses-23}
+
+### Statement
+
+The lens DSL compiles a `scoped` step to `map_items` of its inner steps' fused chain at the focus vertex. At a schema $S$ whose vertices include the focus $f$, let the scope $R$ be the set of vertices reachable from $f$ along edges, $f$ included, and $S_R$ the subschema on $R$ with the edges between its vertices. The scoped target is the merge of $S$ outside $R$ with the inner protolens's schema transform of $S_R$: the vertices outside $R$ with the transformed scope's vertices, the edges with an endpoint outside $R$ with the transformed scope's edges, less every edge with an endpoint that is no longer a vertex. Edge images are the inner images inside the scope and the identity outside it. The instance semantics is the graph lens of the structural migration of [L-lenses-22](#L-lenses-22) from $S$ to that target, with get, put, complement, refusals, GetPut and PutGet as there.
+
+The carrier scopes at `i` a sort drop, a sort rename, an edge-name rename, an edge drop and a sort addition, at `p` the fused `hoist_field`, and at `c` the drop of the focus itself; its counts are those of [L-lenses-22](#L-lenses-22)'s fused carrier.
+
+### Outside the domain
+
+A schema without the focus vertex is refused before instantiation with `LensError::ProtolensInapplicable`. The inner protolens's own precondition is not checked: within the scope its transform runs as a schema transform, so an inner rename of a kind the scope lacks is the identity there. A view outside $D(c)$ is refused by put as in [L-lenses-4](#L-lenses-4).
+
+### Definitions used
+
+Reachability, the scope, the merge and the structural migration are defined in the statement and in [L-lenses-22](#L-lenses-22). Two choices fix what the theory leaves open. A vertex the transformed scope shares with the outside takes the scope's kind. An edge from outside the scope into a vertex the inner protolens removed goes with that vertex, as a sort drop takes its incident edges ([L-lenses-21](#L-lenses-21)).
+
+### Proof
+
+1. Production extracts the reachable subschema, applies the inner transform, merges it back, and then removes every vertex the inner transform removed together with the edges and declarations outside the scope that name it; the reference computes the same merge from its definition. The differential compares the targets, including the scoped drop of the focus `c` beside the edge `p -> c`, whose edge the merge removes.
+2. With the target fixed, the instance semantics is that of [L-lenses-22](#L-lenses-22) on the scoped edge images, and its laws follow from there.
+
+### Executable counterpart
+
+- Law ID: `lenses.scoped-protolens-instances`
+- Reference: `panproto_reference::lens::ProtolensTerm::transform`
+- Enumerator: `panproto_reference::enumerate::lenses::fused_protolens_count_certificate; bound: kinds=10, schemas=8, source_states=7448, get_cases=74480, inapplicable=0, identifying=0, instantiated=80, get_refusals=192, put_cases=1534344`
+- Exhaustive differential test: `fused_and_scoped_protolenses_agree_with_the_reference_exhaustively; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=fused_and_scoped_protolenses_agree_with_the_reference_exhaustively)'`
+- Property differential test: `randomized_fused_and_scoped_protolens_differential; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_fused_and_scoped_protolens_differential)'`
+- File: `crates/panproto-lens/src/protolens.rs`
+- File: `crates/panproto-reference/src/pages/lenses/composite.rs`
+
+## A sequential composite of protolenses composes get and put, with the pair of complements {#L-lenses-24}
+
+### Statement
+
+The lens DSL instantiates the stages of a compiled step list one after another, each at the schema its predecessor produced, and joins the lenses into a path ([Lens DSL semantics](../explanation/semantics/lens-dsl.md)). For protolenses $P_1, \dots, P_n$ applicable at their running schemas, with lenses $\ell_i$ from $S_{i-1}$ to $S_i$, the composite has
+
+$$
+\mathsf{get}(s) = (v_n, (c_1, \dots, c_n)) \text{ where } (v_i, c_i) = \mathsf{get}_{\ell_i}(v_{i-1}),\ v_0 = s,
+$$
+
+$$
+\mathsf{put}(w, (c_1, \dots, c_n)) = \mathsf{put}_{\ell_1}(\cdots \mathsf{put}_{\ell_n}(w, c_n) \cdots, c_1).
+$$
+
+Its put domain is exact: $w$ is in $D(c_1, \dots, c_n)$ when $w_n = w$ lies in $D_{\ell_n}(c_n)$ and, for each $i$ from $n$ down to 2, $w_{i-1} = \mathsf{put}_{\ell_i}(w_i, c_i)$ lies in $D_{\ell_{i-1}}(c_{i-1})$. Every refusal is therefore some part's: `SynthesizedEdited` for an edited contraction or expansion of [L-lenses-22](#L-lenses-22), `DerivedCellEdited` for an edited default, and every other clause of [L-lenses-4](#L-lenses-4), reported at the rightmost part whose domain fails. GetPut holds on every source whose get succeeds, and PutGet on every view in the domain.
+
+The composite carrier enumerates every ordered pair of the sixteen elementary parameterizations of [L-lenses-21](#L-lenses-21) over the fourteen two-vertex schemas with sources of at most two nodes and one edge: 112,128 applications and 953,227 puts.
+
+### Outside the domain
+
+A schema at which some part's precondition fails at its running schema, or whose relabelling would identify two edges, is refused before instantiation with `LensError::ProtolensError`, as each stage of a compiled document is; of the carrier's 3,584 pair and schema combinations, 777 fail a precondition and 54 identify two edges, leaving 2,753 composites, the same counts as the fused two-step carrier of [L-lenses-22](#L-lenses-22). A source whose get refuses at some part is refused there, located at that part. A view outside the domain is refused by put with the refusal of the rightmost part whose domain fails, located at its group of the path.
+
+### Definitions used
+
+Lens paths, their groups and located refusals are those of [L-lenses-13](#L-lenses-13) to [L-lenses-16](#L-lenses-16). Production's path may fuse two adjacent parts into one group ([L-lenses-16](#L-lenses-16)); its complement then holds one entry for both, and the differential compares that complement through put alone, comparing it entry by entry with the reference's list otherwise.
+
+### Proof
+
+1. GetPut: for $s$ with $\mathsf{get}(s) = (v_n, (c_i))$, GetPut of $\ell_n$ gives $\mathsf{put}_{\ell_n}(v_n, c_n) = v_{n-1}$, and induction down to $\ell_1$ gives $s$.
+2. PutGet: for $w$ in the domain, each $w_{i-1}$ is in $D_{\ell_{i-1}}(c_{i-1})$ by definition, so PutGet of each part gives $\mathsf{get}_{\ell_i}(w_{i-1}) = (w_i, c'_i)$ for $i = 1, \dots, n$, and the composite view is $w_n = w$.
+3. Domain: put of the composite is defined exactly when each part's put is, which is the stated condition, and the first failure met going right to left is the rightmost failing part.
+4. Production instantiates each stage with its single-step chain at the running schema and folds get and put over the path's groups; the differential compares targets, views, complements (when unfused), restored sources, refusals and the domain reports with the reference's `CompositeLens`.
+
+### Executable counterpart
+
+- Law ID: `lenses.sequential-protolens-composites`
+- Reference: `panproto_reference::lens::CompositeLens::get`
+- Reference: `panproto_reference::lens::CompositeLens::put`
+- Reference: `panproto_reference::lens::CompositeLens::check_put_domain`
+- Enumerator: `panproto_reference::enumerate::lenses::composite_protolens_count_certificate; bound: kinds=256, schemas=14, source_states=438, get_cases=112128, inapplicable=777, identifying=54, instantiated=2753, get_refusals=0, put_cases=953227`
+- Exhaustive differential test: `sequential_composites_of_elementary_protolenses_agree_with_the_reference_exhaustively; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=sequential_composites_of_elementary_protolenses_agree_with_the_reference_exhaustively)'`
+- Property differential test: `randomized_sequential_composite_differential; command: cargo nextest run --release -p panproto-lens --test reference_lenses --no-tests=fail -E 'test(=randomized_sequential_composite_differential)'`
+- File: `crates/panproto-lens/src/protolens.rs`
+- File: `crates/panproto-lens/src/lens_path.rs`
+- File: `crates/panproto-reference/src/pages/lenses/composite.rs`
+- File: `crates/panproto-reference/src/enumerate/lenses.rs`

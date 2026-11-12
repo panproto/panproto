@@ -112,8 +112,15 @@ pub struct Reading {
     pub roots: Vec<String>,
 }
 
-/// The one dialect read.
+/// The one dialect a JSON Schema document is read under.
 pub const DIALECT: &str = "https://json-schema.org/draft/2020-12/schema";
+
+/// The `OpenAPI` 3.1 dialect, which a Schema Object of an `OpenAPI`
+/// document is read under unless it names 2020-12.
+pub const OAS_DIALECT: &str = "https://spec.openapis.org/oas/3.1/dialect/base";
+
+/// The keywords the `OpenAPI` vocabulary adds, kept under its dialect.
+pub const OAS_KEYWORDS: [&str; 4] = ["discriminator", "xml", "externalDocs", "example"];
 
 const OLD: [&str; 5] = [
     "definitions",
@@ -433,6 +440,8 @@ pub fn resolve(base: Option<&str>, reference: &str) -> Option<String> {
 struct Scope {
     resource: String,
     base: Option<String>,
+    /// Whether the `OpenAPI` vocabulary is in effect.
+    oas: bool,
 }
 
 /// What the first pass gathers.
@@ -443,6 +452,9 @@ struct Gathered {
     dynamic_count: BTreeMap<String, usize>,
     scopes: BTreeMap<(usize, String), Scope>,
     prefixes: Vec<String>,
+    /// Whether the documents are host documents holding Schema Objects,
+    /// registered by the host, whose `$schema` may name the OAS dialect.
+    hosted: bool,
 }
 
 fn refuse<T>(document: usize, path: &str, kind: Kind) -> R<T> {
@@ -473,6 +485,7 @@ pub fn read(documents: &[(Option<String>, Doc)]) -> Result<Reading, Refusal> {
             None => Scope {
                 resource: String::new(),
                 base: None,
+                oas: false,
             },
             Some(uri) => {
                 let base = without_empty_fragment(uri);
@@ -486,6 +499,7 @@ pub fn read(documents: &[(Option<String>, Doc)]) -> Result<Reading, Refusal> {
                 Scope {
                     resource: base.to_owned(),
                     base: Some(base.to_owned()),
+                    oas: false,
                 }
             }
         };
@@ -513,6 +527,97 @@ pub fn read(documents: &[(Option<String>, Doc)]) -> Result<Reading, Refusal> {
     Ok(out)
 }
 
+/// A Schema Object held by a host document: the document, the JSON
+/// pointer of the Schema Object, and the Schema Object.
+pub type Embedded<'d> = (usize, String, &'d Doc);
+
+/// Read the Schema Objects of host documents, as the `OpenAPI` page states.
+///
+/// Each document is a resource identified by its URI (`uris`, or the empty
+/// key for the one without), whose Schema Objects start under the `OpenAPI`
+/// vocabulary when `oas` says so; references resolve among the Schema
+/// Objects of every document.
+///
+/// # Errors
+///
+/// The first [`Refusal`], in the page's order.
+pub fn read_embedded(
+    uris: &[Option<String>],
+    oas: &[bool],
+    schemas: &[Embedded<'_>],
+) -> Result<Reading, Refusal> {
+    let mut g = Gathered {
+        hosted: true,
+        ..Gathered::default()
+    };
+    for (d, uri) in uris.iter().enumerate() {
+        let key = uri.clone().unwrap_or_default();
+        g.resources.insert(key.clone(), (d, String::new()));
+        g.prefixes.push(key);
+    }
+    for (d, path, node) in schemas {
+        let start = Scope {
+            resource: uris[*d].clone().unwrap_or_default(),
+            base: uris[*d].clone(),
+            oas: oas[*d],
+        };
+        first_pass(&mut g, *d, node, path, &start, path.is_empty())?;
+    }
+    let mut out = Reading::default();
+    let mut refs = Vec::new();
+    for (d, path, node) in schemas {
+        let id = second_pass(&g, &mut out, &mut refs, *d, node, path)?;
+        out.roots.push(id);
+    }
+    for (src, kind, tgt, name) in refs {
+        out.edges
+            .entry(src)
+            .or_default()
+            .push((kind.to_owned(), tgt, Some(name)));
+    }
+    Ok(out)
+}
+
+/// Check an `OpenAPI` vocabulary keyword: `discriminator` an object with a
+/// string `propertyName` and only `mapping` (an object of strings) and
+/// `x-` members beside it; `xml` an object of string `name`, `namespace`
+/// and `prefix`, boolean `attribute` and `wrapped`, and `x-` members;
+/// `externalDocs` an object with `url`, of string `url` and `description`
+/// and `x-` members.
+fn check_oas_keyword(d: usize, key: &str, value: &Doc, path: &str) -> R<()> {
+    let members = match (key, value) {
+        ("discriminator" | "xml" | "externalDocs", Doc::Map(members)) => members,
+        ("discriminator" | "xml" | "externalDocs", _) => return refuse(d, path, Kind::Invalid),
+        _ => return Ok(()),
+    };
+    match (key, member(members, "propertyName"), member(members, "url")) {
+        ("discriminator", None, _) | ("externalDocs", _, None) => {
+            return refuse(d, path, Kind::Invalid);
+        }
+        ("discriminator", Some(name), _) if !matches!(name, Doc::Str(_)) => {
+            return refuse(d, &at(path, "propertyName"), Kind::Invalid);
+        }
+        _ => {}
+    }
+    for (name, v) in members {
+        let fits = match (key, name.as_str(), v) {
+            (_, n, _) if n.starts_with("x-") => true,
+            ("discriminator", "mapping", Doc::Map(entries)) => {
+                entries.iter().all(|(_, s)| matches!(s, Doc::Str(_)))
+            }
+            ("discriminator", "propertyName", _)
+            | ("xml", "name" | "namespace" | "prefix", Doc::Str(_))
+            | ("xml", "attribute" | "wrapped", Doc::Bool(_))
+            | ("externalDocs", "url" | "description", Doc::Str(_)) => true,
+            _ => false,
+        };
+        if !fits {
+            return refuse(d, &at(path, name), Kind::Invalid);
+        }
+    }
+    Ok(())
+}
+
 /// The first pass over one subschema: checks, then `$schema`, then the
 /// scope and resource, then anchors, then the subschemas it holds, keyword
 /// by keyword in the canonical order.
@@ -538,17 +643,29 @@ fn first_pass(
         check(d, key, value, &at(path, key))?;
     }
     let id = member(members, "$id");
+    let mut oas = outer.oas;
     if let Some(dialect) = member(members, "$schema") {
         if !root && id.is_none() {
             return refuse(d, &at(path, "$schema"), Kind::Invalid);
         }
-        if let Doc::Str(text) = dialect
-            && without_empty_fragment(text) != DIALECT
-        {
-            return refuse(d, &at(path, "$schema"), Kind::UnsupportedDialect);
+        if let Doc::Str(text) = dialect {
+            let named = without_empty_fragment(text);
+            if named == DIALECT {
+                oas = false;
+            } else if g.hosted && named == OAS_DIALECT {
+                oas = true;
+            } else {
+                return refuse(d, &at(path, "$schema"), Kind::UnsupportedDialect);
+            }
         }
     }
-    let scope = scope_of(g, d, path, outer, root, id)?;
+    if oas {
+        for (key, value) in members {
+            check_oas_keyword(d, key, value, &at(path, key))?;
+        }
+    }
+    let mut scope = scope_of(g, d, path, outer, root, id)?;
+    scope.oas = oas;
     for (key, value) in members {
         let dynamic = match key.as_str() {
             "$anchor" => false,
@@ -632,9 +749,10 @@ fn scope_of(
         return Ok(Scope {
             resource: resolved.clone(),
             base: Some(resolved),
+            oas: outer.oas,
         });
     }
-    if root && outer.base.is_none() {
+    if root && outer.base.is_none() && !g.hosted {
         if g.resources.contains_key("") {
             return refuse(d, path, Kind::DuplicateDocument);
         }
@@ -825,7 +943,8 @@ fn second_pass(
         {
             continue;
         }
-        let (sort, text) = if KEPT.contains(&key.as_str()) || empty_named(key, value) {
+        let oas = g.scopes[&(d, path.to_owned())].oas && OAS_KEYWORDS.contains(&key.as_str());
+        let (sort, text) = if KEPT.contains(&key.as_str()) || empty_named(key, value) || oas {
             (key.clone(), json(value))
         } else {
             (

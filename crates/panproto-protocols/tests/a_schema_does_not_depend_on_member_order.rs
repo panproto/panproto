@@ -116,33 +116,6 @@ fn samples() -> Vec<(&'static str, Value)> {
             }),
         ),
         (
-            "openapi",
-            serde_json::json!({
-                "openapi": "3.0.0",
-                "info": { "title": "t", "version": "1" },
-                "paths": {
-                    "/users": { "get": { "responses": { "200": { "description": "ok" } } } },
-                    "/items": { "post": { "responses": { "201": { "description": "made" } } } }
-                },
-                "components": {
-                    "schemas": {
-                        "User": {
-                            "type": "object",
-                            "properties": {
-                                "name": { "type": "string" },
-                                "age": { "type": "integer" },
-                                "email": { "type": "string" }
-                            }
-                        },
-                        "Item": {
-                            "type": "object",
-                            "properties": { "sku": { "type": "string" }, "qty": { "type": "integer" } }
-                        }
-                    }
-                }
-            }),
-        ),
-        (
             "dataframe",
             serde_json::json!({
                 "name": "users",

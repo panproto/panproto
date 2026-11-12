@@ -671,13 +671,15 @@ static DESCRIPTORS: &[ProtocolDescriptor] = &[
     ProtocolDescriptor {
         name: "openapi",
         aliases: &[],
-        parser: Parser::Document(api::openapi::parse_openapi),
+        parser: Parser::Grammar {
+            reader: "panproto_io::api::openapi::read_openapi",
+        },
         protocol: api::openapi::protocol,
         register_theories: |r| {
             api::openapi::register_theories(r);
             Ok(())
         },
-        bundle: true,
+        bundle: false,
         bundle_project: false,
     },
     ProtocolDescriptor {

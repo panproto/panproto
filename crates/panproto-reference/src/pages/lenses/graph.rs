@@ -256,7 +256,6 @@ fn id_collisions(view: &Graph, c: &Complement) -> Vec<PutDomainError> {
         .collect()
 }
 
-/// The put-domain error of a value layer's field refusal at `elem`.
 /// The clause (5) refusal of a view whose restored source get refuses:
 /// `SurvivalPredicateRefused` at the element the refusal names (an edge at
 /// the edge stage, a node otherwise, node 0 when it names none), carrying a
@@ -309,6 +308,7 @@ fn next_get_refusal(refusal: crate::restrict::RestrictError) -> Option<PutDomain
     Some(PutDomainError::SurvivalPredicateRefused { elem, refusal })
 }
 
+/// The put-domain error of a value layer's field refusal at `elem`.
 fn field_refusal(elem: ViewRef, refusal: PutFieldRefusal) -> PutDomainError {
     match refusal {
         PutFieldRefusal::DerivedCellEdited { field } => {
@@ -694,9 +694,11 @@ impl GraphLens<'_> {
     /// Clauses (1) `IdCollision` and (2) `SynthesizedEdited` read the view
     /// and complement alone and always run. Clauses (3) and (4) map every
     /// view edge and node back. The clauses read on the restored source,
-    /// (5) to (8), run only when (3) and (4) report nothing, since only then
-    /// is there a restored source; a view node whose id collides with a
-    /// dropped node is restored in that node's place.
+    /// (5) to (8), run on the whole restored source when (3) and (4) report
+    /// nothing, and otherwise on the restoration of the restorable part,
+    /// the view without each node and edge (3) and (4) refuse and without
+    /// the edges incident to a refused node; a view node whose id collides
+    /// with a dropped node is restored in that node's place.
     pub(super) fn restore_unchecked(
         &self,
         view: &Graph,

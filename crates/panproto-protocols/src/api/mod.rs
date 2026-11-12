@@ -6,7 +6,7 @@ pub mod asyncapi;
 pub mod graphql;
 /// JSON:API protocol definition and parser/emitter.
 pub mod jsonapi;
-/// OpenAPI/Swagger protocol definition and parser/emitter.
+/// `OpenAPI` 3.1 protocol definition.
 pub mod openapi;
 /// RAML protocol definition and parser/emitter.
 pub mod raml;

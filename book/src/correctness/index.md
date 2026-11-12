@@ -53,7 +53,7 @@ The table lists each correctness page and the number of laws it proves for the t
 | [Edits](edits.md) | 11 |
 | [Validation](validation.md) | 20 |
 | [Segments](segments.md) | 31 |
-| [Lenses](lenses.md) | 21 |
+| [Lenses](lenses.md) | 24 |
 | [Reference resolution](resolution.md) | 16 |
 | [Text formats](text-formats.md) | 4 |
 | [PostgreSQL DDL](postgresql-ddl.md) | 3 |
@@ -64,6 +64,7 @@ The table lists each correctness page and the number of laws it proves for the t
 | [CloudFormation](cloudformation.md) | 2 |
 | [Ansible](ansible.md) | 2 |
 | [JSON Schema](json-schema.md) | 2 |
+| [OpenAPI](openapi.md) | 2 |
 | [BSON](bson.md) | 3 |
 | [Migration search](migration-search.md) | 4 |
 | [Schema merge](schema-merge.md) | 4 |

@@ -18,6 +18,7 @@ pub mod kubernetes_crds;
 pub mod lens_dsl;
 pub mod lenses;
 pub mod migration_search;
+pub mod openapi;
 pub mod postgresql_data;
 pub mod postgresql_ddl;
 pub mod rdf_formats;
