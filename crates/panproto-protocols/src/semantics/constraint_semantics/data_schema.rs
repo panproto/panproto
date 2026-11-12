@@ -1,12 +1,15 @@
 //! Constraint-semantics rows for the data schema protocols (`json-schema`,
 //! `bson`, `cddl`).
 //!
-//! JSON Schema counts a string's length in code points, compares `minimum`
-//! and `maximum` inclusively, and names value formats with `format`. `type`
-//! is the vertex kind itself. `additionalProperties`, `items` and
-//! `additionalItems` set to `false` close a record or a tuple to the members
-//! it declares, which validation already requires of every element, since
-//! an edge the schema does not declare is a failure; they describe here.
+//! A `json-schema` constraint holds its keyword's value as canonical JSON
+//! text. JSON Schema 2020-12 counts a string's length in code points and
+//! compares `minimum` and `maximum` inclusively, and a count written as an
+//! integer and a bound written as a number read as those meanings. Every
+//! other keyword describes, as does an empty object of subschemas kept
+//! under its applicator's name: `format` is an annotation in the 2020-12
+//! dialect unless a format-assertion vocabulary is declared, and the
+//! applicators the other validation keywords combine with are edges of the
+//! schema, which validation does not evaluate as JSON Schema does.
 //! `required` is a presence flag of a property, about the object that holds
 //! it (the schema's required edge of the object), not about the property's
 //! own value, which a record or list property does not have; it describes.
@@ -19,7 +22,6 @@
 //! a default value. No single meaning reads them, and the `cddl` parser
 //! emits none of them, so they describe.
 
-use panproto_gat::Name;
 use panproto_schema::{ConstraintSemantics, LengthUnit};
 
 use super::ConstraintRow;
@@ -40,29 +42,101 @@ const fn row(
 
 /// The rows of this family, one per declaration.
 pub(super) const ROWS: &[ConstraintRow] = &[
+    row("json-schema", "$schema", || ConstraintSemantics::Annotation),
+    row("json-schema", "$id", || ConstraintSemantics::Annotation),
+    row("json-schema", "$anchor", || ConstraintSemantics::Annotation),
+    row("json-schema", "$dynamicAnchor", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("json-schema", "$vocabulary", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("json-schema", "$comment", || {
+        ConstraintSemantics::Annotation
+    }),
     row("json-schema", "type", || ConstraintSemantics::Annotation),
-    row("json-schema", "minLength", || {
-        ConstraintSemantics::MinLength(LengthUnit::Chars)
+    row("json-schema", "enum", || ConstraintSemantics::Annotation),
+    row("json-schema", "const", || ConstraintSemantics::Annotation),
+    row("json-schema", "multipleOf", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("json-schema", "maximum", || ConstraintSemantics::Maximum),
+    row("json-schema", "exclusiveMaximum", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("json-schema", "minimum", || ConstraintSemantics::Minimum),
+    row("json-schema", "exclusiveMinimum", || {
+        ConstraintSemantics::Annotation
     }),
     row("json-schema", "maxLength", || {
         ConstraintSemantics::MaxLength(LengthUnit::Chars)
     }),
-    row("json-schema", "pattern", || ConstraintSemantics::Pattern),
-    row("json-schema", "minimum", || ConstraintSemantics::Minimum),
-    row("json-schema", "maximum", || ConstraintSemantics::Maximum),
+    row("json-schema", "minLength", || {
+        ConstraintSemantics::MinLength(LengthUnit::Chars)
+    }),
+    row("json-schema", "pattern", || ConstraintSemantics::Annotation),
+    row("json-schema", "maxItems", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("json-schema", "minItems", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("json-schema", "uniqueItems", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("json-schema", "maxContains", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("json-schema", "minContains", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("json-schema", "maxProperties", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("json-schema", "minProperties", || {
+        ConstraintSemantics::Annotation
+    }),
     row("json-schema", "required", || {
         ConstraintSemantics::Annotation
     }),
-    row("json-schema", "format", || {
-        ConstraintSemantics::Format(Name::from("json-schema"))
-    }),
-    row("json-schema", "enum", || ConstraintSemantics::Enum),
-    row("json-schema", "const", || ConstraintSemantics::Const),
-    row("json-schema", "additionalProperties", || {
+    row("json-schema", "dependentRequired", || {
         ConstraintSemantics::Annotation
     }),
-    row("json-schema", "items", || ConstraintSemantics::Annotation),
-    row("json-schema", "additionalItems", || {
+    row("json-schema", "format", || ConstraintSemantics::Annotation),
+    row("json-schema", "contentEncoding", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("json-schema", "contentMediaType", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("json-schema", "title", || ConstraintSemantics::Annotation),
+    row("json-schema", "description", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("json-schema", "default", || ConstraintSemantics::Annotation),
+    row("json-schema", "deprecated", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("json-schema", "readOnly", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("json-schema", "writeOnly", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("json-schema", "examples", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("json-schema", "annotation", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("json-schema", "$defs", || ConstraintSemantics::Annotation),
+    row("json-schema", "properties", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("json-schema", "patternProperties", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("json-schema", "dependentSchemas", || {
         ConstraintSemantics::Annotation
     }),
     row("bson", "required", || ConstraintSemantics::Annotation),

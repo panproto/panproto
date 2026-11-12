@@ -70,22 +70,10 @@
       "digest": "7141720e3a5cf89eb6af6556562511a548e26e7bf1dab434d4ba31c56f44281a"
     },
     {
-      "name": "jsonschema/github-workflow",
+      "name": "json-schema/person",
       "protocol": "json-schema",
-      "source": "fixtures/jsonschema/github-workflow.json",
-      "digest": "3b7b0067fe71f36934482a6861b6e0f2deb1df8d7fd5ad05e9127e9b62c087c8"
-    },
-    {
-      "name": "jsonschema/package",
-      "protocol": "json-schema",
-      "source": "fixtures/jsonschema/package.json",
-      "digest": "2e7cdf894b2446d481ddb712a91ee8ff50f538af8bfb324223d90c4c663e7cae"
-    },
-    {
-      "name": "jsonschema/tsconfig",
-      "protocol": "json-schema",
-      "source": "fixtures/jsonschema/tsconfig.json",
-      "digest": "acb8af73dfee55ebc59c652d4bca27aadbd6cb66e7aa395f0d6ad4b02a7775da"
+      "source": "tests/fixtures/json-schema/person.json",
+      "digest": "799834e070b15e1ecae9897d1a6bb9ed1c4e0377c3a4ce4884f0318524cd06cd"
     },
     {
       "name": "protobuf/common",

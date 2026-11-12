@@ -218,8 +218,8 @@ export class Panproto implements Disposable {
    *
    * The generic single-document loader: it reaches every JSON-document
    * protocol parser through one call, so any built-in protocol whose
-   * source is a JSON document (JSON Schema, ATProto lexicons, OpenAPI,
-   * Avro `.avsc`, and the rest) can be turned into a {@link BuiltSchema}
+   * source is a JSON document (ATProto lexicons, OpenAPI, Avro `.avsc`,
+   * and the rest) can be turned into a {@link BuiltSchema}
    * usable as a lens or migration endpoint. Protocols whose source is a
    * language rather than a JSON document (GraphQL, Protobuf, CDDL,
    * …) are parsed with {@link parseSchemaSource}.
@@ -228,7 +228,7 @@ export class Panproto implements Disposable {
    * compatibility spelling resolve.
    *
    * @param protocol - The protocol the document is written in (e.g.
-   *   `'json-schema'`, `'openapi'`)
+   *   `'atproto'`, `'openapi'`)
    * @param doc - The schema document (object or JSON string)
    * @returns A built schema
    * @throws {@link PanprotoError} if no document parser is registered for
@@ -236,9 +236,10 @@ export class Panproto implements Disposable {
    *
    * @example
    * ```typescript
-   * const schema = panproto.parseSchemaDocument('json-schema', {
-   *   type: 'object',
-   *   properties: { id: { type: 'string' }, count: { type: 'integer' } },
+   * const schema = panproto.parseSchemaDocument('openapi', {
+   *   openapi: '3.0.0',
+   *   info: { title: 'Example', version: '1.0.0' },
+   *   paths: {},
    * });
    * ```
    */

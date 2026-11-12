@@ -4,6 +4,7 @@ pub mod ansible;
 pub mod cloudformation;
 pub mod edge_lists;
 pub mod edits;
+pub mod json_schema;
 pub mod kan_extensions;
 pub mod keys_and_registration;
 pub mod kubernetes_crds;

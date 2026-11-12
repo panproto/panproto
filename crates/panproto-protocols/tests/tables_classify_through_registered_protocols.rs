@@ -2,7 +2,8 @@
 //! attributes through their protocols' value-kind and non-value-kind
 //! declarations alone.
 //!
-//! Each schema here comes from the protocol's own registered parser, and its
+//! Each schema here comes from the protocol's own registered parser (or, for
+//! a protocol read through a grammar, is the schema its reader builds), and its
 //! attributed relation-ified form is built under the protocol the registry
 //! constructs, so a parser that emits a kind its protocol does not classify,
 //! or an attribute that reaches a record, fails here.
@@ -33,16 +34,21 @@ fn columns<'a>(rel: &'a RelSchema, table: &str) -> Vec<&'a str> {
 
 /// A JSON array root whose items are objects: both are tables, the `items`
 /// edge between them a relation, and the item's scalar property a column.
+/// The schema is the one `panproto_io`'s JSON Schema reader builds from
+/// `{"type": "array", "items": {"type": "object", "properties": {"id":
+/// {"type": "integer"}}}}`, written out with the builder since this crate
+/// links no JSON grammar.
 #[test]
 fn a_json_array_root_of_objects_is_two_tables() {
-    let doc = serde_json::json!({
-        "type": "array",
-        "items": {
-            "type": "object",
-            "properties": { "id": { "type": "integer" } }
-        }
-    });
-    let schema = parse_schema_document("json-schema", &doc).unwrap();
+    let protocol = (descriptor("json-schema").expect("registered").protocol)();
+    let schema = panproto_schema::SchemaBuilder::new(&protocol)
+        .vertex("#", "array", None)
+        .and_then(|b| b.vertex("#/items", "object", None))
+        .and_then(|b| b.edge("#", "#/items", "items", None))
+        .and_then(|b| b.vertex("#/items/properties/id", "integer", None))
+        .and_then(|b| b.edge("#/items", "#/items/properties/id", "prop", Some("id")))
+        .and_then(panproto_schema::SchemaBuilder::build)
+        .unwrap();
     let rel = classify("json-schema", &schema).unwrap();
     let kinds = |kind: &str| -> Vec<&str> {
         schema
