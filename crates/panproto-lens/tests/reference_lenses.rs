@@ -19622,7 +19622,7 @@ fn value_level_steps_agree_with_the_reference_exhaustively() {
     assert_eq!(certificate.identifying, 0);
     assert_eq!(certificate.instantiated, 16);
     assert_eq!(certificate.get_refusals, 192);
-    assert_eq!(certificate.put_cases, 19_076);
+    assert_eq!(certificate.put_cases, 144_992);
 
     let context = ValueStepContext::new();
     assert_eq!(VALUE_STEP_FIELDS.len(), 2);
@@ -19639,6 +19639,7 @@ fn value_level_steps_agree_with_the_reference_exhaustively() {
         certificate.instantiated
     );
     assert_eq!(value_step_view_count(0), 2);
+    assert_eq!(value_step_view_count(2), 128);
     let units = context.units();
     assert_eq!(units.len(), certificate.get_cases);
     let bound = format!("L-lenses-27 value-level steps: {certificate:?}");
@@ -19655,6 +19656,65 @@ fn value_level_steps_agree_with_the_reference_exhaustively() {
         compared,
         u64::try_from(certificate.get_cases + certificate.put_cases).unwrap()
     );
+}
+
+/// A put of a view edited at two nodes reports every node's edit beside the
+/// one refusal of the replay get, and of several nodes whose computation
+/// lacks its read field only the first, as one get refuses once.
+#[test]
+fn a_view_edited_at_two_nodes_reports_each_edit_and_the_first_replay_refusal() {
+    let context = ValueStepContext::new();
+    // `compute_field` of `d` as the successor of `n`, with no inverse.
+    let pair = context.applications[&(2, 1)]
+        .as_ref()
+        .expect("the computation applies where `d` is declared");
+    let mut source = RefGraph::default();
+    for id in 0..2 {
+        let mut node = RefNode::new(id, VALUE_STEP_PARENT);
+        node.fields.insert("n".to_owned(), RefValue::Int(0));
+        source.nodes.insert(id, node);
+    }
+    let (view, _) = reference_get_of(&context, 2, 1, &source).expect("get computes `d`");
+    let edit = |edits: &[(u32, Option<i64>, &str)]| {
+        let mut edited = view.clone();
+        for (id, value, field) in edits {
+            let fields = &mut edited.nodes.get_mut(id).expect("a view node").fields;
+            match value {
+                Some(value) => {
+                    fields.insert((*field).to_owned(), RefValue::Int(*value));
+                }
+                None => {
+                    fields.remove(*field);
+                }
+            }
+        }
+        edited
+    };
+    let cases = [
+        (
+            edit(&[(0, Some(2), "d"), (1, None, "n")]),
+            vec![
+                "DerivedCellEdited Node(0) d",
+                "SurvivalPredicateRefused Node(1) EvaluationFailed",
+            ],
+        ),
+        (
+            edit(&[(0, None, "n"), (1, None, "n")]),
+            vec!["SurvivalPredicateRefused Node(0) EvaluationFailed"],
+        ),
+    ];
+    for (edited, expected) in cases {
+        let production = production_put(pair, &source, &edited).map(without_evaluator_messages);
+        assert_eq!(
+            production,
+            reference_put(pair, &source, &edited).map(without_evaluator_messages)
+        );
+        let domain = production
+            .expect("get succeeds")
+            .domain
+            .expect_err("the view is outside the domain");
+        assert_eq!(domain, expected);
+    }
 }
 
 /// The reference's get of a value-level source, when it succeeds.
@@ -19719,7 +19779,8 @@ proptest! {
             &context.applications[&(kind, schema)],
             reference_get_of(&context, kind, schema, &source),
         ) {
-            // A view of the law's domain differs from get's view at one node.
+            // A view of the law's domain differs from get's view at any set
+            // of nodes.
             let views = value_step_views(&view, &complement);
             let edited = &views[usize::try_from(view_seed % u64::try_from(views.len()).unwrap()).unwrap()];
             prop_assert_eq!(

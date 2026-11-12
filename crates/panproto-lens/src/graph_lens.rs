@@ -1158,20 +1158,19 @@ fn restore_with_plan(
         if complement.synthesized_nodes.contains_key(&id) {
             continue;
         }
-        match graph_transform_trace(lens, &baseline, id) {
-            Ok(trace) => {
-                if let Some(node) = source.node_mut(id) {
-                    crate::asymmetric::restore_traced_fields(
-                        node,
-                        &view.nodes()[&id],
-                        &trace,
-                        complement.original_extra_fields.contains_key(&id)
-                            || complement.identity.is_some(),
-                    );
-                }
-                traces.insert(id, trace.operations);
+        // A node whose baseline run fails keeps its restored fields, and the
+        // replay of `forward_stability` refuses it.
+        if let Ok(trace) = graph_transform_trace(lens, &baseline, id) {
+            if let Some(node) = source.node_mut(id) {
+                crate::asymmetric::restore_traced_fields(
+                    node,
+                    &view.nodes()[&id],
+                    &trace,
+                    complement.original_extra_fields.contains_key(&id)
+                        || complement.identity.is_some(),
+                );
             }
-            Err(error) => errors.extend(trace_refusal(id, error)),
+            traces.insert(id, trace.operations);
         }
     }
     invert_graph_child_scalars(view, &traces, &mut source);
@@ -1742,6 +1741,16 @@ fn chain_endpoint_removed(view: &GInstance, complement: &GraphComplement, key: &
     }
 }
 
+/// The clauses that replay get on the restored `source`.
+///
+/// The replay refuses as one get does, once: its first refusal is
+/// reported, and the replay runs again without the node or edge it refused,
+/// so that every other view node is still compared with its replay. When
+/// the replay refuses nowhere but the baseline run of some node's
+/// transforms fails, the least such node's refusal is reported instead. A
+/// view node the replay drops is `SurvivalPredicateFails`, and a node it
+/// changes is classified by the transforms that wrote the changed
+/// coordinates.
 fn forward_stability(
     lens: &Lens,
     view: &GInstance,
@@ -1749,9 +1758,39 @@ fn forward_stability(
     source: &GInstance,
     plan: &RestrictPlan,
 ) -> Vec<PutDomainError> {
-    let regenerated = match graph_restrict_with_plan(source, plan) {
-        Ok((regenerated, _)) => regenerated,
-        Err(error) => return refusal_from_restrict(error),
+    let mut replayed = source.clone();
+    let mut refusal = None;
+    let mut refused = HashSet::new();
+    let regenerated = loop {
+        match graph_restrict_with_plan(&replayed, plan) {
+            Ok((regenerated, _)) => break regenerated,
+            Err(error) => {
+                let element = match &error {
+                    panproto_inst::RestrictError::At { key, .. } => Some((key.stage, key.id)),
+                    _ => None,
+                };
+                refusal.get_or_insert_with(|| refusal_from_restrict(error));
+                match element {
+                    Some((0, id)) if replayed.node(id).is_some() => {
+                        let incident: Vec<EdgeId> = replayed
+                            .out_edges(id)
+                            .iter()
+                            .chain(replayed.in_edges(id))
+                            .copied()
+                            .collect();
+                        for edge in incident {
+                            let _ = replayed.remove_edge(edge);
+                        }
+                        let _ = replayed.remove_node(id);
+                        refused.insert(id);
+                    }
+                    Some((1, id)) if replayed.edge(EdgeId(id)).is_some() => {
+                        let _ = replayed.remove_edge(EdgeId(id));
+                    }
+                    _ => return refusal.unwrap_or_default(),
+                }
+            }
+        }
     };
     let mut found = Vec::new();
     let (mut baseline, mut baseline_errors) = restore_nodes(lens, view, complement);
@@ -1763,10 +1802,20 @@ fn forward_stability(
         &mut baseline,
         &mut baseline_errors,
     );
-    for (&id, node) in view.nodes() {
-        if complement.synthesized_nodes.contains_key(&id) {
+    let mut ids: Vec<u32> = view.nodes().keys().copied().collect();
+    ids.sort_unstable();
+    for id in ids {
+        if complement.synthesized_nodes.contains_key(&id) || refused.contains(&id) {
             continue;
         }
+        let before = match graph_transform_trace(lens, &baseline, id) {
+            Ok(trace) => trace.operations,
+            Err(error) => {
+                refusal.get_or_insert_with(|| trace_refusal(id, error));
+                continue;
+            }
+        };
+        let node = &view.nodes()[&id];
         let Some(actual) = regenerated.node(id) else {
             found.push(PutDomainError::SurvivalPredicateFails {
                 elem: ViewRef::Node(id),
@@ -1774,23 +1823,18 @@ fn forward_stability(
             continue;
         };
         if !node_equiv(node, actual) {
-            let mut transforms = match graph_transform_trace(lens, &baseline, id) {
-                Ok(trace) => trace.operations,
-                Err(error) => {
-                    found.extend(trace_refusal(id, error));
-                    continue;
-                }
-            };
+            let mut transforms = before;
             match graph_transform_trace(lens, source, id) {
                 Ok(trace) => transforms.extend(trace.operations),
                 Err(error) => {
-                    found.extend(trace_refusal(id, error));
+                    refusal.get_or_insert_with(|| trace_refusal(id, error));
                     continue;
                 }
             }
             classify_transform_differences(view, id, &transforms, node, actual, &mut found);
         }
     }
+    found.extend(refusal.unwrap_or_default());
     found
 }
 
