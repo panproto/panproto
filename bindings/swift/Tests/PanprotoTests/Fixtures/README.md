@@ -67,7 +67,7 @@ Payloads are CBOR (`ciborium`) except where the file name says `.json`.
 | `protocol-nif.cbor` | `Raw.registryGetBuiltin(name:)` | 2375 | name `nif` |
 | `protocol-ntriples.cbor` | `Raw.registryGetBuiltin(name:)` | 1411 | name `ntriples` |
 | `protocol-odf.cbor` | `Raw.registryGetBuiltin(name:)` | 1846 | name `odf` |
-| `protocol-openapi.cbor` | `Raw.registryGetBuiltin(name:)` | 1920 | name `openapi` |
+| `protocol-openapi.cbor` | `Raw.registryGetBuiltin(name:)` | 8846 | name `openapi` |
 | `protocol-parquet.cbor` | `Raw.registryGetBuiltin(name:)` | 1427 | name `parquet` |
 | `protocol-paula.cbor` | `Raw.registryGetBuiltin(name:)` | 2752 | name `paula` |
 | `protocol-protobuf.cbor` | `Raw.registryGetBuiltin(name:)` | 1594 | name `protobuf` |
