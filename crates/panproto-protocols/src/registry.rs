@@ -555,7 +555,9 @@ static DESCRIPTORS: &[ProtocolDescriptor] = &[
     ProtocolDescriptor {
         name: "k8s-crd",
         aliases: &[],
-        parser: Parser::Document(config::k8s_crd::parse_k8s_crd_schema),
+        parser: Parser::Grammar {
+            reader: "panproto_io::config::k8s_crd::read_crd",
+        },
         protocol: config::k8s_crd::protocol,
         register_theories: |r| {
             config::k8s_crd::register_theories(r);

@@ -22,7 +22,7 @@ Payloads are CBOR (`ciborium`) except where the file name says `.json`.
 
 | Fixture | Entry point | Bytes | Captured from |
 | --- | --- | --- | --- |
-| `builtin-protocols.cbor` | `Raw.registryListBuiltin()` | 468 | the whole built-in catalogue |
+| `builtin-protocols.cbor` | `Raw.registryListBuiltin()` | 475 | the whole built-in catalogue |
 | `protocol-amr.cbor` | `Raw.registryGetBuiltin(name:)` | 5553 | name `amr` |
 | `protocol-ansible.cbor` | `Raw.registryGetBuiltin(name:)` | 1431 | name `ansible` |
 | `protocol-arrow.cbor` | `Raw.registryGetBuiltin(name:)` | 1980 | name `arrow` |
@@ -57,6 +57,7 @@ Payloads are CBOR (`ciborium`) except where the file name says `.json`.
 | `protocol-iso-space.cbor` | `Raw.registryGetBuiltin(name:)` | 2472 | name `iso-space` |
 | `protocol-json-schema.cbor` | `Raw.registryGetBuiltin(name:)` | 2004 | name `json-schema` |
 | `protocol-jsonapi.cbor` | `Raw.registryGetBuiltin(name:)` | 1458 | name `jsonapi` |
+| `protocol-jsonld.cbor` | `Raw.registryGetBuiltin(name:)` | 1401 | name `jsonld` |
 | `protocol-k8s-crd.cbor` | `Raw.registryGetBuiltin(name:)` | 1502 | name `k8s-crd` |
 | `protocol-laf-graf.cbor` | `Raw.registryGetBuiltin(name:)` | 1820 | name `laf-graf` |
 | `protocol-mongodb.cbor` | `Raw.registryGetBuiltin(name:)` | 1739 | name `mongodb` |

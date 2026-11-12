@@ -277,7 +277,10 @@ fn a_protocol_read_through_a_grammar_names_its_reader() {
         .collect();
     assert_eq!(
         grammar_read,
-        [("postgresql", "panproto_io::postgresql::read_ddl")]
+        [
+            ("k8s-crd", "panproto_io::config::k8s_crd::read_crd"),
+            ("postgresql", "panproto_io::postgresql::read_ddl")
+        ]
     );
     for (name, reader) in grammar_read {
         for refusal in [

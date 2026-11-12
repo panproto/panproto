@@ -118,6 +118,22 @@ pub enum VcsError {
     #[error("not a panproto repository")]
     NotARepository,
 
+    /// A repository already exists where one was to be initialized.
+    #[error("a panproto repository already exists here")]
+    AlreadyARepository,
+
+    /// The repository's format marker names a format this build does not
+    /// read.
+    #[error(
+        "unsupported repository format {found:?}: this build reads repository format {supported}"
+    )]
+    UnsupportedRepositoryFormat {
+        /// The content of `.panproto/format`.
+        found: String,
+        /// The format version this build reads and writes.
+        supported: u32,
+    },
+
     /// An expected object had the wrong type.
     #[error("expected {expected} object, found {found}")]
     WrongObjectType {

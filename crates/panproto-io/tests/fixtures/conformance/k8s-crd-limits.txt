@@ -1,0 +1,1 @@
+# Kubernetes CRD corpus cases the reader does not pass, with the limit's name.

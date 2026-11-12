@@ -1,0 +1,22 @@
+# The refusal cases of the Kubernetes CRD corpus. Each file is the CRD
+# hack/testdata/CRD/example-crd-1-namespaced.yaml of Kubernetes v1.37.2
+# changed to break one rule of the apiextensions.k8s.io/v1 definition.
+# Columns: file, path of the refusal, refusal class, the rule broken.
+v1beta1.yaml	apiVersion	ApiVersion	apiextensions.k8s.io/v1beta1 is not served since Kubernetes 1.22
+name-mismatch.yaml	metadata.name	Invalid	metadata.name must be <plural>.<group>
+scope.yaml	spec.scope	Invalid	scope is Namespaced or Cluster
+no-versions.yaml	spec.versions	Invalid	at least one version
+two-storage.yaml	spec.versions	StorageVersions	exactly one storage version
+duplicate-version.yaml	spec.versions[1].name	DuplicateVersion	version names are unique
+missing-type.yaml	spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.test	Missing	a structural schema has a type at every node
+ref.yaml	spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.test.$ref	Forbidden	$ref is forbidden
+unique-items.yaml	spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.test.uniqueItems	Forbidden	uniqueItems cannot be true
+array-without-items.yaml	spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.test	Missing	an array names its items
+properties-and-additional.yaml	spec.versions[0].schema.openAPIV3Schema.properties.spec.additionalProperties	Invalid	properties and additionalProperties exclude each other
+list-map-key.yaml	spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.test.x-kubernetes-list-map-keys[0]	ListMapKey	list map keys name scalar properties of the items
+webhook.yaml	spec.conversion.strategy	Unsupported	conversion webhooks are out of scope
+preserve-unknown.yaml	spec.preserveUnknownFields	Invalid	preserveUnknownFields must be false in v1
+root-not-object.yaml	spec.versions[0].schema.openAPIV3Schema.properties	Invalid	properties need type object (the root then is not an object)
+unknown-field.yaml	spec.versions[0].servd	UnknownField	fields are decoded strictly
+served-string.yaml	spec.versions[0].served	WrongType	served is a boolean
+two-documents.yaml		Yaml	one document is one CRD

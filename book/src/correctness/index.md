@@ -60,4 +60,6 @@ The table lists each correctness page and the number of laws it proves for the t
 | [PostgreSQL data](postgresql-data.md) | 4 |
 | [RDF formats](rdf-formats.md) | 11 |
 | [Edge lists](edge-lists.md) | 3 |
+| [Kubernetes CRDs](kubernetes-crds.md) | 2 |
 | [Migration search](migration-search.md) | 4 |
+| [Schema merge](schema-merge.md) | 4 |
