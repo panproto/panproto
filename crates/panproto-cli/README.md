@@ -61,7 +61,12 @@ is generated from the same `clap` definitions used for dispatch.
 
 Parser coverage depends on the grammar features compiled into `panproto-parse`. The
 CLI manifest does not request `group-all`, so a standalone build uses
-`panproto-parse`'s default 11-language `group-core` set. A workspace build can contain
+`panproto-parse`'s default 11-language `group-core` set. The CLI also enables the
+`tree-sitter` feature of `panproto-core`, which links the data-format grammars
+(`group-data`), so `--protocol` on `compat`, `validate`, `scaffold`, `normalize`
+and `verify` reads OpenAPI, AsyncAPI, JSON Schema, Kubernetes CRD,
+CloudFormation, Ansible (with `--ansible-class`) and PostgreSQL documents
+through [`panproto_io::schema_documents`](https://docs.rs/panproto-io/latest/panproto_io/schema_documents/index.html). A workspace build can contain
 more parsers through Cargo feature unification. A registered grammar does not mean
 that canonical emission is verified for arbitrary schemas. Check the parser's
 verification status before relying on canonical emission.

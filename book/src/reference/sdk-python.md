@@ -79,6 +79,8 @@ find_morphisms(
 
 ## Grammar packs
 
+`parse_schema_document`, `parse_schema_source` and `parse_schema_bundle` read the protocols whose readers parse with a tree-sitter grammar (`openapi`, `asyncapi`, `json-schema`, `k8s-crd`, `cloudformation`, `ansible`, `postgresql`) through [`panproto_io::schema_documents`](https://docs.rs/panproto-io/latest/panproto_io/schema_documents/index.html). Their grammars are linked into the extension by its default `format-preserving` feature, so no grammar pack is needed for them; a build without that feature raises `ValueError` naming the reader and the feature. The `ansible_class` keyword (`"playbook"`, `"tasks"` or `"vars"`) names the class of an Ansible file, and `parse_schema_bundle` takes `retrieval_uris` for a grammar protocol's bundle.
+
 `AstParserRegistry()` constructs a native registry and adds grammars advertised through installed `panproto.grammars` entry points. Discovery occurs when the factory is called. Importing a companion package is not required.
 
 | Package | Group |
