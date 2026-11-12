@@ -1550,7 +1550,11 @@ fn extract_json_array(
 }
 
 /// Find the value vertex of a JSON pair with the given key name.
-fn find_json_pair_value(cst: &Schema, object_vertex: &Name, key_name: &str) -> Option<Name> {
+pub(crate) fn find_json_pair_value(
+    cst: &Schema,
+    object_vertex: &Name,
+    key_name: &str,
+) -> Option<Name> {
     let pairs = cst_children_by_edge_kind(cst, object_vertex, "child_of");
     for pair_name in pairs {
         if cst_vertex_kind(cst, pair_name).as_deref() != Some("pair") {

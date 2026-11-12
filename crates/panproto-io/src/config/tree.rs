@@ -18,7 +18,7 @@ use std::fmt::Write as _;
 use panproto_inst::{FieldPresence, NodeShape, Value, WInstance};
 use panproto_schema::{Edge, Protocol, Schema, SchemaBuilder};
 
-use crate::cst_extract::{CstComplement, cst_byte_offset};
+use crate::cst_extract::{CstComplement, cst_byte_offset, find_json_pair_value};
 use crate::error::ParseInstanceError;
 use crate::unified_codec::UnifiedCodec;
 
@@ -276,16 +276,51 @@ fn build(
                 .map(|(child, _)| build(instance, complement, children, *child, start))
                 .collect(),
         ),
-        None => Content::Mapping(
-            kids()
+        None => {
+            let mut entries: Vec<(String, Node)> = kids()
                 .map(|(child, edge)| {
                     (
                         edge.name.as_deref().unwrap_or_default().to_owned(),
                         build(instance, complement, children, *child, start),
                     )
                 })
-                .collect(),
-        ),
+                .collect();
+            if let Some(discriminator) = &node.discriminator {
+                insert_discriminator(&mut entries, discriminator, complement, id, start, offset);
+            }
+            Content::Mapping(entries)
+        }
     };
     Node { content, offset }
+}
+
+/// Put back the `$type` member that the JSON route's extraction keeps as
+/// the object's discriminator rather than as a member: a string member
+/// `$type`, at its place in source order (by the byte offset of its value).
+fn insert_discriminator(
+    entries: &mut Vec<(String, Node)>,
+    discriminator: &str,
+    complement: &CstComplement,
+    id: u32,
+    start: usize,
+    object_offset: usize,
+) {
+    let value_offset = complement
+        .node_to_cst_struct
+        .get(&id)
+        .and_then(|object| find_json_pair_value(&complement.cst_schema, object, "$type"))
+        .and_then(|value| cst_byte_offset(&complement.cst_schema, &value))
+        .and_then(|offset| usize::try_from(offset).ok())
+        .map_or(object_offset, |offset| offset + start);
+    let at = entries.partition_point(|(_, node)| node.offset < value_offset);
+    entries.insert(
+        at,
+        (
+            "$type".to_owned(),
+            Node {
+                content: Content::Scalar(Value::Str(discriminator.to_owned())),
+                offset: value_offset,
+            },
+        ),
+    );
 }

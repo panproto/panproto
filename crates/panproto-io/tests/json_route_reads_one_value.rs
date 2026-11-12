@@ -3,7 +3,9 @@
 //! The tree-sitter JSON grammar also accepts comments, a sequence of
 //! values and a number whose decimal point no digit follows, which RFC 8259
 //! does not; the route refuses all three rather than dropping the comment
-//! or every value after the first, or reading `1.` as a number.
+//! or every value after the first, or reading `1.` as a number. A `$type`
+//! member, which the route's extraction keeps as an object's discriminator,
+//! reads back as a member in its place.
 
 #![cfg(feature = "tree-sitter")]
 
@@ -69,4 +71,22 @@ fn a_json_exponent_reads_with_either_sign_or_none() {
     };
     assert_eq!(values, [100.0, 150.0, 1500.0, 0.01, -0.0]);
     assert!(values[4].is_sign_negative());
+}
+
+#[test]
+fn a_type_member_reads_as_a_member_in_its_place() {
+    let node =
+        read_json(br#"{"a":1,"$type":"string","b":{"$type":"x"}}"#).map_err(|e| e.to_string());
+    let Ok(Content::Mapping(entries)) = node.as_ref().map(|n| &n.content) else {
+        panic!("{node:?}");
+    };
+    let keys: Vec<&str> = entries.iter().map(|(k, _)| k.as_str()).collect();
+    assert_eq!(keys, ["a", "$type", "b"]);
+    assert_eq!(entries[1].1.string(), Some("string"));
+    assert_eq!(entries[1].1.offset, 15);
+    let Content::Mapping(inner) = &entries[2].1.content else {
+        panic!("{entries:?}");
+    };
+    assert_eq!(inner.len(), 1);
+    assert_eq!(inner[0].1.string(), Some("x"));
 }
