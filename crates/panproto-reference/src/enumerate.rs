@@ -6,6 +6,7 @@
 //! enumeration, so a test can check the enumeration's size against it.
 
 pub mod ansible;
+pub mod asyncapi;
 pub mod bson;
 pub mod cloudformation;
 pub mod edge_lists;
