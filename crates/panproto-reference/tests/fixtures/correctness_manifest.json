@@ -7264,6 +7264,88 @@
           ]
         }
       ]
+    },
+    "cloudformation": {
+      "reference_files": [
+        "crates/panproto-reference/src/pages/cloudformation.rs",
+        "crates/panproto-reference/src/enumerate/cloudformation.rs"
+      ],
+      "laws": [
+        {
+          "id": "cloudformation.reading",
+          "anchor": "L-cloudformation-1",
+          "references": [
+            "panproto_reference::pages::cloudformation::read",
+            "panproto_reference::pages::cloudformation::render_yaml",
+            "panproto_reference::pages::cloudformation::json"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_cloudformation",
+              "test": "template_reading_and_canonical_writing_match_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_cloudformation",
+              "test": "randomized_templates_read_and_write_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::cloudformation",
+              "test": "a_template_reads_as_its_declarations_and_their_references"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::cloudformation",
+              "test": "template_refusals_name_the_field_and_the_rule"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::cloudformation",
+              "test": "sub_variables_skip_literals_and_stop_at_an_unclosed_variable"
+            }
+          ]
+        },
+        {
+          "id": "cloudformation.canonical-writing",
+          "anchor": "L-cloudformation-2",
+          "references": [
+            "panproto_reference::pages::cloudformation::canonical_text"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_cloudformation",
+              "test": "template_reading_and_canonical_writing_match_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_cloudformation",
+              "test": "randomized_templates_read_and_write_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::cloudformation",
+              "test": "the_canonical_template_orders_sections_and_attributes_as_the_page_states"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::cloudformation",
+              "test": "the_template_document_scope_has_its_closed_form_count"
+            }
+          ]
+        }
+      ]
     }
   }
 }
