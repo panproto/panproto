@@ -4,20 +4,20 @@ use std::rc::Rc;
 
 /// A JSON value with its JSON Pointer, its first byte and its token.
 #[derive(Clone, Debug)]
-pub(crate) struct Json {
+pub struct Json {
     /// The value.
-    pub(crate) kind: Kind,
+    pub kind: Kind,
     /// Its JSON Pointer (RFC 6901) from the document's top value.
-    pub(crate) pointer: Rc<str>,
+    pub pointer: Rc<str>,
     /// The byte offset of its first byte.
-    pub(crate) offset: usize,
+    pub offset: usize,
     /// The index of the token that writes it, for a scalar.
-    pub(crate) token: usize,
+    pub token: usize,
 }
 
 /// A JSON value.
 #[derive(Clone, Debug)]
-pub(crate) enum Kind {
+pub enum Kind {
     Null,
     Bool(bool),
     /// A number, by its token.
@@ -29,18 +29,18 @@ pub(crate) enum Kind {
 
 /// An object member.
 #[derive(Clone, Debug)]
-pub(crate) struct Member {
+pub struct Member {
     /// The decoded key.
-    pub(crate) key: String,
+    pub key: String,
     /// The index of the key's token.
-    pub(crate) key_token: usize,
+    pub key_token: usize,
     /// The value.
-    pub(crate) value: Json,
+    pub value: Json,
 }
 
 /// Append the reference token `segment` to `pointer`, escaping `~` and `/`
 /// as RFC 6901 Sec 3 requires.
-pub(crate) fn child_pointer(pointer: &str, segment: &str) -> Rc<str> {
+pub fn child_pointer(pointer: &str, segment: &str) -> Rc<str> {
     let mut out = String::with_capacity(pointer.len() + segment.len() + 1);
     out.push_str(pointer);
     out.push('/');
@@ -55,14 +55,14 @@ pub(crate) fn child_pointer(pointer: &str, segment: &str) -> Rc<str> {
 }
 
 impl Json {
-    pub(crate) const fn as_str(&self) -> Option<&str> {
+    pub const fn as_str(&self) -> Option<&str> {
         match &self.kind {
             Kind::Str(s) => Some(s.as_str()),
             _ => None,
         }
     }
 
-    pub(crate) const fn is_scalar(&self) -> bool {
+    pub const fn is_scalar(&self) -> bool {
         matches!(self.kind, Kind::Bool(_) | Kind::Number(_) | Kind::Str(_))
     }
 }

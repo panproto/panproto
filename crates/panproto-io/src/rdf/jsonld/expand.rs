@@ -18,14 +18,14 @@ use crate::rdf::{is_absolute_iri, is_iri_excluded};
 
 /// Where a term or value of the expanded document comes from.
 #[derive(Clone, Debug)]
-pub(crate) struct Origin {
+pub struct Origin {
     /// The JSON Pointer of the value that wrote it.
-    pub(crate) pointer: Rc<str>,
+    pub pointer: Rc<str>,
     /// That value's first byte.
-    pub(crate) offset: usize,
+    pub offset: usize,
     /// The token that spells it, when the document writes it with a token
     /// of its own.
-    pub(crate) token: Option<usize>,
+    pub token: Option<usize>,
 }
 
 impl Origin {
@@ -60,14 +60,14 @@ impl Origin {
 
 /// A refusal at a place of the document.
 #[derive(Clone, Debug)]
-pub(crate) struct Fault {
-    pub(crate) refusal: JsonLdRefusal,
-    pub(crate) pointer: Rc<str>,
-    pub(crate) offset: usize,
+pub struct Fault {
+    pub refusal: JsonLdRefusal,
+    pub pointer: Rc<str>,
+    pub offset: usize,
 }
 
 impl Fault {
-    pub(crate) fn at(refusal: JsonLdRefusal, json: &Json) -> Self {
+    pub fn at(refusal: JsonLdRefusal, json: &Json) -> Self {
         Self {
             refusal,
             pointer: json.pointer.clone(),
@@ -75,7 +75,7 @@ impl Fault {
         }
     }
 
-    pub(crate) fn at_origin(refusal: JsonLdRefusal, origin: &Origin) -> Self {
+    pub fn at_origin(refusal: JsonLdRefusal, origin: &Origin) -> Self {
         Self {
             refusal,
             pointer: origin.pointer.clone(),
@@ -145,13 +145,13 @@ const BODY_KEYWORDS: &[&str] = &[
     "@value",
 ];
 
-pub(crate) fn is_keyword(s: &str) -> bool {
+pub fn is_keyword(s: &str) -> bool {
     KEYWORDS.contains(&s)
 }
 
 /// Whether `s` has the form of a keyword: `@` followed by one or more ASCII
 /// letters (RFC 5234 `"@"1*ALPHA`).
-pub(crate) fn has_keyword_form(s: &str) -> bool {
+pub fn has_keyword_form(s: &str) -> bool {
     s.strip_prefix('@')
         .is_some_and(|rest| !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_alphabetic()))
 }
@@ -170,6 +170,17 @@ enum Container {
     Set,
 }
 
+/// A term's language mapping.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum TermLanguage {
+    /// None: the default language applies.
+    Unset,
+    /// An explicit `null`: no language.
+    Null,
+    /// A language tag.
+    Tag(String),
+}
+
 /// A term definition (API Sec 4.1).
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct TermDef {
@@ -178,14 +189,14 @@ struct TermDef {
     reverse: bool,
     type_mapping: Option<String>,
     container: Container,
-    /// The language mapping: `Some(None)` for an explicit `null`.
-    language: Option<Option<String>>,
+    /// The language mapping.
+    language: TermLanguage,
     prefix: bool,
 }
 
 /// An active context.
 #[derive(Clone, Debug, Default)]
-pub(crate) struct Context {
+pub struct Context {
     base: Option<String>,
     original_base: Option<String>,
     vocab: Option<String>,
@@ -195,7 +206,7 @@ pub(crate) struct Context {
 
 impl Context {
     /// The initial context of a document read with base `base`.
-    pub(crate) fn initial(base: Option<String>) -> Self {
+    pub fn initial(base: Option<String>) -> Self {
         Self {
             base: base.clone(),
             original_base: base,
@@ -232,7 +243,7 @@ fn expand_iri(
     if has_keyword_form(value) {
         return Ok(None);
     }
-    if let Some(local) = local.as_deref_mut()
+    if let Some(local) = local.as_mut()
         && local.member(value).is_some()
         && local.defined.get(value) != Some(&true)
     {
@@ -253,7 +264,7 @@ fn expand_iri(
         if prefix == "_" || suffix.starts_with("//") {
             return Ok(Some(value.to_owned()));
         }
-        if let Some(local) = local.as_deref_mut()
+        if let Some(local) = local.as_mut()
             && local.member(prefix).is_some()
             && local.defined.get(prefix) != Some(&true)
         {
@@ -377,7 +388,7 @@ fn type_term_definition(active: &mut Context, value: &Json) -> Res<()> {
             reverse: false,
             type_mapping: None,
             container: Container::Set,
-            language: None,
+            language: TermLanguage::Unset,
             prefix: false,
         },
     );
@@ -416,7 +427,7 @@ fn definition(
         reverse: false,
         type_mapping: None,
         container: Container::None,
-        language: None,
+        language: TermLanguage::Unset,
         prefix: false,
     };
     if let Some(protected) = entry(&entries, "@protected") {
@@ -512,10 +523,11 @@ fn iri_mapping(
             create_term_definition(active, local, prefix)?;
         }
         def.iri = Some(
-            match active.terms.get(prefix).and_then(|d| d.iri.as_ref()) {
-                Some(iri) => format!("{iri}{suffix}"),
-                None => term.to_owned(),
-            },
+            active
+                .terms
+                .get(prefix)
+                .and_then(|d| d.iri.as_ref())
+                .map_or_else(|| term.to_owned(), |iri| format!("{iri}{suffix}")),
         );
     } else if term.contains('/') {
         let iri = expand_iri(active, term, false, true, None)?;
@@ -595,11 +607,11 @@ fn other_entries(
     if entry(entries, "@type").is_none()
         && let Some(language) = entry(entries, "@language")
     {
-        def.language = Some(match &language.kind {
-            Kind::Null => None,
-            Kind::Str(s) => Some(s.clone()),
+        def.language = match &language.kind {
+            Kind::Null => TermLanguage::Null,
+            Kind::Str(s) => TermLanguage::Tag(s.clone()),
             _ => return Err(error(JsonLdErrorCode::InvalidLanguageMapping, language)),
-        });
+        };
     }
     if let Some(direction) = entry(entries, "@direction") {
         return Err(unsupported("@direction", direction));
@@ -627,7 +639,7 @@ fn other_entries(
 
 /// Context Processing (API Sec 4.1) of the local context `local` on
 /// `active`.
-pub(crate) fn process_context(active: &Context, local: &Json) -> Res<Context> {
+pub fn process_context(active: &Context, local: &Json) -> Res<Context> {
     let mut result = active.clone();
     let items: Vec<&Json> = match &local.kind {
         Kind::Array(items) => items.iter().collect(),
@@ -715,33 +727,33 @@ pub(crate) fn process_context(active: &Context, local: &Json) -> Res<Context> {
 
 /// An item of the expanded document.
 #[derive(Clone, Debug)]
-pub(crate) enum Item {
+pub enum Item {
     Node(Box<NodeObject>),
-    Value(ValueObject),
+    Value(Box<ValueObject>),
     List(ListObject),
 }
 
 /// A node object.
 #[derive(Clone, Debug)]
-pub(crate) struct NodeObject {
+pub struct NodeObject {
     /// The object's place.
-    pub(crate) origin: Origin,
+    pub origin: Origin,
     /// `@id`, expanded.
-    pub(crate) id: Option<(String, Origin)>,
+    pub id: Option<(String, Origin)>,
     /// `@type`, each value expanded.
-    pub(crate) types: Vec<(String, Origin)>,
+    pub types: Vec<(String, Origin)>,
     /// The properties in document order: the expanded IRI, the key's
     /// place, the values.
-    pub(crate) properties: Vec<(String, Origin, Vec<Item>)>,
+    pub properties: Vec<(String, Origin, Vec<Item>)>,
     /// The reverse properties, likewise.
-    pub(crate) reverse: Vec<(String, Origin, Vec<Item>)>,
+    pub reverse: Vec<(String, Origin, Vec<Item>)>,
     /// `@graph`, when the object holds one.
-    pub(crate) graph: Option<Vec<Item>>,
+    pub graph: Option<Vec<Item>>,
 }
 
 impl NodeObject {
     /// Whether the object holds nothing but `@graph`.
-    fn only_graph(&self) -> bool {
+    const fn only_graph(&self) -> bool {
         self.graph.is_some()
             && self.id.is_none()
             && self.types.is_empty()
@@ -752,7 +764,7 @@ impl NodeObject {
 
 /// The scalar of a value object.
 #[derive(Clone, Debug)]
-pub(crate) enum Scalar {
+pub enum Scalar {
     Str(String),
     /// A number, by its token.
     Number(String),
@@ -761,19 +773,19 @@ pub(crate) enum Scalar {
 
 /// A value object.
 #[derive(Clone, Debug)]
-pub(crate) struct ValueObject {
-    pub(crate) origin: Origin,
-    pub(crate) value: Scalar,
-    pub(crate) value_origin: Origin,
-    pub(crate) datatype: Option<(String, Origin)>,
-    pub(crate) language: Option<(String, Origin)>,
+pub struct ValueObject {
+    pub origin: Origin,
+    pub value: Scalar,
+    pub value_origin: Origin,
+    pub datatype: Option<(String, Origin)>,
+    pub language: Option<(String, Origin)>,
 }
 
 /// A list object.
 #[derive(Clone, Debug)]
-pub(crate) struct ListObject {
-    pub(crate) origin: Origin,
-    pub(crate) items: Vec<Item>,
+pub struct ListObject {
+    pub origin: Origin,
+    pub items: Vec<Item>,
 }
 
 /// What expanding one element gives: `null`, one item, or an array.
@@ -859,16 +871,17 @@ fn expand_value(context: &mut Context, active: Active<'_>, value: &Json) -> Res<
     match type_mapping.as_deref() {
         Some("@id" | "@vocab" | "@none") | None => {
             if let Scalar::Str(_) = result.value {
-                let language = match def.as_ref().and_then(|d| d.language.clone()) {
-                    Some(mapping) => mapping,
-                    None => context.language.clone(),
+                let language = match def.as_ref().map(|d| &d.language) {
+                    Some(TermLanguage::Tag(tag)) => Some(tag.clone()),
+                    Some(TermLanguage::Null) => None,
+                    Some(TermLanguage::Unset) | None => context.language.clone(),
                 };
                 result.language = language.map(|tag| (tag, Origin::implicit(value)));
             }
         }
         Some(datatype) => result.datatype = Some((datatype.to_owned(), Origin::implicit(value))),
     }
-    Ok(Item::Value(result))
+    Ok(Item::Value(Box::new(result)))
 }
 
 /// A non-scalar passed where a scalar is required; the callers never do.
@@ -877,12 +890,12 @@ fn unreachable_scalar(value: &Json) -> Res<Scalar> {
 }
 
 /// The expansion of one document.
-pub(crate) struct Expansion;
+pub struct Expansion;
 
 impl Expansion {
     /// Expand the document's top value with the initial context of `base`,
     /// and return the items of its default graph.
-    pub(crate) fn document(document: &Json, base: Option<String>) -> Res<Vec<Item>> {
+    pub fn document(document: &Json, base: Option<String>) -> Res<Vec<Item>> {
         let mut context = Context::initial(base);
         let expanded = expand(&mut context, Active::Top, document)?;
         if let (Kind::Object(_), Ex::One(Item::Node(node))) = (&document.kind, &expanded)
@@ -944,7 +957,7 @@ struct Collected {
 }
 
 impl Collected {
-    fn node_parts(&self) -> bool {
+    const fn node_parts(&self) -> bool {
         self.id.is_some()
             || self.graph.is_some()
             || !self.properties.is_empty()
@@ -1033,18 +1046,7 @@ fn keyword_entry(
             let reversed = *reversed;
             c.properties.extend(reversed.reverse);
             for (iri, key, items) in reversed.properties {
-                for item in &items {
-                    if let Item::Value(ValueObject { origin, .. })
-                    | Item::List(ListObject { origin, .. }) = item
-                    {
-                        return Err(Fault::at_origin(
-                            JsonLdRefusal::Error {
-                                code: JsonLdErrorCode::InvalidReversePropertyValue,
-                            },
-                            origin,
-                        ));
-                    }
-                }
+                refuse_reverse_values(&items)?;
                 c.reverse.push((iri, key, items));
             }
         }
@@ -1131,24 +1133,31 @@ fn expand_object(
         };
         let items = expanded.into_items();
         if def.as_ref().is_some_and(|d| d.reverse) {
-            for item in &items {
-                if let Item::Value(ValueObject { origin, .. })
-                | Item::List(ListObject { origin, .. }) = item
-                {
-                    return Err(Fault::at_origin(
-                        JsonLdRefusal::Error {
-                            code: JsonLdErrorCode::InvalidReversePropertyValue,
-                        },
-                        origin,
-                    ));
-                }
-            }
+            refuse_reverse_values(&items)?;
             c.reverse.push((property, Origin::key(member), items));
         } else {
             c.properties.push((property, Origin::key(member), items));
         }
     }
     finish(active, element, c)
+}
+
+/// Refuse a value or list object among the values of a reverse property.
+fn refuse_reverse_values(items: &[Item]) -> Res<()> {
+    for item in items {
+        let origin = match item {
+            Item::Node(_) => continue,
+            Item::Value(value) => &value.origin,
+            Item::List(list) => &list.origin,
+        };
+        return Err(Fault::at_origin(
+            JsonLdRefusal::Error {
+                code: JsonLdErrorCode::InvalidReversePropertyValue,
+            },
+            origin,
+        ));
+    }
+    Ok(())
 }
 
 /// Expansion steps 15 to 20: classify the collected map.
@@ -1184,13 +1193,13 @@ fn finish(active: Active<'_>, element: &Json, mut c: Collected) -> Res<Ex> {
         if active.free_floating() {
             return Err(Fault::at(JsonLdRefusal::FreeFloating, element));
         }
-        return Ok(Ex::One(Item::Value(ValueObject {
+        return Ok(Ex::One(Item::Value(Box::new(ValueObject {
             origin: Origin::implicit(element),
             value: scalar,
             value_origin: Origin::token(&value),
             datatype,
             language: c.language,
-        })));
+        }))));
     }
     if c.list.is_some() || c.set.is_some() {
         if c.node_parts()

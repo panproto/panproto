@@ -79,10 +79,13 @@ use super::ntriples::push_term;
 use super::{Literal, Term, Triple};
 use crate::rdf::turtle::{XSD_BOOLEAN, XSD_DOUBLE, XSD_INTEGER};
 
+#[cfg(feature = "tree-sitter")]
 pub(crate) mod expand;
+#[cfg(feature = "tree-sitter")]
 pub(crate) mod json;
 #[cfg(feature = "tree-sitter")]
 mod reader;
+#[cfg(feature = "tree-sitter")]
 pub(crate) mod to_rdf;
 
 #[cfg(feature = "tree-sitter")]
@@ -454,11 +457,13 @@ fn push_object(out: &mut String, term: &Term) {
     }
 }
 
+/// A subject's objects by predicate, each keyed by its N-Triples text.
+type Predicates<'t> = BTreeMap<&'t str, BTreeMap<String, &'t Term>>;
+
 /// The canonical JSON-LD document of `triples`, each written once.
 #[must_use]
 pub fn write(triples: &[Triple]) -> String {
-    let mut subjects: BTreeMap<String, (&Term, BTreeMap<&str, BTreeMap<String, &Term>>)> =
-        BTreeMap::new();
+    let mut subjects: BTreeMap<String, (&Term, Predicates<'_>)> = BTreeMap::new();
     for triple in triples {
         subjects
             .entry(term_text(&triple.subject))
