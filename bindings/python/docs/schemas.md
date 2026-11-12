@@ -13,10 +13,10 @@ A protocol defines:
 ```python
 import panproto
 
-sql = panproto.get_builtin_protocol("postgresql")
-print(sql.name)           # "postgresql"
-print(sql.obj_kinds)      # ["table", "integer", "string", ...]
-print(sql.edge_rules)     # [{edge_kind: "prop", src_kinds: ["table"], ...}, ...]
+postgresql = panproto.get_builtin_protocol("postgresql")
+print(postgresql.name)           # "postgresql"
+print(postgresql.obj_kinds)      # ["table", "integer", "string", ...]
+print(postgresql.edge_rules)     # [{edge_kind: "prop", src_kinds: ["table"], ...}, ...]
 ```
 
 The 59 semantic protocols and the grammars compiled into the extension are built in. List their canonical names with:
@@ -30,7 +30,7 @@ panproto.list_builtin_protocols()
 `Protocol.schema()` returns a mutable `SchemaBuilder`. Call `vertex()`, `edge()`, `hyper_edge()`, and `constraint()` to add elements, then `build()` to produce a validated `Schema`.
 
 ```python
-builder = sql.schema()
+builder = postgresql.schema()
 builder.vertex("users", "table")
 builder.vertex("users.id", "integer")
 builder.vertex("users.name", "string")
@@ -77,7 +77,7 @@ Returns `None` when the named field is absent. Named-node field children continu
 
 ```python
 normalized = schema.normalize()         # collapse ref-chains
-issues = schema.validate(sql)           # list[str], empty if valid
+issues = schema.validate(postgresql)           # list[str], empty if valid
 ```
 
 ## Serialization

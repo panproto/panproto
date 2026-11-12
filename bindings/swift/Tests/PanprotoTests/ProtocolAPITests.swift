@@ -70,7 +70,7 @@ struct ProtocolAPITests {
 
     @Test(
         "a protocol defined from a specification serializes back unchanged",
-        arguments: ["protocol-atproto", "protocol-sql", "protocol-json-schema"]
+        arguments: ["protocol-atproto", "protocol-postgresql", "protocol-json-schema"]
     )
     func definedProtocolSerializesUnchanged(_ fixture: String) async throws {
         let specification = try CBORDecoder().decode(

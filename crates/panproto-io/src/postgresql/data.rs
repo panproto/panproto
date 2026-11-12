@@ -5,9 +5,10 @@
 //! is read by the DDL reader into the schema; each `INSERT INTO table
 //! [(columns)] VALUES (...), ...` adds rows to a table the statements
 //! before it declared, each value a constant read under its column's type
-//! (see [`values`](super::values)). A column the statement leaves out is
-//! `NULL` when it has no `DEFAULT`; a column whose `DEFAULT` would be
-//! evaluated is refused. `SET standard_conforming_strings` changes how the
+//! (see [`values`](super::values)). A column the statement leaves out or
+//! gives `DEFAULT` (every column, under `DEFAULT VALUES`) is `NULL` when
+//! it declares no `DEFAULT`; a `DEFAULT` that would be evaluated is
+//! refused. `SET standard_conforming_strings` changes how the
 //! string constants after it are read. A statement that would change the
 //! rows already inserted (dropping their table, or adding a column to it)
 //! is refused, as is any other data statement (`UPDATE`, `DELETE`, `COPY`).
@@ -31,7 +32,7 @@ use panproto_schema::Schema;
 use tree_sitter::{Node, Tree};
 
 use super::values::{ColumnType, Element, ValueRefusal, decode, decode_numeral, encode};
-use super::{Walk, child, children, escape, first_error, flatten, leaves, named, parse};
+use super::{Walk, child, children, escape, first_error, flatten, has, leaves, named, parse};
 
 /// What a script of DDL and `INSERT` statements reads as.
 #[derive(Debug)]
@@ -328,6 +329,8 @@ fn statement_offset(statement: &Statement) -> usize {
 /// A constant of a `VALUES` row, before its column's type reads it.
 enum Constant<'t> {
     Null,
+    /// `DEFAULT`: the column's default.
+    Default,
     Bool(bool),
     /// An integer or float literal, negated when `negative`.
     Numeral {
@@ -442,8 +445,13 @@ impl Walk<'_> {
         if let Some(kw) = child(rest, "kw_overriding") {
             return Err(unsupported(kw, "OVERRIDING ... VALUE"));
         }
-        if let Some(kw) = child(rest, "kw_default") {
-            return Err(unsupported(kw, "DEFAULT VALUES"));
+        if has(rest, "kw_default") {
+            // `DEFAULT VALUES`: one row, every column to its default.
+            return Ok(InsertRows {
+                table,
+                columns: Some(Vec::new()),
+                rows: vec![Vec::new()],
+            });
         }
         let columns = match child(rest, "insert_column_list") {
             Some(list) => Some(
@@ -498,8 +506,8 @@ impl Walk<'_> {
             let cs = children(current);
             match current.kind() {
                 "a_expr" | "a_expr_prec" | "c_expr" => match cs.as_slice() {
-                    [only] if only.kind() == "kw_default" => {
-                        return Err(not_constant(*only, "DEFAULT in VALUES"));
+                    [only] if only.kind() == "kw_default" && sign.is_none() => {
+                        return Ok(Constant::Default);
                     }
                     [only] if only.is_named() => current = *only,
                     [open, inner, close]
@@ -658,14 +666,14 @@ fn decode_segments(raw: &str, escapes: bool) -> Option<Vec<u8>> {
 
 /// A column of a table: its name, its vertex and its type, in position
 /// order.
-pub(crate) struct Column {
+pub struct Column {
     pub name: String,
     pub ty: ColumnType,
     pub has_default: bool,
 }
 
 /// The columns of `table` in `schema`, in position order.
-pub(crate) fn columns(schema: &Schema, table: &str) -> Option<Vec<Column>> {
+pub fn columns(schema: &Schema, table: &str) -> Option<Vec<Column>> {
     if schema.vertices.get(table).is_none_or(|v| v.kind != "table") {
         return None;
     }
@@ -696,7 +704,7 @@ pub(crate) fn columns(schema: &Schema, table: &str) -> Option<Vec<Column>> {
 
 /// Number the rows of each table, tables in name order and rows in the
 /// order given, from zero.
-pub(crate) fn number_rows(by_table: BTreeMap<String, Vec<Row>>) -> FInstance {
+pub fn number_rows(by_table: BTreeMap<String, Vec<Row>>) -> FInstance {
     let mut instance = FInstance::new();
     let mut next = 0u32;
     for (table, table_rows) in by_table {
@@ -766,7 +774,7 @@ fn rows(
                 }
                 .into());
             }
-            if statement.columns.is_some() && given < targets.len() {
+            if statement.columns.as_ref().is_some_and(|c| !c.is_empty()) && given < targets.len() {
                 return Err(SqlDdlError::Syntax {
                     offset: first.start_byte(),
                     expected: "one value per target column",
@@ -777,6 +785,10 @@ fn rows(
             let mut row: Row = HashMap::new();
             for ((node, constant), &index) in row_constants.into_iter().zip(&targets) {
                 let column = &table_columns[index];
+                if matches!(constant, Constant::Default) {
+                    // Read below, as a column left out is.
+                    continue;
+                }
                 let value = read_constant(&w, &constant, &column.ty).map_err(|reason| {
                     SqlDataError::Value {
                         offset: node.start_byte(),
@@ -812,7 +824,7 @@ fn read_constant(
     ty: &ColumnType,
 ) -> Result<Value, ValueRefusal> {
     match constant {
-        Constant::Null => Ok(Value::Null),
+        Constant::Null | Constant::Default => Ok(Value::Null),
         Constant::Bool(b) if ty.dims == 0 && ty.element == Element::Bool => Ok(Value::Bool(*b)),
         Constant::Bool(_) => Err(ValueRefusal::Unsupported(
             "a boolean constant for a column of another type",
@@ -822,12 +834,15 @@ fn read_constant(
     }
 }
 
+/// A table's name, its columns and its rows.
+pub type TableRows<'i> = (String, Vec<Column>, Vec<&'i Row>);
+
 /// The rows of `instance` grouped by table in name order, each table's
 /// rows in id order, checked against `schema`.
-pub(crate) fn instance_rows<'i>(
+pub fn instance_rows<'i>(
     schema: &Schema,
     instance: &'i FInstance,
-) -> Result<Vec<(String, Vec<Column>, Vec<&'i Row>)>, SqlDataError> {
+) -> Result<Vec<TableRows<'i>>, SqlDataError> {
     let unwritable = |table: &str, column: Option<&str>, reason| SqlDataError::Unwritable {
         table: table.to_owned(),
         column: column.map(str::to_owned),
@@ -925,9 +940,9 @@ pub fn write_data(schema: &Schema, instance: &FInstance) -> Result<String, SqlDa
             .iter()
             .map(|c| quote_identifier(&c.name))
             .collect();
-        let _ = write!(
+        let _ = writeln!(
             out,
-            "INSERT INTO {} ({}) VALUES\n",
+            "INSERT INTO {} ({}) VALUES",
             quote_identifier(&table),
             names.join(", ")
         );
@@ -950,8 +965,9 @@ pub fn write_data(schema: &Schema, instance: &FInstance) -> Result<String, SqlDa
     Ok(out)
 }
 
-/// Write a schema and its rows as one canonical script: the schema's types
-/// and tables as [`emit_ddl`](panproto_protocols::database::postgresql::emit_ddl)
+/// Write a schema and its rows as one canonical script.
+///
+/// The script holds the schema's types and tables as [`emit_ddl`](panproto_protocols::database::postgresql::emit_ddl)
 /// writes them, then the rows as [`write_data`] writes them, then the
 /// foreign keys, so the script loads into `PostgreSQL` whatever order the
 /// tables reference each other in. Reading the script gives the schema

@@ -1,10 +1,11 @@
-#![cfg(feature = "tree-sitter")]
-#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! A SQL table's hyper-edge and its column edges never disagree: each label
 //! of the table's hyper-edge names the column vertex that a `prop` edge of
 //! that name joins the table to, and each `prop` edge of the table is a
 //! label. Lowering a label rename onto the column's attribute arrow thus
 //! renames exactly the cell the label names.
+
+#![cfg(feature = "tree-sitter")]
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::collections::BTreeSet;
 use std::path::Path;

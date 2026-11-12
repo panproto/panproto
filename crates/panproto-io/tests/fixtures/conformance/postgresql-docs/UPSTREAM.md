@@ -20,3 +20,20 @@ python3 -I extract.py create_table.sgml sql-createtable-examples cases create-ta
 
 Licence: the PostgreSQL Licence, in `COPYRIGHT` (the repository's
 `COPYRIGHT` file at the same commit).
+
+## Data cases
+
+`data-cases/` holds the data examples, from the same commit:
+
+| Case | Source |
+|---|---|
+| `dml-insert-NN.sql` | `doc/src/sgml/dml.sgml`, section `dml-insert` (6.1 Inserting Data) |
+| `tutorial-basics.sql` | `src/tutorial/basics.source`, unedited |
+
+`extract_dml.py` writes the `dml-insert` cases: the section's `CREATE
+TABLE` listing followed by each later listing of the section, one case
+per listing, numbered in document order:
+
+```sh
+python3 -I extract_dml.py dml.sgml data-cases
+```

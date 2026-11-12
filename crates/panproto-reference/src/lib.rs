@@ -126,6 +126,7 @@
 //! | XML CST laws | [`xml::bounded_expansion_cst`], [`xml::expanded_name_cst`], [`xml::round_trip_cst`] | `value-io.md` |
 //! | TOML key resolution and YAML directive acceptance | [`pages::text_formats::toml::resolve_keys`], [`pages::text_formats::yaml::read_directives`] | `text-formats.md` |
 //! | Whole TOML and block YAML document reading | [`pages::text_formats::toml::read_document`], [`pages::text_formats::yaml::render_block`], [`pages::text_formats::yaml::read_block_document`] | `text-formats.md` |
+//! | PostgreSQL data values, rows and canonical text | [`pages::postgresql_data::input_value`], [`pages::postgresql_data::render`], [`pages::postgresql_data::read_script`], [`pages::postgresql_data::canonical_text`] | `postgresql-data.md` |
 //! | PostgreSQL DDL column types, keys and references, and canonical text | [`pages::postgresql_ddl::column_type`], [`pages::postgresql_ddl::render`], [`pages::postgresql_ddl::read_script`], [`pages::postgresql_ddl::canonical_text`] | `postgresql-ddl.md` |
 //! | N-Triples reading, the RDF graph encoding and canonical writing | [`pages::rdf_formats::ntriples::read_document`], [`pages::rdf_formats::ntriples::encode`], [`pages::rdf_formats::ntriples::canonical_text`], [`pages::rdf_formats::ntriples::write_graph`] | `rdf-formats.md` |
 //!

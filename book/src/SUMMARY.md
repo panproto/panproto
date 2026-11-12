@@ -112,6 +112,7 @@
   - [Reference resolution](./correctness/resolution.md)
   - [Text formats](./correctness/text-formats.md)
   - [PostgreSQL DDL](./correctness/postgresql-ddl.md)
+  - [PostgreSQL data](./correctness/postgresql-data.md)
   - [RDF formats](./correctness/rdf-formats.md)
 
 ---

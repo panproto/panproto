@@ -113,7 +113,7 @@ pub enum ValueRefusal {
 
 /// The element type of a column.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum Element {
+pub enum Element {
     /// An integer of this many bits.
     Int(u8),
     /// `numeric`, with its precision and scale when declared.
@@ -179,7 +179,7 @@ impl Element {
 
 /// The type of a column: its element type and array dimensions.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ColumnType {
+pub struct ColumnType {
     /// The element type.
     pub element: Element,
     /// The array dimensions.
@@ -255,12 +255,12 @@ fn trim(text: &str) -> &str {
     text.trim_matches(is_space)
 }
 
-fn syntax(expected: &'static str) -> ValueRefusal {
+const fn syntax(expected: &'static str) -> ValueRefusal {
     ValueRefusal::Syntax { expected }
 }
 
 /// Read the input text `text` of a column of type `ty`.
-pub(crate) fn decode(text: &str, ty: &ColumnType) -> Result<Value, ValueRefusal> {
+pub fn decode(text: &str, ty: &ColumnType) -> Result<Value, ValueRefusal> {
     if ty.dims == 0 {
         return decode_element(text, &ty.element);
     }
@@ -283,11 +283,7 @@ pub(crate) fn decode(text: &str, ty: &ColumnType) -> Result<Value, ValueRefusal>
 /// type: a numeric type reads it as its input text does, except that a
 /// float reads a zero as positive (a `numeric` zero has no sign); any
 /// other type refuses it.
-pub(crate) fn decode_numeral(
-    token: &str,
-    negative: bool,
-    ty: &ColumnType,
-) -> Result<Value, ValueRefusal> {
+pub fn decode_numeral(token: &str, negative: bool, ty: &ColumnType) -> Result<Value, ValueRefusal> {
     if ty.dims > 0 || !ty.element.is_numeric() {
         return Err(ValueRefusal::Unsupported(
             "a numeric constant for a column of a non-numeric type",
@@ -661,7 +657,7 @@ fn bytea(text: &str) -> Result<Vec<u8>, ValueRefusal> {
     let bytes = text.as_bytes();
     if let Some(hex) = text.strip_prefix("\\x") {
         let mut out = Vec::with_capacity(hex.len() / 2);
-        let mut chars = hex.bytes().peekable();
+        let mut chars = hex.bytes();
         while let Some(c) = chars.next() {
             if matches!(c, b' ' | b'\t' | b'\n' | b'\r') {
                 continue;
@@ -703,7 +699,7 @@ fn bytea(text: &str) -> Result<Vec<u8>, ValueRefusal> {
 }
 
 /// The offset a temporal value carries.
-fn offset_of(value: &Temporal) -> Offset {
+const fn offset_of(value: &Temporal) -> Offset {
     match value {
         Temporal::Date(_) => Offset::Local,
         Temporal::Time(_, offset) | Temporal::DateTime(_, _, offset, _) => *offset,
@@ -783,7 +779,7 @@ fn uuid(text: &str) -> Result<String, ValueRefusal> {
             return Err(not_uuid());
         }
         hex.push(c.to_ascii_lowercase());
-        if hex.len() % 4 == 0 && hex.len() < 32 && chars.peek() == Some(&'-') {
+        if hex.len().is_multiple_of(4) && hex.len() < 32 && chars.peek() == Some(&'-') {
             chars.next();
         }
     }
@@ -803,7 +799,7 @@ fn uuid(text: &str) -> Result<String, ValueRefusal> {
 /// An array literal: a list of elements or of sub-arrays.
 enum ArrayText {
     Items(Vec<Option<String>>),
-    Arrays(Vec<ArrayText>),
+    Arrays(Vec<Self>),
 }
 
 impl ArrayText {
@@ -984,7 +980,7 @@ fn array_level(chars: &[char], at: &mut usize) -> Option<ArrayText> {
 
 /// The output text of a value of a column of type `ty`, which [`decode`]
 /// reads back as the same value.
-pub(crate) fn encode(value: &Value, ty: &ColumnType) -> Result<String, ValueRefusal> {
+pub fn encode(value: &Value, ty: &ColumnType) -> Result<String, ValueRefusal> {
     let text = if ty.dims == 0 {
         encode_element(value, &ty.element)?
     } else {
@@ -1002,7 +998,7 @@ pub(crate) fn encode(value: &Value, ty: &ColumnType) -> Result<String, ValueRefu
 }
 
 /// Whether two values are the same, floats compared by their bits.
-pub(crate) fn same(a: &Value, b: &Value) -> bool {
+pub fn same(a: &Value, b: &Value) -> bool {
     match (a, b) {
         (Value::Float(x), Value::Float(y)) => x.to_bits() == y.to_bits(),
         (Value::List(xs), Value::List(ys)) => {
@@ -1012,7 +1008,7 @@ pub(crate) fn same(a: &Value, b: &Value) -> bool {
     }
 }
 
-fn not_of_type(value: &Value, element: &Element) -> ValueRefusal {
+const fn not_of_type(value: &Value, element: &Element) -> ValueRefusal {
     ValueRefusal::NotOfType {
         expected: element.name(),
         found: value.type_name(),
