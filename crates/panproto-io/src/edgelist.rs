@@ -28,7 +28,7 @@
 //! [`panproto_protocols::edgelist`]: one `node` node per distinct name and
 //! one `edge` node per record, holding the label when the document has a
 //! `label` column. [`from_graph`] reads the edges back out of a graph,
-//! refusing every graph no edge list reads back as, and [`write`] prints
+//! refusing every graph no edge list reads back as, and [`write`](fn@write) prints
 //! them as the canonical edge list.
 
 use std::collections::{BTreeSet, HashMap};

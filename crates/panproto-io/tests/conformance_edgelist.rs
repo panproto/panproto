@@ -43,7 +43,10 @@ fn every_edge_list_conformance_case_reads_writes_or_refuses_as_its_manifest_stat
         let mut parts = line.split('\t');
         let (name, outcome) = (parts.next().unwrap(), parts.next().unwrap());
         assert!(parts.next().is_some_and(|rule| !rule.is_empty()), "{name}");
-        let codec = if name.ends_with(".tsv") { &tsv } else { &csv };
+        let tab_separated = Path::new(name)
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("tsv"));
+        let codec = if tab_separated { &tsv } else { &csv };
         let input = std::fs::read(corpus().join(name)).unwrap();
         let read = codec.read(&input);
         if outcome == "ok" {

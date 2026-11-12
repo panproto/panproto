@@ -91,8 +91,7 @@ fn csv_records(text: &str) -> (Vec<Vec<String>>, bool) {
                     if c == '"' {
                         loop {
                             match chars.get(at) {
-                                None => return (records, true),
-                                Some(',' | '\r' | '\n') => return (records, true),
+                                None | Some(',' | '\r' | '\n') => return (records, true),
                                 Some(&q) => {
                                     field.push(q);
                                     at += 1;
@@ -277,7 +276,9 @@ pub struct Graph {
     pub edges: Vec<(u32, u32, String)>,
 }
 
-/// The page's encoding of a list of edges: for each edge in order an
+/// The page's encoding of a list of edges.
+///
+/// For each edge in order, an
 /// `edge` node holding its label, then the `node` node of its source and of
 /// its target when the name has none yet, each new node taking the next id
 /// from 0; the edge node's `source` edge, then its `target` edge.
@@ -351,7 +352,9 @@ fn unwritable(text: &str, dialect: Dialect) -> Option<char> {
     }
 }
 
-/// The page's canonical edge list of `edges`: the header `source`,
+/// The page's canonical edge list of `edges`.
+///
+/// The header is `source`,
 /// `target` and, when the first edge has a label, `label`; each edge one
 /// record in order; fields joined by the delimiter, every record ended by
 /// a line feed, a CSV field quoted when empty or holding `,`, `"`, a
@@ -383,10 +386,16 @@ pub fn canonical_text(edges: &[Edge], dialect: Dialect) -> Option<String> {
         let texts: Vec<String> = fields.iter().map(|f| field_text(f, dialect)).collect();
         lines.push(texts.join(delimiter));
     }
-    Some(lines.iter().map(|line| format!("{line}\n")).collect())
+    Some(lines.iter().fold(String::new(), |mut out, line| {
+        out.push_str(line);
+        out.push('\n');
+        out
+    }))
 }
 
-/// The page's writer: checks each node in id order (its anchor; a `node`
+/// The page's writer.
+///
+/// It checks each node in id order (its anchor; a `node`
 /// node's value present and not empty; a character the dialect cannot
 /// write; each out-edge in edge order, which must be a `source` or
 /// `target` edge from an `edge` node to a `node` node; an `edge` node's
