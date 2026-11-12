@@ -6,7 +6,7 @@ The executable reference is [`panproto_reference::pages::schema_merge`](https://
 
 ## Definitions shared by the laws
 
-A schema $S$ has vertices $V_S$, each with a kind, and edges $E_S \subseteq V_S \times V_S$. It is **well formed** when every edge's endpoints are in $V_S$. For a base $B$ and branches $O$ and $T$, the **value** of a vertex id $x$ in a schema is its kind there or $\bot$ when absent, and the value of an edge is its presence. Write $b$, $o$ and $t$ for an element's values in $B$, $O$ and $T$.
+A schema $S$ has vertices $V_S$, each with a kind, and edges $E_S$, each an ordered pair of vertex ids. It is **well formed** when every edge's endpoints are in $V_S$. For a base $B$ and branches $O$ and $T$, the **value** of a vertex id $x$ in a schema is its kind there or $\bot$ when absent, and the value of an edge is its presence. Write $b$, $o$ and $t$ for an element's values in $B$, $O$ and $T$.
 
 A branch **uses** a vertex $x$ when it has an edge at $x$ (with $x$ as source or target) that $B$ does not have.
 
