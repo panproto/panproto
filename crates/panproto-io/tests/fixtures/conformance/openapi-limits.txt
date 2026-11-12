@@ -1,0 +1,3 @@
+# OpenAPI corpus cases the reader does not pass, with the limit's name.
+upstream/pass/json_schema_dialect.yaml	jsonSchemaDialect names the meta-schema's work-in-progress dialect, which the reader does not read
+upstream/pass/security-scheme-object-examples.yaml	a reference to a document outside the bundle (the reader fetches nothing)

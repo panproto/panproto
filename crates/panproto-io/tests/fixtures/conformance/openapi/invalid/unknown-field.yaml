@@ -1,0 +1,6 @@
+openapi: 3.1.1
+info:
+  title: Pets
+  version: 1.0.0
+paths: {}
+basePath: /v1

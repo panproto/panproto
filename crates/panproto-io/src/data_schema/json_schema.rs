@@ -287,13 +287,47 @@ fn positive(value: &Value) -> bool {
     }
 }
 
+/// The check of a vocabulary keyword's value at a JSON pointer: `Ok`, or
+/// the pointer of the value at fault, the value and the rule it breaks.
+pub(crate) type VocabularyCheck =
+    for<'n> fn(&str, &'n Node, &str) -> Result<(), (String, &'n Node, &'static str)>;
+
+/// A vocabulary a host format adds to the 2020-12 dialect: the keywords
+/// it defines, which are kept as constraints of their own sort rather than
+/// as annotations, and the check of each such keyword's value.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Vocabulary {
+    /// The keywords the vocabulary defines.
+    pub(crate) keywords: &'static [&'static str],
+    /// Checks the value of one of `keywords` at the JSON pointer given,
+    /// returning the pointer, the node at fault and the rule it breaks.
+    pub(crate) check: VocabularyCheck,
+}
+
+/// A dialect a reader accepts in `$schema`: its URI and the vocabulary it
+/// adds to 2020-12, if any.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Dialect {
+    /// The dialect's URI, as `$schema` names it.
+    pub(crate) id: &'static str,
+    /// The keywords the dialect adds to 2020-12.
+    pub(crate) vocabulary: Option<Vocabulary>,
+}
+
+/// The dialects a plain JSON Schema document may name: 2020-12 alone.
+const PLAIN: &[Dialect] = &[Dialect {
+    id: DIALECT,
+    vocabulary: None,
+}];
+
 /// The base URI and resource in scope at a subschema: the resource's key
-/// (its absolute URI, or empty for the root of a document without one) and
-/// the base URI references resolve against.
+/// (its absolute URI, or empty for the root of a document without one), the
+/// base URI references resolve against, and the vocabulary in effect.
 #[derive(Clone, Debug)]
 struct Scope {
     resource: String,
     base: Option<String>,
+    vocabulary: Option<Vocabulary>,
 }
 
 /// What the first pass learns of the bundle.
@@ -373,6 +407,8 @@ pub fn read_trees(
         let mut indexer = Indexer {
             document: i,
             index: &mut index,
+            dialects: PLAIN,
+            registers_documents: true,
         };
         let prefix = indexer.visit(root, "", &scope, true)?;
         index
@@ -397,6 +433,94 @@ pub fn read_trees(
     Ok(JsonSchemaReading { schema, roots })
 }
 
+/// A Schema Object held by a document of a host format, at a JSON pointer
+/// of that document.
+pub(crate) struct Embedded<'n> {
+    /// The index of the host document.
+    pub(crate) document: usize,
+    /// The JSON pointer of the Schema Object from the document root, empty
+    /// when the whole document is one.
+    pub(crate) pointer: String,
+    /// The Schema Object.
+    pub(crate) node: &'n Node,
+}
+
+/// The documents of a host format and the Schema Objects they hold.
+pub(crate) struct Host<'a> {
+    /// Each document's retrieval URI (absolute, with no fragment, and
+    /// distinct, which the host has checked) and the vocabulary its Schema
+    /// Objects start with.
+    pub(crate) documents: Vec<(Option<&'a str>, Option<Vocabulary>)>,
+    /// The Schema Objects, in the order their vertices are built.
+    pub(crate) schemas: Vec<Embedded<'a>>,
+    /// The dialects `$schema` may name.
+    pub(crate) dialects: &'a [Dialect],
+}
+
+/// Build the Schema Objects of a host format's documents into `builder`,
+/// whose protocol declares the `json-schema` kinds, edges and sorts, and
+/// return it with the vertex of each Schema Object, in order.
+///
+/// Each document is a resource identified by its retrieval URI (or the
+/// empty key for the one without), so a `$ref` whose JSON pointer names a
+/// Schema Object anywhere in a host document resolves to it, and one that
+/// names any other place of the document is refused as naming no
+/// subschema. Vertex ids are the document's URI (or nothing), `#` and the
+/// JSON pointer, as [`read_bundle`] names them.
+pub(crate) fn build_embedded(
+    host: &Host<'_>,
+    builder: SchemaBuilder,
+) -> Result<(SchemaBuilder, Vec<String>), JsonSchemaError> {
+    let mut index = Index::default();
+    for (i, (uri, _)) in host.documents.iter().enumerate() {
+        let key = uri.map_or_else(String::new, |u| strip_empty_fragment(u).to_owned());
+        index.resources.insert(key.clone(), (i, String::new()));
+        index.prefixes.push(key);
+    }
+    for schema in &host.schemas {
+        let (uri, vocabulary) = host.documents[schema.document];
+        let base = uri.map(|u| strip_empty_fragment(u).to_owned());
+        let scope = Scope {
+            resource: base.clone().unwrap_or_default(),
+            base,
+            vocabulary,
+        };
+        let mut indexer = Indexer {
+            document: schema.document,
+            index: &mut index,
+            dialects: host.dialects,
+            registers_documents: false,
+        };
+        indexer.visit(
+            schema.node,
+            &schema.pointer,
+            &scope,
+            schema.pointer.is_empty(),
+        )?;
+    }
+    let mut built = Builder {
+        index: &index,
+        schema: Some(builder),
+        refs: Vec::new(),
+        document: 0,
+    };
+    let mut ids = Vec::with_capacity(host.schemas.len());
+    for schema in &host.schemas {
+        built.document = schema.document;
+        ids.push(built.build(schema.node, &schema.pointer)?);
+    }
+    built.add_refs()?;
+    let builder = built.schema.take().ok_or_else(|| {
+        error(
+            0,
+            String::new(),
+            0,
+            JsonSchemaErrorKind::Schema("no builder".into()),
+        )
+    })?;
+    Ok((builder, ids))
+}
+
 /// `uri` without an empty fragment.
 fn strip_empty_fragment(uri: &str) -> &str {
     uri.strip_suffix('#').unwrap_or(uri)
@@ -409,6 +533,7 @@ fn document_scope(document: usize, uri: Option<&str>, root: &Node, index: &mut I
         return Ok(Scope {
             resource: String::new(),
             base: None,
+            vocabulary: None,
         });
     };
     let base = strip_empty_fragment(uri);
@@ -434,6 +559,7 @@ fn document_scope(document: usize, uri: Option<&str>, root: &Node, index: &mut I
     Ok(Scope {
         resource: base.to_owned(),
         base: Some(base.to_owned()),
+        vocabulary: None,
     })
 }
 
@@ -441,6 +567,11 @@ fn document_scope(document: usize, uri: Option<&str>, root: &Node, index: &mut I
 struct Indexer<'i> {
     document: usize,
     index: &'i mut Index,
+    /// The dialects `$schema` may name.
+    dialects: &'i [Dialect],
+    /// Whether the root of a document without a URI registers the
+    /// document's resource (a host format registers its documents itself).
+    registers_documents: bool,
 }
 
 impl Indexer<'_> {
@@ -473,7 +604,7 @@ impl Indexer<'_> {
             self.check_keyword(key, value, &child(pointer, key))?;
         }
         let id = get(entries, "$id");
-        if let Some(dialect) = get(entries, "$schema") {
+        let vocabulary = if let Some(dialect) = get(entries, "$schema") {
             let at = child(pointer, "$schema");
             if !root && id.is_none() {
                 return self.fail(
@@ -485,15 +616,39 @@ impl Indexer<'_> {
                 );
             }
             let text = dialect.string().unwrap_or_default();
-            if strip_empty_fragment(text) != DIALECT {
+            let Some(named) = self
+                .dialects
+                .iter()
+                .find(|d| d.id == strip_empty_fragment(text))
+            else {
                 return self.fail(
                     at,
                     dialect,
                     JsonSchemaErrorKind::UnsupportedDialect(text.to_owned()),
                 );
+            };
+            named.vocabulary
+        } else {
+            parent.vocabulary
+        };
+        if let Some(vocabulary) = vocabulary {
+            for (key, value) in entries {
+                if vocabulary.keywords.contains(&key.as_str()) {
+                    (vocabulary.check)(key, value, &child(pointer, key)).map_err(
+                        |(path, node, rule)| {
+                            error(
+                                self.document,
+                                path,
+                                node.offset,
+                                JsonSchemaErrorKind::Invalid(rule),
+                            )
+                        },
+                    )?;
+                }
             }
         }
-        let scope = self.root_scope(node, pointer, parent, root, id)?;
+        let mut scope = self.root_scope(node, pointer, parent, root, id)?;
+        scope.vocabulary = vocabulary;
         for (key, value) in entries {
             if key == "$anchor" || key == "$dynamicAnchor" {
                 self.anchor(&scope, key == "$dynamicAnchor", value, pointer)?;
@@ -560,9 +715,10 @@ impl Indexer<'_> {
             return Ok(Scope {
                 resource: resolved.clone(),
                 base: Some(resolved),
+                vocabulary: parent.vocabulary,
             });
         }
-        if root && parent.base.is_none() {
+        if root && parent.base.is_none() && self.registers_documents {
             if self.index.resources.contains_key("") {
                 return self.fail(
                     String::new(),
@@ -902,7 +1058,11 @@ impl Builder<'_> {
             }
             let at = child(pointer, key);
             let text = self.json(value, &at)?;
-            if empty || protocol::KEPT.contains(&key.as_str()) {
+            let vocabulary = self.index.scopes[&(self.document, pointer.to_owned())]
+                .vocabulary
+                .map_or(&[][..], |v| v.keywords);
+            if empty || protocol::KEPT.contains(&key.as_str()) || vocabulary.contains(&key.as_str())
+            {
                 self.with(|b| b.constraint(&id, key, &text));
             } else {
                 let annotation = format!("{{{}:{text}}}", json_string(key));
@@ -1052,10 +1212,16 @@ impl Builder<'_> {
         Ok(())
     }
 
-    fn finish(mut self) -> R<Schema> {
+    /// Add the reference edges recorded while the vertices were built.
+    fn add_refs(&mut self) -> R<()> {
         for (src, tgt, kind, name) in std::mem::take(&mut self.refs) {
             self.try_with("", 0, |b| b.edge(&src, &tgt, kind, Some(&name)))?;
         }
+        Ok(())
+    }
+
+    fn finish(mut self) -> R<Schema> {
+        self.add_refs()?;
         let builder = self.schema.take().ok_or_else(|| {
             error(
                 0,
@@ -1123,7 +1289,9 @@ pub fn write_document(schema: &Schema, root: &str) -> Result<String, JsonSchemaW
     Ok(text)
 }
 
-fn write_vertex(schema: &Schema, id: &str) -> Result<String, JsonSchemaWriteError> {
+/// The canonical JSON text of the subschema `id`, as [`write_document`]
+/// writes it, with no line feed.
+pub(crate) fn write_vertex(schema: &Schema, id: &str) -> Result<String, JsonSchemaWriteError> {
     let vertex = schema
         .vertices
         .get(id)

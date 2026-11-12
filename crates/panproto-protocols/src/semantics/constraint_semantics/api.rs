@@ -1,11 +1,18 @@
 //! Constraint-semantics rows for the API description protocols (`openapi`,
 //! `asyncapi`, `jsonapi`, `raml`, `graphql`).
 //!
-//! The `openapi`, `asyncapi` and `raml` schema keywords are JSON Schema's: string
-//! lengths count Unicode code points, `minItems` and `maxItems` bound the
-//! items of a list (the out-edges of its node), and `format` names a value
-//! format of the protocol's family. `default` and `deprecated` describe and
-//! do not constrain. The JSON:API `required` sort is written both as a
+//! An `openapi` constraint holds a field's value, or a Schema Object
+//! keyword's value, as canonical JSON text. The Schema Object keywords read
+//! as they do under `json-schema`: string lengths count code points and
+//! `minimum` and `maximum` bound inclusively, and every other keyword
+//! describes. Every field of the description's other objects (titles,
+//! versions, parameter locations and styles, examples, scopes, the
+//! specification extensions) describes the API and constrains no instance.
+//!
+//! The `asyncapi` and `raml` schema keywords are JSON Schema's: string
+//! lengths count Unicode code points and `format` names a value format of
+//! the protocol's family. `default` and `deprecated` describe and do not
+//! constrain. The JSON:API `required` sort is written both as a
 //! presence flag of an attribute and as the target type of a relationship,
 //! and GraphQL's `non_null` and `list` record its type wrappers; each is
 //! descriptive here. A presence flag is about the element that holds the
@@ -35,24 +42,146 @@ const fn row(
 
 /// The rows of this family, one per declaration.
 pub(super) const ROWS: &[ConstraintRow] = &[
-    row("openapi", "required", || ConstraintSemantics::Annotation),
-    row("openapi", "format", || {
-        ConstraintSemantics::Format(Name::from("openapi"))
+    row("openapi", "openapi", || ConstraintSemantics::Annotation),
+    row("openapi", "jsonSchemaDialect", || {
+        ConstraintSemantics::Annotation
     }),
-    row("openapi", "enum", || ConstraintSemantics::Enum),
+    row("openapi", "servers", || ConstraintSemantics::Annotation),
+    row("openapi", "webhooks", || ConstraintSemantics::Annotation),
+    row("openapi", "security", || ConstraintSemantics::Annotation),
+    row("openapi", "tags", || ConstraintSemantics::Annotation),
+    row("openapi", "title", || ConstraintSemantics::Annotation),
+    row("openapi", "summary", || ConstraintSemantics::Annotation),
+    row("openapi", "description", || ConstraintSemantics::Annotation),
+    row("openapi", "termsOfService", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("openapi", "version", || ConstraintSemantics::Annotation),
+    row("openapi", "name", || ConstraintSemantics::Annotation),
+    row("openapi", "url", || ConstraintSemantics::Annotation),
+    row("openapi", "email", || ConstraintSemantics::Annotation),
+    row("openapi", "identifier", || ConstraintSemantics::Annotation),
+    row("openapi", "variables", || ConstraintSemantics::Annotation),
+    row("openapi", "enum", || ConstraintSemantics::Annotation),
     row("openapi", "default", || ConstraintSemantics::Annotation),
-    row("openapi", "minimum", || ConstraintSemantics::Minimum),
+    row("openapi", "schemas", || ConstraintSemantics::Annotation),
+    row("openapi", "responses", || ConstraintSemantics::Annotation),
+    row("openapi", "parameters", || ConstraintSemantics::Annotation),
+    row("openapi", "examples", || ConstraintSemantics::Annotation),
+    row("openapi", "requestBodies", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("openapi", "headers", || ConstraintSemantics::Annotation),
+    row("openapi", "securitySchemes", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("openapi", "links", || ConstraintSemantics::Annotation),
+    row("openapi", "callbacks", || ConstraintSemantics::Annotation),
+    row("openapi", "pathItems", || ConstraintSemantics::Annotation),
+    row("openapi", "operationId", || ConstraintSemantics::Annotation),
+    row("openapi", "deprecated", || ConstraintSemantics::Annotation),
+    row("openapi", "in", || ConstraintSemantics::Annotation),
+    row("openapi", "required", || ConstraintSemantics::Annotation),
+    row("openapi", "allowEmptyValue", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("openapi", "style", || ConstraintSemantics::Annotation),
+    row("openapi", "explode", || ConstraintSemantics::Annotation),
+    row("openapi", "allowReserved", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("openapi", "example", || ConstraintSemantics::Annotation),
+    row("openapi", "content", || ConstraintSemantics::Annotation),
+    row("openapi", "encoding", || ConstraintSemantics::Annotation),
+    row("openapi", "contentType", || ConstraintSemantics::Annotation),
+    row("openapi", "value", || ConstraintSemantics::Annotation),
+    row("openapi", "externalValue", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("openapi", "operationRef", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("openapi", "requestBody", || ConstraintSemantics::Annotation),
+    row("openapi", "type", || ConstraintSemantics::Annotation),
+    row("openapi", "scheme", || ConstraintSemantics::Annotation),
+    row("openapi", "bearerFormat", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("openapi", "openIdConnectUrl", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("openapi", "authorizationUrl", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("openapi", "tokenUrl", || ConstraintSemantics::Annotation),
+    row("openapi", "refreshUrl", || ConstraintSemantics::Annotation),
+    row("openapi", "scopes", || ConstraintSemantics::Annotation),
+    row("openapi", "extension", || ConstraintSemantics::Annotation),
+    row("openapi", "ignored", || ConstraintSemantics::Annotation),
+    row("openapi", "$schema", || ConstraintSemantics::Annotation),
+    row("openapi", "$id", || ConstraintSemantics::Annotation),
+    row("openapi", "$anchor", || ConstraintSemantics::Annotation),
+    row("openapi", "$dynamicAnchor", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("openapi", "$vocabulary", || ConstraintSemantics::Annotation),
+    row("openapi", "$comment", || ConstraintSemantics::Annotation),
+    row("openapi", "const", || ConstraintSemantics::Annotation),
+    row("openapi", "multipleOf", || ConstraintSemantics::Annotation),
     row("openapi", "maximum", || ConstraintSemantics::Maximum),
-    row("openapi", "pattern", || ConstraintSemantics::Pattern),
-    row("openapi", "minLength", || {
-        ConstraintSemantics::MinLength(LengthUnit::Chars)
+    row("openapi", "exclusiveMaximum", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("openapi", "minimum", || ConstraintSemantics::Minimum),
+    row("openapi", "exclusiveMinimum", || {
+        ConstraintSemantics::Annotation
     }),
     row("openapi", "maxLength", || {
         ConstraintSemantics::MaxLength(LengthUnit::Chars)
     }),
-    row("openapi", "minItems", || ConstraintSemantics::MinOutDegree),
-    row("openapi", "maxItems", || ConstraintSemantics::MaxOutDegree),
-    row("openapi", "deprecated", || ConstraintSemantics::Annotation),
+    row("openapi", "minLength", || {
+        ConstraintSemantics::MinLength(LengthUnit::Chars)
+    }),
+    row("openapi", "pattern", || ConstraintSemantics::Annotation),
+    row("openapi", "maxItems", || ConstraintSemantics::Annotation),
+    row("openapi", "minItems", || ConstraintSemantics::Annotation),
+    row("openapi", "uniqueItems", || ConstraintSemantics::Annotation),
+    row("openapi", "maxContains", || ConstraintSemantics::Annotation),
+    row("openapi", "minContains", || ConstraintSemantics::Annotation),
+    row("openapi", "maxProperties", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("openapi", "minProperties", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("openapi", "dependentRequired", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("openapi", "format", || ConstraintSemantics::Annotation),
+    row("openapi", "contentEncoding", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("openapi", "contentMediaType", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("openapi", "readOnly", || ConstraintSemantics::Annotation),
+    row("openapi", "writeOnly", || ConstraintSemantics::Annotation),
+    row("openapi", "$defs", || ConstraintSemantics::Annotation),
+    row("openapi", "properties", || ConstraintSemantics::Annotation),
+    row("openapi", "patternProperties", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("openapi", "dependentSchemas", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("openapi", "annotation", || ConstraintSemantics::Annotation),
+    row("openapi", "discriminator", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("openapi", "xml", || ConstraintSemantics::Annotation),
+    row("openapi", "externalDocs", || {
+        ConstraintSemantics::Annotation
+    }),
     row("asyncapi", "required", || ConstraintSemantics::Annotation),
     row("asyncapi", "format", || {
         ConstraintSemantics::Format(Name::from("asyncapi"))

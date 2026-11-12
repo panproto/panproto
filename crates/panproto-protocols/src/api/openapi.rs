@@ -1,22 +1,582 @@
-//! `OpenAPI`/Swagger protocol definition.
+//! `OpenAPI` 3.1 protocol definition.
 //!
-//! `OpenAPI` uses a constrained multigraph schema theory
-//! (`colimit(ThGraph, ThConstraint, ThMulti)`) and a W-type
-//! instance theory (`ThWType`).
+//! Uses Group A theory: constrained multigraph + W-type.
 //!
-//! Vertex kinds: path, operation, parameter, request-body, response,
-//! schema-object, header, string, integer, number, boolean, array, object.
+//! An `OpenAPI` description (version 3.1.x) is JSON or YAML, and this crate
+//! links no grammar for either: `panproto_io::api::openapi::read_openapi`
+//! reads it through the shared JSON and YAML routes of `panproto-io`
+//! (feature `tree-sitter`) into a schema of this protocol, and both schema
+//! dispatches refuse the protocol with an error naming that reader.
 //!
-//! Edge kinds: prop, items, variant, ref.
+//! Every object of the description is a vertex whose kind names the object
+//! ([`OBJECTS`]): the `openapi` root, `info`, `path-item`, `operation`,
+//! `parameter` and the rest, and `reference` for a Reference Object. A
+//! field that holds objects is an edge kind ([`Field::edge`]) from the
+//! object to each object it holds, named by the map key or list index; a
+//! field that holds a value is a constraint of the field's name holding the
+//! value as canonical JSON text, as is a map or list field that is empty;
+//! and a specification extension (`x-`) is an [`EXTENSION`] constraint
+//! holding the member as written. Schema Objects are `json-schema`
+//! subschemas (dialect 2020-12 with the `OpenAPI` vocabulary,
+//! [`VOCABULARY`]), so this protocol declares that protocol's kinds, edges
+//! and constraint sorts too. Reference Objects, a Path Item's `$ref`, a
+//! Link's operation and a Security Requirement's schemes are edges
+//! ([`REF`], [`OPERATION`], [`REQUIREMENT`]) to what they resolve to.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+use std::hash::BuildHasher;
 
 use panproto_gat::Theory;
-use panproto_schema::{EdgeRule, Protocol, Schema, SchemaBuilder};
+use panproto_schema::{EdgeRule, Protocol};
 
-use crate::emit::{children_by_edge, constraint_value, find_roots};
-use crate::error::ProtocolError;
+use crate::data_schema::json_schema;
 use crate::theories;
+
+/// The dialect id of the `OpenAPI` 3.1 Schema Object (the "OAS dialect
+/// schema id"), the default `$schema` of every Schema Object.
+pub const OAS_DIALECT: &str = "https://spec.openapis.org/oas/3.1/dialect/base";
+
+/// The keywords the `OpenAPI` vocabulary adds to 2020-12, kept as
+/// constraints of a Schema Object under the `OpenAPI` dialect.
+pub const VOCABULARY: &[&str] = &["discriminator", "xml", "externalDocs", "example"];
+
+/// The constraint sort of a specification extension: its value is the JSON
+/// text of an object holding the one `x-` member as written.
+pub const EXTENSION: &str = "extension";
+
+/// The constraint sort of a member of a Reference Object other than
+/// `$ref`, `summary` and `description`, which the specification says is
+/// ignored: its value is the JSON text of an object holding the member.
+pub const IGNORED: &str = "ignored";
+
+/// The constraint sort of a Security Requirement's entry: the JSON text of
+/// an object holding the scheme name and its list of scopes or roles.
+pub const SCOPES: &str = "scopes";
+
+/// The edge kind of a reference: a Reference Object's `$ref`, a Path
+/// Item's `$ref` and a Schema Object's `$ref`, to what it resolves to.
+pub const REF: &str = "ref";
+
+/// The edge kind from a Link to the operation its `operationRef` or
+/// `operationId` names.
+pub const OPERATION: &str = "operation";
+
+/// The edge kind from a Security Requirement to each security scheme it
+/// names, named by the scheme's name.
+pub const REQUIREMENT: &str = "requirement";
+
+/// The kind of the Reference Object vertex.
+pub const REFERENCE: &str = "reference";
+
+/// The operation fields of a Path Item, in the specification's order.
+pub const METHODS: &[&str] = &[
+    "get", "put", "post", "delete", "options", "head", "patch", "trace",
+];
+
+/// How a field holds its value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Holds {
+    /// A string.
+    Str,
+    /// A boolean.
+    Bool,
+    /// Any JSON value.
+    Any,
+    /// An array of strings.
+    Strings,
+    /// An object whose values are strings.
+    StringMap,
+    /// An object whose values are any JSON values.
+    AnyMap,
+    /// One object of the kind named.
+    One(&'static str),
+    /// One object of the kind named, or a Reference Object to one.
+    OneOrRef(&'static str),
+    /// An array of objects of the kind named.
+    List(&'static str),
+    /// An array of objects of the kind named or Reference Objects to them.
+    ListOrRef(&'static str),
+    /// An object whose values are objects of the kind named.
+    Map(&'static str),
+    /// An object whose values are objects of the kind named or Reference
+    /// Objects to them.
+    MapOrRef(&'static str),
+    /// One Schema Object.
+    Schema,
+    /// An object whose values are Schema Objects.
+    SchemaMap,
+    /// The patterned fields of an object, whose keys the reader checks
+    /// (the paths of a Paths Object, the status codes of a Responses
+    /// Object, the expressions of a Callback): an edge per key to an object
+    /// of the kind named, or to a Reference Object when `or_ref`.
+    Patterned {
+        /// The kind of the objects.
+        kind: &'static str,
+        /// Whether a Reference Object may stand for one.
+        or_ref: bool,
+    },
+}
+
+impl Holds {
+    /// Whether the field holds a value, kept as a constraint, rather than
+    /// objects reached by edges.
+    #[must_use]
+    pub const fn is_value(self) -> bool {
+        matches!(
+            self,
+            Self::Str | Self::Bool | Self::Any | Self::Strings | Self::StringMap | Self::AnyMap
+        )
+    }
+
+    /// Whether the field holds a map or list of objects, kept as a
+    /// constraint of the field's name when it is empty.
+    #[must_use]
+    pub const fn is_collection(self) -> bool {
+        matches!(
+            self,
+            Self::List(_) | Self::ListOrRef(_) | Self::Map(_) | Self::MapOrRef(_) | Self::SchemaMap
+        )
+    }
+
+    /// The kind of the objects the field holds, if it holds objects of an
+    /// `OpenAPI` kind.
+    #[must_use]
+    pub const fn kind(self) -> Option<&'static str> {
+        match self {
+            Self::One(k)
+            | Self::OneOrRef(k)
+            | Self::List(k)
+            | Self::ListOrRef(k)
+            | Self::Map(k)
+            | Self::MapOrRef(k)
+            | Self::Patterned { kind: k, .. } => Some(k),
+            _ => None,
+        }
+    }
+
+    /// Whether a Reference Object may stand for an object the field holds.
+    #[must_use]
+    pub const fn or_ref(self) -> bool {
+        matches!(
+            self,
+            Self::OneOrRef(_)
+                | Self::ListOrRef(_)
+                | Self::MapOrRef(_)
+                | Self::Patterned { or_ref: true, .. }
+        )
+    }
+}
+
+/// One fixed field of an object, or its patterned fields under
+/// [`Holds::Patterned`].
+#[derive(Clone, Copy, Debug)]
+pub struct Field {
+    /// The field's name, which is also the constraint sort of a value
+    /// field and of an empty map or list; empty for patterned fields.
+    pub name: &'static str,
+    /// How the field holds its value.
+    pub holds: Holds,
+    /// Whether the specification says the field is REQUIRED in every
+    /// object of the kind.
+    pub required: bool,
+    /// The edge kind from the object to each object the field holds, empty
+    /// for a value field.
+    pub edge: &'static str,
+}
+
+/// One kind of object: its vertex kind and its fields in canonical order,
+/// the order of the specification's tables.
+#[derive(Clone, Copy, Debug)]
+pub struct Object {
+    /// The vertex kind.
+    pub kind: &'static str,
+    /// The fields.
+    pub fields: &'static [Field],
+}
+
+const fn value(name: &'static str, holds: Holds) -> Field {
+    Field {
+        name,
+        holds,
+        required: false,
+        edge: "",
+    }
+}
+
+const fn required(name: &'static str, holds: Holds) -> Field {
+    Field {
+        name,
+        holds,
+        required: true,
+        edge: "",
+    }
+}
+
+const fn objects(name: &'static str, holds: Holds, edge: &'static str) -> Field {
+    Field {
+        name,
+        holds,
+        required: false,
+        edge,
+    }
+}
+
+const fn required_objects(name: &'static str, holds: Holds, edge: &'static str) -> Field {
+    Field {
+        name,
+        holds,
+        required: true,
+        edge,
+    }
+}
+
+const fn patterned(kind: &'static str, or_ref: bool, edge: &'static str) -> Field {
+    Field {
+        name: "",
+        holds: Holds::Patterned { kind, or_ref },
+        required: false,
+        edge,
+    }
+}
+
+const EXTERNAL_DOCS: Field = objects("externalDocs", Holds::One("external-docs"), "external-docs");
+const SERVERS: Field = objects("servers", Holds::List("server"), "servers");
+const SECURITY: Field = objects("security", Holds::List("security-requirement"), "security");
+const PARAMETERS: Field = objects("parameters", Holds::ListOrRef("parameter"), "parameters");
+const EXAMPLES: Field = objects("examples", Holds::MapOrRef("example"), "examples");
+const CONTENT: Field = objects("content", Holds::Map("media-type"), "content");
+const HEADERS: Field = objects("headers", Holds::MapOrRef("header"), "headers");
+const SCHEMA: Field = objects("schema", Holds::Schema, "schema");
+const DESCRIPTION: Field = value("description", Holds::Str);
+const SUMMARY: Field = value("summary", Holds::Str);
+
+/// Every object kind of `OpenAPI` 3.1 other than the Schema Object (a
+/// `json-schema` subschema) and the Reference Object ([`REFERENCE`]), with
+/// its fields in canonical order.
+pub const OBJECTS: &[Object] = &[
+    Object {
+        kind: "openapi",
+        fields: &[
+            required("openapi", Holds::Str),
+            required_objects("info", Holds::One("info"), "info"),
+            value("jsonSchemaDialect", Holds::Str),
+            SERVERS,
+            objects("paths", Holds::One("paths"), "paths"),
+            objects("webhooks", Holds::Map("path-item"), "webhooks"),
+            objects("components", Holds::One("components"), "components"),
+            SECURITY,
+            objects("tags", Holds::List("tag"), "tags"),
+            EXTERNAL_DOCS,
+        ],
+    },
+    Object {
+        kind: "info",
+        fields: &[
+            required("title", Holds::Str),
+            SUMMARY,
+            DESCRIPTION,
+            value("termsOfService", Holds::Str),
+            objects("contact", Holds::One("contact"), "contact"),
+            objects("license", Holds::One("license"), "license"),
+            required("version", Holds::Str),
+        ],
+    },
+    Object {
+        kind: "contact",
+        fields: &[
+            value("name", Holds::Str),
+            value("url", Holds::Str),
+            value("email", Holds::Str),
+        ],
+    },
+    Object {
+        kind: "license",
+        fields: &[
+            required("name", Holds::Str),
+            value("identifier", Holds::Str),
+            value("url", Holds::Str),
+        ],
+    },
+    Object {
+        kind: "server",
+        fields: &[
+            required("url", Holds::Str),
+            DESCRIPTION,
+            objects("variables", Holds::Map("server-variable"), "variables"),
+        ],
+    },
+    Object {
+        kind: "server-variable",
+        fields: &[
+            value("enum", Holds::Strings),
+            required("default", Holds::Str),
+            DESCRIPTION,
+        ],
+    },
+    Object {
+        kind: "components",
+        fields: &[
+            objects("schemas", Holds::SchemaMap, "schemas"),
+            objects("responses", Holds::MapOrRef("response"), "responses"),
+            objects("parameters", Holds::MapOrRef("parameter"), "parameters"),
+            EXAMPLES,
+            objects(
+                "requestBodies",
+                Holds::MapOrRef("request-body"),
+                "request-bodies",
+            ),
+            HEADERS,
+            objects(
+                "securitySchemes",
+                Holds::MapOrRef("security-scheme"),
+                "security-schemes",
+            ),
+            objects("links", Holds::MapOrRef("link"), "links"),
+            objects("callbacks", Holds::MapOrRef("callback"), "callbacks"),
+            objects("pathItems", Holds::Map("path-item"), "path-items"),
+        ],
+    },
+    Object {
+        kind: "paths",
+        fields: &[patterned("path-item", false, "path")],
+    },
+    Object {
+        kind: "path-item",
+        fields: &[
+            SUMMARY,
+            DESCRIPTION,
+            objects("get", Holds::One("operation"), "get"),
+            objects("put", Holds::One("operation"), "put"),
+            objects("post", Holds::One("operation"), "post"),
+            objects("delete", Holds::One("operation"), "delete"),
+            objects("options", Holds::One("operation"), "options"),
+            objects("head", Holds::One("operation"), "head"),
+            objects("patch", Holds::One("operation"), "patch"),
+            objects("trace", Holds::One("operation"), "trace"),
+            SERVERS,
+            PARAMETERS,
+        ],
+    },
+    Object {
+        kind: "operation",
+        fields: &[
+            value("tags", Holds::Strings),
+            SUMMARY,
+            DESCRIPTION,
+            EXTERNAL_DOCS,
+            value("operationId", Holds::Str),
+            PARAMETERS,
+            objects(
+                "requestBody",
+                Holds::OneOrRef("request-body"),
+                "request-body",
+            ),
+            objects("responses", Holds::One("responses"), "responses"),
+            objects("callbacks", Holds::MapOrRef("callback"), "callbacks"),
+            value("deprecated", Holds::Bool),
+            SECURITY,
+            SERVERS,
+        ],
+    },
+    Object {
+        kind: "external-docs",
+        fields: &[DESCRIPTION, required("url", Holds::Str)],
+    },
+    Object {
+        kind: "parameter",
+        fields: &[
+            required("name", Holds::Str),
+            required("in", Holds::Str),
+            DESCRIPTION,
+            value("required", Holds::Bool),
+            value("deprecated", Holds::Bool),
+            value("allowEmptyValue", Holds::Bool),
+            value("style", Holds::Str),
+            value("explode", Holds::Bool),
+            value("allowReserved", Holds::Bool),
+            SCHEMA,
+            value("example", Holds::Any),
+            EXAMPLES,
+            CONTENT,
+        ],
+    },
+    Object {
+        kind: "request-body",
+        fields: &[
+            DESCRIPTION,
+            required_objects("content", Holds::Map("media-type"), "content"),
+            value("required", Holds::Bool),
+        ],
+    },
+    Object {
+        kind: "media-type",
+        fields: &[
+            SCHEMA,
+            value("example", Holds::Any),
+            EXAMPLES,
+            objects("encoding", Holds::Map("encoding"), "encoding"),
+        ],
+    },
+    Object {
+        kind: "encoding",
+        fields: &[
+            value("contentType", Holds::Str),
+            HEADERS,
+            value("style", Holds::Str),
+            value("explode", Holds::Bool),
+            value("allowReserved", Holds::Bool),
+        ],
+    },
+    Object {
+        kind: "responses",
+        fields: &[patterned("response", true, "response")],
+    },
+    Object {
+        kind: "response",
+        fields: &[
+            required("description", Holds::Str),
+            HEADERS,
+            CONTENT,
+            objects("links", Holds::MapOrRef("link"), "links"),
+        ],
+    },
+    Object {
+        kind: "callback",
+        fields: &[patterned("path-item", false, "expression")],
+    },
+    Object {
+        kind: "example",
+        fields: &[
+            SUMMARY,
+            DESCRIPTION,
+            value("value", Holds::Any),
+            value("externalValue", Holds::Str),
+        ],
+    },
+    Object {
+        kind: "link",
+        fields: &[
+            value("operationRef", Holds::Str),
+            value("operationId", Holds::Str),
+            value("parameters", Holds::AnyMap),
+            value("requestBody", Holds::Any),
+            DESCRIPTION,
+            objects("server", Holds::One("server"), "server"),
+        ],
+    },
+    Object {
+        kind: "header",
+        fields: &[
+            DESCRIPTION,
+            value("required", Holds::Bool),
+            value("deprecated", Holds::Bool),
+            value("style", Holds::Str),
+            value("explode", Holds::Bool),
+            SCHEMA,
+            value("example", Holds::Any),
+            EXAMPLES,
+            CONTENT,
+        ],
+    },
+    Object {
+        kind: "tag",
+        fields: &[required("name", Holds::Str), DESCRIPTION, EXTERNAL_DOCS],
+    },
+    Object {
+        kind: "security-scheme",
+        fields: &[
+            required("type", Holds::Str),
+            DESCRIPTION,
+            value("name", Holds::Str),
+            value("in", Holds::Str),
+            value("scheme", Holds::Str),
+            value("bearerFormat", Holds::Str),
+            objects("flows", Holds::One("oauth-flows"), "flows"),
+            value("openIdConnectUrl", Holds::Str),
+        ],
+    },
+    Object {
+        kind: "oauth-flows",
+        fields: &[
+            objects("implicit", Holds::One("oauth-flow"), "implicit"),
+            objects("password", Holds::One("oauth-flow"), "password"),
+            objects(
+                "clientCredentials",
+                Holds::One("oauth-flow"),
+                "client-credentials",
+            ),
+            objects(
+                "authorizationCode",
+                Holds::One("oauth-flow"),
+                "authorization-code",
+            ),
+        ],
+    },
+    Object {
+        kind: "oauth-flow",
+        fields: &[
+            value("authorizationUrl", Holds::Str),
+            value("tokenUrl", Holds::Str),
+            value("refreshUrl", Holds::Str),
+            required("scopes", Holds::StringMap),
+        ],
+    },
+    Object {
+        kind: "security-requirement",
+        fields: &[],
+    },
+];
+
+/// The fields of the Reference Object other than `$ref` (which is the
+/// [`REF`] edge), in canonical order.
+pub const REFERENCE_FIELDS: &[Field] = &[SUMMARY, DESCRIPTION];
+
+/// The object kind named `kind`.
+#[must_use]
+pub fn object(kind: &str) -> Option<&'static Object> {
+    OBJECTS.iter().find(|o| o.kind == kind)
+}
+
+/// Every vertex kind: the object kinds, [`REFERENCE`], and the
+/// `json-schema` subschema kinds.
+#[must_use]
+pub fn kinds() -> Vec<String> {
+    OBJECTS
+        .iter()
+        .map(|o| o.kind)
+        .chain([REFERENCE])
+        .chain(json_schema::KINDS.iter().copied())
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Every constraint sort, without repeats.
+///
+/// They are the value fields and the map and list fields of the objects
+/// (an empty one is kept under its name), [`EXTENSION`], [`IGNORED`],
+/// [`SCOPES`], and the `json-schema` sorts with the [`VOCABULARY`].
+#[must_use]
+pub fn constraint_sorts() -> Vec<String> {
+    let fields = OBJECTS
+        .iter()
+        .flat_map(|o| o.fields)
+        .chain(REFERENCE_FIELDS)
+        .filter(|f| f.holds.is_value() || f.holds.is_collection())
+        .map(|f| f.name);
+    let rest = [EXTENSION, IGNORED, SCOPES]
+        .into_iter()
+        .chain(json_schema::KEPT.iter().copied())
+        .chain(json_schema::EMPTY_KEPT.iter().copied())
+        .chain([json_schema::ANNOTATION])
+        .chain(VOCABULARY.iter().copied());
+    let mut sorts: Vec<String> = Vec::new();
+    for sort in fields.chain(rest) {
+        if !sorts.iter().any(|s| s == sort) {
+            sorts.push(sort.to_owned());
+        }
+    }
+    sorts
+}
 
 /// Returns the `OpenAPI` protocol definition.
 #[must_use]
@@ -26,39 +586,11 @@ pub fn protocol() -> Protocol {
         schema_theory: "ThOpenAPISchema".into(),
         instance_theory: "ThOpenAPIInstance".into(),
         edge_rules: edge_rules(),
-        obj_kinds: vec![
-            "path".into(),
-            "operation".into(),
-            "parameter".into(),
-            "request-body".into(),
-            "response".into(),
-            "schema-object".into(),
-            "header".into(),
-            "string".into(),
-            "integer".into(),
-            "number".into(),
-            "boolean".into(),
-            "array".into(),
-            "object".into(),
-        ],
-        constraint_sorts: vec![
-            "required".into(),
-            "format".into(),
-            "enum".into(),
-            "default".into(),
-            "minimum".into(),
-            "maximum".into(),
-            "pattern".into(),
-            "minLength".into(),
-            "maxLength".into(),
-            "minItems".into(),
-            "maxItems".into(),
-            "deprecated".into(),
-        ],
+        obj_kinds: kinds(),
+        constraint_sorts: constraint_sorts(),
         has_order: true,
         has_coproducts: true,
         has_recursion: true,
-        nominal_identity: true,
         ..Default::default()
     };
     crate::semantics::attach(&mut protocol);
@@ -66,7 +598,7 @@ pub fn protocol() -> Protocol {
 }
 
 /// Register the component GATs for `OpenAPI` with a theory registry.
-pub fn register_theories<S: ::std::hash::BuildHasher>(registry: &mut HashMap<String, Theory, S>) {
+pub fn register_theories<S: BuildHasher>(registry: &mut HashMap<String, Theory, S>) {
     theories::register_constrained_multigraph_wtype(
         registry,
         "ThOpenAPISchema",
@@ -74,685 +606,118 @@ pub fn register_theories<S: ::std::hash::BuildHasher>(registry: &mut HashMap<Str
     );
 }
 
-/// Parse an `OpenAPI` JSON document into a [`Schema`].
-///
-/// Walks paths, operations, parameters, request bodies, responses,
-/// and schemas to produce a flat vertex/edge graph.
-///
-/// Equivalent to [`parse_openapi_bundle`] over a single document, so
-/// the two cannot drift apart.
-///
-/// # Errors
-///
-/// Returns [`ProtocolError`] if parsing or schema construction fails.
-pub fn parse_openapi(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
-    parse_openapi_bundle(std::slice::from_ref(json))
-}
-
-/// The vertex-id prefix for a document, and the identity other
-/// documents address it by.
-///
-/// `OpenAPI` 3.1 aligns with JSON Schema 2020-12, so a document may
-/// carry `$id`; that is what a cross-document `$ref` names. A document
-/// without one is unaddressable from outside, and is prefixed by its
-/// position so its ids do not collide with a sibling's. A lone document
-/// keeps the unprefixed ids a single-document parse has always
-/// produced.
-fn document_identity(
-    json: &serde_json::Value,
-    index: usize,
-    count: usize,
-) -> (Option<String>, Option<&str>) {
-    let declared = json.get("$id").and_then(serde_json::Value::as_str);
-    let prefix = match declared {
-        _ if count == 1 => None,
-        Some(id) => Some(id.to_owned()),
-        None => Some(format!("doc{index}")),
-    };
-    (prefix, declared)
-}
-
-/// Qualify a document-local id with the document's prefix, if it has
-/// one.
-fn qualify(prefix: Option<&str>, local: &str) -> String {
-    prefix.map_or_else(|| local.to_owned(), |p| format!("{p}::{local}"))
-}
-
-/// Parse a bundle of `OpenAPI` documents into one [`Schema`], resolving
-/// `$ref`s across the whole bundle.
-///
-/// Splitting a specification across files is the standard way a large
-/// API is organized, and a `$ref` into a sibling document is routine.
-/// Every document's `components/schemas` are mapped to their vertex ids
-/// before any document's paths are walked, so such a ref lands on the
-/// referenced schema's real, typed vertex rather than on the opaque
-/// placeholder the parser leaves for an unresolvable one.
-///
-/// A cross-document `$ref` is spelled against the target document's
-/// `$id` (`https://example.com/common.json#/components/schemas/Address`).
-/// A relative-path `$ref` (`./common.yaml#/components/schemas/Address`)
-/// is not resolved: a bundle is an unordered array of documents with no
-/// filenames, so there is nothing for a path to be relative to. Give
-/// the documents `$id`s to have their cross-references resolve.
-///
-/// Passing a single document is equivalent to [`parse_openapi`], down
-/// to the unprefixed vertex ids.
-///
-/// # Errors
-///
-/// Returns [`ProtocolError::Parse`] if two documents declare the same
-/// `$id`, or a construction error from the schema builder.
-pub fn parse_openapi_bundle(docs: &[serde_json::Value]) -> Result<Schema, ProtocolError> {
-    let ordered = crate::key_order::all_in_key_order(docs);
-    let docs = ordered.as_ref();
-    let proto = protocol();
-    let mut builder = SchemaBuilder::new(&proto);
-    let mut counter: usize = 0;
-
-    // Pass 1, over the whole bundle: map every reference spelling to the
-    // vertex id it names, before walking anything. A component's vertex
-    // id follows from its document and its name, so this needs no walk,
-    // and doing it first is what lets a ref reach a sibling document.
-    let mut defs_map: HashMap<String, String> = HashMap::new();
-    let mut identities: Vec<(Option<String>, Option<&str>)> = Vec::with_capacity(docs.len());
-    let mut seen_ids: HashSet<&str> = HashSet::with_capacity(docs.len());
-
-    for (i, json) in docs.iter().enumerate() {
-        let (prefix, declared) = document_identity(json, i, docs.len());
-        if let Some(id) = declared
-            && !seen_ids.insert(id)
-        {
-            return Err(ProtocolError::Parse(format!(
-                "duplicate $id in bundle: {id}"
-            )));
-        }
-        if let Some(schemas) = json
-            .pointer("/components/schemas")
-            .and_then(serde_json::Value::as_object)
-        {
-            for name in schemas.keys() {
-                let schema_id = qualify(prefix.as_deref(), &format!("components/schemas/{name}"));
-                if let Some(id) = declared {
-                    defs_map.insert(format!("{id}#/components/schemas/{name}"), schema_id);
-                }
-            }
-        }
-        identities.push((prefix, declared));
-    }
-
-    // Pass 2: walk each document. Its own `#/...` refs resolve to its
-    // own components; every in-bundle cross-document target is already
-    // in `defs_map`.
-    for (json, (prefix, _)) in docs.iter().zip(&identities) {
-        let prefix = prefix.as_deref();
-        let mut local = defs_map.clone();
-
-        if let Some(schemas) = json
-            .pointer("/components/schemas")
-            .and_then(serde_json::Value::as_object)
-        {
-            for name in schemas.keys() {
-                local.insert(
-                    format!("#/components/schemas/{name}"),
-                    qualify(prefix, &format!("components/schemas/{name}")),
-                );
-            }
-            for (name, schema_val) in schemas {
-                let schema_id = qualify(prefix, &format!("components/schemas/{name}"));
-                builder = walk_schema(builder, schema_val, &schema_id, &mut counter)?;
-            }
-        }
-
-        // Walk paths. Each path item is an entry basepoint: it is a root
-        // sort for instances of this API.
-        if let Some(paths) = json.get("paths").and_then(serde_json::Value::as_object) {
-            for (path_str, path_item) in paths {
-                let path_id = qualify(prefix, &format!("path:{path_str}"));
-                builder = builder.vertex(&path_id, "path", None)?;
-                builder = builder.entry(&path_id);
-                builder = parse_path_item(builder, path_item, &path_id, &mut counter, &local)?;
-            }
-        }
-    }
-
-    let schema = builder.build()?;
-    Ok(schema)
-}
-
-/// Parse a single path item, walking HTTP methods.
-fn parse_path_item(
-    mut builder: SchemaBuilder,
-    path_item: &serde_json::Value,
-    path_id: &str,
-    counter: &mut usize,
-    defs_map: &HashMap<String, String>,
-) -> Result<SchemaBuilder, ProtocolError> {
-    for method in &[
-        "get", "post", "put", "delete", "patch", "options", "head", "trace",
-    ] {
-        if let Some(op) = path_item.get(*method) {
-            let op_id = format!("{path_id}:{method}");
-            builder = builder.vertex(&op_id, "operation", None)?;
-            builder = builder.edge(path_id, &op_id, "prop", Some(method))?;
-
-            if op.get("deprecated").and_then(serde_json::Value::as_bool) == Some(true) {
-                builder = builder.constraint(&op_id, "deprecated", "true");
-            }
-
-            builder = parse_operation(builder, op, &op_id, counter, defs_map)?;
-        }
-    }
-    Ok(builder)
-}
-
-/// Parse an operation's parameters, request body, and responses.
-fn parse_operation(
-    mut builder: SchemaBuilder,
-    op: &serde_json::Value,
-    op_id: &str,
-    counter: &mut usize,
-    defs_map: &HashMap<String, String>,
-) -> Result<SchemaBuilder, ProtocolError> {
-    // Parameters.
-    if let Some(params) = op.get("parameters").and_then(serde_json::Value::as_array) {
-        for (i, param) in params.iter().enumerate() {
-            let param_name = param
-                .get("name")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("unknown");
-            let param_id = format!("{op_id}:param{i}");
-            builder = builder.vertex(&param_id, "parameter", None)?;
-            builder = builder.edge(op_id, &param_id, "prop", Some(param_name))?;
-
-            if param.get("required").and_then(serde_json::Value::as_bool) == Some(true) {
-                builder = builder.constraint(&param_id, "required", "true");
-            }
-
-            if let Some(schema_val) = param.get("schema") {
-                let s_id = format!("{param_id}:schema");
-                builder = walk_schema_or_ref(builder, schema_val, &s_id, counter, defs_map)?;
-                builder = builder.edge(&param_id, &s_id, "prop", Some("schema"))?;
-            }
-        }
-    }
-
-    // Request body.
-    if let Some(req_body) = op.get("requestBody") {
-        let rb_id = format!("{op_id}:requestBody");
-        builder = builder.vertex(&rb_id, "request-body", None)?;
-        builder = builder.edge(op_id, &rb_id, "prop", Some("requestBody"))?;
-
-        if let Some(content) = req_body
-            .get("content")
-            .and_then(serde_json::Value::as_object)
-        {
-            for (media_type, media_obj) in content {
-                if let Some(schema_val) = media_obj.get("schema") {
-                    let s_id = format!("{rb_id}:{media_type}");
-                    builder = walk_schema_or_ref(builder, schema_val, &s_id, counter, defs_map)?;
-                    builder = builder.edge(&rb_id, &s_id, "prop", Some(media_type))?;
-                }
-            }
-        }
-    }
-
-    // Responses.
-    if let Some(responses) = op.get("responses").and_then(serde_json::Value::as_object) {
-        for (status, resp) in responses {
-            let resp_id = format!("{op_id}:resp{status}");
-            builder = builder.vertex(&resp_id, "response", None)?;
-            builder = builder.edge(op_id, &resp_id, "prop", Some(status))?;
-
-            if let Some(content) = resp.get("content").and_then(serde_json::Value::as_object) {
-                for (media_type, media_obj) in content {
-                    if let Some(schema_val) = media_obj.get("schema") {
-                        let s_id = format!("{resp_id}:{media_type}");
-                        builder =
-                            walk_schema_or_ref(builder, schema_val, &s_id, counter, defs_map)?;
-                        builder = builder.edge(&resp_id, &s_id, "prop", Some(media_type))?;
-                    }
-                }
-            }
-
-            if let Some(headers) = resp.get("headers").and_then(serde_json::Value::as_object) {
-                for (hdr_name, _hdr_obj) in headers {
-                    let hdr_id = format!("{resp_id}:hdr:{hdr_name}");
-                    builder = builder.vertex(&hdr_id, "header", None)?;
-                    builder = builder.edge(&resp_id, &hdr_id, "prop", Some(hdr_name))?;
-                }
-            }
-        }
-    }
-
-    Ok(builder)
-}
-
-/// Walk a schema value, resolving `$ref` if present.
-fn walk_schema_or_ref(
-    builder: SchemaBuilder,
-    schema: &serde_json::Value,
-    current_id: &str,
-    counter: &mut usize,
-    defs_map: &HashMap<String, String>,
-) -> Result<SchemaBuilder, ProtocolError> {
-    if let Some(ref_str) = schema.get("$ref").and_then(serde_json::Value::as_str) {
-        let mut b = builder.vertex(current_id, "schema-object", None)?;
-        if let Some(def_id) = defs_map.get(ref_str) {
-            b = b.edge(current_id, def_id, "ref", Some(ref_str))?;
-        }
-        Ok(b)
-    } else {
-        walk_schema(builder, schema, current_id, counter)
+/// The targets of the edges of `field`: the kind it holds (and a Reference
+/// Object where one may stand for it), or the subschema kinds.
+fn targets(field: &Field) -> Vec<&'static str> {
+    match (field.holds, field.holds.kind()) {
+        (Holds::Schema | Holds::SchemaMap, _) => json_schema::KINDS.to_vec(),
+        (holds, Some(kind)) if holds.or_ref() => vec![kind, REFERENCE],
+        (_, Some(kind)) => vec![kind],
+        (_, None) => Vec::new(),
     }
 }
 
-/// Recursively walk a JSON Schema object within an `OpenAPI` spec.
-fn walk_schema(
-    mut builder: SchemaBuilder,
-    schema: &serde_json::Value,
-    current_id: &str,
-    counter: &mut usize,
-) -> Result<SchemaBuilder, ProtocolError> {
-    let type_str = schema
-        .get("type")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("object");
-
-    let kind = match type_str {
-        "string" => "string",
-        "integer" => "integer",
-        "number" => "number",
-        "boolean" => "boolean",
-        "array" => "array",
-        _ => "object",
-    };
-
-    builder = builder.vertex(current_id, kind, None)?;
-
-    // Add constraints.
-    for field in &[
-        "format",
-        "minimum",
-        "maximum",
-        "pattern",
-        "minLength",
-        "maxLength",
-        "minItems",
-        "maxItems",
-    ] {
-        if let Some(val) = schema.get(field) {
-            let val_str = match val {
-                serde_json::Value::String(s) => s.clone(),
-                serde_json::Value::Number(n) => n.to_string(),
-                _ => val.to_string(),
-            };
-            builder = builder.constraint(current_id, field, &val_str);
-        }
-    }
-
-    if let Some(enum_val) = schema.get("enum").and_then(serde_json::Value::as_array) {
-        let vals: Vec<String> = enum_val
-            .iter()
-            .map(|v| v.as_str().map_or_else(|| v.to_string(), String::from))
-            .collect();
-        builder = builder.constraint(current_id, "enum", &vals.join(","));
-    }
-
-    if let Some(default_val) = schema.get("default") {
-        let val_str = match default_val {
-            serde_json::Value::String(s) => s.clone(),
-            _ => default_val.to_string(),
-        };
-        builder = builder.constraint(current_id, "default", &val_str);
-    }
-
-    // Properties.
-    if let Some(properties) = schema
-        .get("properties")
-        .and_then(serde_json::Value::as_object)
-    {
-        let required_fields: Vec<&str> = schema
-            .get("required")
-            .and_then(serde_json::Value::as_array)
-            .map(|arr| arr.iter().filter_map(serde_json::Value::as_str).collect())
-            .unwrap_or_default();
-
-        for (prop_name, prop_schema) in properties {
-            let prop_id = format!("{current_id}.{prop_name}");
-            builder = walk_schema(builder, prop_schema, &prop_id, counter)?;
-            builder = builder.edge(current_id, &prop_id, "prop", Some(prop_name))?;
-            if required_fields.contains(&prop_name.as_str()) {
-                builder = builder.constraint(&prop_id, "required", "true");
-            }
-        }
-    }
-
-    // Items.
-    if let Some(items) = schema.get("items") {
-        let items_id = format!("{current_id}:items");
-        builder = walk_schema(builder, items, &items_id, counter)?;
-        builder = builder.edge(current_id, &items_id, "items", None)?;
-    }
-
-    // oneOf / anyOf / allOf.
-    for combiner in &["oneOf", "anyOf", "allOf"] {
-        if let Some(arr) = schema.get(*combiner).and_then(serde_json::Value::as_array) {
-            for (i, sub_schema) in arr.iter().enumerate() {
-                *counter += 1;
-                let sub_id = format!("{current_id}:{combiner}{i}_{counter}");
-                builder = walk_schema(builder, sub_schema, &sub_id, counter)?;
-                builder = builder.edge(current_id, &sub_id, "variant", Some(combiner))?;
-            }
-        }
-    }
-
-    Ok(builder)
-}
-
-/// Emit a [`Schema`] as an `OpenAPI` JSON document.
-///
-/// # Errors
-///
-/// Returns [`ProtocolError`] if emission fails.
-pub fn emit_openapi(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
-    let mut paths = serde_json::Map::new();
-    let mut component_schemas = serde_json::Map::new();
-
-    let roots = find_roots(schema, &["prop", "items", "variant", "ref"]);
-
-    for root in &roots {
-        if root.kind == "path" {
-            let path_name = root.id.strip_prefix("path:").unwrap_or(&root.id);
-            let mut path_obj = serde_json::Map::new();
-
-            for (edge, op_vertex) in children_by_edge(schema, &root.id, "prop") {
-                if op_vertex.kind == "operation" {
-                    let method = edge.name.as_deref().unwrap_or("get");
-                    let op_obj = emit_operation(schema, &op_vertex.id);
-                    path_obj.insert(method.to_string(), op_obj);
-                }
-            }
-
-            paths.insert(path_name.to_string(), serde_json::Value::Object(path_obj));
-        } else {
-            let schema_obj = emit_schema_value(schema, &root.id);
-            let name = root
-                .id
-                .strip_prefix("components/schemas/")
-                .unwrap_or(&root.id);
-            component_schemas.insert(name.to_string(), schema_obj);
-        }
-    }
-
-    let mut result = serde_json::Map::new();
-    result.insert("openapi".into(), serde_json::Value::String("3.0.0".into()));
-    result.insert(
-        "info".into(),
-        serde_json::json!({"title": "Generated", "version": "1.0.0"}),
-    );
-    result.insert("paths".into(), serde_json::Value::Object(paths));
-
-    if !component_schemas.is_empty() {
-        let mut components = serde_json::Map::new();
-        components.insert(
-            "schemas".into(),
-            serde_json::Value::Object(component_schemas),
-        );
-        result.insert("components".into(), serde_json::Value::Object(components));
-    }
-
-    Ok(serde_json::Value::Object(result))
-}
-
-/// Emit an operation vertex as a JSON object.
-fn emit_operation(schema: &Schema, op_id: &str) -> serde_json::Value {
-    let mut obj = serde_json::Map::new();
-
-    if constraint_value(schema, op_id, "deprecated") == Some("true") {
-        obj.insert("deprecated".into(), serde_json::Value::Bool(true));
-    }
-
-    let children = children_by_edge(schema, op_id, "prop");
-
-    // Parameters.
-    let params: Vec<serde_json::Value> = children
-        .iter()
-        .filter(|(_, v)| v.kind == "parameter")
-        .map(|(edge, v)| {
-            let mut p = serde_json::Map::new();
-            p.insert(
-                "name".into(),
-                serde_json::Value::String(edge.name.as_deref().unwrap_or("unknown").to_string()),
-            );
-            p.insert("in".into(), serde_json::Value::String("query".into()));
-            if constraint_value(schema, &v.id, "required") == Some("true") {
-                p.insert("required".into(), serde_json::Value::Bool(true));
-            }
-            serde_json::Value::Object(p)
-        })
-        .collect();
-    if !params.is_empty() {
-        obj.insert("parameters".into(), serde_json::Value::Array(params));
-    }
-
-    // Responses.
-    let responses: Vec<_> = children
-        .iter()
-        .filter(|(_, v)| v.kind == "response")
-        .collect();
-    if !responses.is_empty() {
-        let mut resp_obj = serde_json::Map::new();
-        for (edge, _v) in &responses {
-            let status = edge.name.as_deref().unwrap_or("200");
-            let mut r = serde_json::Map::new();
-            r.insert(
-                "description".into(),
-                serde_json::Value::String(String::new()),
-            );
-            resp_obj.insert(status.to_string(), serde_json::Value::Object(r));
-        }
-        obj.insert("responses".into(), serde_json::Value::Object(resp_obj));
-    }
-
-    serde_json::Value::Object(obj)
-}
-
-/// Emit a schema vertex as a JSON Schema value.
-fn emit_schema_value(schema: &Schema, vertex_id: &str) -> serde_json::Value {
-    let Some(vertex) = schema.vertices.get(vertex_id) else {
-        return serde_json::Value::Object(serde_json::Map::new());
-    };
-
-    let mut obj = serde_json::Map::new();
-
-    let type_str = match vertex.kind.as_str() {
-        "string" => Some("string"),
-        "integer" => Some("integer"),
-        "number" => Some("number"),
-        "boolean" => Some("boolean"),
-        "array" => Some("array"),
-        "object" | "schema-object" => Some("object"),
-        _ => None,
-    };
-
-    if let Some(t) = type_str {
-        obj.insert("type".into(), serde_json::Value::String(t.into()));
-    }
-
-    for field in &[
-        "format",
-        "minimum",
-        "maximum",
-        "pattern",
-        "minLength",
-        "maxLength",
-        "minItems",
-        "maxItems",
-    ] {
-        if let Some(val) = constraint_value(schema, vertex_id, field) {
-            if let Ok(n) = val.parse::<f64>() {
-                obj.insert((*field).into(), serde_json::json!(n));
-            } else {
-                obj.insert((*field).into(), serde_json::Value::String(val.to_string()));
-            }
-        }
-    }
-
-    // Properties.
-    let props = children_by_edge(schema, vertex_id, "prop");
-    if !props.is_empty() {
-        let mut properties = serde_json::Map::new();
-        let mut required_list = Vec::new();
-        for (edge, _child) in &props {
-            let name = edge.name.as_deref().unwrap_or("");
-            let child_schema = emit_schema_value(schema, &edge.tgt);
-            properties.insert(name.to_string(), child_schema);
-            if constraint_value(schema, &edge.tgt, "required") == Some("true") {
-                required_list.push(serde_json::Value::String(name.to_string()));
-            }
-        }
-        obj.insert("properties".into(), serde_json::Value::Object(properties));
-        if !required_list.is_empty() {
-            obj.insert("required".into(), serde_json::Value::Array(required_list));
-        }
-    }
-
-    // Items.
-    let items = children_by_edge(schema, vertex_id, "items");
-    if let Some((edge, _)) = items.first() {
-        let items_schema = emit_schema_value(schema, &edge.tgt);
-        obj.insert("items".into(), items_schema);
-    }
-
-    serde_json::Value::Object(obj)
-}
-
-/// Well-formedness rules for `OpenAPI` edges.
+/// The edge rules: each object field's edge joins the objects that have the
+/// field to the kinds it holds; [`OPERATION`] joins a link to an operation,
+/// [`REQUIREMENT`] a security requirement to a security scheme or a
+/// Reference Object standing for one, and [`REF`] and the `json-schema`
+/// edges join any two vertices, since a `ref` edge leaves a Reference
+/// Object, a Path Item or a subschema.
 fn edge_rules() -> Vec<EdgeRule> {
-    vec![
-        EdgeRule {
-            edge_kind: "prop".into(),
-            src_kinds: vec![
-                "path".into(),
-                "operation".into(),
-                "parameter".into(),
-                "request-body".into(),
-                "response".into(),
-                "object".into(),
-                "schema-object".into(),
-            ],
-            tgt_kinds: vec![],
-        },
-        EdgeRule {
-            edge_kind: "items".into(),
-            src_kinds: vec!["array".into()],
-            tgt_kinds: vec![],
-        },
-        EdgeRule {
-            edge_kind: "variant".into(),
-            src_kinds: vec![],
-            tgt_kinds: vec![],
-        },
-        EdgeRule {
-            edge_kind: "ref".into(),
-            src_kinds: vec![],
-            tgt_kinds: vec![],
-        },
-    ]
+    let mut rules: Vec<EdgeRule> = Vec::new();
+    for object in OBJECTS {
+        for field in object.fields.iter().filter(|f| !f.edge.is_empty()) {
+            let index = if let Some(i) = rules.iter().position(|r| r.edge_kind == field.edge) {
+                i
+            } else {
+                rules.push(EdgeRule {
+                    edge_kind: field.edge.into(),
+                    src_kinds: Vec::new(),
+                    tgt_kinds: Vec::new(),
+                });
+                rules.len() - 1
+            };
+            let rule = &mut rules[index];
+            if !rule.src_kinds.iter().any(|k| k == object.kind) {
+                rule.src_kinds.push(object.kind.into());
+            }
+            for target in targets(field) {
+                if !rule.tgt_kinds.iter().any(|k| k == target) {
+                    rule.tgt_kinds.push(target.into());
+                }
+            }
+        }
+    }
+    rules.push(EdgeRule {
+        edge_kind: OPERATION.into(),
+        src_kinds: vec!["link".into()],
+        tgt_kinds: vec!["operation".into()],
+    });
+    rules.push(EdgeRule {
+        edge_kind: REQUIREMENT.into(),
+        src_kinds: vec!["security-requirement".into()],
+        tgt_kinds: vec!["security-scheme".into(), REFERENCE.into()],
+    });
+    for kind in json_schema::APPLICATOR_EDGES
+        .iter()
+        .map(|(_, kind)| *kind)
+        .chain([REF, "dynamic-ref"])
+    {
+        rules.push(EdgeRule {
+            edge_kind: kind.into(),
+            src_kinds: Vec::new(),
+            tgt_kinds: Vec::new(),
+        });
+    }
+    rules
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
 
     #[test]
-    fn protocol_def() {
+    fn every_object_kind_and_the_subschema_kinds_are_declared() {
         let p = protocol();
         assert_eq!(p.name, "openapi");
-        assert_eq!(p.schema_theory, "ThOpenAPISchema");
-        assert_eq!(p.instance_theory, "ThOpenAPIInstance");
+        assert_eq!(
+            p.obj_kinds.len(),
+            OBJECTS.len() + 1 + json_schema::KINDS.len()
+        );
+        for object in OBJECTS {
+            assert!(p.obj_kinds.iter().any(|k| k == object.kind));
+        }
     }
 
     #[test]
-    fn register_theories_works() {
+    fn edge_kinds_are_declared_once_each() {
+        let p = protocol();
+        let mut kinds: Vec<&str> = p.edge_rules.iter().map(|r| r.edge_kind.as_str()).collect();
+        let count = kinds.len();
+        kinds.sort_unstable();
+        kinds.dedup();
+        assert_eq!(kinds.len(), count);
+    }
+
+    #[test]
+    fn constraint_sorts_are_declared_once_each_and_cover_the_value_fields() {
+        let sorts = constraint_sorts();
+        let mut unique = sorts.clone();
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(unique.len(), sorts.len());
+        for field in OBJECTS.iter().flat_map(|o| o.fields) {
+            if field.holds.is_value() {
+                assert!(sorts.iter().any(|s| s == field.name), "{}", field.name);
+            }
+        }
+    }
+
+    #[test]
+    fn register_theories_registers_the_schema_and_instance_theories() {
         let mut registry = HashMap::new();
         register_theories(&mut registry);
         assert!(registry.contains_key("ThOpenAPISchema"));
         assert!(registry.contains_key("ThOpenAPIInstance"));
-    }
-
-    #[test]
-    fn parse_minimal() {
-        let doc = serde_json::json!({
-            "openapi": "3.0.0",
-            "info": {"title": "Test", "version": "1.0.0"},
-            "paths": {
-                "/users": {
-                    "get": {
-                        "parameters": [
-                            {"name": "limit", "in": "query", "schema": {"type": "integer"}}
-                        ],
-                        "responses": {
-                            "200": {
-                                "description": "OK",
-                                "content": {
-                                    "application/json": {
-                                        "schema": {
-                                            "type": "array",
-                                            "items": {"type": "string"}
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        });
-        let schema = parse_openapi(&doc).expect("should parse");
-        assert!(schema.has_vertex("path:/users"));
-        assert!(schema.has_vertex("path:/users:get"));
-    }
-
-    #[test]
-    fn emit_minimal() {
-        let doc = serde_json::json!({
-            "openapi": "3.0.0",
-            "info": {"title": "Test", "version": "1.0.0"},
-            "paths": {
-                "/pets": {
-                    "get": {
-                        "responses": {
-                            "200": {"description": "OK"}
-                        }
-                    }
-                }
-            }
-        });
-        let schema = parse_openapi(&doc).expect("should parse");
-        let emitted = emit_openapi(&schema).expect("should emit");
-        assert!(emitted.get("paths").is_some());
-    }
-
-    #[test]
-    fn roundtrip() {
-        let doc = serde_json::json!({
-            "openapi": "3.0.0",
-            "info": {"title": "Test", "version": "1.0.0"},
-            "paths": {
-                "/items": {
-                    "get": {
-                        "responses": {
-                            "200": {"description": "OK"}
-                        }
-                    }
-                }
-            }
-        });
-        let schema = parse_openapi(&doc).expect("parse");
-        let emitted = emit_openapi(&schema).expect("emit");
-        let schema2 = parse_openapi(&emitted).expect("re-parse");
-        assert_eq!(schema.vertices.len(), schema2.vertices.len());
     }
 }

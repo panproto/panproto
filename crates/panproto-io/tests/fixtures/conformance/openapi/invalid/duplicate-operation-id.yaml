@@ -1,0 +1,16 @@
+openapi: 3.1.1
+info:
+  title: Pets
+  version: 1.0.0
+paths:
+  /pets:
+    get:
+      operationId: listPets
+      responses:
+        "200":
+          description: ok
+    post:
+      operationId: listPets
+      responses:
+        "200":
+          description: ok

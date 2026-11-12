@@ -27,14 +27,14 @@ The `raw_file` module is the text-or-binary fallback used during project assembl
 
 | Entry point | Accepted input | Registered protocols |
 |---|---|---|
-| `parse_schema_document` | `serde_json::Value` | 38 protocols |
+| `parse_schema_document` | `serde_json::Value` | 37 protocols |
 | `parse_schema_source` | text IDL, DDL, or annotation source | 10 protocols |
-| `parse_schema_bundle` | JSON document bundle | `atproto`, `avro` and `openapi` |
+| `parse_schema_bundle` | JSON document bundle | `atproto` and `avro` |
 | `parse_schema_bundle_project` | path and JSON pairs with per-file provenance | `atproto` only |
 
 The exported `document_parser_protocols`, `source_parser_protocols`, `bundle_parser_protocols`, and `bundle_project_protocols` listings are the lookup sources for these sets.
 
-The `schema` CLI and the C and WebAssembly theory-registry helpers resolve every descriptor through the shared registry by canonical name or alias. The generic document and source parser listings expose the 48 protocols that read schema documents. Five more are read through tree-sitter grammars by readers in `panproto-io`, and both dispatch functions refuse them with an error that names the reader: `ansible` ([`read_ansible`](https://docs.rs/panproto-io/latest/panproto_io/config/ansible/fn.read_ansible.html)), `cloudformation` ([`read_template`](https://docs.rs/panproto-io/latest/panproto_io/config/cloudformation/fn.read_template.html)), `json-schema` ([`read_schema`](https://docs.rs/panproto-io/latest/panproto_io/data_schema/json_schema/fn.read_schema.html), with [`read_bundle`](https://docs.rs/panproto-io/latest/panproto_io/data_schema/json_schema/fn.read_bundle.html) for a bundle of documents), `k8s-crd` ([`read_crd`](https://docs.rs/panproto-io/latest/panproto_io/config/k8s_crd/fn.read_crd.html)) and `postgresql` ([`read_ddl`](https://docs.rs/panproto-io/latest/panproto_io/postgresql/fn.read_ddl.html)).
+The `schema` CLI and the C and WebAssembly theory-registry helpers resolve every descriptor through the shared registry by canonical name or alias. The generic document and source parser listings expose the 47 protocols that read schema documents. Six more are read through tree-sitter grammars by readers in `panproto-io`, and both dispatch functions refuse them with an error that names the reader: `ansible` ([`read_ansible`](https://docs.rs/panproto-io/latest/panproto_io/config/ansible/fn.read_ansible.html)), `cloudformation` ([`read_template`](https://docs.rs/panproto-io/latest/panproto_io/config/cloudformation/fn.read_template.html)), `json-schema` ([`read_schema`](https://docs.rs/panproto-io/latest/panproto_io/data_schema/json_schema/fn.read_schema.html), with [`read_bundle`](https://docs.rs/panproto-io/latest/panproto_io/data_schema/json_schema/fn.read_bundle.html) for a bundle of documents), `k8s-crd` ([`read_crd`](https://docs.rs/panproto-io/latest/panproto_io/config/k8s_crd/fn.read_crd.html)), `openapi` ([`read_openapi`](https://docs.rs/panproto-io/latest/panproto_io/api/openapi/fn.read_openapi.html), with [`read_openapi_bundle`](https://docs.rs/panproto-io/latest/panproto_io/api/openapi/fn.read_openapi_bundle.html) for a description split over several documents) and `postgresql` ([`read_ddl`](https://docs.rs/panproto-io/latest/panproto_io/postgresql/fn.read_ddl.html)).
 
 ## Registration behavior
 

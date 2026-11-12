@@ -175,10 +175,10 @@ export class Panproto implements Disposable {
    * of the bundle stays a placeholder, which is what marks it as
    * genuinely external.
    *
-   * Cross-document resolution is currently implemented for `'atproto'`.
-   * Other protocols whose documents can reference each other (OpenAPI's
-   * cross-file `$ref`, Avro's namespaced named types) will be added
-   * under this same entry point.
+   * Cross-document resolution is implemented for `'atproto'` and
+   * `'avro'`. An OpenAPI description split over several documents is read
+   * in Rust, through `panproto_io::api::openapi::read_openapi_bundle`,
+   * since it may be YAML and is read through a tree-sitter grammar.
    *
    * @param protocol - The protocol the documents are written in
    * @param docs - The schema documents (objects or strings)
@@ -218,8 +218,8 @@ export class Panproto implements Disposable {
    *
    * The generic single-document loader: it reaches every JSON-document
    * protocol parser through one call, so any built-in protocol whose
-   * source is a JSON document (ATProto lexicons, OpenAPI, Avro `.avsc`,
-   * and the rest) can be turned into a {@link BuiltSchema}
+   * source is a JSON document (ATProto lexicons, Avro `.avsc`, and the
+   * rest) can be turned into a {@link BuiltSchema}
    * usable as a lens or migration endpoint. Protocols whose source is a
    * language rather than a JSON document (GraphQL, Protobuf, CDDL,
    * …) are parsed with {@link parseSchemaSource}.
@@ -228,7 +228,7 @@ export class Panproto implements Disposable {
    * compatibility spelling resolve.
    *
    * @param protocol - The protocol the document is written in (e.g.
-   *   `'atproto'`, `'openapi'`)
+   *   `'atproto'`, `'avro'`)
    * @param doc - The schema document (object or JSON string)
    * @returns A built schema
    * @throws {@link PanprotoError} if no document parser is registered for
@@ -236,10 +236,10 @@ export class Panproto implements Disposable {
    *
    * @example
    * ```typescript
-   * const schema = panproto.parseSchemaDocument('openapi', {
-   *   openapi: '3.0.0',
-   *   info: { title: 'Example', version: '1.0.0' },
-   *   paths: {},
+   * const schema = panproto.parseSchemaDocument('avro', {
+   *   type: 'record',
+   *   name: 'User',
+   *   fields: [{ name: 'id', type: 'long' }],
    * });
    * ```
    */
