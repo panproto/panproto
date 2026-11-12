@@ -54,6 +54,9 @@ struct MergeParents<'a> {
     theirs: &'a CommitObject,
     ours_schema: &'a Schema,
     theirs_schema: &'a Schema,
+    /// The merge's migrations from our and their schema to the merged one.
+    from_ours: &'a panproto_mig::Migration,
+    from_theirs: &'a panproto_mig::Migration,
 }
 
 /// The context needed to record a clean three-way merge commit.
@@ -131,8 +134,9 @@ pub struct CommittedInstance {
     pub data_id: ObjectId,
     /// The schema it conforms to.
     pub schema_id: ObjectId,
-    /// Whether that schema is not the commit's: the instance was recorded
-    /// against an earlier schema and has not been migrated.
+    /// Whether that schema is not the commit's, compared by identity
+    /// ([`schema_identity`](crate::data_mig::schema_identity)): the instance
+    /// was recorded against another schema and has not been migrated.
     pub stale: bool,
     /// The instance.
     pub instance: crate::payload::Instance,
@@ -761,6 +765,8 @@ impl Repository {
                 theirs: &theirs_commit,
                 ours_schema: &ours_schema,
                 theirs_schema: &theirs_schema,
+                from_ours: &result.migration_from_ours,
+                from_theirs: &result.migration_from_theirs,
             };
             let merged = self.merge_parent_instances(
                 &parents,
@@ -789,21 +795,12 @@ impl Repository {
     fn write_merge_commit(&mut self, ctx: MergeCommitCtx<'_>) -> Result<(), VcsError> {
         let merged_schema_id =
             crate::tree::store_schema_as_tree(&mut self.store, ctx.result.merged_schema.clone())?;
-        let mig_src = self
-            .store
-            .put(&Object::FlatSchema(Box::new(ctx.ours_schema)))?;
-        let mig_tgt = self.store.put(&Object::FlatSchema(Box::new(
-            ctx.result.merged_schema.clone(),
-        )))?;
-        let merge_migration = ctx.result.migration_from_ours.clone().with_endpoints(
-            Some(panproto_gat::Name::from(mig_src.to_string())),
-            Some(panproto_gat::Name::from(mig_tgt.to_string())),
-        );
-        let migration_id = self.store.put(&Object::Migration {
-            src: mig_src,
-            tgt: mig_tgt,
-            mapping: merge_migration,
-        })?;
+        let migration_id = crate::data_mig::store_migration(
+            &mut self.store,
+            &ctx.ours_schema,
+            &ctx.result.merged_schema,
+            ctx.result.migration_from_ours.clone(),
+        )?;
 
         let msg = ctx
             .options
@@ -1260,10 +1257,12 @@ impl Repository {
         let (data_id, dataset) = tracked.remove(key).ok_or_else(|| VcsError::RefNotFound {
             name: format!("{reference}:{key}"),
         })?;
+        let stale = crate::data_mig::schema_identity(&self.store, &dataset.schema_id)?
+            != crate::data_mig::schema_identity(&self.store, &commit.schema_id)?;
         Ok(CommittedInstance {
             data_id,
             schema_id: dataset.schema_id,
-            stale: dataset.schema_id != commit.schema_id,
+            stale,
             instance: self.load_instance(&dataset)?,
         })
     }
@@ -1306,7 +1305,9 @@ impl Repository {
                 }),
                 Some((to_id, _)) if to_id == from_id => {}
                 Some((to_id, to_set)) => {
-                    if from_set.schema_id != to_set.schema_id {
+                    if crate::data_mig::schema_identity(&self.store, &from_set.schema_id)?
+                        != crate::data_mig::schema_identity(&self.store, &to_set.schema_id)?
+                    {
                         return Err(VcsError::SchemaMismatch {
                             key,
                             from: from_set.schema_id,
@@ -1594,11 +1595,12 @@ impl Repository {
     ///
     /// With conflicts and no resolutions nothing is recorded. Otherwise
     /// every key the merge tracks records one data set: a tree data set
-    /// whose parent's schema (or, for a merged instance, whose own schema)
-    /// is not the merged schema is lifted to it as
-    /// [`lift_commit_data`](crate::data_mig::lift_commit_data) lifts, and
-    /// its complement recorded; table and graph data sets are recorded as
-    /// they are. Both parents' complements and CST complements are carried.
+    /// conforming to our or their parent's schema, when that is not the
+    /// merged schema, is migrated forward along the merge's migration from
+    /// that schema ([`migrate_forward`](crate::data_mig::migrate_forward)),
+    /// and its complement recorded; table and graph data sets, and data sets
+    /// conforming to another schema, are recorded as they are. Both
+    /// parents' complements and CST complements are carried.
     fn merge_parent_instances(
         &mut self,
         parents: &MergeParents<'_>,
@@ -1656,7 +1658,22 @@ impl Repository {
         merged_schema: &Schema,
     ) -> Result<MergedCommitData, VcsError> {
         use crate::instance_merge::MergedEntry;
-        let merged_hash = crate::hash::hash_schema(merged_schema)?;
+        let merged = crate::hash::hash_schema(merged_schema)?;
+        let sides = [
+            (
+                parents.ours,
+                parents.ours_schema,
+                parents.from_ours,
+                crate::hash::hash_schema(parents.ours_schema)?,
+            ),
+            (
+                parents.theirs,
+                parents.theirs_schema,
+                parents.from_theirs,
+                crate::hash::hash_schema(parents.theirs_schema)?,
+            ),
+        ];
+        let mut migrations: [Option<ObjectId>; 2] = [None, None];
         let mut complement_ids = parents.ours.complement_ids.clone();
         for id in &parents.theirs.complement_ids {
             if !complement_ids.contains(id) {
@@ -1665,35 +1682,40 @@ impl Repository {
         }
         let mut data_ids = Vec::with_capacity(entries.len());
         for (key, entry) in entries {
-            let (data_id, source) = match entry {
-                MergedEntry::Kept(id) => {
-                    let (commit, schema) = if ours.get(key).is_some_and(|(o, _)| o == id) {
-                        (parents.ours, parents.ours_schema.clone())
-                    } else {
-                        (parents.theirs, parents.theirs_schema.clone())
-                    };
-                    (*id, Some((commit, schema)))
-                }
+            let data_id = match entry {
+                MergedEntry::Kept(id) => *id,
                 MergedEntry::Merged {
                     schema_id,
                     instance,
                 } => {
                     let dataset =
                         DataSetObject::from_instance(*schema_id, instance, Some(key.clone()))?;
-                    let schema = self.load_schema(*schema_id)?;
-                    (
-                        self.store.put(&Object::DataSet(dataset))?,
-                        Some((parents.ours, schema)),
-                    )
+                    self.store.put(&Object::DataSet(dataset))?
                 }
             };
-            let lifted = match source {
-                Some((commit, schema))
-                    if self.is_tree_data(data_id)?
-                        && crate::hash::hash_schema(&schema)? != merged_hash =>
-                {
+            let dataset = self.load_data_set(data_id)?;
+            let identity = crate::data_mig::schema_identity(&self.store, &dataset.schema_id)?;
+            let side = sides
+                .iter()
+                .position(|(_, _, _, side)| *side == identity)
+                .filter(|_| identity != merged);
+            let lifted = match side {
+                Some(side) if dataset.encoding.shape == crate::object::InstanceShape::Tree => {
+                    let (commit, schema, mapping, _) = sides[side];
+                    let migration = if let Some(id) = migrations[side] {
+                        id
+                    } else {
+                        let id = crate::data_mig::store_migration(
+                            &mut self.store,
+                            schema,
+                            merged_schema,
+                            mapping.clone(),
+                        )?;
+                        migrations[side] = Some(id);
+                        id
+                    };
                     let (lifted, complement) =
-                        self.lift_data(commit, data_id, &schema, merged_schema)?;
+                        self.lift_data(commit, data_id, migration, schema)?;
                     if !complement_ids.contains(&complement) {
                         complement_ids.push(complement);
                     }
@@ -1722,12 +1744,10 @@ impl Repository {
         })
     }
 
-    /// Whether the data set `id` holds trees.
-    fn is_tree_data(&self, id: ObjectId) -> Result<bool, VcsError> {
+    /// The data set stored under `id`.
+    fn load_data_set(&self, id: ObjectId) -> Result<DataSetObject, VcsError> {
         match self.store.get(&id)? {
-            Object::DataSet(dataset) => {
-                Ok(dataset.encoding.shape == crate::object::InstanceShape::Tree)
-            }
+            Object::DataSet(dataset) => Ok(dataset),
             other => Err(VcsError::WrongObjectType {
                 expected: "dataset",
                 found: other.type_name(),
@@ -1735,14 +1755,15 @@ impl Repository {
         }
     }
 
-    /// Lift the tree data set `data_id` from `src` to `tgt` under the
-    /// protocol `commit` records or the schema's resolved protocol.
+    /// Migrate the data set `data_id`, conforming to `src`, forward along
+    /// the stored migration `migration`, under the protocol `commit` records
+    /// or the schema's resolved protocol.
     fn lift_data(
         &mut self,
         commit: &CommitObject,
         data_id: ObjectId,
+        migration: ObjectId,
         src: &Schema,
-        tgt: &Schema,
     ) -> Result<(ObjectId, ObjectId), VcsError> {
         let stored = crate::data_mig::commit_protocol(&self.store, commit)?;
         let protocol = crate::data_mig::protocol_for_schema(
@@ -1752,7 +1773,7 @@ impl Repository {
                 registered: &self.protocols,
             },
         )?;
-        crate::data_mig::migrate_forward(&mut self.store, data_id, src, tgt, &protocol)
+        crate::data_mig::migrate_forward(&mut self.store, data_id, migration, &protocol)
     }
 
     fn load_commit(&self, id: ObjectId) -> Result<CommitObject, VcsError> {
@@ -1765,9 +1786,10 @@ impl Repository {
         }
     }
 
+    /// The schema `id` names: a schema tree, or a flat schema
+    /// ([`resolve_schema`](crate::data_mig::resolve_schema)).
     fn load_schema(&self, id: ObjectId) -> Result<Schema, VcsError> {
-        let proto = crate::tree::project_coproduct_protocol();
-        crate::tree::assemble_schema(&self.store, &id, &proto)
+        crate::data_mig::resolve_schema(&self.store, &id)
     }
 
     fn index_path(&self) -> PathBuf {
@@ -2766,7 +2788,7 @@ mod tests {
         nodes.insert(0_u32, Node::new(0, "a"));
         let inst = WInstance::new(nodes, vec![], vec![], 0, Name::from("a"));
         let ds = DataSetObject {
-            schema_id: crate::hash::hash_schema(schema)?,
+            schema_id: crate::tree::store_schema_as_tree(store, schema.clone())?,
             data: rmp_serde::to_vec(&vec![inst])?,
             record_count: 1,
             key: Some(key.to_owned()),
@@ -2839,6 +2861,9 @@ mod tests {
         let mut keys: Vec<String> = Vec::new();
         for ds in &datasets {
             assert_eq!(ds.record_count, 1);
+            // Migrated data records the schema tree of the merged schema,
+            // which is the merge commit's.
+            assert_eq!(ds.schema_id, head_commit.schema_id);
             let insts: Vec<panproto_inst::WInstance> = rmp_serde::from_slice(&ds.data)?;
             assert_eq!(insts.len(), 1);
             for inst in &insts {
@@ -2854,6 +2879,29 @@ mod tests {
         }
         keys.sort();
         assert_eq!(keys, vec!["ours-key".to_owned(), "theirs-key".to_owned()]);
+
+        // Each complement names the stored migration that produced it: ours
+        // is the merge commit's migration, theirs the merge's migration from
+        // their schema.
+        let mut migrations = Vec::new();
+        for id in &head_commit.complement_ids {
+            let Object::Complement(complement) = repo.store().get(id)? else {
+                panic!("a merge records complement objects");
+            };
+            let Some(migration) = complement.migration() else {
+                panic!("a merge complement names its migration");
+            };
+            let Object::Migration { tgt, .. } = repo.store().get(&migration)? else {
+                panic!("a complement names a migration object");
+            };
+            assert_eq!(
+                tgt,
+                crate::data_mig::schema_identity(repo.store(), &head_commit.schema_id)?
+            );
+            migrations.push(migration);
+        }
+        assert_eq!(migrations.len(), 2);
+        assert!(migrations.contains(&head_commit.migration_id.unwrap_or(ObjectId::ZERO)));
         Ok(())
     }
 

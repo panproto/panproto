@@ -132,8 +132,8 @@ fn replay_one<S: BuildHasher>(
     let (lifted_data_ids, lifted_complement_ids) = crate::data_mig::lift_commit_data(
         store,
         &commit,
-        &theirs_schema,
-        &result.merged_schema,
+        (&theirs_schema, &result.merged_schema),
+        &result.migration_from_theirs,
         registered,
     )?;
 
@@ -145,7 +145,6 @@ fn replay_one<S: BuildHasher>(
         &lifted_data_ids,
         &lifted_complement_ids,
         &theirs_schema,
-        &result.merged_schema,
         registered,
     )?;
 
@@ -353,7 +352,7 @@ mod tests {
         nodes.insert(0_u32, Node::new(0, "a"));
         let inst = WInstance::new(nodes, vec![], vec![], 0, Name::from("a"));
         let ds = crate::object::DataSetObject {
-            schema_id: crate::hash::hash_schema(schema)?,
+            schema_id: crate::tree::store_schema_as_tree(store, schema.clone())?,
             data: rmp_serde::to_vec(&vec![inst])?,
             record_count: 1,
             key: Some(key.to_owned()),
@@ -441,13 +440,17 @@ mod tests {
         let tgt = make_schema(&[("a", "object"), ("b", "string")]);
         let base = single_record_dataset(&mut store, &src, "rec")?;
         let protocol = registered()["test"].clone();
+        let migration = crate::data_mig::store_migration(
+            &mut store,
+            &src,
+            &tgt,
+            panproto_mig::Migration::identity(&[Name::from("a")], &[]),
+        )?;
         let (replayed, complement) =
-            crate::data_mig::migrate_forward(&mut store, base, &src, &tgt, &protocol)?;
+            crate::data_mig::migrate_forward(&mut store, base, migration, &protocol)?;
 
         // The well-behaved migration reconstructs the base under round-trip.
-        crate::square::verify_square(
-            &mut store, base, replayed, complement, &src, &tgt, &protocol,
-        )?;
+        crate::square::verify_square(&mut store, base, replayed, complement, &protocol)?;
 
         // Comparing the reconstruction against a different data set (two nodes
         // rather than one) diverges, so the square does not commute.
@@ -455,16 +458,15 @@ mod tests {
         nodes.insert(0_u32, Node::new(0, "a"));
         nodes.insert(1_u32, Node::new(1, "a"));
         let inst = WInstance::new(nodes, vec![], vec![], 0, Name::from("a"));
+        let src_tree = crate::tree::store_schema_as_tree(&mut store, src)?;
         let other = store.put(&Object::DataSet(crate::object::DataSetObject {
-            schema_id: crate::hash::hash_schema(&src)?,
+            schema_id: src_tree,
             data: rmp_serde::to_vec(&vec![inst])?,
             record_count: 1,
             key: None,
             encoding: crate::object::PayloadEncoding::TREE,
         }))?;
-        let err = crate::square::verify_square(
-            &mut store, other, replayed, complement, &src, &tgt, &protocol,
-        );
+        let err = crate::square::verify_square(&mut store, other, replayed, complement, &protocol);
         assert!(
             matches!(err, Err(VcsError::SquareNonCommuting { .. })),
             "expected SquareNonCommuting, got {err:?}"

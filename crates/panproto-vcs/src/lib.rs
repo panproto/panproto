@@ -58,7 +58,9 @@ pub mod tree;
 
 // Re-exports for convenience.
 pub use data_mig::{
-    StaleData, detect_staleness, lift_commit_data, migrate_backward, migrate_forward,
+    MigrationConflict, StaleData, StoredMigration, detect_staleness, lift_commit_data,
+    load_migration, migrate_backward, migrate_forward, resolve_schema, schema_identity,
+    store_migration,
 };
 pub use edit_mig::{decode_edit_log, encode_edit_log, incremental_migrate};
 pub use error::VcsError;

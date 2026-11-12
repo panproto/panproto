@@ -1111,6 +1111,166 @@ fn a_repository_written_by_0_78_takes_table_and_graph_objects_in_format_1() {
     assert_eq!(shapes, [InstanceShape::Table, InstanceShape::Graph]);
 }
 
+/// The protocol the fixture's schemas name, which the repository that wrote
+/// it registered.
+fn fixture_protocol() -> panproto_schema::Protocol {
+    panproto_schema::Protocol {
+        name: "test".into(),
+        schema_theory: "ThGraph".into(),
+        instance_theory: "ThWType".into(),
+        obj_kinds: vec!["object".into(), "string".into(), "record".into()],
+        ..Default::default()
+    }
+}
+
+/// Every object of a repository, by identifier.
+fn all_objects(repo: &Repository) -> Vec<(ObjectId, Object)> {
+    repo.store()
+        .list_objects()
+        .unwrap()
+        .into_iter()
+        .map(|id| (id, repo.store().get(&id).unwrap()))
+        .collect()
+}
+
+/// The data sets of `objects` whose schema identifier names a flat schema.
+fn flat_schema_data(
+    repo: &Repository,
+    objects: &[(ObjectId, Object)],
+) -> Vec<(ObjectId, DataSetObject)> {
+    objects
+        .iter()
+        .filter_map(|(id, object)| match object {
+            Object::DataSet(dataset)
+                if matches!(
+                    repo.store().get(&dataset.schema_id),
+                    Ok(Object::FlatSchema(_))
+                ) =>
+            {
+                Some((*id, dataset.clone()))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_0_78_complement_names_no_migration_and_is_refused_by_backward_migration() {
+    use panproto_vcs::{MigrationConflict, migrate_backward};
+    let dir = fixture();
+    let mut repo = Repository::open(dir.path()).unwrap();
+    repo.set_protocol(fixture_protocol());
+    let objects = all_objects(&repo);
+
+    // The one complement 0.78 wrote records its data set as its migration,
+    // and reads as the complement of that data set under no known migration.
+    let complements: Vec<(ObjectId, ComplementObject)> = objects
+        .iter()
+        .filter_map(|(id, object)| match object {
+            Object::Complement(complement) => Some((*id, complement.clone())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(complements.len(), 1);
+    let (complement_id, complement) = &complements[0];
+    assert_eq!(complement.migration_id, complement.data_id);
+    assert_eq!(complement.migration(), None);
+
+    // Putting back against it is refused, naming the data set to migrate
+    // forward again.
+    let flat = flat_schema_data(&repo, &objects);
+    let (view_id, _) = flat
+        .iter()
+        .find(|(id, _)| *id != complement.data_id)
+        .unwrap();
+    match migrate_backward(
+        repo.store_mut(),
+        *view_id,
+        *complement_id,
+        &fixture_protocol(),
+    ) {
+        Err(VcsError::Migration(conflict)) => assert_eq!(
+            *conflict,
+            MigrationConflict::UnknownMigration {
+                complement_id: *complement_id,
+                data_id: complement.data_id,
+            }
+        ),
+        other => panic!("a complement naming no migration was put back: {other:?}"),
+    }
+}
+
+#[test]
+fn a_0_78_data_set_naming_a_flat_schema_reads_through_it_and_is_stale_by_schema_identity() {
+    use panproto_vcs::{resolve_schema, schema_identity};
+    let dir = fixture();
+    let mut repo = Repository::open(dir.path()).unwrap();
+    repo.set_protocol(fixture_protocol());
+    let objects = all_objects(&repo);
+
+    // The data sets 0.78 migrated name a flat schema; each resolves through
+    // that object, whose identity is its identifier.
+    let flat = flat_schema_data(&repo, &objects);
+    assert_eq!(flat.len(), 2);
+    for (_, dataset) in &flat {
+        let schema = resolve_schema(repo.store(), &dataset.schema_id).unwrap();
+        assert_eq!(
+            panproto_vcs::hash::hash_schema(&schema).unwrap(),
+            dataset.schema_id
+        );
+        assert_eq!(
+            schema_identity(repo.store(), &dataset.schema_id).unwrap(),
+            dataset.schema_id
+        );
+    }
+
+    // Each flat schema is the schema of one commit, which names it by its
+    // schema tree: the two identifiers name one schema.
+    let commits: Vec<(ObjectId, CommitObject)> = objects
+        .iter()
+        .filter_map(|(id, object)| match object {
+            Object::Commit(commit) => Some((*id, commit.clone())),
+            _ => None,
+        })
+        .collect();
+    let same_schema: Vec<usize> = flat
+        .iter()
+        .map(|(_, dataset)| {
+            commits
+                .iter()
+                .filter(|(_, commit)| {
+                    schema_identity(repo.store(), &commit.schema_id).unwrap() == dataset.schema_id
+                })
+                .count()
+        })
+        .collect();
+    let recorded: Vec<(String, bool)> = commits
+        .iter()
+        .flat_map(|(commit_id, commit)| {
+            let repo = &repo;
+            flat.iter()
+                .filter(|(data_id, _)| commit.data_ids.contains(data_id))
+                .map(move |(_, dataset)| {
+                    let committed = repo
+                        .committed_instance(&commit_id.to_string(), dataset.key.as_deref().unwrap())
+                        .unwrap();
+                    (commit.message.clone(), committed.stale)
+                })
+        })
+        .collect();
+    assert_eq!(same_schema, [1, 1]);
+    // The commit recording the migrated data set has another schema, so the
+    // instance it tracks there is stale.
+    assert_eq!(recorded, [("record migration".to_owned(), true)]);
+    for (_, dataset) in &flat {
+        assert!(
+            commits
+                .iter()
+                .all(|(_, commit)| commit.schema_id != dataset.schema_id)
+        );
+    }
+}
+
 /// The model of a stored repository: each object by its hexadecimal
 /// identifier with the identifiers its fields hold, its refs, `HEAD` and
 /// stash reflog.

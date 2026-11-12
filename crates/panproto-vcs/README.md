@@ -67,11 +67,16 @@ realizes the full categorical model in that paper.
 
 ## Data migration
 
-`migrate_forward` must be called explicitly with a stored dataset, source and target
-schemas, and a protocol. It stores the migrated dataset and a `ComplementObject`, then
-returns both IDs. `migrate_backward` consumes that complement. A schema commit by
-itself does not capture dropped field values, and the APIs do not promise losslessness
-outside successful lens execution with the matching complement.
+`migrate_forward` is called explicitly with a stored data set of any shape (trees, a
+table or a graph), the identifier of a stored `Migration` object (`store_migration`
+stores one between two schemas), and a protocol. It puts the data set through the get
+of its shape's lens, stores the migrated data set under the schema tree of the target
+schema and a `ComplementObject` naming the migration and the source data set, and
+returns both IDs. `migrate_backward` takes the migrated data set and that complement
+and puts the data back along the migration the complement names. A refusal is a typed
+`MigrationConflict`. A schema commit by itself does not capture dropped field values,
+and the APIs do not promise losslessness outside successful lens execution with the
+matching complement.
 
 ## API reference
 

@@ -599,6 +599,8 @@ pub struct DataSetObject {
 }
 
 /// A complement from data migration, enabling backward migration.
+///
+/// [`crate::data_mig`] states the conventions its two identifiers follow.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ComplementObject {
     /// The migration that produced this complement.
@@ -611,6 +613,17 @@ pub struct ComplementObject {
     /// for the default tree encoding, as for [`DataSetObject::encoding`].
     #[serde(default, skip_serializing_if = "PayloadEncoding::is_default")]
     pub encoding: PayloadEncoding,
+}
+
+impl ComplementObject {
+    /// The stored migration that produced this complement, or `None` when
+    /// it names none: a complement whose `migration_id` is its `data_id`, as
+    /// repositories written by version 0.78 hold, is the complement of that
+    /// data set under a migration that is not known.
+    #[must_use]
+    pub fn migration(&self) -> Option<ObjectId> {
+        (self.migration_id != self.data_id).then_some(self.migration_id)
+    }
 }
 
 /// A CST complement for format-preserving round-trips.

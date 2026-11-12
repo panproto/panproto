@@ -93,8 +93,8 @@ pub fn cherry_pick<S: BuildHasher>(
     let (lifted_data_ids, lifted_complement_ids) = crate::data_mig::lift_commit_data(
         store,
         &commit,
-        &theirs_schema,
-        &result.merged_schema,
+        (&theirs_schema, &result.merged_schema),
+        &result.migration_from_theirs,
         registered,
     )?;
 
@@ -106,7 +106,6 @@ pub fn cherry_pick<S: BuildHasher>(
         &lifted_data_ids,
         &lifted_complement_ids,
         &theirs_schema,
-        &result.merged_schema,
         registered,
     )?;
 
@@ -223,8 +222,8 @@ pub fn cherry_pick_with_options<S: BuildHasher>(
     let (lifted_data_ids, lifted_complement_ids) = crate::data_mig::lift_commit_data(
         store,
         &commit,
-        &theirs_schema,
-        &result.merged_schema,
+        (&theirs_schema, &result.merged_schema),
+        &result.migration_from_theirs,
         registered,
     )?;
 
@@ -236,7 +235,6 @@ pub fn cherry_pick_with_options<S: BuildHasher>(
         &lifted_data_ids,
         &lifted_complement_ids,
         &theirs_schema,
-        &result.merged_schema,
         registered,
     )?;
 
@@ -460,7 +458,7 @@ mod tests {
         nodes.insert(0_u32, Node::new(0, "a"));
         let inst = WInstance::new(nodes, vec![], vec![], 0, Name::from("a"));
         let ds = crate::object::DataSetObject {
-            schema_id: crate::hash::hash_schema(schema)?,
+            schema_id: crate::tree::store_schema_as_tree(store, schema.clone())?,
             data: rmp_serde::to_vec(&vec![inst])?,
             record_count: 1,
             key: Some(key.to_owned()),

@@ -428,6 +428,11 @@ pub enum VcsError {
         conflicts: Vec<crate::instance_merge::InstanceConflict>,
     },
 
+    /// A forward or backward data migration is refused; the conflict names
+    /// what to repair.
+    #[error("data migration refused: {0}")]
+    Migration(Box<crate::data_mig::MigrationConflict>),
+
     /// The conflicts of one key are resolved for different sides; a key's
     /// instance is taken whole from one side.
     #[error("the conflicts under the key {key:?} are resolved for different sides")]
