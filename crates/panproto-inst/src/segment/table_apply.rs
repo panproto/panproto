@@ -3,11 +3,18 @@
 //! A [`TableDelta`] names every row and pair it deletes, adds or changes.
 //! Its read set ([`SegmentDelta::read_set`]) is the owner of every row it
 //! names ([`TableDelta::touched_rows`]: the rows it deletes, adds or
-//! changes and the endpoints of the pairs it deletes or adds) and, for a
-//! row whose table it changes, the peers of that row's owner in both
-//! directions, whose ghosts and in-stubs copy the row's table. A pair has no
-//! id of its own and is held by the owner of its source row, so no segment
-//! beyond the rows' owners can hold what the delta names.
+//! changes and the endpoints of the pairs it deletes or adds). A pair has
+//! no id of its own and is held by the owner of its source row, so no
+//! segment beyond the rows' owners can hold what the delta names.
+//!
+//! A table change needs no boundary peer, unlike an anchor change of a
+//! graph node. A pair joins its edge's endpoint tables before the delta,
+//! and check 6 of [`TableDelta::check`] asks every pair of the result to
+//! join them after it, so a pair kept at a row whose table changes is
+//! refused: no table holds both the old and the new table at that end. An
+//! applied table change therefore leaves no ghost or in-stub copying the
+//! row's old table, and every copy of its new table belongs to a pair the
+//! delta adds, whose endpoints' owners are read.
 //!
 //! Each segment it reads reports its facts: the rows it owns that the delta
 //! names; the pairs it holds that the delta deletes or adds, and those
@@ -56,23 +63,13 @@ impl SegmentDelta for TableDelta {
         Self::digest(self)
     }
 
-    /// The owner of every row of [`TableDelta::touched_rows`], and for a
-    /// row whose table changes the peers its owner's record lists for its
-    /// crossing pairs in both directions. A row no range owns contributes
-    /// no segment.
+    /// The owner of every row of [`TableDelta::touched_rows`]. A row no
+    /// range owns contributes no segment.
     fn read_set(&self, family: &FamilyIndex) -> BTreeSet<SegmentId> {
-        let mut read: BTreeSet<SegmentId> = self
-            .touched_rows()
+        self.touched_rows()
             .into_iter()
             .filter_map(|row| family.owner(row.0))
-            .collect();
-        for row in self.tables().keys() {
-            if let Some(owner) = family.owner(row.0) {
-                read.extend(family.peers_out(owner));
-                read.extend(family.peers_in(owner));
-            }
-        }
-        read
+            .collect()
     }
 
     fn facts(&self, held: &TableSegment) -> Vec<u8> {

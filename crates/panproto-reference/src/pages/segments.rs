@@ -9262,7 +9262,7 @@ pub mod segment {
             .map(|output| output.into_iter().map(AnySegment::Table).collect());
         let parts = ApplyRunParts {
             segments: segments.iter().cloned().map(AnySegment::Table).collect(),
-            read_set: &|records| super::segmented_apply::table_read_set(delta, records, p),
+            read_set: &|_| super::segmented_apply::table_read_set(delta, p),
             lens: Digest(crate::edit::table_delta_digest(delta).unwrap_or_default()),
             op: TABLE_APPLY_OP,
             facts: &|segment| match segment {
@@ -10319,15 +10319,11 @@ pub mod segmented_apply {
     ///
     /// The owner of each row the delta deletes or adds, of each endpoint of
     /// a pair it deletes or adds, and of each row whose cell or table it
-    /// changes; for a table change also every segment the row owner's
-    /// record lists as a peer of a crossing pair, in either direction. A
-    /// row no range owns adds nothing.
+    /// changes. A row no range owns adds nothing. No manifest record is read:
+    /// no boundary peer is needed, since a pair kept at a row whose table
+    /// changes no longer joins its edge's tables and is refused.
     #[must_use]
-    pub fn table_read_set(
-        delta: &TableDelta,
-        records: &[SegmentRecord],
-        p: &Partition,
-    ) -> BTreeSet<SegmentId> {
+    pub fn table_read_set(delta: &TableDelta, p: &Partition) -> BTreeSet<SegmentId> {
         let mut read = BTreeSet::new();
         for element in delta.del.keys().chain(delta.add.keys()) {
             match element {
@@ -10340,16 +10336,7 @@ pub mod segmented_apply {
         }
         for key in delta.attrs.keys() {
             match key {
-                TKey::Cell(row, _) => read.extend(p.owner_of_node(*row)),
-                TKey::Table(row) => {
-                    if let Some(owner) = p.owner_of_node(*row) {
-                        read.insert(owner);
-                        if let Some(record) = records.iter().find(|record| record.id == owner) {
-                            read.extend(record.cross_out.keys());
-                            read.extend(record.cross_in.keys());
-                        }
-                    }
-                }
+                TKey::Cell(row, _) | TKey::Table(row) => read.extend(p.owner_of_node(*row)),
             }
         }
         read

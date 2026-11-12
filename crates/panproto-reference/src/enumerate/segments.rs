@@ -1099,3 +1099,215 @@ pub const fn segmented_compose_counts() -> (u64, u64, u64) {
     let deltas = 1 + 8 + 16 + 8 + 4;
     (families, deltas, families * deltas * deltas)
 }
+
+/// One case of the segmented table edit carrier: a table, a partition of
+/// its row ids, and a table delta.
+#[derive(Clone, Debug)]
+pub struct SegmentedTableApplyCase {
+    /// The table the segments hold.
+    pub table: Table,
+    /// The partition.
+    pub partition: Partition,
+    /// The delta applied to the segments.
+    pub delta: crate::edit::TableDelta,
+}
+
+/// The table partitions assigning the row ids `0` to `3` as `owners` does
+/// (`None` for no segment), each segment owning its ids as singleton ranges
+/// and, with `allocate`, allocating row ids from `[10 + 10 i, 19 + 10 i]`.
+fn table_partition(owners: &[Option<u32>], allocate: bool) -> Partition {
+    let segments = owners.iter().flatten().max().map_or(0, |max| max + 1);
+    Partition {
+        shape: InstanceShapeKind::Table,
+        specs: (0..segments)
+            .map(|id| SegmentSpec {
+                id: SegmentId(id),
+                nodes: (0_u32..)
+                    .zip(owners)
+                    .filter(|(_, owner)| **owner == Some(id))
+                    .map(|(node, _)| IdRange { lo: node, hi: node })
+                    .chain(allocate.then_some(IdRange {
+                        lo: 10 + 10 * id,
+                        hi: 19 + 10 * id,
+                    }))
+                    .collect(),
+                alloc_nodes: allocate.then_some(IdRange {
+                    lo: 10 + 10 * id,
+                    hi: 19 + 10 * id,
+                }),
+                alloc_edges: None,
+            })
+            .collect(),
+    }
+}
+
+/// The partitions of the segmented table edit carrier: every assignment of
+/// [`segmented_apply_partitions`] as a table partition without allocation
+/// ranges.
+#[must_use]
+pub fn segmented_table_apply_partitions() -> Vec<Partition> {
+    segmented_apply_partitions()
+        .into_iter()
+        .filter(|partition| {
+            partition
+                .specs
+                .iter()
+                .all(|spec| spec.alloc_edges.is_none())
+        })
+        .map(|partition| {
+            let owners: Vec<Option<u32>> = (0..4_u32)
+                .map(|row| {
+                    partition
+                        .specs
+                        .iter()
+                        .find(|spec| spec.nodes.iter().any(|range| range.lo == row))
+                        .map(|spec| spec.id.0)
+                })
+                .collect();
+            table_partition(&owners, false)
+        })
+        .collect()
+}
+
+/// The atomic table deltas over the row ids `ids`: the identity; deleting
+/// or adding each row in table `a` without cells or with `f = 0`; deleting
+/// or adding the pair `a -e-> a` between each two of them; adding or
+/// removing the cell `f = 0` of each; and moving each from `a` to `b` and
+/// back.
+#[must_use]
+pub fn segmented_table_deltas(ids: &[u32]) -> Vec<crate::edit::TableDelta> {
+    use crate::edit::{TElem, TKey, TPayload, TVal, TableDelta};
+    use crate::value::Value;
+    let mut out = vec![TableDelta::identity()];
+    for id in ids {
+        for cells in [
+            BTreeMap::new(),
+            BTreeMap::from([("f".to_owned(), Value::Int(0))]),
+        ] {
+            let payload = TPayload::Row("a".to_owned(), cells);
+            let mut delete = TableDelta::identity();
+            delete.del.insert(TElem::Row(*id), payload.clone());
+            out.push(delete);
+            let mut add = TableDelta::identity();
+            add.add.insert(TElem::Row(*id), payload);
+            out.push(add);
+        }
+    }
+    let edge = SEdge::new("a", "a", "e", None);
+    for src in ids {
+        for tgt in ids {
+            let pair = TElem::Pair(edge.clone(), *src, *tgt);
+            let mut delete = TableDelta::identity();
+            delete.del.insert(pair.clone(), TPayload::Pair);
+            out.push(delete);
+            let mut add = TableDelta::identity();
+            add.add.insert(pair, TPayload::Pair);
+            out.push(add);
+        }
+    }
+    for id in ids {
+        for (old, new) in [(None, Some(Value::Int(0))), (Some(Value::Int(0)), None)] {
+            let mut cell = TableDelta::identity();
+            cell.attrs.insert(
+                TKey::Cell(*id, "f".to_owned()),
+                (TVal::Cell(old), TVal::Cell(new)),
+            );
+            out.push(cell);
+        }
+    }
+    for id in ids {
+        for (old, new) in [("a", "b"), ("b", "a")] {
+            let mut table = TableDelta::identity();
+            table.attrs.insert(
+                TKey::Table(*id),
+                (TVal::Table(old.to_owned()), TVal::Table(new.to_owned())),
+            );
+            out.push(table);
+        }
+    }
+    out
+}
+
+/// Every table of [`super::edits::tables`] under every partition of
+/// [`segmented_table_apply_partitions`] with every delta of
+/// [`segmented_table_deltas`] over the row ids `0`, `2` and `3`, in that
+/// nesting order.
+pub fn segmented_table_apply_cases() -> impl Iterator<Item = SegmentedTableApplyCase> {
+    let partitions = segmented_table_apply_partitions();
+    let deltas = segmented_table_deltas(&[0, 2, 3]);
+    super::edits::tables().into_iter().flat_map(move |table| {
+        let deltas = deltas.clone();
+        partitions.clone().into_iter().flat_map(move |partition| {
+            let table = table.clone();
+            deltas
+                .clone()
+                .into_iter()
+                .map(move |delta| SegmentedTableApplyCase {
+                    table: table.clone(),
+                    partition: partition.clone(),
+                    delta,
+                })
+        })
+    })
+}
+
+/// Independent counts of the segmented table edit carrier.
+///
+/// Tables: `105` ([`super::edits::tables_count_certificate`]). Partitions:
+/// the `14 + 5 = 19` restricted growth strings of
+/// [`segmented_apply_case_counts`]. Deltas over three row ids: the
+/// identity; two payloads to delete or add per row, `12`; nine pairs to
+/// delete or add, `18`; a cell in two directions per row, `6`; and a table
+/// in two directions per row, `6`; `43` in all. So `105 * 19 * 43 =
+/// 85_785` cases.
+#[must_use]
+pub const fn segmented_table_apply_case_counts() -> (u64, u64, u64, u64) {
+    let tables = 1 + 4 + 20 + 80;
+    let partitions = 14 + 5;
+    let deltas = 1 + 12 + 18 + 6 + 6;
+    (tables, partitions, deltas, tables * partitions * deltas)
+}
+
+/// The families of the segmented table edit composition carrier.
+///
+/// Every table of [`super::edits::tables`] over at most two rows under each
+/// of four partitions of the row ids `0` to `3` (all in one segment; `0`
+/// apart from `1`, `2` and `3`; `0` and `3` apart from `1` and `2`; and
+/// `0`, `1`, and `2` with `3` in three segments), each segment owning its
+/// ids as singleton ranges and allocating row ids from
+/// `[10 + 10 i, 19 + 10 i]`.
+#[must_use]
+pub fn segmented_table_compose_families() -> Vec<(Table, Partition)> {
+    let assignments: [[u32; 4]; 4] = [[0, 0, 0, 0], [0, 1, 1, 1], [0, 1, 1, 0], [0, 1, 2, 2]];
+    let partitions: Vec<Partition> = assignments
+        .iter()
+        .map(|owners| {
+            let owners: Vec<Option<u32>> = owners.iter().copied().map(Some).collect();
+            table_partition(&owners, true)
+        })
+        .collect();
+    super::edits::tables()
+        .into_iter()
+        .filter(|table| table.rows.len() <= 2)
+        .flat_map(|table| {
+            partitions
+                .iter()
+                .map(move |partition| (table.clone(), partition.clone()))
+        })
+        .collect()
+}
+
+/// Independent counts of the segmented table edit composition carrier.
+///
+/// Tables over at most two rows: `sum_(n=0)^2 2^n (1 + n^2) = 1 + 4 + 20 =
+/// 25`, under four partitions, `100` families. Deltas of
+/// [`segmented_table_deltas`] over the row ids `0` and `3`: the identity,
+/// `8` row deletions and additions, `8` pair deletions and additions, `4`
+/// cell changes and `4` table changes, `25` in all. So
+/// `100 * 25 * 25 = 62_500` ordered pairs.
+#[must_use]
+pub const fn segmented_table_compose_counts() -> (u64, u64, u64) {
+    let families = (1 + 4 + 20) * 4;
+    let deltas = 1 + 8 + 8 + 4 + 4;
+    (families, deltas, families * deltas * deltas)
+}

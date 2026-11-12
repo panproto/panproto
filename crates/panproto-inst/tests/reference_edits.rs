@@ -3789,12 +3789,16 @@ mod segmented_apply {
     };
 
     /// The schema digest of the carrier's segments.
-    const SCHEMA: [u8; 32] = [41; 32];
+    pub const SCHEMA: [u8; 32] = [41; 32];
 
     /// The production partition of a reference partition.
     pub fn prod_partition(partition: &segments::Partition) -> Partition {
         Partition::new(
-            InstanceShapeKind::Graph,
+            match partition.shape {
+                segments::InstanceShapeKind::Graph => InstanceShapeKind::Graph,
+                segments::InstanceShapeKind::Table => InstanceShapeKind::Table,
+                segments::InstanceShapeKind::Tree => InstanceShapeKind::Tree,
+            },
             partition
                 .specs
                 .iter()
@@ -4004,7 +4008,7 @@ mod segmented_apply {
     }
 
     /// The share `i/n` of `PANPROTO_TEST_SHARD`, every case when unset.
-    fn shard() -> (usize, usize) {
+    pub fn shard() -> (usize, usize) {
         std::env::var("PANPROTO_TEST_SHARD").map_or((0, 1), |value| {
             let (index, count) = value.split_once('/').expect("a shard i/n");
             (
@@ -4060,9 +4064,11 @@ mod segmented_apply {
     }
 
     /// A source that counts the reads of each segment.
-    struct CountingSource {
-        bytes: BTreeMap<SegmentId, Vec<u8>>,
-        reads: RefCell<BTreeMap<SegmentId, usize>>,
+    pub struct CountingSource {
+        /// Each segment's canonical bytes.
+        pub bytes: BTreeMap<SegmentId, Vec<u8>>,
+        /// The reads of each segment.
+        pub reads: RefCell<BTreeMap<SegmentId, usize>>,
     }
 
     impl SegmentSource for CountingSource {
@@ -4098,6 +4104,22 @@ mod segmented_apply {
         let held = partition_graph(&graph_to_production(graph), &production_partition)
             .expect("production split");
         let any: Vec<AnySegment> = held.iter().cloned().map(AnySegment::Graph).collect();
+        let (manifest, bytes) = seal_family(&any, &production_partition);
+        Input {
+            manifest,
+            bytes,
+            partition: production_partition,
+            held,
+            reference: segments::partition_graph(graph, partition).expect("reference split"),
+        }
+    }
+
+    /// The source manifest of a family, sealed with its instance digest,
+    /// and each segment's canonical bytes.
+    pub fn seal_family(
+        any: &[AnySegment],
+        production_partition: &Partition,
+    ) -> (SegmentManifest, BTreeMap<SegmentId, Vec<u8>>) {
         let schema = Digest(SCHEMA);
         let records: Vec<SegmentRecord> = any
             .iter()
@@ -4120,7 +4142,7 @@ mod segmented_apply {
         let manifest = seal_full(
             records,
             ManifestHeader {
-                shape: InstanceShapeKind::Graph,
+                shape: production_partition.shape(),
                 schema,
                 role: ManifestRole::Source,
                 binding: None,
@@ -4135,18 +4157,12 @@ mod segmented_apply {
                 (
                     segment.segment(),
                     segment
-                        .canonical_bytes(&schema, &production_partition)
+                        .canonical_bytes(&schema, production_partition)
                         .expect("segment bytes"),
                 )
             })
             .collect();
-        Input {
-            manifest,
-            bytes,
-            partition: production_partition,
-            held,
-            reference: segments::partition_graph(graph, partition).expect("reference split"),
-        }
+        (manifest, bytes)
     }
 
     /// A report as both implementations project it.
@@ -4163,12 +4179,20 @@ mod segmented_apply {
     }
 
     pub fn seen_production(report: &SegmentRunReport<SegmentedApplyError>) -> Seen {
+        seen_production_by(report, &|error| format!("{:?}", production_refusal(error)))
+    }
+
+    /// A production report, its refusal projected by `refusal`.
+    pub fn seen_production_by(
+        report: &SegmentRunReport<SegmentedApplyError>,
+        refusal: &dyn Fn(&SegmentedApplyError) -> String,
+    ) -> Seen {
         Seen {
             status: match &report.status {
                 RunStatus::Complete { manifest } => format!("complete {:?}", manifest.0),
                 RunStatus::Incomplete { reason } => format!("incomplete {reason:?}"),
                 RunStatus::Residual(residual) => format!("residual {residual:?}"),
-                RunStatus::Failed(error) => format!("failed {:?}", production_refusal(error)),
+                RunStatus::Failed(error) => format!("failed {}", refusal(error)),
             },
             budget: (
                 report.budget.working_set,
@@ -4220,14 +4244,20 @@ mod segmented_apply {
     pub fn seen_reference(
         report: &segments::SegmentRunReport<segments::SegmentedApplyRefusal>,
     ) -> Seen {
+        seen_reference_by(report, &|error| format!("{:?}", reference_refusal(error)))
+    }
+
+    /// A reference report, its refusal projected by `refusal`.
+    pub fn seen_reference_by<E>(
+        report: &segments::SegmentRunReport<segments::SegmentedApplyRefusal<E>>,
+        refusal: &dyn Fn(&segments::SegmentedApplyRefusal<E>) -> String,
+    ) -> Seen {
         Seen {
             status: match &report.status {
                 segments::RunStatus::Complete { manifest } => format!("complete {:?}", manifest.0),
                 segments::RunStatus::Incomplete { reason } => format!("incomplete {reason:?}"),
                 segments::RunStatus::Residual(residual) => format!("residual {residual:?}"),
-                segments::RunStatus::Failed(error) => {
-                    format!("failed {:?}", reference_refusal(error))
-                }
+                segments::RunStatus::Failed(error) => format!("failed {}", refusal(error)),
             },
             budget: (
                 report.budget.working_set,
@@ -4329,7 +4359,7 @@ mod segmented_apply {
     }
 
     /// The journal of a run holds no Emit or Seal task.
-    fn sealed_nothing(store: &MemoryStore, run: Digest) -> bool {
+    pub fn sealed_nothing(store: &MemoryStore, run: Digest) -> bool {
         let journal: RunJournal = store.journal(&run).unwrap_or_else(|never| match never {});
         journal
             .tasks
@@ -4741,14 +4771,17 @@ mod segmented_apply {
     }
 
     /// A store whose `fail_at`th commit fails, leaving its artifact staged.
-    struct FailingStore {
-        inner: MemoryStore,
-        commits: usize,
-        fail_at: Option<usize>,
+    pub struct FailingStore {
+        /// The store the commits reach.
+        pub inner: MemoryStore,
+        /// The commits so far.
+        pub commits: usize,
+        /// The commit that fails.
+        pub fail_at: Option<usize>,
     }
 
     #[derive(Debug)]
-    struct CommitFailed;
+    pub struct CommitFailed;
 
     impl std::fmt::Display for CommitFailed {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -5321,6 +5354,1251 @@ mod segmented_apply {
             let production_partition = prod_partition(&partition);
             let held = partition_graph(&graph_to_production(&graph), &production_partition)
                 .expect("split");
+            if let Ok(after_first) = apply_segmented(&first, &held, &production_partition) {
+                proptest::prop_assert_eq!(
+                    applied_bytes(&first.invert(), &after_first, &production_partition),
+                    Some(held.iter().map(|s| bytes(s, &production_partition)).collect())
+                );
+                if let (Ok(after_second), Ok(composite)) = (
+                    apply_segmented(&second, &after_first, &production_partition),
+                    first.compose(&second),
+                ) {
+                    proptest::prop_assert_eq!(
+                        applied_bytes(&composite, &held, &production_partition),
+                        Some(
+                            after_second
+                                .iter()
+                                .map(|s| bytes(s, &production_partition))
+                                .collect()
+                        )
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// Segmented table edits against the reference: the law of in-memory
+/// segmented table application, its checkpointed run, and its composition
+/// and inversion.
+mod segmented_table_apply {
+    use std::cell::RefCell;
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use panproto_inst::identity::Digest;
+    use panproto_inst::segment::{
+        AnySegment, ApplyRun, ArtifactKey, Budget, FamilyIndex, FreshIds, IdKind, MemoryStore,
+        Partition, Phase, Residual, Resource, RunIncompleteReason, RunSpec, RunStatus,
+        SegmentError, SegmentId, SegmentManifest, SegmentSource, SegmentStore, SegmentedApplyError,
+        TableSegment, apply_run, apply_segmented, assemble_table, partition_table,
+        read_emitted_segment, verify_manifest,
+    };
+    use panproto_inst::table_delta::TableDelta;
+    use panproto_inst::{RowId, ViewRef};
+    use panproto_reference::enumerate::segments as carrier;
+    use panproto_reference::segment as segments;
+
+    use super::segmented_apply::{
+        CountingSource, FailingStore, RunOutcome, SCHEMA, Seen, prod_partition, seal_family,
+        sealed_nothing, seen_production_by, seen_reference_by, shard,
+    };
+    use super::{
+        TableApplyObs, production_table_apply_error, reference, reference_model,
+        reference_table_apply_error, table_delta_to_production, table_to_production,
+        table_to_reference,
+    };
+
+    /// A refusal as both implementations project it.
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    enum Refusal {
+        /// A whole-state refusal.
+        Edit(TableApplyObs),
+        /// An added row no range owns.
+        Unowned(u32),
+    }
+
+    fn production_refusal(error: &SegmentedApplyError) -> Refusal {
+        match error {
+            SegmentedApplyError::Edit(error) => Refusal::Edit(production_table_apply_error(error)),
+            SegmentedApplyError::Segment(SegmentError::Unowned {
+                elem: ViewRef::Row(row),
+            }) => Refusal::Unowned(row.0),
+            other => panic!("a refusal outside the carrier: {other:?}"),
+        }
+    }
+
+    fn reference_refusal(
+        error: &segments::SegmentedApplyRefusal<reference::TableApplyError>,
+    ) -> Refusal {
+        match error {
+            segments::SegmentedApplyRefusal::Edit(error) => {
+                Refusal::Edit(reference_table_apply_error(error))
+            }
+            segments::SegmentedApplyRefusal::Segment(segments::SegmentError::Unowned {
+                elem: segments::ViewRef::Row(row),
+            }) => Refusal::Unowned(*row),
+            segments::SegmentedApplyRefusal::Segment(other) => {
+                panic!("a reference refusal outside the carrier: {other:?}")
+            }
+        }
+    }
+
+    /// The canonical bytes of a production segment.
+    fn bytes(segment: &TableSegment, partition: &Partition) -> Vec<u8> {
+        AnySegment::Table(segment.clone())
+            .canonical_bytes(&Digest(SCHEMA), partition)
+            .expect("production segment bytes")
+    }
+
+    /// The canonical bytes of a reference segment.
+    fn reference_bytes(
+        segment: &segments::TableSegment,
+        partition: &segments::Partition,
+    ) -> Vec<u8> {
+        segments::canonical_segment_bytes(
+            &segments::AnySegment::Table(segment.clone()),
+            segments::Digest(SCHEMA),
+            partition,
+        )
+        .expect("reference segment bytes")
+    }
+
+    /// The production split of a reference table.
+    fn split(table: &reference_model::Table, partition: &Partition) -> Vec<TableSegment> {
+        partition_table(&table_to_production(table), partition).expect("production split")
+    }
+
+    /// What one case showed.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    enum Outcome {
+        /// Both applied alike.
+        Applied,
+        /// Both refused alike with a whole-state refusal.
+        Edit,
+        /// Both refused alike laying the edited table out.
+        Layout,
+    }
+
+    /// Check the law on one case: the read set equals the reference's and
+    /// no segment outside it changes; the output segments equal the
+    /// reference's byte for byte and glue to whole-state application, which
+    /// equals the reference's; or both refuse alike, whole-state
+    /// application refusing alike when the refusal is an edit refusal.
+    fn check_case(
+        table: &reference_model::Table,
+        partition: &segments::Partition,
+        delta: &reference::TableDelta,
+    ) -> Outcome {
+        let production_partition = prod_partition(partition);
+        let whole = table_to_production(table);
+        let held = partition_table(&whole, &production_partition).expect("production split");
+        let reference_held = segments::partition_table(table, partition).expect("reference split");
+        let production_delta = table_delta_to_production(delta);
+        let any: Vec<AnySegment> = held.iter().cloned().map(AnySegment::Table).collect();
+        let family = FamilyIndex::of_segments(&any, &production_partition).expect("an index");
+        let read = family.read_set(&production_delta);
+        let expected_read: BTreeSet<u32> = segments::table_read_set(delta, partition)
+            .into_iter()
+            .map(|segment| segment.0)
+            .collect();
+        assert_eq!(
+            read.iter()
+                .map(|segment| segment.0)
+                .collect::<BTreeSet<_>>(),
+            expected_read,
+            "read set of {delta:?} on {table:?} under {partition:?}"
+        );
+        let production = apply_segmented(&production_delta, &held, &production_partition);
+        let expected = segments::apply_table_segmented(delta, &reference_held, partition);
+        let mut whole_state = whole;
+        let applied = production_delta.apply(&mut whole_state);
+        match (production, expected) {
+            (Ok(output), Ok(expected)) => {
+                assert_eq!(output.len(), expected.len());
+                for ((segment, expected), before) in
+                    output.iter().zip(&expected).zip(&reference_held)
+                {
+                    assert_eq!(
+                        bytes(segment, &production_partition),
+                        reference_bytes(expected, partition),
+                        "segment {} of {delta:?} on {table:?} under {partition:?}",
+                        segment.segment.0
+                    );
+                    if !read.contains(&segment.segment) {
+                        assert_eq!(expected, before, "an unread segment changes");
+                    }
+                }
+                applied.expect("whole-state application accepts");
+                let glued = assemble_table(output, &production_partition).expect("glues");
+                assert_eq!(table_to_reference(&glued), table_to_reference(&whole_state));
+                assert_eq!(
+                    table_to_reference(&whole_state),
+                    reference::apply_table(delta, table).expect("reference applies")
+                );
+                Outcome::Applied
+            }
+            (Err(error), Err(expected)) => {
+                let refusal = production_refusal(&error);
+                assert_eq!(
+                    refusal,
+                    reference_refusal(&expected),
+                    "refusal of {delta:?} on {table:?} under {partition:?}"
+                );
+                if let Refusal::Edit(obs) = &refusal {
+                    assert_eq!(
+                        applied.map_err(|error| production_table_apply_error(&error)),
+                        Err(obs.clone())
+                    );
+                    Outcome::Edit
+                } else {
+                    applied.expect("whole-state application accepts");
+                    Outcome::Layout
+                }
+            }
+            (production, expected) => panic!(
+                "segmented table apply disagrees on {delta:?} on {table:?} under {partition:?}: {production:?} / {expected:?}"
+            ),
+        }
+    }
+
+    /// Every case of the segmented table edit carrier, or the share of
+    /// `PANPROTO_TEST_SHARD`.
+    #[test]
+    fn segmented_table_apply_agrees_with_the_reference_on_every_case_of_the_carrier() {
+        let (tables, partitions, deltas, total) = carrier::segmented_table_apply_case_counts();
+        assert_eq!(
+            panproto_reference::enumerate::edits::tables().len() as u64,
+            tables
+        );
+        assert_eq!(
+            carrier::segmented_table_apply_partitions().len() as u64,
+            partitions
+        );
+        assert_eq!(
+            carrier::segmented_table_deltas(&[0, 2, 3]).len() as u64,
+            deltas
+        );
+        assert_eq!(total, 85_785);
+        let (index, count) = shard();
+        let mut walked = 0;
+        let mut outcomes: BTreeMap<Outcome, u64> = BTreeMap::new();
+        for (position, case) in carrier::segmented_table_apply_cases().enumerate() {
+            walked += 1;
+            if position % count == index {
+                *outcomes
+                    .entry(check_case(&case.table, &case.partition, &case.delta))
+                    .or_insert(0) += 1;
+            }
+        }
+        println!("shard {index}/{count}: {outcomes:?}");
+        assert_eq!(walked, total);
+        assert_eq!(outcomes.len(), 3, "every outcome occurs: {outcomes:?}");
+    }
+
+    /// The sealed source family of one table under one partition.
+    struct Input {
+        manifest: SegmentManifest,
+        bytes: BTreeMap<SegmentId, Vec<u8>>,
+        partition: Partition,
+        held: Vec<TableSegment>,
+        reference: Vec<segments::TableSegment>,
+    }
+
+    fn input(table: &reference_model::Table, partition: &segments::Partition) -> Input {
+        let production_partition = prod_partition(partition);
+        let held = split(table, &production_partition);
+        let any: Vec<AnySegment> = held.iter().cloned().map(AnySegment::Table).collect();
+        let (manifest, bytes) = seal_family(&any, &production_partition);
+        Input {
+            manifest,
+            bytes,
+            partition: production_partition,
+            held,
+            reference: segments::partition_table(table, partition).expect("reference split"),
+        }
+    }
+
+    fn seen_production(run: &ApplyRun) -> Seen {
+        seen_production_by(&run.report, &|error| {
+            format!("{:?}", production_refusal(error))
+        })
+    }
+
+    fn seen_reference(
+        run: &segments::ApplyRun<segments::TableSegment, reference::TableApplyError>,
+    ) -> Seen {
+        seen_reference_by(&run.report, &|error| {
+            format!("{:?}", reference_refusal(error))
+        })
+    }
+
+    fn production_run<Src: SegmentSource, St: SegmentStore>(
+        delta: &TableDelta,
+        input: &Input,
+        source: &Src,
+        budget: Budget,
+        store: &mut St,
+        cancel: Option<u32>,
+    ) -> ApplyRun {
+        apply_run(
+            delta,
+            &input.manifest,
+            source,
+            RunSpec {
+                lens: Digest([0; 32]),
+                input: input.manifest.digest(),
+                output_schema: Digest([0; 32]),
+                cancel_after_tasks: cancel,
+            },
+            budget,
+            store,
+            &mut |_| {},
+        )
+    }
+
+    fn reference_run(
+        delta: &reference::TableDelta,
+        input: &Input,
+        partition: &segments::Partition,
+        budget: Budget,
+        store: &mut segments::MemoryStore,
+        cancel: Option<u32>,
+    ) -> segments::ApplyRun<segments::TableSegment, reference::TableApplyError> {
+        segments::segmented_table_apply_with_progress(
+            delta,
+            &input.reference,
+            partition,
+            &segments::ApplyRunSpec {
+                schema: segments::Digest(SCHEMA),
+                binding: None,
+                cancel_after_tasks: cancel,
+            },
+            segments::Budget {
+                working_set: budget.working_set,
+                complement: budget.complement,
+                summary: budget.summary,
+                affected_segments: budget.affected_segments,
+            },
+            store,
+            &mut |_| {},
+        )
+    }
+
+    /// Check the run law on one case under `budget`, as the graph run law
+    /// is checked: the production report equals the reference runner's,
+    /// uninterrupted and, when `every_point`, at every cancellation point
+    /// and after resuming; a complete run reads each segment of the read
+    /// set once and no other, emits the reference's edited segments and
+    /// seals the reference's manifest; a refused or declined run seals
+    /// nothing. It returns how the run ended and the cancellation points
+    /// checked.
+    fn check_run(
+        table: &reference_model::Table,
+        partition: &segments::Partition,
+        delta: &reference::TableDelta,
+        budget: Budget,
+        every_point: bool,
+    ) -> (RunOutcome, u64) {
+        let input = input(table, partition);
+        let production_delta = table_delta_to_production(delta);
+        let source = CountingSource {
+            bytes: input.bytes.clone(),
+            reads: RefCell::new(BTreeMap::new()),
+        };
+        let mut store = MemoryStore::default();
+        let baseline = production_run(&production_delta, &input, &source, budget, &mut store, None);
+        let mut reference_store = segments::MemoryStore::default();
+        let expected = reference_run(delta, &input, partition, budget, &mut reference_store, None);
+        assert_eq!(
+            seen_production(&baseline),
+            seen_reference(&expected),
+            "run of {delta:?} on {table:?} under {partition:?}"
+        );
+        let run = baseline.run.expect("a run identity");
+        assert_eq!(run.0, expected.run.0, "run identity");
+        let outcome = match &baseline.report.status {
+            RunStatus::Complete { manifest } => {
+                let read: BTreeSet<SegmentId> = expected
+                    .read
+                    .iter()
+                    .map(|segment| SegmentId(segment.0))
+                    .collect();
+                assert_eq!(
+                    source.reads.borrow().clone(),
+                    read.iter()
+                        .map(|segment| (*segment, 1))
+                        .collect::<BTreeMap<_, _>>(),
+                    "a complete run reads each segment of its read set once and no other"
+                );
+                let sealed = baseline.manifest.as_ref().expect("a manifest");
+                assert_eq!(verify_manifest(sealed, *manifest), Ok(()));
+                assert_eq!(
+                    sealed.canonical_bytes(),
+                    segments::canonical_manifest_bytes(
+                        expected.manifest.as_ref().expect("a reference manifest")
+                    ),
+                    "the sealed manifest of {delta:?} on {table:?}"
+                );
+                let output = expected.output.as_ref().expect("the edited family");
+                for segment in &read {
+                    let (emitted, complement) =
+                        read_emitted_segment(&store, run, &input.partition, *segment)
+                            .expect("an emitted segment");
+                    assert_eq!(complement, Vec::<u8>::new());
+                    assert_eq!(
+                        emitted
+                            .canonical_bytes(&Digest(SCHEMA), &input.partition)
+                            .expect("bytes"),
+                        reference_bytes(&output[segment.0 as usize], partition)
+                    );
+                }
+                RunOutcome::Complete
+            }
+            RunStatus::Failed(_) => {
+                assert!(sealed_nothing(&store, run), "a refused run seals nothing");
+                RunOutcome::Refused
+            }
+            RunStatus::Residual(_) => {
+                assert!(sealed_nothing(&store, run), "a declined run seals nothing");
+                RunOutcome::Declined
+            }
+            RunStatus::Incomplete { reason } => panic!("an uninterrupted run stopped: {reason:?}"),
+        };
+        let points = if every_point {
+            check_cancellations(&input, partition, delta, budget, &baseline)
+        } else {
+            0
+        };
+        (outcome, points)
+    }
+
+    /// Stopping the run at every cancellation point and resuming it reports
+    /// what the reference runner reports, and ends as `baseline`.
+    fn check_cancellations(
+        input: &Input,
+        partition: &segments::Partition,
+        delta: &reference::TableDelta,
+        budget: Budget,
+        baseline: &ApplyRun,
+    ) -> u64 {
+        let production_delta = table_delta_to_production(delta);
+        let run = baseline.run.expect("a run identity");
+        let (total, done) = (
+            baseline.report.progress.tasks_total,
+            baseline.report.progress.tasks_done,
+        );
+        for cancel in 0..=total {
+            let mut store = MemoryStore::default();
+            let stopped = production_run(
+                &production_delta,
+                input,
+                &input.bytes,
+                budget,
+                &mut store,
+                Some(cancel),
+            );
+            let mut reference_store = segments::MemoryStore::default();
+            let expected_stop = reference_run(
+                delta,
+                input,
+                partition,
+                budget,
+                &mut reference_store,
+                Some(cancel),
+            );
+            assert_eq!(
+                seen_production(&stopped),
+                seen_reference(&expected_stop),
+                "run cancelled after {cancel} tasks"
+            );
+            let resumed = production_run(
+                &production_delta,
+                input,
+                &input.bytes,
+                budget,
+                &mut store,
+                None,
+            );
+            let again = reference_run(delta, input, partition, budget, &mut reference_store, None);
+            assert_eq!(
+                seen_production(&resumed),
+                seen_reference(&again),
+                "run resumed after {cancel} tasks"
+            );
+            assert_eq!(resumed.report.tasks_reused, cancel.min(done));
+            assert_eq!(resumed.manifest, baseline.manifest);
+            assert_eq!(
+                store
+                    .staged_uncommitted(&run)
+                    .unwrap_or_else(|never| match never {}),
+                Vec::<ArtifactKey>::new()
+            );
+        }
+        u64::from(total) + 1
+    }
+
+    /// Every 31st case of the segmented table edit carrier, run as a
+    /// checkpointed run from every cancellation point against the reference
+    /// runner.
+    #[test]
+    fn segmented_table_apply_run_matches_the_reference_runner_at_every_cancellation_point() {
+        let mut outcomes: BTreeMap<RunOutcome, u64> = BTreeMap::new();
+        let mut points = 0;
+        for case in carrier::segmented_table_apply_cases().step_by(31) {
+            let (outcome, checked) = check_run(
+                &case.table,
+                &case.partition,
+                &case.delta,
+                Budget::unlimited(),
+                true,
+            );
+            *outcomes.entry(outcome).or_insert(0) += 1;
+            points += checked;
+        }
+        println!("{outcomes:?}, {points} cancellation points");
+        assert_eq!(outcomes.values().sum::<u64>(), 2_768);
+        assert!(
+            outcomes.contains_key(&RunOutcome::Complete)
+                && outcomes.contains_key(&RunOutcome::Refused),
+            "{outcomes:?}"
+        );
+    }
+
+    /// The `a -e-> a` edge of the witnesses.
+    fn edge() -> reference_model::SEdge {
+        reference_model::SEdge::new("a", "a", "e", None)
+    }
+
+    /// The witness family: rows 0 to 3 in table `a`, one per segment, and
+    /// the pairs 0 to 1 and 1 to 2 crossing segments; each segment owns its
+    /// row and allocates row ids from `[10 + 10 i, 19 + 10 i]`.
+    fn witness() -> (reference_model::Table, segments::Partition) {
+        let mut table = reference_model::Table::default();
+        for id in 0..4 {
+            table.rows.insert(id, ("a".to_owned(), BTreeMap::new()));
+        }
+        table.pairs.insert((edge(), 0, 1));
+        table.pairs.insert((edge(), 1, 2));
+        let partition = segments::Partition {
+            shape: segments::InstanceShapeKind::Table,
+            specs: (0..4)
+                .map(|id| segments::SegmentSpec {
+                    id: segments::SegmentId(id),
+                    nodes: vec![
+                        segments::IdRange { lo: id, hi: id },
+                        segments::IdRange {
+                            lo: 10 + 10 * id,
+                            hi: 19 + 10 * id,
+                        },
+                    ],
+                    alloc_nodes: Some(segments::IdRange {
+                        lo: 10 + 10 * id,
+                        hi: 19 + 10 * id,
+                    }),
+                    alloc_edges: None,
+                })
+                .collect(),
+        };
+        (table, partition)
+    }
+
+    /// The delta changing row `row`'s table from `old` to `new`.
+    fn table_change(row: u32, old: &str, new: &str) -> reference::TableDelta {
+        let mut delta = reference::TableDelta::identity();
+        delta.attrs.insert(
+            reference::TKey::Table(row),
+            (
+                reference::TVal::Table(old.to_owned()),
+                reference::TVal::Table(new.to_owned()),
+            ),
+        );
+        delta
+    }
+
+    #[test]
+    fn a_segmented_table_apply_reads_only_the_owners_of_the_rows_it_names() {
+        let (table, partition) = witness();
+        let input = input(&table, &partition);
+        // A cell added to row 3 reads segment 3 alone; moving row 3, which
+        // no pair meets, to table `b` reads segment 3 alone, no boundary
+        // peer; adding the pair 3 to 0 reads its two endpoints' segments;
+        // adding a row under a fresh id of segment 2 with a pair from it to
+        // row 1 reads segments 1 and 2.
+        let mut cell = reference::TableDelta::identity();
+        cell.attrs.insert(
+            reference::TKey::Cell(3, "f".to_owned()),
+            (
+                reference::TVal::Cell(None),
+                reference::TVal::Cell(Some(panproto_reference::value::Value::Int(0))),
+            ),
+        );
+        let mut pair = reference::TableDelta::identity();
+        pair.add.insert(
+            reference::TElem::Pair(edge(), 3, 0),
+            reference::TPayload::Pair,
+        );
+        let mut fresh = FreshIds::of(
+            &AnySegment::Table(input.held[2].clone()),
+            &input.partition.specs()[2],
+        )
+        .expect("ids");
+        let row = fresh.node().expect("a fresh row id");
+        assert_eq!(row, 30);
+        let mut added = reference::TableDelta::identity();
+        added.add.insert(
+            reference::TElem::Row(row),
+            reference::TPayload::Row("a".to_owned(), BTreeMap::new()),
+        );
+        added.add.insert(
+            reference::TElem::Pair(edge(), row, 1),
+            reference::TPayload::Pair,
+        );
+        for (delta, read) in [
+            (cell, vec![3]),
+            (table_change(3, "a", "b"), vec![3]),
+            (pair, vec![0, 3]),
+            (added, vec![1, 2]),
+        ] {
+            let production = table_delta_to_production(&delta);
+            let source = CountingSource {
+                bytes: input.bytes.clone(),
+                reads: RefCell::new(BTreeMap::new()),
+            };
+            let mut store = MemoryStore::default();
+            let run = production_run(
+                &production,
+                &input,
+                &source,
+                Budget::unlimited(),
+                &mut store,
+                None,
+            );
+            let sealed = run.manifest.expect("the run completes");
+            let expected: BTreeMap<SegmentId, usize> = read
+                .iter()
+                .map(|segment| (SegmentId(*segment), 1))
+                .collect();
+            assert_eq!(*source.reads.borrow(), expected, "{delta:?}");
+            let total = u32::try_from(4 * read.len() + 2).expect("a small count");
+            assert_eq!(run.report.progress.tasks_total, total);
+            for (before, after) in input.manifest.segments.iter().zip(&sealed.segments) {
+                if !expected.contains_key(&before.id) {
+                    assert_eq!(before, after, "an unread segment keeps its record");
+                }
+            }
+            assert_eq!(sealed.instance_digest, None);
+            assert_eq!(
+                check_run(&table, &partition, &delta, Budget::unlimited(), true).0,
+                RunOutcome::Complete
+            );
+        }
+    }
+
+    #[test]
+    fn a_table_change_at_a_row_with_pairs_is_refused_from_its_owner_alone() {
+        let (table, partition) = witness();
+        let input = input(&table, &partition);
+        // Moving row 1 to table `b` leaves the pairs 0 to 1 and 1 to 2 off
+        // their edge's tables: the refusal names the first, read from row
+        // 1's in-stub, and the run reads segment 1 alone.
+        let delta = table_change(1, "a", "b");
+        let source = CountingSource {
+            bytes: input.bytes.clone(),
+            reads: RefCell::new(BTreeMap::new()),
+        };
+        let mut store = MemoryStore::default();
+        let run = production_run(
+            &table_delta_to_production(&delta),
+            &input,
+            &source,
+            Budget::unlimited(),
+            &mut store,
+            None,
+        );
+        match &run.report.status {
+            RunStatus::Failed(error) => assert_eq!(
+                production_refusal(error),
+                Refusal::Edit(TableApplyObs::MissingRowEndpoint(
+                    format!("{:?}", edge()),
+                    1
+                ))
+            ),
+            other => panic!("the delta is refused: {other:?}"),
+        }
+        assert_eq!(*source.reads.borrow(), BTreeMap::from([(SegmentId(1), 1)]));
+        assert!(sealed_nothing(&store, run.run.expect("a run identity")));
+        assert_eq!(
+            check_run(&table, &partition, &delta, Budget::unlimited(), true).0,
+            RunOutcome::Refused
+        );
+    }
+
+    #[test]
+    fn a_refused_table_delta_fails_at_assemble_with_the_whole_state_refusal_and_seals_nothing() {
+        let (table, partition) = witness();
+        let input = input(&table, &partition);
+        // Deleting row 1 leaves the pairs 0 to 1 and 1 to 2.
+        let mut delete = reference::TableDelta::identity();
+        delete.del.insert(
+            reference::TElem::Row(1),
+            reference::TPayload::Row("a".to_owned(), BTreeMap::new()),
+        );
+        let mut store = MemoryStore::default();
+        let run = production_run(
+            &table_delta_to_production(&delete),
+            &input,
+            &input.bytes,
+            Budget::unlimited(),
+            &mut store,
+            None,
+        );
+        let label = format!("{:?}", edge());
+        match &run.report.status {
+            RunStatus::Failed(error) => assert_eq!(
+                production_refusal(error),
+                Refusal::Edit(TableApplyObs::DanglingForeignKeys(
+                    1,
+                    vec![(label.clone(), 0, 1), (label, 1, 2)]
+                ))
+            ),
+            other => panic!("the delta is refused: {other:?}"),
+        }
+        assert_eq!(run.report.progress.phase, Phase::Summarize);
+        assert!(sealed_nothing(&store, run.run.expect("a run identity")));
+        assert_eq!(
+            check_run(&table, &partition, &delete, Budget::unlimited(), true).0,
+            RunOutcome::Refused
+        );
+    }
+
+    /// The delta adding the pair 3 to 0, which reads two segments.
+    fn crossing_pair() -> reference::TableDelta {
+        let mut delta = reference::TableDelta::identity();
+        delta.add.insert(
+            reference::TElem::Pair(edge(), 3, 0),
+            reference::TPayload::Pair,
+        );
+        delta
+    }
+
+    #[test]
+    fn a_segmented_table_apply_run_declines_each_exceeded_budget_like_the_reference() {
+        let (table, partition) = witness();
+        let delta = crossing_pair();
+        for (budget, resource) in [
+            (
+                Budget {
+                    affected_segments: 1,
+                    ..Budget::unlimited()
+                },
+                Resource::AffectedSegments,
+            ),
+            (
+                Budget {
+                    working_set: 0,
+                    ..Budget::unlimited()
+                },
+                Resource::WorkingSet,
+            ),
+            (
+                Budget {
+                    summary: 2,
+                    ..Budget::unlimited()
+                },
+                Resource::Summary,
+            ),
+        ] {
+            assert_eq!(
+                check_run(&table, &partition, &delta, budget, true).0,
+                RunOutcome::Declined
+            );
+            let input = input(&table, &partition);
+            let mut store = MemoryStore::default();
+            let run = production_run(
+                &table_delta_to_production(&delta),
+                &input,
+                &input.bytes,
+                budget,
+                &mut store,
+                None,
+            );
+            match &run.report.status {
+                RunStatus::Residual(Residual::BudgetExceeded {
+                    resource: found, ..
+                }) => assert_eq!(*found, resource),
+                other => panic!("{resource:?} declines: {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn a_segmented_table_apply_run_stopped_by_a_failed_commit_at_any_task_resumes_to_the_uninterrupted_run()
+     {
+        let (table, partition) = witness();
+        let input = input(&table, &partition);
+        let delta = table_delta_to_production(&crossing_pair());
+        let mut baseline_store = MemoryStore::default();
+        let baseline = production_run(
+            &delta,
+            &input,
+            &input.bytes,
+            Budget::unlimited(),
+            &mut baseline_store,
+            None,
+        );
+        assert!(matches!(baseline.report.status, RunStatus::Complete { .. }));
+        let total = baseline.report.progress.tasks_total;
+        for fail_at in 1..=total {
+            let mut store = FailingStore {
+                inner: MemoryStore::default(),
+                commits: 0,
+                fail_at: Some(usize::try_from(fail_at).expect("a small count")),
+            };
+            let failed = production_run(
+                &delta,
+                &input,
+                &input.bytes,
+                Budget::unlimited(),
+                &mut store,
+                None,
+            );
+            assert!(
+                matches!(
+                    &failed.report.status,
+                    RunStatus::Incomplete {
+                        reason: RunIncompleteReason::Store { message }
+                    } if message == "commit failed"
+                ),
+                "{:?}",
+                failed.report.status
+            );
+            assert_eq!(failed.report.progress.tasks_done, fail_at - 1);
+            assert_eq!(failed.report.orphans.len(), 1, "the failed task's artifact");
+            store.fail_at = None;
+            let resumed = production_run(
+                &delta,
+                &input,
+                &input.bytes,
+                Budget::unlimited(),
+                &mut store,
+                None,
+            );
+            assert_eq!(resumed.report.tasks_reused, fail_at - 1);
+            assert_eq!(resumed.report.orphans, Vec::<ArtifactKey>::new());
+            assert_eq!(resumed.manifest, baseline.manifest);
+        }
+    }
+
+    #[test]
+    fn fresh_row_ids_come_from_the_owners_range_and_are_never_refused() {
+        let (table, mut partition) = witness();
+        partition.specs[3].alloc_nodes = None;
+        let input = input(&table, &partition);
+        // Segment 3 has no row allocation range, and no segment of a table
+        // has an edge allocation range.
+        let mut three = FreshIds::of(
+            &AnySegment::Table(input.held[3].clone()),
+            &input.partition.specs()[3],
+        )
+        .expect("ids");
+        assert_eq!(
+            three.node(),
+            Err(SegmentError::NoAllocationRange {
+                segment: SegmentId(3),
+                kind: IdKind::Node,
+            })
+        );
+        let mut two = FreshIds::of(
+            &AnySegment::Table(input.held[2].clone()),
+            &input.partition.specs()[2],
+        )
+        .expect("ids");
+        assert_eq!(
+            two.edge(),
+            Err(SegmentError::NoAllocationRange {
+                segment: SegmentId(2),
+                kind: IdKind::Edge,
+            })
+        );
+        // Two fresh rows of segment 2, a pair between them and one to row
+        // 0, apply.
+        let (first, second) = (
+            RowId(two.node().expect("an id")),
+            RowId(two.node().expect("an id")),
+        );
+        assert_eq!((first, second), (RowId(30), RowId(31)));
+        let label = super::edge_to_production(&edge());
+        let delta = TableDelta::identity()
+            .with_added_row(first, "a", std::collections::HashMap::new())
+            .with_added_row(second, "a", std::collections::HashMap::new())
+            .with_added_pair(label.clone(), first, second)
+            .with_added_pair(label, second, RowId(0));
+        let output = apply_segmented(&delta, &input.held, &input.partition).expect("applies");
+        let glued = assemble_table(output, &input.partition).expect("glues");
+        assert_eq!(glued.incident_pairs(second).len(), 2);
+    }
+
+    /// A row of a generated table: `0` in table `a`, `1` in `b`, `2` in `a`
+    /// with the cell `f = 0`, `3` absent.
+    fn generated_row(
+        code: u8,
+    ) -> Option<(String, BTreeMap<String, panproto_reference::value::Value>)> {
+        match code {
+            0 => Some(("a".to_owned(), BTreeMap::new())),
+            1 => Some(("b".to_owned(), BTreeMap::new())),
+            2 => Some((
+                "a".to_owned(),
+                BTreeMap::from([("f".to_owned(), panproto_reference::value::Value::Int(0))]),
+            )),
+            _ => None,
+        }
+    }
+
+    /// The table whose rows `0 .. rows.len()` are [`generated_row`] of
+    /// `rows` and whose pairs are `pairs` between present rows, each under
+    /// the edge `e` between its endpoints' tables.
+    fn generated(rows: &[u8], pairs: &[(u32, u32)]) -> reference_model::Table {
+        let mut table = reference_model::Table::default();
+        for (id, code) in (0_u32..).zip(rows) {
+            if let Some(row) = generated_row(*code) {
+                table.rows.insert(id, row);
+            }
+        }
+        for (src, tgt) in pairs {
+            if let (Some((a, _)), Some((b, _))) = (table.rows.get(src), table.rows.get(tgt)) {
+                let edge = reference_model::SEdge::new(a, b, "e", None);
+                table.pairs.insert((edge, *src, *tgt));
+            }
+        }
+        table
+    }
+
+    /// The table partition assigning row id `i` to segment `owners[i]`
+    /// (renumbered by first occurrence, `3` for no segment).
+    fn generated_partition(owners: &[u8]) -> segments::Partition {
+        let mut renamed: BTreeMap<u8, u32> = BTreeMap::new();
+        let mut owned = Vec::new();
+        for owner in owners {
+            if *owner == 3 {
+                owned.push(None);
+            } else {
+                let next = u32::try_from(renamed.len()).expect("a small count");
+                owned.push(Some(*renamed.entry(*owner).or_insert(next)));
+            }
+        }
+        let segments = u32::try_from(renamed.len()).expect("a small count");
+        segments::Partition {
+            shape: segments::InstanceShapeKind::Table,
+            specs: (0..segments)
+                .map(|id| segments::SegmentSpec {
+                    id: segments::SegmentId(id),
+                    nodes: (0_u32..)
+                        .zip(&owned)
+                        .filter(|(_, owner)| **owner == Some(id))
+                        .map(|(row, _)| segments::IdRange { lo: row, hi: row })
+                        .collect(),
+                    alloc_nodes: None,
+                    alloc_edges: None,
+                })
+                .collect(),
+        }
+    }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(256))]
+
+        /// The law on generated families and deltas: the delta is the
+        /// reference difference between the input and a second generated
+        /// table, whose rows may change table or be owned by no segment.
+        #[test]
+        fn segmented_table_apply_agrees_with_the_reference_on_generated_families(
+            rows in proptest::collection::vec(0_u8..3, 1..=6),
+            pairs in proptest::collection::vec((0_u32..6, 0_u32..6), 0..=8),
+            after_rows in proptest::collection::vec(0_u8..4, 8),
+            after_pairs in proptest::collection::vec((0_u32..8, 0_u32..8), 0..=8),
+            owners in proptest::collection::vec(0_u8..3, 6),
+            spare in proptest::collection::vec(0_u8..4, 2),
+        ) {
+            let owners: Vec<u8> = owners.into_iter().chain(spare).collect();
+            let table = generated(&rows, &pairs);
+            let partition = generated_partition(&owners);
+            let after = generated(&after_rows, &after_pairs);
+            check_case(&table, &partition, &reference::diff_table(&table, &after));
+        }
+    }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(32))]
+
+        /// The run law on generated families and deltas, at every
+        /// cancellation point.
+        #[test]
+        fn segmented_table_apply_run_matches_the_reference_runner_on_generated_families(
+            rows in proptest::collection::vec(0_u8..3, 1..=5),
+            pairs in proptest::collection::vec((0_u32..5, 0_u32..5), 0..=6),
+            after_rows in proptest::collection::vec(0_u8..4, 6),
+            after_pairs in proptest::collection::vec((0_u32..6, 0_u32..6), 0..=6),
+            owners in proptest::collection::vec(0_u8..3, 5),
+            spare in 0_u8..4,
+        ) {
+            let owners: Vec<u8> = owners.into_iter().chain([spare]).collect();
+            let table = generated(&rows, &pairs);
+            let partition = generated_partition(&owners);
+            let after = generated(&after_rows, &after_pairs);
+            check_run(
+                &table,
+                &partition,
+                &reference::diff_table(&table, &after),
+                Budget::unlimited(),
+                true,
+            );
+        }
+    }
+
+    /// The output of in-memory segmented table apply, as canonical bytes
+    /// per segment.
+    fn applied_bytes(
+        delta: &TableDelta,
+        held: &[TableSegment],
+        partition: &Partition,
+    ) -> Option<Vec<Vec<u8>>> {
+        apply_segmented(delta, held, partition)
+            .ok()
+            .map(|output| output.iter().map(|s| bytes(s, partition)).collect())
+    }
+
+    /// What one ordered pair of the composition carrier showed.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    enum PairOutcome {
+        /// Both deltas applied in turn and their composite applied to the
+        /// same family.
+        Composed,
+        /// Both applied in turn and their composite is undefined.
+        Uncomposable,
+        /// The first delta is refused.
+        FirstRefused,
+        /// The first applies and the second is refused on its result.
+        SecondRefused,
+    }
+
+    /// Composition over segments: for every ordered pair of deltas of the
+    /// table composition carrier on every family of it, when the first
+    /// applies segment by segment, the second applies to its result, and
+    /// their composite is defined, the composite applies to the family and
+    /// gives the same segments byte for byte, as the reference composite
+    /// does; and on this carrier the composite of two deltas that apply in
+    /// turn is always defined.
+    #[test]
+    fn a_composite_table_delta_applies_to_a_segmented_family_as_its_factors_do_in_turn() {
+        let (families, deltas, pairs) = carrier::segmented_table_compose_counts();
+        let family_cases = carrier::segmented_table_compose_families();
+        let delta_cases = carrier::segmented_table_deltas(&[0, 3]);
+        assert_eq!(family_cases.len() as u64, families);
+        assert_eq!(delta_cases.len() as u64, deltas);
+        let mut outcomes: BTreeMap<PairOutcome, u64> = BTreeMap::new();
+        for (table, partition) in &family_cases {
+            let production_partition = prod_partition(partition);
+            let held = split(table, &production_partition);
+            let reference_held = segments::partition_table(table, partition).expect("split");
+            for first in &delta_cases {
+                let a = table_delta_to_production(first);
+                let after_first = apply_segmented(&a, &held, &production_partition);
+                for second in &delta_cases {
+                    let b = table_delta_to_production(second);
+                    let composite = a.compose(&b);
+                    assert_eq!(
+                        composite.is_ok(),
+                        reference::compose_table(first, second).is_ok(),
+                        "composability of {first:?} and {second:?}"
+                    );
+                    let outcome = after_first.as_ref().map_or(
+                        PairOutcome::FirstRefused,
+                        |middle| match (
+                            apply_segmented(&b, middle, &production_partition),
+                            &composite,
+                        ) {
+                            (Err(_), _) => PairOutcome::SecondRefused,
+                            (Ok(_), Err(_)) => PairOutcome::Uncomposable,
+                            (Ok(last), Ok(composite)) => {
+                                let expected: Vec<Vec<u8>> = last
+                                    .iter()
+                                    .map(|s| bytes(s, &production_partition))
+                                    .collect();
+                                assert_eq!(
+                                    applied_bytes(composite, &held, &production_partition),
+                                    Some(expected.clone()),
+                                    "{first:?} then {second:?} on {table:?} under {partition:?}"
+                                );
+                                let reference_composite = reference::compose_table(first, second)
+                                    .expect("the reference composes");
+                                let reference = segments::apply_table_segmented(
+                                    &reference_composite,
+                                    &reference_held,
+                                    partition,
+                                )
+                                .expect("the reference composite applies");
+                                assert_eq!(
+                                    reference
+                                        .iter()
+                                        .map(|s| reference_bytes(s, partition))
+                                        .collect::<Vec<_>>(),
+                                    expected
+                                );
+                                PairOutcome::Composed
+                            }
+                        },
+                    );
+                    *outcomes.entry(outcome).or_insert(0) += 1;
+                }
+            }
+        }
+        println!("{outcomes:?}");
+        assert_eq!(outcomes.values().sum::<u64>(), pairs);
+        assert_eq!(pairs, 62_500);
+        assert_eq!(
+            outcomes.keys().copied().collect::<Vec<_>>(),
+            vec![
+                PairOutcome::Composed,
+                PairOutcome::FirstRefused,
+                PairOutcome::SecondRefused
+            ],
+            "{outcomes:?}"
+        );
+    }
+
+    /// Inversion over segments, in memory: on every 7th case of the
+    /// segmented table edit carrier that applies, the inverse delta applied
+    /// segment by segment to the output restores every input segment byte
+    /// for byte, as it does in the reference.
+    #[test]
+    fn the_inverse_of_an_applied_segmented_table_edit_restores_every_segment_byte_for_byte() {
+        let mut restored = 0_u64;
+        for case in carrier::segmented_table_apply_cases().step_by(7) {
+            let production_partition = prod_partition(&case.partition);
+            let held = split(&case.table, &production_partition);
+            let delta = table_delta_to_production(&case.delta);
+            let Ok(output) = apply_segmented(&delta, &held, &production_partition) else {
+                continue;
+            };
+            assert_eq!(
+                applied_bytes(&delta.invert(), &output, &production_partition),
+                Some(
+                    held.iter()
+                        .map(|s| bytes(s, &production_partition))
+                        .collect()
+                ),
+                "the inverse of {:?} on {:?}",
+                case.delta,
+                case.table
+            );
+            let reference_held =
+                segments::partition_table(&case.table, &case.partition).expect("split");
+            let reference_output =
+                segments::apply_table_segmented(&case.delta, &reference_held, &case.partition)
+                    .expect("the reference applies");
+            let back = segments::apply_table_segmented(
+                &reference::invert_table(&case.delta),
+                &reference_output,
+                &case.partition,
+            )
+            .expect("the reference inverse applies");
+            assert_eq!(back, reference_held);
+            restored += 1;
+        }
+        println!("{restored} restored");
+        assert_eq!(restored, 0);
+    }
+
+    /// Inversion over segments, as checkpointed runs: on every 31st case of
+    /// the carrier whose run completes, running the inverse delta over the
+    /// output manifest, with the emitted segments in place of the read ones,
+    /// seals the input manifest with its instance digest cleared.
+    #[test]
+    fn the_inverse_run_of_a_completed_segmented_table_edit_restores_the_manifest_but_its_instance_digest()
+     {
+        let mut restored = 0_u64;
+        for case in carrier::segmented_table_apply_cases().step_by(31) {
+            let input = input(&case.table, &case.partition);
+            let delta = table_delta_to_production(&case.delta);
+            let mut store = MemoryStore::default();
+            let forward = production_run(
+                &delta,
+                &input,
+                &input.bytes,
+                Budget::unlimited(),
+                &mut store,
+                None,
+            );
+            let (Some(edited), Some(run)) = (forward.manifest, forward.run) else {
+                continue;
+            };
+            let mut bytes_after = input.bytes.clone();
+            for spec in input.partition.specs() {
+                if let Ok((emitted, _)) =
+                    read_emitted_segment(&store, run, &input.partition, spec.id)
+                {
+                    bytes_after.insert(
+                        spec.id,
+                        emitted
+                            .canonical_bytes(&Digest(SCHEMA), &input.partition)
+                            .expect("bytes"),
+                    );
+                }
+            }
+            let after = Input {
+                manifest: edited,
+                bytes: bytes_after,
+                partition: input.partition.clone(),
+                held: Vec::new(),
+                reference: Vec::new(),
+            };
+            let back = production_run(
+                &delta.invert(),
+                &after,
+                &after.bytes,
+                Budget::unlimited(),
+                &mut store,
+                None,
+            )
+            .manifest
+            .expect("the inverse run completes");
+            let mut expected = input.manifest.clone();
+            assert!(expected.instance_digest.is_some());
+            expected.clear_instance_digest();
+            assert_eq!(back.canonical_bytes(), expected.canonical_bytes());
+            restored += 1;
+        }
+        println!("{restored} restored");
+        assert_eq!(restored, 0);
+    }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(256))]
+
+        /// Composition and inversion over segments on generated families:
+        /// the deltas are the reference differences from the input to a
+        /// second table and from it to a third; when both apply segment by
+        /// segment, their composite applies to the family with the same
+        /// segments, and the inverse of the first restores the family byte
+        /// for byte.
+        #[test]
+        fn table_composition_and_inversion_hold_over_segments_on_generated_families(
+            rows in proptest::collection::vec(0_u8..3, 1..=5),
+            pairs in proptest::collection::vec((0_u32..5, 0_u32..5), 0..=6),
+            middle in proptest::collection::vec(0_u8..4, 7),
+            middle_pairs in proptest::collection::vec((0_u32..7, 0_u32..7), 0..=6),
+            last in proptest::collection::vec(0_u8..4, 7),
+            last_pairs in proptest::collection::vec((0_u32..7, 0_u32..7), 0..=6),
+            owners in proptest::collection::vec(0_u8..3, 7),
+        ) {
+            let table = generated(&rows, &pairs);
+            let partition = generated_partition(&owners);
+            let middle = generated(&middle, &middle_pairs);
+            let last = generated(&last, &last_pairs);
+            let first = table_delta_to_production(&reference::diff_table(&table, &middle));
+            let second = table_delta_to_production(&reference::diff_table(&middle, &last));
+            let production_partition = prod_partition(&partition);
+            let held = split(&table, &production_partition);
             if let Ok(after_first) = apply_segmented(&first, &held, &production_partition) {
                 proptest::prop_assert_eq!(
                     applied_bytes(&first.invert(), &after_first, &production_partition),
