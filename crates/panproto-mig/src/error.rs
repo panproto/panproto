@@ -80,10 +80,12 @@ pub enum SpanError {
     /// budget spent before the first leaf leaves it with no incumbent at all,
     /// and the empty answer that would report is a claim the search never
     /// established. A stop *after* a leaf is not reported here: that incumbent
-    /// is a genuine total morphism, only not a proven-optimal one.
+    /// is a genuine total morphism, only not a proven-optimal one. On the
+    /// isomorphism path the incumbent may be a partial map, so a stop there is
+    /// reported whenever the search does not hold an isomorphism.
     #[error(
-        "the total-morphism search stopped on {limit:?} before reaching any complete \
-         assignment, so whether a total morphism exists is unknown"
+        "the total-morphism search stopped on {limit:?} before it held an answer, so \
+         whether a total morphism exists is unknown"
     )]
     Stopped {
         /// Which budget ran out.
