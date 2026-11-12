@@ -18,12 +18,13 @@ The conformance tests of `panproto-io` read corpora under [`crates/panproto-io/t
 | `json-ld-api` | [w3c/json-ld-api](https://github.com/w3c/json-ld-api) | `55514738` | W3C Software and Document License, with the W3C test suite dual licensing | `LICENSE.md` (upstream, unchanged) and `LICENSE-W3C-SOFTWARE-AND-DOCUMENT.md` (notice and licence text) |
 | `json-schema-test-suite` | [json-schema-org/JSON-Schema-Test-Suite](https://github.com/json-schema-org/JSON-Schema-Test-Suite) | `38dea932` | MIT | `LICENSE` (upstream, unchanged) |
 | `k8s-crd` | [kubernetes/kubernetes](https://github.com/kubernetes/kubernetes) (tag `v1.37.2`) | `c50e5395` | Apache-2.0 (no `NOTICE` upstream) | `LICENSE` (upstream, unchanged) |
+| `openapi` | [OAI/OpenAPI-Specification](https://github.com/OAI/OpenAPI-Specification) (`v3.1-dev` for the test documents, `main` for the 3.1 examples) | `ef5916de` and `e77481c7` | Apache-2.0 (no `NOTICE` upstream) | `LICENSE` (upstream, unchanged) |
 | `postgresql-docs` | [postgres/postgres](https://github.com/postgres/postgres) (tag `REL_17_12`) | `702b3dc8` | PostgreSQL Licence | `COPYRIGHT` (upstream, unchanged) |
 | `rdf-tests` | [w3c/rdf-tests](https://github.com/w3c/rdf-tests) | `4158bca1` | W3C Test Suite License and W3C 3-clause BSD License (dual), used under the BSD form | `LICENSE.md` (upstream, unchanged) and `LICENSE` (upstream `rdf/rdf11/rdf-turtle/LICENSE`, unchanged) |
 | `sakila` | [jOOQ/sakila](https://github.com/jOOQ/sakila) | `aed53ce6` | BSD-2-Clause | `LICENSE` (upstream, unchanged) |
 | `toml-test` | [toml-lang/toml-test](https://github.com/toml-lang/toml-test) | `96fd0884` | MIT | `LICENSE` (upstream, unchanged) |
 | `yaml-test-suite` | [yaml/yaml-test-suite](https://github.com/yaml/yaml-test-suite) (`data` branch) | `6ad3d2c6` | MIT (the `main` branch's `License` at `da267a5c`; the `data` branch has no licence file) | `License` (upstream, unchanged) |
-| `edgelist`, `bson-spec` | written for panproto from the specifications each case names | none | MIT, as the repository | none needed |
+| `edgelist`, `bson-spec`, `openapi/invalid` | written for panproto from the specifications each case names | none | MIT, as the repository | none needed |
 
 One corpus is not kept in the repository because its licence is not permissive:
 

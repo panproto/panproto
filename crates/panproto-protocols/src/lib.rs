@@ -163,7 +163,6 @@ pub fn parse_schema_bundle_within(
 
     match protocol.replace('_', "-").as_str() {
         "atproto" => atproto::parse_lexicon_bundle(docs),
-        "openapi" => api::openapi::parse_openapi_bundle(docs),
         "avro" => serialization::avro::parse_avsc_bundle(docs),
         other => Err(ProtocolError::Parse(format!(
             "no bundle parser registered for protocol {other:?}; supported: {:?}",
@@ -443,10 +442,11 @@ mod dispatch_tests {
 
     #[test]
     fn parser_protocol_lists_have_expected_sizes() {
-        assert_eq!(document_parser_protocols().len(), 38);
+        assert_eq!(document_parser_protocols().len(), 37);
         assert_eq!(source_parser_protocols().len(), 10);
         assert!(document_parser_protocols().contains(&"atproto"));
         assert!(!document_parser_protocols().contains(&"json-schema"));
+        assert!(!document_parser_protocols().contains(&"openapi"));
         assert!(source_parser_protocols().contains(&"graphql"));
         assert!(!source_parser_protocols().contains(&"postgresql"));
         assert!(source_parser_protocols().contains(&"protobuf"));

@@ -54,11 +54,6 @@ const DOCUMENT_PROTOCOLS: &[DocEntry] = &[
         web_document::atproto::protocol,
     ),
     (
-        "openapi",
-        api::openapi::parse_openapi,
-        api::openapi::protocol,
-    ),
-    (
         "avro",
         serialization::avro::parse_avsc,
         serialization::avro::protocol,

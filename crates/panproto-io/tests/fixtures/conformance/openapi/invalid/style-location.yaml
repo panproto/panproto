@@ -1,0 +1,12 @@
+openapi: 3.1.1
+info:
+  title: Pets
+  version: 1.0.0
+components:
+  parameters:
+    q:
+      name: q
+      in: query
+      style: matrix
+      schema:
+        type: string

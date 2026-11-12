@@ -8137,6 +8137,87 @@
           ]
         }
       ]
+    },
+    "openapi": {
+      "reference_files": [
+        "crates/panproto-reference/src/pages/openapi.rs",
+        "crates/panproto-reference/src/enumerate/openapi.rs"
+      ],
+      "laws": [
+        {
+          "id": "openapi.reading",
+          "anchor": "L-openapi-1",
+          "references": [
+            "panproto_reference::pages::openapi::read",
+            "panproto_reference::pages::json_schema::read_embedded"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_openapi",
+              "test": "openapi_reading_and_canonical_writing_match_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_openapi",
+              "test": "randomized_openapi_documents_read_and_write_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::openapi",
+              "test": "a_document_reads_as_its_object_vertices_edges_and_constraints"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::openapi",
+              "test": "openapi_references_resolve_to_their_targets"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::openapi",
+              "test": "openapi_refusals_name_the_place_and_the_rule"
+            }
+          ]
+        },
+        {
+          "id": "openapi.canonical-writing",
+          "anchor": "L-openapi-2",
+          "references": [
+            "panproto_reference::pages::openapi::canonical_text"
+          ],
+          "consumers": [
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_openapi",
+              "test": "openapi_reading_and_canonical_writing_match_the_reference_on_every_bounded_document"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-io",
+              "binary": "panproto-io::reference_openapi",
+              "test": "randomized_openapi_documents_read_and_write_as_the_reference"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::openapi",
+              "test": "the_canonical_openapi_document_orders_fields_as_the_page_states"
+            },
+            {
+              "role": "reference",
+              "crate": "panproto-reference",
+              "binary": "panproto-reference::openapi",
+              "test": "the_openapi_document_scope_has_its_closed_form_count"
+            }
+          ]
+        }
+      ]
     }
   }
 }
