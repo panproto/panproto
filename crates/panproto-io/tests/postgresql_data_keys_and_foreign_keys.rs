@@ -52,7 +52,7 @@ fn edges(graph: &GInstance) -> Vec<(u32, u32, String)> {
 
 #[test]
 fn foreign_keys_resolve_to_the_rows_they_name() {
-    // Rows: city 0..; country 4 ('de'), 5 ('fr'); pair 6 (1,1), 7 (1,2).
+    // Rows: city 0 to 2; country 3 ('fr'), 4 ('de'); pair 5 (1, 1), 6 (1, 2).
     let reading = read(
         "INSERT INTO city VALUES (1, 'fr', 1, 2, 1, 1), (2, NULL, NULL, 2, NULL, NULL), (3, 'de', 1, NULL, NULL, NULL);",
     );
@@ -65,10 +65,10 @@ fn foreign_keys_resolve_to_the_rows_they_name() {
     assert_eq!(
         edges(&graph),
         vec![
-            (0, 4, "city_country_fkey".to_owned()),
-            (0, 6, "full_pair".to_owned()),
-            (0, 7, "simple_pair".to_owned()),
-            (2, 3, "city_country_fkey".to_owned()),
+            (0, 3, "city_country_fkey".to_owned()),
+            (0, 5, "full_pair".to_owned()),
+            (0, 6, "simple_pair".to_owned()),
+            (2, 4, "city_country_fkey".to_owned()),
         ]
     );
     assert_eq!(complement.unresolved.len(), 0);
@@ -93,7 +93,10 @@ fn an_unresolved_foreign_key_is_refused_or_recorded() {
     )
     .unwrap();
     assert_eq!(complement.unresolved.len(), 1);
-    assert_eq!(complement.unresolved[0].reason, UnresolvedReason::Dangling);
+    assert!(matches!(
+        complement.unresolved[0].reason,
+        UnresolvedReason::Dangling
+    ));
 }
 
 #[test]
