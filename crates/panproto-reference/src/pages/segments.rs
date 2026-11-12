@@ -6328,6 +6328,8 @@ pub mod segment {
         segment: Option<SegmentId>,
         kind: ArtifactKind,
         inputs: &'a [u8],
+        /// The earlier run's artifact, when the task is carried over from it.
+        carried: Option<&'a [u8]>,
     }
 
     struct TaskExecution {
@@ -6383,7 +6385,10 @@ pub mod segment {
                 });
             }
         }
-        let output = compute().map_err(TaskFailure::Segment)?;
+        let (output, outcome) = match request.carried {
+            Some(bytes) => (bytes.to_vec(), TaskOutcome::Reused),
+            None => (compute().map_err(TaskFailure::Segment)?, TaskOutcome::Ran),
+        };
         let output_digest = Digest::derive(SEGMENT_TASK_CONTEXT, &output);
         store
             .stage(&key, output.clone())
@@ -6398,7 +6403,7 @@ pub mod segment {
             .map_err(|error| TaskFailure::Store(error.to_string()))?;
         Ok(TaskExecution {
             bytes: output,
-            outcome: TaskOutcome::Ran,
+            outcome,
         })
     }
     fn run_digest(
@@ -6591,7 +6596,16 @@ pub mod segment {
         segment_inputs: Vec<Vec<u8>>,
         preflight_summaries: Vec<SegmentSummary>,
         restrict_source_schema: Digest,
+        carry: Option<Carry>,
         report: SegmentRunReport,
+    }
+
+    /// The earlier run a reference restrict run carries tasks over from.
+    struct Carry {
+        /// The earlier run's identity.
+        run: Digest,
+        /// Its journal, read before the first task.
+        journal: RunJournal,
     }
 
     impl<S: SegmentStore> RunnerState<'_, '_, S> {
@@ -6619,6 +6633,7 @@ pub mod segment {
                 segment,
                 kind,
                 inputs,
+                carried: None,
             };
             run_task(
                 &mut self.report,
@@ -6990,6 +7005,7 @@ pub mod segment {
                     segment_inputs: Vec::new(),
                     preflight_summaries: Vec::new(),
                     restrict_source_schema: spec.schema,
+                    carry: None,
                     report,
                 };
                 return stop_run(state, stop);
@@ -7006,6 +7022,7 @@ pub mod segment {
             segment_inputs: prepared.segment_inputs,
             preflight_summaries: prepared.summaries,
             restrict_source_schema: spec.schema,
+            carry: None,
             report,
         };
         let summaries = match state.local_phases(&ordered) {
@@ -7064,6 +7081,10 @@ pub mod segment {
         pub binding: Option<Digest>,
         /// Optional cancellation boundary measured in committed or reused tasks.
         pub cancel_after_tasks: Option<u32>,
+        /// The input manifest digest of an earlier run of the same lens and
+        /// view schema under the same partition, whose tasks this run may
+        /// carry over.
+        pub reuse: Option<Digest>,
     }
 
     /// The lens a reference restrict run applies: its schemas, migration
@@ -7412,6 +7433,123 @@ pub mod segment {
     }
 
     impl<S: SegmentStore> RunnerState<'_, '_, S> {
+        /// The earlier run's artifact of `task`, when its journal records the
+        /// task and the stored bytes have the recorded length and digest.
+        fn earlier_artifact(
+            &self,
+            carry: &Carry,
+            task: TaskKey,
+            kind: ArtifactKind,
+        ) -> Result<Option<Vec<u8>>, PipelineStop> {
+            let Some(record) = carry.journal.tasks.get(&task) else {
+                return Ok(None);
+            };
+            let stored = self
+                .store
+                .read(&ArtifactKey {
+                    run: carry.run,
+                    task,
+                    kind,
+                })
+                .map_err(|error| PipelineStop::Store(error.to_string()))?;
+            Ok(stored.filter(|bytes| {
+                u64::try_from(bytes.len()).unwrap_or(u64::MAX) == record.bytes
+                    && Digest::derive(SEGMENT_TASK_CONTEXT, bytes) == record.output
+            }))
+        }
+
+        /// The earlier run's artifact of `task` when the task is carried over:
+        /// it is not Seal, the earlier run holds it intact, and every input
+        /// segment the task depends on has the same canonical bytes in the
+        /// earlier run's Validate artifact as here. Validate depends on its
+        /// own segment; every later task first requires that the earlier run
+        /// validated exactly this run's segments, and Export then depends on
+        /// its own segment, while Summarize, Assemble and Emit, which read
+        /// every segment's export, depend on every segment.
+        fn carried(
+            &self,
+            task: TaskKey,
+            kind: ArtifactKind,
+        ) -> Result<Option<Vec<u8>>, PipelineStop> {
+            let Some(carry) = &self.carry else {
+                return Ok(None);
+            };
+            if task.phase == Phase::Seal {
+                return Ok(None);
+            }
+            let Some(bytes) = self.earlier_artifact(carry, task, kind)? else {
+                return Ok(None);
+            };
+            let segments: Vec<SegmentId> = self.p.specs.iter().map(|spec| spec.id).collect();
+            if task.phase != Phase::Validate {
+                let validated: Vec<SegmentId> = carry
+                    .journal
+                    .tasks
+                    .keys()
+                    .filter(|key| key.phase == Phase::Validate)
+                    .filter_map(|key| key.segment)
+                    .collect();
+                if validated != segments {
+                    return Ok(None);
+                }
+            }
+            let depends: Vec<SegmentId> = match (task.phase, task.segment) {
+                (Phase::Validate | Phase::Export, Some(segment)) => vec![segment],
+                _ => segments.clone(),
+            };
+            for segment in depends {
+                let own = segments
+                    .iter()
+                    .position(|id| *id == segment)
+                    .and_then(|position| self.segment_inputs.get(position));
+                let validate = TaskKey {
+                    phase: Phase::Validate,
+                    segment: Some(segment),
+                };
+                let earlier = self.earlier_artifact(carry, validate, ArtifactKind::Segment)?;
+                if earlier.is_none() || earlier.as_ref() != own {
+                    return Ok(None);
+                }
+            }
+            Ok(Some(bytes))
+        }
+
+        /// One task of a restrict run: reused from this run's journal,
+        /// carried over from the earlier run ([`Self::carried`]), or computed.
+        fn restrict_task<F>(
+            &mut self,
+            phase: Phase,
+            segment: Option<SegmentId>,
+            kind: ArtifactKind,
+            inputs: &[u8],
+            compute: F,
+        ) -> Result<Vec<u8>, PipelineStop>
+        where
+            F: FnOnce() -> Result<Vec<u8>, SegmentError>,
+        {
+            let carried = self.carried(TaskKey { phase, segment }, kind)?;
+            let request = TaskRequest {
+                run: self.run,
+                operation: self.spec.operation,
+                phase,
+                segment,
+                kind,
+                inputs,
+                carried: carried.as_deref(),
+            };
+            run_task(
+                &mut self.report,
+                self.store,
+                &request,
+                self.progress,
+                compute,
+            )
+            .map_err(|failure| match failure {
+                TaskFailure::Store(message) => PipelineStop::Store(message),
+                TaskFailure::Segment(error) => PipelineStop::Failed(error),
+            })
+        }
+
         /// Validate, Export and Summarize; the summary bytes in task order and
         /// their total length.
         fn restrict_local_phases(
@@ -7441,10 +7579,13 @@ pub mod segment {
                             (ArtifactKind::Summary, reach_summary_bytes(&entries, &kept))
                         }
                     };
-                    let stored =
-                        self.task(phase, Some(segment.segment), kind, &input_bytes, || {
-                            Ok(output.clone())
-                        })?;
+                    let stored = self.restrict_task(
+                        phase,
+                        Some(segment.segment),
+                        kind,
+                        &input_bytes,
+                        || Ok(output.clone()),
+                    )?;
                     if stored != output {
                         return Err(PipelineStop::Failed(decode_error(
                             kind,
@@ -7503,7 +7644,7 @@ pub mod segment {
                 .into());
             }
             let (run_before, reuse_before) = (self.report.tasks_run, self.report.tasks_reused);
-            self.task(
+            self.restrict_task(
                 Phase::Assemble,
                 None,
                 ArtifactKind::Assembly,
@@ -7569,7 +7710,7 @@ pub mod segment {
                     })
                     .into());
                 }
-                self.task(
+                self.restrict_task(
                     Phase::Emit,
                     Some(view.segment),
                     ArtifactKind::ComplementSegment,
@@ -7780,7 +7921,12 @@ pub mod segment {
     /// sum over the Emit artifacts of the bytes Seal holds of each (see
     /// `restrict_emit_bytes`). It stops before any task
     /// once `cancel_after_tasks` tasks are done, and reuses every committed
-    /// task whose inputs and artifact are unchanged.
+    /// task whose inputs and artifact are unchanged. With `spec.reuse`
+    /// naming the input manifest of an earlier run, it reads that run's
+    /// journal after the checks before the first task and carries over, by
+    /// copying and committing it as reused, every task but Seal that the
+    /// earlier run holds intact and whose input segments have the same
+    /// canonical bytes there.
     pub fn segmented_restrict_with_progress<S: SegmentStore>(
         lens: RestrictLens<'_>,
         segments: &[GraphSegment],
@@ -7843,21 +7989,36 @@ pub mod segment {
             segment_inputs: Vec::new(),
             preflight_summaries: Vec::new(),
             restrict_source_schema: spec.source_schema,
+            carry: None,
             report,
         };
-        match restrict_preflight(&any, p, spec.source_schema, budget) {
-            Ok((peak, inputs)) => {
+        let earlier = spec
+            .reuse
+            .map(|input| restrict_run_identity(spec.lens, input, p, GRAPH_RESTRICT_OP))
+            .filter(|earlier| *earlier != run);
+        let prepared =
+            restrict_preflight(&any, p, spec.source_schema, budget).and_then(|(peak, inputs)| {
                 state.peak = peak;
                 state.segment_inputs = inputs;
-            }
-            Err(stop) => {
-                return RestrictRun {
-                    run,
-                    output: None,
-                    manifest: None,
-                    report: restrict_report(stop_run::<(), S>(state, stop).report),
-                };
-            }
+                if let Some(earlier) = earlier {
+                    let journal = state
+                        .store
+                        .journal(&earlier)
+                        .map_err(|error| PipelineStop::Store(error.to_string()))?;
+                    state.carry = Some(Carry {
+                        run: earlier,
+                        journal,
+                    });
+                }
+                Ok(())
+            });
+        if let Err(stop) = prepared {
+            return RestrictRun {
+                run,
+                output: None,
+                manifest: None,
+                report: restrict_report(stop_run::<(), S>(state, stop).report),
+            };
         }
         let fates = crate::restrict::node_fates(src, tgt, m, vl, &g).ok();
         let facts = RestrictFacts {
@@ -8138,6 +8299,7 @@ pub mod segment {
             segment_inputs: Vec::new(),
             preflight_summaries: Vec::new(),
             restrict_source_schema: spec.view_schema,
+            carry: None,
             report,
         };
         match put_preflight(&any, complements, p, spec.view_schema, budget) {
@@ -8676,6 +8838,7 @@ pub mod segment {
             segment_inputs: Vec::new(),
             preflight_summaries: Vec::new(),
             restrict_source_schema: spec.source_schema,
+            carry: None,
             report,
         };
         match extend_preflight(&any, p, spec.source_schema, budget) {
@@ -9613,6 +9776,7 @@ pub mod segment {
             segment_inputs: Vec::new(),
             preflight_summaries: Vec::new(),
             restrict_source_schema: spec.schema,
+            carry: None,
             report,
         };
         match extend_preflight(&read_any, p, spec.schema, budget) {

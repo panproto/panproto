@@ -114,6 +114,7 @@ pub fn get_segmented<Src: SegmentSource, St: SegmentStore>(
         input,
         output_schema: identity.target_schema,
         cancel_after_tasks,
+        reuse: None,
     };
     Ok(graph_restrict_run(
         &plan,

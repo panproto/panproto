@@ -3543,8 +3543,9 @@ mod segmented_runner {
     use panproto_inst::segment::{
         AnySegment, ArtifactKey, ArtifactKind, Budget, EdgeIdRun, GraphRestrictRun, ManifestHeader,
         ManifestRole, MemoryStore, Phase, RecordSource, RunSpec, RunStatus, SegmentId,
-        SegmentManifest, SegmentRecord, SegmentRunReport, SegmentStore, SegmentedRestrictError,
-        TaskKey, graph_restrict_run, partition_graph, read_emitted, seal_full,
+        SegmentManifest, SegmentRecord, SegmentRunReport, SegmentSource, SegmentStore,
+        SegmentedRestrictError, TaskKey, graph_restrict_run, partition_graph, read_emitted,
+        seal_full,
     };
     use panproto_reference::segment as reference;
     use std::collections::BTreeMap;
@@ -3569,7 +3570,23 @@ mod segmented_runner {
         phases: Vec<(String, u32, u32, u64, Option<u64>)>,
     }
 
-    fn seen_production(report: &SegmentRunReport<SegmentedRestrictError>) -> Seen {
+    /// `seen` with its computed and reused task counts replaced by their
+    /// sums, overall and in each phase: what carrying tasks over from an
+    /// earlier run leaves unchanged.
+    pub fn counts_summed(seen: Seen) -> Seen {
+        Seen {
+            tasks: (seen.tasks.0 + seen.tasks.1, 0),
+            phases: seen
+                .phases
+                .into_iter()
+                .map(|(phase, tasks, reused, peak, wall)| (phase, tasks + reused, 0, peak, wall))
+                .collect(),
+            ..seen
+        }
+    }
+
+    /// The production report as both implementations project it.
+    pub fn seen_production(report: &SegmentRunReport<SegmentedRestrictError>) -> Seen {
         let status = match &report.status {
             RunStatus::Failed(SegmentedRestrictError::Restrict { segment, error }) => {
                 format!("restrict {} {}", segment.0, production_error(error))
@@ -3648,7 +3665,8 @@ mod segmented_runner {
         }
     }
 
-    fn seen_reference(
+    /// The reference report as both implementations project it.
+    pub fn seen_reference(
         report: &reference::SegmentRunReport<reference::SegmentedRestrictRefusal>,
     ) -> Seen {
         let status = match &report.status {
@@ -3746,6 +3764,16 @@ mod segmented_runner {
 
     /// Seal the production segments of `graph` under `partition`.
     pub fn input(graph: &RefGraph, partition: &reference::Partition) -> Input {
+        bound_input(graph, partition, None)
+    }
+
+    /// Seal the production segments of `graph` under `partition` with the
+    /// manifest binding `binding`.
+    pub fn bound_input(
+        graph: &RefGraph,
+        partition: &reference::Partition,
+        binding: Option<Digest>,
+    ) -> Input {
         let partition = prod_partition(partition);
         let whole = super::prod_graph(graph);
         let segments: Vec<AnySegment> = partition_graph(&whole, &partition)
@@ -3779,7 +3807,7 @@ mod segmented_runner {
                 shape: panproto_inst::InstanceShapeKind::Graph,
                 schema,
                 role: ManifestRole::Source,
-                binding: None,
+                binding,
             },
             runs,
             sources,
@@ -3803,6 +3831,73 @@ mod segmented_runner {
         }
     }
 
+    /// One production run of `plan` over `input`, reading its segments from
+    /// `source` and carrying tasks over from the earlier run over the input
+    /// manifest `reuse` names.
+    pub fn carrying_run<Src: SegmentSource>(
+        plan: &RestrictPlan,
+        input: &Input,
+        source: &Src,
+        cancel: Option<u32>,
+        reuse: Option<Digest>,
+        store: &mut MemoryStore,
+    ) -> GraphRestrictRun {
+        graph_restrict_run(
+            plan,
+            &input.manifest,
+            source,
+            RunSpec {
+                lens: Digest(LENS),
+                input: input.manifest.digest(),
+                output_schema: Digest(VIEW_SCHEMA),
+                cancel_after_tasks: cancel,
+                reuse,
+            },
+            Budget::unlimited(),
+            store,
+            &mut |_| {},
+        )
+    }
+
+    /// One reference run of `case` over `segments` sealed with the binding
+    /// `binding`, carrying tasks over from the earlier run over the input
+    /// manifest `reuse` names.
+    pub fn reference_carrying_run(
+        case: &Case<'_>,
+        segments: &[reference::GraphSegment],
+        binding: Option<Digest>,
+        cancel: Option<u32>,
+        reuse: Option<Digest>,
+        store: &mut reference::MemoryStore,
+    ) -> reference::RestrictRun {
+        reference::segmented_restrict_with_progress(
+            reference::RestrictLens {
+                src: case.source,
+                tgt: case.target,
+                m: case.migration,
+                vl: &NoValueLayer,
+            },
+            segments,
+            case.partition,
+            reference::RestrictRunSpec {
+                lens: reference::Digest(LENS),
+                source_schema: reference::Digest(SOURCE_SCHEMA),
+                view_schema: reference::Digest(VIEW_SCHEMA),
+                binding: binding.map(|digest| reference::Digest(digest.0)),
+                cancel_after_tasks: cancel,
+                reuse: reuse.map(|digest| reference::Digest(digest.0)),
+            },
+            reference::Budget {
+                working_set: u64::MAX,
+                complement: None,
+                summary: u64::MAX,
+                affected_segments: u32::MAX,
+            },
+            store,
+            &mut |_| {},
+        )
+    }
+
     /// One production run of `plan` over `input`.
     pub fn production_run(
         plan: &RestrictPlan,
@@ -3820,6 +3915,7 @@ mod segmented_runner {
                 input: input.manifest.digest(),
                 output_schema: Digest(VIEW_SCHEMA),
                 cancel_after_tasks: cancel,
+                reuse: None,
             },
             budget,
             store,
@@ -3865,6 +3961,7 @@ mod segmented_runner {
                 view_schema: reference::Digest(VIEW_SCHEMA),
                 binding: None,
                 cancel_after_tasks: cancel,
+                reuse: None,
             },
             reference::Budget {
                 working_set: budget.working_set,
@@ -4145,7 +4242,7 @@ mod segmented_witnesses {
     use panproto_reference::segment as reference;
 
     /// A dropped vertex `c` with a loop, between surviving `a` and `b`.
-    fn hidden_path_fixture() -> (RefSchema, RefMigration, RefGraph) {
+    pub fn hidden_path_fixture() -> (RefSchema, RefMigration, RefGraph) {
         let schema = RefSchema::default()
             .vertex("a", "record")
             .vertex("b", "record")
@@ -4184,7 +4281,11 @@ mod segmented_witnesses {
         (schema, migration, graph)
     }
 
-    fn compile(source: &RefSchema, target: &RefSchema, migration: &RefMigration) -> RestrictPlan {
+    pub fn compile(
+        source: &RefSchema,
+        target: &RefSchema,
+        migration: &RefMigration,
+    ) -> RestrictPlan {
         RestrictPlan::compile(
             &prod_schema(source),
             &prod_schema(target),
@@ -4196,7 +4297,7 @@ mod segmented_witnesses {
     /// The partition owning `owners[i]`'s nodes in segment `i`, with or
     /// without the carrier's allocation ranges, or with edge ranges of
     /// width `width` at the carrier base.
-    fn partition(
+    pub fn partition(
         owners: &[&[u32]],
         node_width: Option<u32>,
         edge_width: Option<u32>,
@@ -4629,7 +4730,7 @@ mod segmented_witnesses {
     }
 
     /// The migration keeping every vertex and edge of `schema`.
-    fn keep_everything(schema: &RefSchema) -> RefMigration {
+    pub fn keep_everything(schema: &RefSchema) -> RefMigration {
         RefMigration {
             surviving_verts: schema.vertices.keys().cloned().collect(),
             surviving_edges: schema.edges.iter().cloned().collect(),
@@ -4787,6 +4888,7 @@ mod segmented_witnesses {
                 input: manifest.digest(),
                 output_schema: Digest([5; 32]),
                 cancel_after_tasks: None,
+                reuse: None,
             },
             Budget::unlimited(),
             &mut second_store,
@@ -4842,6 +4944,7 @@ mod segmented_witnesses {
             input: input.manifest.digest(),
             output_schema: Digest([2; 32]),
             cancel_after_tasks: None,
+            reuse: None,
         };
         let mut baseline_store = MemoryStore::default();
         let baseline = graph_restrict_run(
@@ -4904,6 +5007,412 @@ mod segmented_witnesses {
                 format!("{:?}", baseline.report.status)
             );
         }
+    }
+}
+
+/// Carrying tasks over from an earlier run over another input manifest:
+/// every 97th case of the segmented restrict carrier, against an earlier
+/// run over the same segments under another binding, complete and stopped
+/// at every cancellation point, and against an earlier run over the family
+/// without each one of its edges.
+mod segmented_carry {
+    use super::segmented_runner::{
+        self, Case, Input, carrying_run, counts_summed, reference_carrying_run, seen_production,
+        seen_reference,
+    };
+    use super::segmented_witnesses::{
+        FailingStore, compile, hidden_path_fixture, keep_everything, partition,
+    };
+    use super::{RefGraph, RefMigration, RefSchema, RestrictPlan, prod_migration, prod_schema};
+    use panproto_inst::identity::Digest;
+    use panproto_inst::segment::{
+        ArtifactKey, ArtifactKind, GraphRestrictRun, MemoryStore, MissingSegment, Phase, RunStatus,
+        SegmentId, SegmentSource, SegmentStore, TaskKey,
+    };
+    use panproto_reference::segment as reference;
+    use std::cell::RefCell;
+    use std::collections::BTreeMap;
+
+    /// The binding of the earlier manifest over the same segments.
+    const BINDING: [u8; 32] = [9; 32];
+
+    /// A source that records the segments read from it.
+    struct CountingSource {
+        bytes: BTreeMap<SegmentId, Vec<u8>>,
+        reads: RefCell<Vec<SegmentId>>,
+    }
+
+    impl CountingSource {
+        fn new(bytes: &BTreeMap<SegmentId, Vec<u8>>) -> Self {
+            Self {
+                bytes: bytes.clone(),
+                reads: RefCell::new(Vec::new()),
+            }
+        }
+    }
+
+    impl SegmentSource for CountingSource {
+        type Error = MissingSegment;
+
+        fn read(&self, segment: SegmentId) -> Result<Vec<u8>, Self::Error> {
+            self.reads.borrow_mut().push(segment);
+            self.bytes.read(segment)
+        }
+
+        fn byte_len(&self, segment: SegmentId) -> Result<u64, Self::Error> {
+            self.reads.borrow_mut().push(segment);
+            self.bytes.byte_len(segment)
+        }
+    }
+
+    /// What the pairs of one certificate showed.
+    #[derive(Debug, Default)]
+    struct Counts {
+        /// Cases checked.
+        cases: u64,
+        /// Pairs of an earlier and a later run checked.
+        pairs: u64,
+        /// Pairs whose later run carried every task but Seal.
+        carried_all: u64,
+        /// Pairs whose later run carried some tasks and computed others
+        /// besides Seal.
+        carried_some: u64,
+        /// Pairs whose later run carried nothing.
+        carried_none: u64,
+    }
+
+    /// The earlier run of a pair: its graph, binding and cancellation point.
+    struct Earlier<'a> {
+        graph: &'a RefGraph,
+        binding: Option<Digest>,
+        cancel: Option<u32>,
+    }
+
+    /// Every committed task record and artifact of `run` in `store`.
+    fn committed(store: &MemoryStore, run: &GraphRestrictRun) -> Vec<(TaskKey, Vec<u8>)> {
+        let run = run.run.expect("a run identity");
+        let journal = store.journal(&run).unwrap_or_else(|never| match never {});
+        journal
+            .tasks
+            .iter()
+            .map(|(task, record)| {
+                let kind = match task.phase {
+                    Phase::Validate => ArtifactKind::Segment,
+                    Phase::Export => ArtifactKind::Export,
+                    Phase::Summarize => ArtifactKind::Summary,
+                    Phase::Assemble => ArtifactKind::Assembly,
+                    Phase::Emit => ArtifactKind::ComplementSegment,
+                    Phase::Seal => ArtifactKind::Manifest,
+                };
+                let bytes = store
+                    .read(&ArtifactKey {
+                        run,
+                        task: *task,
+                        kind,
+                    })
+                    .unwrap_or_else(|never| match never {})
+                    .expect("a committed artifact");
+                assert_eq!(
+                    u64::try_from(bytes.len()).expect("length"),
+                    record.bytes,
+                    "{task}"
+                );
+                (*task, bytes)
+            })
+            .collect()
+    }
+
+    /// Run the earlier run, then the later run over `input` carrying tasks
+    /// over from it, through production and reference, and check the law
+    /// against the fresh run `fresh` committed in `fresh_store`. Returns the
+    /// later run's carried count.
+    fn check_pair(
+        case: &Case<'_>,
+        input: &Input,
+        segments: &[reference::GraphSegment],
+        (fresh, fresh_store): (&GraphRestrictRun, &MemoryStore),
+        earlier: &Earlier<'_>,
+    ) -> u32 {
+        let earlier_input =
+            segmented_runner::bound_input(earlier.graph, case.partition, earlier.binding);
+        let earlier_segments = reference::partition_graph(earlier.graph, case.partition)
+            .expect("reference split of the earlier graph");
+        let context = format!(
+            "{:?} under {:?} after {:?} stopped at {:?}",
+            case.graph, case.partition, earlier.graph, earlier.cancel
+        );
+        let mut store = MemoryStore::default();
+        let before = carrying_run(
+            case.plan,
+            &earlier_input,
+            &earlier_input.bytes,
+            earlier.cancel,
+            None,
+            &mut store,
+        );
+        let mut reference_store = reference::MemoryStore::default();
+        let reference_before = reference_carrying_run(
+            case,
+            &earlier_segments,
+            earlier.binding,
+            earlier.cancel,
+            None,
+            &mut reference_store,
+        );
+        assert_eq!(
+            before.run.map(|run| run.0),
+            Some(reference_before.run.0),
+            "earlier run identity of {context}"
+        );
+        let source = CountingSource::new(&input.bytes);
+        let reuse = Some(earlier_input.manifest.digest());
+        let later = carrying_run(case.plan, input, &source, None, reuse, &mut store);
+        let expected =
+            reference_carrying_run(case, segments, None, None, reuse, &mut reference_store);
+        assert_eq!(
+            seen_production(&later.report),
+            seen_reference(&expected.report),
+            "carrying run of {context}"
+        );
+        assert_eq!(
+            counts_summed(seen_production(&later.report)),
+            counts_summed(seen_production(&fresh.report)),
+            "everything but the reuse counts of {context}"
+        );
+        assert_eq!(later.run, fresh.run, "{context}");
+        assert_eq!(later.manifest, fresh.manifest, "{context}");
+        assert_eq!(
+            committed(&store, &later),
+            committed(fresh_store, fresh),
+            "committed artifacts of {context}"
+        );
+        assert_eq!(
+            store.journal(&later.run.expect("a run identity")),
+            fresh_store.journal(&fresh.run.expect("a run identity")),
+            "journal of {context}"
+        );
+        let validated = |position: usize| {
+            earlier
+                .cancel
+                .is_none_or(|cancel| position < usize::try_from(cancel).expect("count"))
+        };
+        let unread: Vec<SegmentId> = input
+            .bytes
+            .iter()
+            .enumerate()
+            .filter(|(position, (id, bytes))| {
+                validated(*position) && earlier_input.bytes.get(id) == Some(bytes)
+            })
+            .map(|(_, (id, _))| *id)
+            .collect();
+        let read: Vec<SegmentId> = input
+            .bytes
+            .keys()
+            .filter(|id| !unread.contains(id))
+            .copied()
+            .collect();
+        assert_eq!(
+            source.reads.borrow().clone(),
+            read,
+            "segments read by the carrying run of {context}"
+        );
+        later.report.tasks_reused
+    }
+
+    /// Check one case against the earlier runs over the same segments under
+    /// another binding and over its graph without each edge.
+    fn check_carry(case: &Case<'_>, counts: &mut Counts) {
+        let input = segmented_runner::input(case.graph, case.partition);
+        let segments =
+            reference::partition_graph(case.graph, case.partition).expect("reference split");
+        let mut fresh_store = MemoryStore::default();
+        let fresh = carrying_run(
+            case.plan,
+            &input,
+            &input.bytes,
+            None,
+            None,
+            &mut fresh_store,
+        );
+        assert_eq!(fresh.report.tasks_reused, 0);
+        let total = fresh.report.progress.tasks_total;
+        let done = fresh.report.progress.tasks_done;
+        counts.cases += 1;
+        let tally = |carried: u32, counts: &mut Counts| {
+            counts.pairs += 1;
+            if carried == 0 {
+                counts.carried_none += 1;
+            } else if carried == total - 1 {
+                counts.carried_all += 1;
+            } else {
+                counts.carried_some += 1;
+            }
+        };
+        for cancel in (0..=total).map(Some).chain([None]) {
+            let earlier = Earlier {
+                graph: case.graph,
+                binding: Some(Digest(BINDING)),
+                cancel,
+            };
+            let carried = check_pair(case, &input, &segments, (&fresh, &fresh_store), &earlier);
+            let committed = cancel.unwrap_or(total).min(done);
+            assert_eq!(
+                carried,
+                committed.min(total - 1),
+                "the same segments carry every committed task but Seal, earlier run stopped at {cancel:?}"
+            );
+            tally(carried, counts);
+        }
+        for edge in case.graph.edges.keys() {
+            let mut graph = case.graph.clone();
+            graph.edges.remove(edge);
+            let earlier = Earlier {
+                graph: &graph,
+                binding: None,
+                cancel: None,
+            };
+            let carried = check_pair(case, &input, &segments, (&fresh, &fresh_store), &earlier);
+            tally(carried, counts);
+        }
+    }
+
+    /// Every `STRIDE`th case of the segmented restrict carrier.
+    const STRIDE: usize = 97;
+
+    #[test]
+    fn carrying_tasks_over_changes_nothing_but_the_reuse_counts_on_every_97th_case() {
+        use panproto_reference::enumerate::segments::segmented_restrict_cases;
+        let mut counts = Counts::default();
+        let mut plan: Option<(RefSchema, RefMigration, RestrictPlan)> = None;
+        let mut expected_pairs = 0_u64;
+        for case in segmented_restrict_cases().step_by(STRIDE) {
+            let fresh =
+                !matches!(&plan, Some((s, m, _)) if *s == case.schema && *m == case.migration);
+            if fresh {
+                let schema = prod_schema(&case.schema);
+                let compiled =
+                    RestrictPlan::compile(&schema, &schema, &prod_migration(&case.migration))
+                        .expect("release plans compile");
+                plan = Some((case.schema.clone(), case.migration.clone(), compiled));
+            }
+            let Some((_, _, compiled)) = &plan else {
+                unreachable!("a plan was just compiled")
+            };
+            let segments = u64::try_from(case.partition.specs.len()).expect("count");
+            let edges = u64::try_from(case.graph.edges.len()).expect("count");
+            expected_pairs += (4 * segments + 3) + 1 + edges;
+            check_carry(
+                &Case {
+                    source: &case.schema,
+                    target: &case.schema,
+                    migration: &case.migration,
+                    plan: compiled,
+                    graph: &case.graph,
+                    partition: &case.partition,
+                },
+                &mut counts,
+            );
+        }
+        assert_eq!(counts.cases, 128_240_u64.div_ceil(97));
+        assert_eq!(counts.pairs, expected_pairs);
+        assert!(
+            counts.carried_all > 0 && counts.carried_some > 0 && counts.carried_none > 0,
+            "every kind of pair occurs: {counts:?}"
+        );
+    }
+
+    #[test]
+    fn a_carrying_run_stopped_by_a_failed_commit_at_each_task_resumes_to_the_uninterrupted_run() {
+        let (schema, graph) = (hidden_path_fixture().0, hidden_path_fixture().2);
+        let migration = keep_everything(&schema);
+        let plan = compile(&schema, &schema, &migration);
+        let split = partition(&[&[0, 3], &[1, 4], &[2]], Some(10), Some(10));
+        let input = segmented_runner::input(&graph, &split);
+        let earlier = segmented_runner::bound_input(&graph, &split, Some(Digest(BINDING)));
+        let reuse = Some(earlier.manifest.digest());
+        let mut baseline_store = MemoryStore::default();
+        carrying_run(
+            &plan,
+            &earlier,
+            &earlier.bytes,
+            None,
+            None,
+            &mut baseline_store,
+        );
+        let baseline = carrying_run(
+            &plan,
+            &input,
+            &input.bytes,
+            None,
+            reuse,
+            &mut baseline_store,
+        );
+        assert!(
+            matches!(baseline.report.status, RunStatus::Complete { .. }),
+            "{:?}",
+            baseline.report.status
+        );
+        let total = baseline.report.progress.tasks_total;
+        assert_eq!(
+            (baseline.report.tasks_run, baseline.report.tasks_reused),
+            (1, total - 1),
+            "every task but Seal is carried over"
+        );
+        for fail_at in 1..=total {
+            let mut store = FailingStore {
+                inner: MemoryStore::default(),
+                commits: 0,
+                fail_at: None,
+            };
+            graph_restrict(&plan, &earlier, None, &mut store);
+            store.fail_at = Some(store.commits + usize::try_from(fail_at).expect("count"));
+            let failed = graph_restrict(&plan, &input, reuse, &mut store);
+            assert!(
+                matches!(&failed.report.status, RunStatus::Incomplete { .. }),
+                "{:?}",
+                failed.report.status
+            );
+            assert_eq!(failed.report.progress.tasks_done, fail_at - 1);
+            assert_eq!(failed.report.orphans.len(), 1, "the failed task's artifact");
+            store.fail_at = None;
+            let resumed = graph_restrict(&plan, &input, reuse, &mut store);
+            assert_eq!(
+                (resumed.report.tasks_run, resumed.report.tasks_reused),
+                (1, total - 1),
+                "a resumed carrying run after commit {fail_at}"
+            );
+            assert_eq!(resumed.report.orphans, Vec::<ArtifactKey>::new());
+            assert_eq!(resumed.manifest, baseline.manifest);
+            assert_eq!(
+                format!("{:?}", resumed.report.status),
+                format!("{:?}", baseline.report.status)
+            );
+        }
+    }
+
+    /// A run of `plan` over `input` in a failing store.
+    fn graph_restrict(
+        plan: &RestrictPlan,
+        input: &Input,
+        reuse: Option<Digest>,
+        store: &mut FailingStore,
+    ) -> GraphRestrictRun {
+        use panproto_inst::segment::{Budget, RunSpec, graph_restrict_run};
+        graph_restrict_run(
+            plan,
+            &input.manifest,
+            &input.bytes,
+            RunSpec {
+                lens: Digest([3; 32]),
+                input: input.manifest.digest(),
+                output_schema: Digest([2; 32]),
+                cancel_after_tasks: None,
+                reuse,
+            },
+            Budget::unlimited(),
+            store,
+            &mut |_| {},
+        )
     }
 }
 
@@ -5600,6 +6109,7 @@ mod segmented_extend_run {
                     input: self.input.manifest.digest(),
                     output_schema: Digest(TARGET_SCHEMA),
                     cancel_after_tasks: cancel,
+                    reuse: None,
                 },
                 budget,
                 store,

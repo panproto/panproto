@@ -1459,6 +1459,7 @@ pub fn put_segmented_run<Src: SegmentSource, C: SegmentSource, St: SegmentStore>
         input,
         output_schema: identity.source_schema,
         cancel_after_tasks,
+        reuse: None,
     };
     let put = GraphPut {
         lens,

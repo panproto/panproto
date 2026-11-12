@@ -54,6 +54,17 @@
 //! cancelled after any number of tasks and resumed against the same store
 //! produces the artifacts and manifest of an uninterrupted run.
 //!
+//! A run may also carry tasks over from an earlier run of the same
+//! operation, lens and partition over another input manifest
+//! ([`RunSpec::reuse`]). A task of a portable phase
+//! ([`PhaseOperation::portable`]) is carried over when the earlier run
+//! journaled it with the same inputs digest and every Validate task it reads
+//! through (the segment's own for Export, every segment's for Summarize,
+//! Assemble and Emit) has the same output there; its artifact is then copied
+//! into this run and counted as reused. A Validate task carried over reads nothing from the segment
+//! source, so a run after an edit reads from its source only the segments
+//! whose records changed.
+//!
 //! The budget is checked deterministically: the working set of every input
 //! segment ([`MemoryModel`]) and the number of segments before the first
 //! task, the bytes the coordinator holds (the summaries and its own
@@ -285,6 +296,11 @@ pub struct RunSpec {
     pub output_schema: Digest,
     /// Stop once this many tasks are committed or reused.
     pub cancel_after_tasks: Option<u32>,
+    /// The trusted digest of the input manifest of an earlier run of the
+    /// same operation, lens, partition and output schema, whose committed
+    /// tasks this run may carry over ([`PhaseOperation::portable`]), or
+    /// `None` to carry over nothing.
+    pub reuse: Option<Digest>,
 }
 
 /// The caller's source of input segments: each segment's canonical bytes.
@@ -1185,6 +1201,19 @@ pub trait PhaseOperation {
         Ok(None)
     }
 
+    /// Whether a task of `phase` is a function of the artifacts its input
+    /// digest names, the lens identity, the partition, the output schema
+    /// and the segments the run reads, and of nothing else, so that a run
+    /// over another input manifest may carry it over ([`RunSpec::reuse`]).
+    ///
+    /// A phase whose task reads the input manifest beyond its own segment's
+    /// record is not portable. The runner never carries a Seal task, whose
+    /// manifest names the input. The default carries nothing.
+    fn portable(&self, phase: Phase) -> bool {
+        let _ = phase;
+        false
+    }
+
     /// The working-set estimate of the input segment `record` describes,
     /// checked against [`Budget::working_set`] before any task.
     ///
@@ -1392,6 +1421,10 @@ impl PhaseOperation for GraphRestrict<'_> {
         graph_restrict_locality(self.plan)
     }
 
+    fn portable(&self, phase: Phase) -> bool {
+        phase != Phase::Seal
+    }
+
     fn export(
         &self,
         cx: &PhaseContext<'_>,
@@ -1535,7 +1568,39 @@ struct Runner<'a, O: PhaseOperation, Src, St> {
     run: Digest,
     peak: u64,
     outputs: BTreeMap<TaskKey, Digest>,
+    earlier: Option<Earlier>,
     report: SegmentRunReport<O::Error>,
+}
+
+/// The earlier run a run may carry tasks over from ([`RunSpec::reuse`]).
+struct Earlier {
+    /// Its identity.
+    run: Digest,
+    /// Its journal, read before the first task.
+    journal: RunJournal,
+    /// The segments it validated.
+    validated: Vec<SegmentId>,
+}
+
+/// Where a task's artifact came from.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Obtained {
+    /// This run's journal, committed by an earlier invocation.
+    Journaled,
+    /// The journal of the earlier run named by [`RunSpec::reuse`].
+    Carried,
+    /// Computed by this invocation.
+    Computed,
+}
+
+/// An artifact that need not be computed, and where it came from.
+type Found = (Vec<u8>, Obtained);
+
+impl Obtained {
+    /// Whether the task counts as reused.
+    const fn reused(self) -> bool {
+        !matches!(self, Self::Computed)
+    }
 }
 
 impl<O: PhaseOperation, Src: SegmentSource, St: SegmentStore> Runner<'_, O, Src, St> {
@@ -1580,13 +1645,110 @@ impl<O: PhaseOperation, Src: SegmentSource, St: SegmentStore> Runner<'_, O, Src,
         })
     }
 
-    /// The digest of task `task`'s inputs, from the outputs of `from`.
-    fn inputs(&self, task: TaskKey, from: &[TaskKey]) -> Digest {
+    /// The digest of task `task`'s inputs, from the outputs of `from` and
+    /// the further digests `extra`.
+    fn inputs(&self, task: TaskKey, from: &[TaskKey], extra: &[Digest]) -> Digest {
         let digests: Vec<Digest> = from
             .iter()
             .filter_map(|key| self.outputs.get(key).copied())
+            .chain(extra.iter().copied())
             .collect();
         TaskRecord::inputs_digest(&self.spec.lens, task, &digests)
+    }
+
+    /// Read the journal of the earlier run [`RunSpec::reuse`] names, when it
+    /// is another run than this one.
+    fn read_earlier(&mut self) -> Result<(), Stop<O::Error>> {
+        let Some(input) = self.spec.reuse else {
+            return Ok(());
+        };
+        let run = RunJournal::run_digest(&self.spec.lens, &input, &self.partition, self.op.op());
+        if run == self.run {
+            return Ok(());
+        }
+        let journal = self.store.journal(&run).map_err(store_stop)?;
+        let validated = journal
+            .tasks
+            .keys()
+            .filter(|key| key.phase == Phase::Validate)
+            .filter_map(|key| key.segment)
+            .collect();
+        self.earlier = Some(Earlier {
+            run,
+            journal,
+            validated,
+        });
+        Ok(())
+    }
+
+    /// The Validate tasks task `task` reads through the artifacts it reads:
+    /// none for Validate, the segment's own for Export, and every segment's
+    /// for Summarize, Assemble and Emit, which read every Export.
+    fn sources(&self, task: TaskKey) -> Vec<TaskKey> {
+        match (task.phase, task.segment) {
+            (Phase::Validate, _) => Vec::new(),
+            (Phase::Export, Some(segment)) => vec![validate_key(segment)],
+            _ => self.ids.iter().copied().map(validate_key).collect(),
+        }
+    }
+
+    /// The artifact of `task` in the earlier run, when it may be carried
+    /// over: the operation's phase is portable, the task is not Seal, the
+    /// earlier run journaled it with the same inputs digest, a task after
+    /// Validate finds that the earlier run validated the segments this run
+    /// reads with the same output for every Validate task it reads
+    /// ([`Self::sources`]), and the stored artifact hashes to the recorded
+    /// output.
+    fn carried(
+        &self,
+        task: TaskKey,
+        kind: ArtifactKind,
+        inputs: &Digest,
+    ) -> Result<Option<Vec<u8>>, Stop<O::Error>> {
+        let Some(earlier) = &self.earlier else {
+            return Ok(None);
+        };
+        if task.phase == Phase::Seal || !self.op.portable(task.phase) {
+            return Ok(None);
+        }
+        let Some(record) = earlier.journal.tasks.get(&task) else {
+            return Ok(None);
+        };
+        let agrees = record.inputs == *inputs
+            && (task.phase == Phase::Validate || earlier.validated == self.ids)
+            && self.sources(task).iter().all(|key| {
+                earlier.journal.tasks.get(key).map(|record| record.output)
+                    == self.outputs.get(key).copied()
+            });
+        if !agrees {
+            return Ok(None);
+        }
+        let key = ArtifactKey {
+            run: earlier.run,
+            task,
+            kind,
+        };
+        let Some(bytes) = self.store.read(&key).map_err(store_stop)? else {
+            return Ok(None);
+        };
+        let intact = length(&bytes) == record.bytes && artifact_digest(&bytes) == record.output;
+        Ok(intact.then_some(bytes))
+    }
+
+    /// The artifact of `task` when it need not be computed: committed by
+    /// this run with the same inputs, or carried over from the earlier run.
+    fn prior(
+        &self,
+        task: TaskKey,
+        kind: ArtifactKind,
+        inputs: &Digest,
+    ) -> Result<Option<Found>, Stop<O::Error>> {
+        if let Some(bytes) = self.reusable(task, kind, inputs)? {
+            return Ok(Some((bytes, Obtained::Journaled)));
+        }
+        Ok(self
+            .carried(task, kind, inputs)?
+            .map(|bytes| (bytes, Obtained::Carried)))
     }
 
     /// The committed artifact of `task`, when it may be reused.
@@ -1645,8 +1807,9 @@ impl<O: PhaseOperation, Src: SegmentSource, St: SegmentStore> Runner<'_, O, Src,
         (self.progress)(&self.report.progress);
     }
 
-    /// Run one task with inputs `inputs`: reuse its artifact or compute
-    /// and commit it.
+    /// Run one task with inputs `inputs`: reuse its artifact, carry it over
+    /// from the earlier run, or compute it, and commit what this run's
+    /// journal does not hold.
     fn task(
         &mut self,
         task: TaskKey,
@@ -1654,14 +1817,28 @@ impl<O: PhaseOperation, Src: SegmentSource, St: SegmentStore> Runner<'_, O, Src,
         compute: impl FnOnce(&Self) -> Result<Vec<u8>, Stop<O::Error>>,
     ) -> Result<Vec<u8>, Stop<O::Error>> {
         let kind = phase_artifact(task.phase);
-        if let Some(bytes) = self.reusable(task, kind, &inputs)? {
-            self.account(task, &bytes, true);
-            return Ok(bytes);
-        }
-        let bytes = compute(self)?;
-        self.commit(task, kind, inputs, &bytes)?;
-        self.account(task, &bytes, false);
+        let (bytes, obtained) = match self.prior(task, kind, &inputs)? {
+            Some(found) => found,
+            None => (compute(self)?, Obtained::Computed),
+        };
+        self.finish_task(task, inputs, &bytes, obtained)?;
         Ok(bytes)
+    }
+
+    /// Commit a task's artifact unless this run's journal holds it, and
+    /// account the task.
+    fn finish_task(
+        &mut self,
+        task: TaskKey,
+        inputs: Digest,
+        bytes: &[u8],
+        obtained: Obtained,
+    ) -> Result<(), Stop<O::Error>> {
+        if obtained != Obtained::Journaled {
+            self.commit(task, phase_artifact(task.phase), inputs, bytes)?;
+        }
+        self.account(task, bytes, obtained.reused());
+        Ok(())
     }
 
     /// Close a phase's accounting, the phase holding `peak` bytes at once.
@@ -1717,7 +1894,7 @@ impl<O: PhaseOperation, Src: SegmentSource, St: SegmentStore> Runner<'_, O, Src,
             if self.cancelled() {
                 return Err(Stop::Cancelled);
             }
-            let inputs = self.inputs(export_key(id), &[validate_key(id)]);
+            let inputs = self.inputs(export_key(id), &[validate_key(id)], &[]);
             self.task(export_key(id), inputs, |runner| {
                 Ok(runner.with_cx(|cx| runner.op.export(cx, id))?)
             })?;
@@ -1735,7 +1912,7 @@ impl<O: PhaseOperation, Src: SegmentSource, St: SegmentStore> Runner<'_, O, Src,
             }
             let mut from = vec![validate_key(id)];
             from.extend(&exports);
-            let inputs = self.inputs(summary_key(id), &from);
+            let inputs = self.inputs(summary_key(id), &from, &[]);
             self.task(summary_key(id), inputs, |runner| {
                 Ok(runner.with_cx(|cx| runner.op.summarize(cx, id))?)
             })?;
@@ -1755,10 +1932,10 @@ impl<O: PhaseOperation, Src: SegmentSource, St: SegmentStore> Runner<'_, O, Src,
         }
         let task = assemble_key();
         let kind = ArtifactKind::Assembly;
-        let inputs = self.inputs(task, &from);
-        let (bytes, reused) = match self.reusable(task, kind, &inputs)? {
-            Some(bytes) => (bytes, true),
-            None => (self.with_cx(|cx| self.op.assemble(cx))?, false),
+        let inputs = self.inputs(task, &from, &[]);
+        let (bytes, obtained) = match self.prior(task, kind, &inputs)? {
+            Some(found) => found,
+            None => (self.with_cx(|cx| self.op.assemble(cx))?, Obtained::Computed),
         };
         let mut needed = length(&bytes);
         for id in self.ids() {
@@ -1774,10 +1951,7 @@ impl<O: PhaseOperation, Src: SegmentSource, St: SegmentStore> Runner<'_, O, Src,
                 budget: self.budget.summary,
             })));
         }
-        if !reused {
-            self.commit(task, kind, inputs, &bytes)?;
-        }
-        self.account(task, &bytes, reused);
+        self.finish_task(task, inputs, &bytes, obtained)?;
         self.finish_phase(Phase::Assemble, before, self.peak);
         Ok(())
     }
@@ -1818,10 +1992,10 @@ impl<O: PhaseOperation, Src: SegmentSource, St: SegmentStore> Runner<'_, O, Src,
             let kind = ArtifactKind::ComplementSegment;
             let mut from = vec![validate_key(id)];
             from.extend(&shared);
-            let inputs = self.inputs(task, &from);
-            let (bytes, reused) = match self.reusable(task, kind, &inputs)? {
-                Some(bytes) => (bytes, true),
-                None => (self.emit_artifact(id)?, false),
+            let inputs = self.inputs(task, &from, &[self.spec.output_schema]);
+            let (bytes, obtained) = match self.prior(task, kind, &inputs)? {
+                Some(found) => found,
+                None => (self.emit_artifact(id)?, Obtained::Computed),
             };
             let (layout, _, complement) = decode_emit(&bytes)?;
             let (elements, size) = (layout.elements, length(complement));
@@ -1837,10 +2011,7 @@ impl<O: PhaseOperation, Src: SegmentSource, St: SegmentStore> Runner<'_, O, Src,
                     budget: limit,
                 })));
             }
-            if !reused {
-                self.commit(task, kind, inputs, &bytes)?;
-            }
-            self.account(task, &bytes, reused);
+            self.finish_task(task, inputs, &bytes, obtained)?;
             let complement = &mut self.report.complement;
             complement.elements = complement.elements.saturating_add(elements);
             complement.bytes = needed;
@@ -1955,7 +2126,7 @@ impl<O: PhaseOperation, Src: SegmentSource, St: SegmentStore> Runner<'_, O, Src,
         }
         let before = self.counts();
         let from: Vec<TaskKey> = self.ids().into_iter().map(emit_key).collect();
-        let inputs = self.inputs(seal_key(), &from);
+        let inputs = self.inputs(seal_key(), &from, &[]);
         let (manifest, held) = self.sealed()?;
         let computed = manifest.canonical_bytes();
         let bytes = self.task(seal_key(), inputs, |_| Ok(computed.clone()))?;
@@ -1970,6 +2141,7 @@ impl<O: PhaseOperation, Src: SegmentSource, St: SegmentStore> Runner<'_, O, Src,
     }
 
     fn phases(&mut self) -> Result<SegmentManifest, Stop<O::Error>> {
+        self.read_earlier()?;
         self.validate()?;
         self.exports()?;
         self.summaries()?;
@@ -2188,8 +2360,22 @@ fn preflight<O: PhaseOperation>(
 /// the operation's role, reading each Emit artifact a section at a time, or,
 /// for an operation with an affected set, reseals the input manifest with
 /// the rewritten records.
-/// `progress` is called after every committed or reused task, and the run
-/// stops once `spec.cancel_after_tasks` tasks are done.
+/// Emit's input digest also names `spec.output_schema`. `progress` is called
+/// after every committed or reused task, and the run stops once
+/// `spec.cancel_after_tasks` tasks are done.
+///
+/// With `spec.reuse` naming the input manifest of an earlier run of the same
+/// operation, lens and partition, the earlier run's journal is read before
+/// the first task, and a task the runner would otherwise compute is carried
+/// over from it, copied and committed under this run, when its phase is
+/// portable ([`PhaseOperation::portable`]), it is not Seal, the earlier run
+/// journaled it with the same inputs digest, a task after Validate finds
+/// the same segments validated in both runs and the same output for every
+/// Validate task it reads through (the segment's own for Export, every
+/// segment's for Summarize, Assemble and Emit), and the earlier artifact
+/// hashes to its record. A
+/// carried task counts as reused and changes no artifact, manifest or
+/// report field beyond the counts of computed and reused tasks.
 pub fn run_segmented<O: PhaseOperation, Src: SegmentSource, St: SegmentStore>(
     op: &O,
     input: &SegmentManifest,
@@ -2258,6 +2444,7 @@ pub fn run_segmented<O: PhaseOperation, Src: SegmentSource, St: SegmentStore>(
         run,
         peak,
         outputs: BTreeMap::new(),
+        earlier: None,
         report,
     };
     let manifest = match runner.phases() {
