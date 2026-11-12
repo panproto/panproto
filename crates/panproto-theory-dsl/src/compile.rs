@@ -23,49 +23,121 @@ use crate::document::{
     MorphismSpec, ProtocolSpec, TheoryBody, TheoryDocument, TheorySpec,
 };
 use crate::error::TheoryDslError;
+use crate::path::DocumentPath;
 
-/// Compile a document with source text on hand, producing spanned
-/// diagnostics when typechecking fails.
+/// The surface syntax of a document's source text.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SourceFormat {
+    /// Nickel, evaluated with the bundled contract library.
+    Nickel,
+    /// JSON.
+    Json,
+    /// YAML.
+    Yaml,
+}
+
+/// Attach the source text and the byte range of the refused element to a
+/// refusal.
 ///
-/// This is the variant callers use when they want miette-rendered
-/// errors pointing at the offending location in the original source.
-/// Currently populates spans only for JSON and YAML surfaces; Nickel
-/// sources fall through to the un-spanned path because evaluation
-/// loses the original text positions.
-///
-/// # Errors
-///
-/// Same as [`compile`], except that typecheck failures are upgraded
-/// to [`TheoryDslError::TypeCheckSpanned`] when a span can be located
-/// in the original source.
-pub fn compile_with_source(
-    doc: &TheoryDocument,
-    source: &str,
-    resolver: &dyn Fn(&str) -> Option<Theory>,
-) -> Result<CompiledTheorySet, TheoryDslError> {
-    match compile(doc, resolver) {
-        Ok(set) => Ok(set),
-        Err(TheoryDslError::TypeCheck { theory, message }) => {
-            // Find the first occurrence of the theory name as a JSON
-            // field or string value; this locates the offending
-            // declaration for miette's renderer.
-            let span = find_name_span(source, &theory).unwrap_or_else(|| (0, 0).into());
-            Err(TheoryDslError::TypeCheckSpanned {
-                theory,
-                message,
-                src: source.to_owned(),
-                span,
-            })
-        }
-        Err(e) => Err(e),
+/// A refusal that names a document path is located with
+/// [`crate::path::locate_json`] when `source` is JSON text; a refusal of
+/// another source, or of JSON text in which the path names no value, is
+/// returned as it is, still naming its path.
+fn spanned(error: TheoryDslError, source: &str, format: SourceFormat) -> TheoryDslError {
+    if format != SourceFormat::Json {
+        return error;
+    }
+    let Some(path) = error.path().cloned() else {
+        return error;
+    };
+    match crate::path::locate_json(source, &path) {
+        Some((offset, length)) => TheoryDslError::Spanned {
+            path: Some(path),
+            src: source.to_owned(),
+            span: miette::SourceSpan::new(offset.into(), length),
+            error: Box::new(error),
+        },
+        None => error,
     }
 }
 
-fn find_name_span(source: &str, name: &str) -> Option<miette::SourceSpan> {
-    let needle = format!("\"{name}\"");
-    source
-        .find(&needle)
-        .map(|i| miette::SourceSpan::new(i.into(), needle.len()))
+/// Read a document from its source text.
+///
+/// JSON and YAML text is parsed to a value, and Nickel text evaluated to
+/// one, and the value is read by [`crate::shape::read_document`].
+///
+/// # Errors
+///
+/// A JSON syntax error is [`TheoryDslError::Spanned`] around a
+/// [`TheoryDslError::Json`], its span the one byte at which the JSON reader
+/// stopped (empty at the end of the text). A YAML syntax error is
+/// [`TheoryDslError::Yaml`]. A Nickel evaluation error is
+/// [`TheoryDslError::NickelEvalSpanned`] when Nickel's diagnostic locates
+/// it in `source` and [`TheoryDslError::NickelEval`] otherwise. A value
+/// the grammar refuses is [`TheoryDslError::Shape`], wrapped in
+/// [`TheoryDslError::Spanned`] for JSON text.
+pub fn read_source(source: &str, format: SourceFormat) -> Result<TheoryDocument, TheoryDslError> {
+    let value = match format {
+        SourceFormat::Json => serde_json::from_str::<serde_json::Value>(source).map_err(|e| {
+            let offset = byte_offset(source, e.line(), e.column());
+            let length = usize::from(offset < source.len());
+            TheoryDslError::Spanned {
+                path: None,
+                src: source.to_owned(),
+                span: miette::SourceSpan::new(offset.into(), length),
+                error: Box::new(TheoryDslError::Json(e)),
+            }
+        })?,
+        SourceFormat::Yaml => crate::eval::yaml_value(source)?,
+        SourceFormat::Nickel => crate::eval::nickel_value(source, &[])?,
+    };
+    crate::shape::read_document(&value).map_err(|e| spanned(e, source, format))
+}
+
+/// The byte offset of the 1-based `line` and `column` that `serde_json`
+/// reports, clamped to the text: the column counts the bytes read on the
+/// line, so the byte named is the one before it.
+fn byte_offset(source: &str, line: usize, column: usize) -> usize {
+    let line_start: usize = source
+        .split_inclusive('\n')
+        .take(line.saturating_sub(1))
+        .map(str::len)
+        .sum();
+    (line_start + column.saturating_sub(1)).min(source.len())
+}
+
+/// Read a document from its source text and compile it with [`compile`],
+/// locating every refusal in `source`.
+///
+/// # Errors
+///
+/// The errors of [`read_source`] and of [`compile`]. A compile refusal
+/// names the document path of the element refused; for JSON text it is
+/// wrapped in [`TheoryDslError::Spanned`] whose span is the byte range of
+/// that element's value as written.
+pub fn compile_source(
+    source: &str,
+    format: SourceFormat,
+    resolver: &dyn Fn(&str) -> Option<Theory>,
+) -> Result<CompiledTheorySet, TheoryDslError> {
+    let doc = read_source(source, format)?;
+    compile_with_source(&doc, source, format, resolver)
+}
+
+/// Compile a document read from `source`, locating every refusal in it.
+///
+/// # Errors
+///
+/// The errors of [`compile`]; for JSON text a refusal that names a document
+/// path is wrapped in [`TheoryDslError::Spanned`] whose span is the byte
+/// range of that element's value in `source`.
+pub fn compile_with_source(
+    doc: &TheoryDocument,
+    source: &str,
+    format: SourceFormat,
+    resolver: &dyn Fn(&str) -> Option<Theory>,
+) -> Result<CompiledTheorySet, TheoryDslError> {
+    compile(doc, resolver).map_err(|e| spanned(e, source, format))
 }
 
 /// Compile a [`TheoryDocument`], enforcing coercion laws on every
@@ -120,7 +192,8 @@ pub fn compile_with_registry(
     let mut names: Vec<&String> = set.theories.keys().collect();
     names.sort();
     for name in names {
-        crate::compile_theory::enforce_coercion_laws(&set.theories[name], registry, "x")?;
+        crate::compile_theory::enforce_coercion_laws(&set.theories[name], registry, "x")
+            .map_err(|e| e.within(&theory_path(&doc.body, name)))?;
     }
     Ok(set)
 }
@@ -136,12 +209,15 @@ pub fn compile_with_registry(
 /// # Errors
 ///
 /// Returns errors from body validation, theory resolution, or
-/// compilation of the specific body variant.
+/// compilation of the specific body variant. Every refusal names a
+/// document path: it is a [`TheoryDslError::At`] or a
+/// [`TheoryDslError::Shape`] whose path is that of the element refused, or
+/// the root when the refusal concerns the body as a whole.
 pub fn compile_unchecked(
     doc: &TheoryDocument,
     resolver: &dyn Fn(&str) -> Option<Theory>,
 ) -> Result<CompiledTheorySet, TheoryDslError> {
-    match &doc.body {
+    let compiled = match &doc.body {
         TheoryBody::Theory(spec) => compile_single_theory(&doc.id, spec, resolver),
         TheoryBody::Morphism(spec) => compile_single_morphism(&doc.id, spec, resolver),
         TheoryBody::Composition(body) => compile_single_composition(&doc.id, body, resolver),
@@ -150,7 +226,25 @@ pub fn compile_unchecked(
         TheoryBody::Class(spec) => compile_single_class(&doc.id, spec),
         TheoryBody::Instance(spec) => compile_single_instance(&doc.id, spec, resolver),
         TheoryBody::Inductive(spec) => compile_single_inductive(&doc.id, spec),
+    };
+    compiled.map_err(|e| e.within(&DocumentPath::root()))
+}
+
+/// The path of the declaration of theory `name` in a document body: a
+/// bundle's theory or composition by its index, and the body itself
+/// otherwise.
+fn theory_path(body: &TheoryBody, name: &str) -> DocumentPath {
+    let root = DocumentPath::root();
+    let TheoryBody::Bundle(bundle) = body else {
+        return root;
+    };
+    if let Some(index) = bundle.theories.iter().position(|t| t.theory == name) {
+        return root.key("theories").index(index);
     }
+    if let Some(index) = bundle.compositions.iter().position(|c| c.result == name) {
+        return root.key("compositions").index(index);
+    }
+    root
 }
 
 fn compile_single_inductive(
@@ -260,7 +354,8 @@ fn compile_single_composition(
     resolver: &dyn Fn(&str) -> Option<Theory>,
 ) -> Result<CompiledTheorySet, TheoryDslError> {
     let local = HashMap::new();
-    let composed = compile_composition_with_report(body, resolver, &local)?;
+    let composed = compile_composition_with_report(body, resolver, &local)
+        .map_err(|e| step_located(e).within(&DocumentPath::root().key("compose")))?;
     let name = composed.theory.name.to_string();
     let mut theories = HashMap::new();
     theories.insert(name.clone(), composed.theory);
@@ -276,6 +371,16 @@ fn compile_single_composition(
         composition_specs,
         composition_reports,
     })
+}
+
+/// A composition refusal that names its step, located at that step.
+fn step_located(error: TheoryDslError) -> TheoryDslError {
+    match error {
+        TheoryDslError::ColimitFailed { step, .. } => {
+            error.within(&DocumentPath::root().key("steps").index(step))
+        }
+        other => other,
+    }
 }
 
 fn compile_single_protocol(
@@ -348,30 +453,37 @@ fn compile_bundle_inner(
     let mut morphisms = HashMap::new();
     let mut protocols = HashMap::new();
 
-    // Phase 1: Compile all theories (no intra-bundle dependencies).
-    for spec in &bundle.theories {
+    let root = DocumentPath::root();
+    // Phase 1: Compile the theories in listed order; each sees the theories
+    // listed before it.
+    for (index, spec) in bundle.theories.iter().enumerate() {
+        let at = root.key("theories").index(index);
         let theories = &mut recorded.theories;
         if theories.contains_key(&spec.theory) {
             return Err(TheoryDslError::Duplicate {
                 kind: "theory".to_owned(),
                 name: spec.theory.clone(),
-            });
+            }
+            .within(&at.key("theory")));
         }
         let combined = |name: &str| -> Option<Theory> {
             theories.get(name).cloned().or_else(|| resolver(name))
         };
-        let theory = crate::compile_theory::compile_theory_with_resolver(spec, &combined)?;
+        let theory = crate::compile_theory::compile_theory_with_resolver(spec, &combined)
+            .map_err(|e| e.within(&at))?;
         theories.insert(spec.theory.clone(), theory);
     }
 
     // Phase 2: Compile all compositions (may reference bundle theories).
-    for spec in &bundle.compositions {
+    for (index, spec) in bundle.compositions.iter().enumerate() {
+        let at = root.key("compositions").index(index);
         let theories = &recorded.theories;
         if theories.contains_key(&spec.result) {
             return Err(TheoryDslError::Duplicate {
                 kind: "theory (from composition)".to_owned(),
                 name: spec.result.clone(),
-            });
+            }
+            .within(&at.key("result")));
         }
         let body = CompositionBody {
             compose: spec.clone(),
@@ -379,23 +491,26 @@ fn compile_bundle_inner(
         let combined = |name: &str| -> Option<Theory> {
             theories.get(name).cloned().or_else(|| resolver(name))
         };
-        let composed = compile_composition_with_report(&body, &combined, theories)?;
+        let composed = compile_composition_with_report(&body, &combined, theories)
+            .map_err(|e| step_located(e).within(&at))?;
         recorded.insert(composed);
     }
 
     // Phase 3: Compile all morphisms (reference theories by name).
-    for spec in &bundle.morphisms {
+    for (index, spec) in bundle.morphisms.iter().enumerate() {
+        let at = root.key("morphisms").index(index);
         let theories = &recorded.theories;
         if morphisms.contains_key(&spec.morphism) {
             return Err(TheoryDslError::Duplicate {
                 kind: "morphism".to_owned(),
                 name: spec.morphism.clone(),
-            });
+            }
+            .within(&at.key("morphism")));
         }
         let combined = |name: &str| -> Option<Theory> {
             theories.get(name).cloned().or_else(|| resolver(name))
         };
-        let morphism = compile_morphism(spec, &combined)?;
+        let morphism = compile_morphism(spec, &combined).map_err(|e| e.within(&at))?;
         morphisms.insert(spec.morphism.clone(), morphism);
     }
 
@@ -404,23 +519,28 @@ fn compile_bundle_inner(
     // compositions are recorded once all protocols are compiled, so no
     // protocol can name another's inline composition, whatever their order.
     let mut inline = Vec::new();
-    for spec in &bundle.protocols {
+    for (index, spec) in bundle.protocols.iter().enumerate() {
+        let at = root.key("protocols").index(index);
         let theories = &recorded.theories;
         if protocols.contains_key(&spec.protocol) {
             return Err(TheoryDslError::Duplicate {
                 kind: "protocol".to_owned(),
                 name: spec.protocol.clone(),
-            });
+            }
+            .within(&at.key("protocol")));
         }
         let combined = |name: &str| -> Option<Theory> {
             theories.get(name).cloned().or_else(|| resolver(name))
         };
-        let compiled = compile_protocol_with_compositions(spec, &combined, theories)?;
+        let compiled = compile_protocol_with_compositions(spec, &combined, theories)
+            .map_err(|e| e.within(&at))?;
         inline.extend(compiled.compositions);
         protocols.insert(spec.protocol.clone(), compiled.protocol);
     }
     for composed in inline {
-        recorded.record_inline(composed)?;
+        recorded
+            .record_inline(composed)
+            .map_err(|e| e.within(&root.key("protocols")))?;
     }
 
     Ok(CompiledTheorySet {
@@ -535,7 +655,7 @@ mod tests {
     fn default_compile_rejects_lying_iso() {
         let doc = lying_iso_document();
         let err = compile(&doc, &no_resolver).expect_err("default compile must reject a lying iso");
-        match err {
+        match err.unlocated() {
             TheoryDslError::CoercionLawViolation {
                 theory,
                 violations,
@@ -544,7 +664,7 @@ mod tests {
                 assert_eq!(theory, "ThLying");
                 assert!(!violations.is_empty());
                 assert!(violations.iter().all(|d| d.equation == "lying_upper_iso"));
-                assert_eq!(distinct_equations, 1);
+                assert_eq!(*distinct_equations, 1);
             }
             other => panic!("expected CoercionLawViolation, got {other:?}"),
         }

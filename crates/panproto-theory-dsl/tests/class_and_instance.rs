@@ -176,8 +176,8 @@ fn instance_binding_missing_op_rejected() -> Result<(), Box<dyn std::error::Erro
     }"#;
     let doc: panproto_theory_dsl::TheoryDocument = serde_json::from_str(source)?;
     let err = compile(&doc, &resolver).expect_err("should reject missing op binding");
-    match err {
-        TheoryDslError::MorphismCheck { ref morphism, .. } => {
+    match err.unlocated() {
+        TheoryDslError::MorphismCheck { morphism, .. } => {
             assert_eq!(morphism, "EqIntPartial");
         }
         other => panic!("expected MorphismCheck, got {other:?}"),
@@ -214,7 +214,7 @@ fn instance_against_mismatched_target_rejected() -> Result<(), Box<dyn std::erro
     let doc: panproto_theory_dsl::TheoryDocument = serde_json::from_str(source)?;
     let err = compile(&doc, &resolver).expect_err("should reject mismatched target op");
     assert!(
-        matches!(err, TheoryDslError::MorphismCheck { .. }),
+        matches!(err.unlocated(), TheoryDslError::MorphismCheck { .. }),
         "expected MorphismCheck, got {err:?}"
     );
     Ok(())
@@ -249,7 +249,7 @@ fn instance_binding_to_unknown_name_rejected() -> Result<(), Box<dyn std::error:
     }"#;
     let doc: panproto_theory_dsl::TheoryDocument = serde_json::from_str(source)?;
     let err = compile(&doc, &resolver).expect_err("should reject unknown binding key");
-    match err {
+    match err.unlocated() {
         TheoryDslError::InstanceBinding { instance, name, .. } => {
             assert_eq!(instance, "EqIntStray");
             assert_eq!(name, "stray");
