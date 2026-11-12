@@ -68,6 +68,7 @@ pub const STEPS: &[&str] = &[
     r#"{"scoped":{"focus":"item","inner":[{"rename_field":{"old":"a","new":"b"}},{"add_field":{"name":"c","kind":"integer","default":1}}]}}"#,
     r#"{"scoped":{"focus":"item","inner":[{"apply_expr":{"field":"a","expr":"(("}}]}}"#,
     r#"{"scoped":{"focus":"item","inner":[]}}"#,
+    r#"{"scoped":{"focus":"item","inner":[{"rename_op":{"old":"f","new":"g"}}]}}"#,
     r#"{"scoped":{"focus":"item","inner":[{"compute_field":{"target":"d","expr":"a"}},{"scoped":{"focus":"leaf","inner":[{"rename_sort":{"old":"s","new":"t"}}]}}]}}"#,
     r#"{"pullback":{"name":"F","domain":"A","codomain":"B","sort_map":{"S":"T"},"op_map":{"f":"g"}}}"#,
     r#"{"coerce_sort":{"sort":"flag","source_kind":"boolean","target_kind":"boolean","expr":"not v","inverse":"not v","coercion":"iso"}}"#,
@@ -236,15 +237,17 @@ pub const PARTS: &[&str] = &[
 pub const MODES: &[&str] = &["vertical", "horizontal"];
 
 /// The composition scope: every part list of at most three parts of
-/// [`PARTS`], in each mode.
+/// [`PARTS`], in each mode, with each `invertible` value.
 #[must_use]
 pub fn compose_documents() -> Vec<String> {
     let mut out = Vec::new();
     for parts in sequences(PARTS, 3) {
         for mode in MODES {
-            out.push(document(&format!(
-                r#""compose":{{"mode":"{mode}","lenses":[{parts}]}}"#
-            )));
+            for invertible in INVERTIBLE {
+                out.push(document(&format!(
+                    r#""compose":{{"mode":"{mode}","lenses":[{parts}]}}{invertible}"#
+                )));
+            }
         }
     }
     out

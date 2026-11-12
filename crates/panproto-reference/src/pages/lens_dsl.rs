@@ -79,9 +79,6 @@ pub enum Refusal {
     DefaultValue,
     /// A rule's name template is malformed.
     RuleCompile,
-    /// A chain to be fused holds a protolens whose source is not the
-    /// identity after its first step.
-    Fuse,
     /// A part of a horizontal composition compiles to the empty chain.
     EmptyHorizontalPart,
     /// A symmetric leg carries a value-level step.
@@ -1282,18 +1279,6 @@ pub enum Proto {
 }
 
 impl Proto {
-    /// Whether the protolens's source endofunctor is the identity: every
-    /// protolens except a horizontal composite, and a fusion whose first
-    /// protolens is not one.
-    #[must_use]
-    pub fn source_is_identity(&self) -> bool {
-        match self {
-            Self::Elementary(_) | Self::Scoped { .. } => true,
-            Self::Fused(chain) => chain.first().is_none_or(Self::source_is_identity),
-            Self::Horizontal(..) => false,
-        }
-    }
-
     /// Whether the protolens keeps no residue: an elementary one by
     /// [`Elementary::lossless`], a scoped one when its inner one is, a
     /// fusion or a horizontal composite when every part is.
@@ -1585,17 +1570,15 @@ fn theory_step(name: &str, spec: &Value, oracles: &Oracles<'_>) -> Step<Vec<Elem
     }])
 }
 
-/// Fuse a chain into one protolens: a single protolens is itself; a longer
-/// chain fuses when every protolens after the first has the identity as
-/// its source.
-fn fuse(chain: Vec<Proto>) -> Result<Proto, Refusal> {
+/// Fuse a non-empty chain into one protolens: a single protolens is
+/// itself, a longer chain its fusion. Every protolens a document compiles
+/// to has the identity as its source (a horizontal composite's is `Id ∘ Id`),
+/// so adjacent protolenses always compose and fusion never refuses.
+fn fuse(mut chain: Vec<Proto>) -> Proto {
     if chain.len() == 1 {
-        return chain.into_iter().next().ok_or(Refusal::Fuse);
-    }
-    if chain.iter().skip(1).all(Proto::source_is_identity) && !chain.is_empty() {
-        Ok(Proto::Fused(chain))
+        chain.remove(0)
     } else {
-        Err(Refusal::Fuse)
+        Proto::Fused(chain)
     }
 }
 
@@ -1608,10 +1591,9 @@ fn scoped(spec: &Value, oracles: &Oracles<'_>) -> Step<Vec<Stage>> {
             let chain = if stage.chain.is_empty() {
                 Vec::new()
             } else {
-                let fused = fuse(stage.chain).or_else(|r| refuse(here.clone(), r))?;
                 vec![Proto::Scoped {
                     focus: focus.clone(),
-                    inner: Box::new(fused),
+                    inner: Box::new(fuse(stage.chain)),
                 }]
             };
             stages.push(Stage {
@@ -1896,8 +1878,8 @@ pub fn vertical(parts: Vec<Vec<Stage>>) -> Vec<Stage> {
 ///
 /// # Errors
 ///
-/// The index of the first part whose chain is empty
-/// ([`Refusal::EmptyHorizontalPart`]) or does not fuse ([`Refusal::Fuse`]).
+/// The index of the first part whose chain is empty, with
+/// [`Refusal::EmptyHorizontalPart`].
 ///
 /// Book anchor: `L-lens-dsl-5`.
 pub fn horizontal(parts: Vec<Vec<Stage>>) -> Result<Vec<Stage>, (usize, Refusal)> {
@@ -1908,7 +1890,7 @@ pub fn horizontal(parts: Vec<Vec<Stage>>) -> Result<Vec<Stage>, (usize, Refusal)
         if chain.is_empty() {
             return Err((i, Refusal::EmptyHorizontalPart));
         }
-        let fused = fuse(chain).map_err(|r| (i, r))?;
+        let fused = fuse(chain);
         acc = Some(match acc {
             None => fused,
             Some(eta) => Proto::Horizontal(Box::new(eta), Box::new(fused)),

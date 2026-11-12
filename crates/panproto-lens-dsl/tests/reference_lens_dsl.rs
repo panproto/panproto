@@ -188,7 +188,6 @@ fn same_refusal(production: &LensDslError, reference: &rd::Refusal) -> bool {
         | (LensDslError::TermParse { .. }, rd::Refusal::TermParse)
         | (LensDslError::DefaultValue { .. }, rd::Refusal::DefaultValue)
         | (LensDslError::RuleCompile { .. }, rd::Refusal::RuleCompile)
-        | (LensDslError::Fuse { .. }, rd::Refusal::Fuse)
         | (LensDslError::EmptyHorizontalPart, rd::Refusal::EmptyHorizontalPart)
         | (LensDslError::ValueStepInSymmetricLeg, rd::Refusal::ValueStepInSymmetricLeg)
         | (LensDslError::AutoRequiresSchemas { .. }, rd::Refusal::AutoRequiresSchemas)
@@ -210,25 +209,6 @@ fn same_refusal(production: &LensDslError, reference: &rd::Refusal) -> bool {
 }
 
 // ─── Stages ─────────────────────────────────────────────────────────────
-
-/// A datum as the instance algebra carries it.
-fn datum(value: &Value) -> Option<rd::Datum> {
-    Some(match value {
-        Value::Null => rd::Datum::Null,
-        Value::Bool(b) => rd::Datum::Bool(*b),
-        Value::Int(i) => rd::Datum::Int(*i),
-        Value::Float(f) => rd::Datum::Float(f.to_bits()),
-        Value::Str(s) => rd::Datum::Str(s.clone()),
-        Value::List(items) => rd::Datum::List(items.iter().map(datum).collect::<Option<_>>()?),
-        Value::Unknown(fields) => rd::Datum::Record(
-            fields
-                .iter()
-                .map(|(k, v)| Some((k.clone(), datum(v)?)))
-                .collect::<Option<_>>()?,
-        ),
-        _ => return None,
-    })
-}
 
 fn literal(operand: rd::Operand) -> Literal {
     match operand {
@@ -959,7 +939,7 @@ fn compositions_compile_as_the_reference_on_every_bounded_document() {
     assert_agreement(
         &scope::compose_documents(),
         Mode::WithRefs,
-        scope::sequence_count(scope::PARTS.len(), 3) * scope::MODES.len(),
+        scope::sequence_count(scope::PARTS.len(), 3) * scope::MODES.len() * scope::INVERTIBLE.len(),
     );
 }
 
@@ -1141,9 +1121,9 @@ fn vertical_composition_is_concatenation_on_every_pair_of_short_step_lists() {
 }
 
 /// The step lists of at most one step that compile: the empty list and the
-/// 24 steps of the alphabet that the semantics page accepts (the other 11
+/// 25 steps of the alphabet that the semantics page accepts (the other 11
 /// carry a malformed expression, term or default, or a dishonest class).
-const ACCEPTED_SHORT_LISTS: usize = 25;
+const ACCEPTED_SHORT_LISTS: usize = 26;
 
 #[test]
 fn vertical_composition_is_associative_with_the_empty_composition_as_identity() {
@@ -1293,10 +1273,10 @@ fn horizontal_composition_is_associative_up_to_its_elementary_structure() {
     assert_eq!(checked, ACCEPTED_CHAIN_STEPS.pow(3));
 }
 
-/// The steps of the alphabet that compile to a non-empty chain: the 24
+/// The steps of the alphabet that compile to a non-empty chain: the 25
 /// accepted steps but `apply_expr`, `compute_field` and the `scoped` step
 /// with no inner step.
-const ACCEPTED_CHAIN_STEPS: usize = 21;
+const ACCEPTED_CHAIN_STEPS: usize = 22;
 
 // ─── Longer documents ───────────────────────────────────────────────────
 

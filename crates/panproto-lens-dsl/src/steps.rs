@@ -890,7 +890,8 @@ fn find_matching_paren(s: &str) -> Option<usize> {
     None
 }
 
-/// Split a string by commas at the top level (not inside parentheses).
+/// Split a non-blank argument list by commas at the top level (not inside
+/// parentheses), each argument trimmed.
 fn split_top_level_commas(s: &str) -> Vec<&str> {
     let mut parts = Vec::new();
     let mut depth = 0u32;
@@ -906,10 +907,9 @@ fn split_top_level_commas(s: &str) -> Vec<&str> {
             _ => {}
         }
     }
-    let tail = s[start..].trim();
-    if !tail.is_empty() {
-        parts.push(tail);
-    }
+    // The text after the last comma is an argument too, so a trailing comma
+    // leaves an empty one, which the term grammar refuses.
+    parts.push(s[start..].trim());
     parts
 }
 
@@ -951,6 +951,28 @@ mod tests {
         for good in ["x", "my_var", "f(a, g(b))", "f()"] {
             parse_term(good).unwrap_or_else(|e| panic!("term {good:?} should parse: {e}"));
         }
+    }
+
+    #[test]
+    fn an_argument_list_with_an_empty_argument_is_refused() {
+        // The text after the last comma is an argument, so `f(a,)` has an
+        // empty second argument and is no term.
+        for bad in ["f(a,)", "f(a, ,b)", "g(f(x,))"] {
+            assert!(
+                matches!(parse_term(bad), Err(LensDslError::TermParse { .. })),
+                "term {bad:?} should be refused"
+            );
+        }
+        assert_eq!(
+            parse_term("f(a, b)").ok(),
+            Some(panproto_gat::Term::App {
+                op: Arc::from("f"),
+                args: vec![
+                    panproto_gat::Term::Var(Arc::from("a")),
+                    panproto_gat::Term::Var(Arc::from("b")),
+                ],
+            })
+        );
     }
 
     #[test]

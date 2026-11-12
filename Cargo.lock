@@ -2208,6 +2208,7 @@ dependencies = [
  "panproto-gat",
  "panproto-inst",
  "panproto-lens",
+ "panproto-reference",
  "panproto-schema",
  "proptest",
  "serde",

@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 5de4d28ff262a19b58743dfebcd5296d37b78f1e9470f9d27081cee74f94dafa # shrinks to text = "{\"id\":\"top\",\"source\":\"s\",\"target\":\"t\",\"steps\":[{\"add_equation\":{\"name\":\"e\",\"lhs\":\"f(x,)\",\"rhs\":\"x\"}}]}"
+cc 258e3ff570a9af9476f42b5d15991c08418e6f6ee1e5941680da66b2b8c86ba2 # shrinks to text = "{\"id\":\"top\",\"source\":\"s\",\"target\":\"t\",\"compose\":{\"mode\":\"vertical\",\"lenses\":[{\"ref\":\"horizontal.doc\"}]}}"
+cc 0108f3263e4a489e73c94bfac07bc03462dc4f7cd06f55fcf447c00bdb14bfd3 # shrinks to text = "{\"id\":\"top\",\"source\":\"s\",\"target\":\"t\",\"compose\":{\"mode\":\"horizontal\",\"lenses\":[{\"ref\":\"after.doc\"}]}}"
