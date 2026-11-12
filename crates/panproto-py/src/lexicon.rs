@@ -211,7 +211,7 @@ pub fn parse_atproto_lexicon(doc: &Bound<'_, PyAny>) -> PyResult<PySchema> {
 ///     The schema document, as a parsed dict or a raw JSON string. A
 ///     grammar protocol reads a string as written and a dict as Python's
 ///     ``json.dumps`` writes it.
-/// ansible_class : str, optional
+/// `ansible_class` : str, optional
 ///     The class of an Ansible file, ``"playbook"``, ``"tasks"`` or
 ///     ``"vars"``, which the ``ansible`` reader needs and the file does
 ///     not state.
@@ -264,7 +264,7 @@ pub fn parse_schema_document(
 ///     Protocol name selecting the source reader.
 /// source : str
 ///     The schema source text.
-/// ansible_class : str, optional
+/// `ansible_class` : str, optional
 ///     The class of an Ansible file, ``"playbook"``, ``"tasks"`` or
 ///     ``"vars"``, which the ``ansible`` reader needs and the file does
 ///     not state.
@@ -318,7 +318,7 @@ pub fn parse_schema_source(
 /// docs : Sequence of Mapping or str
 ///     The schema documents, each a parsed dict or a raw JSON string; a
 ///     grammar protocol also reads a YAML string.
-/// retrieval_uris : Sequence of str or None, optional
+/// `retrieval_uris` : Sequence of str or None, optional
 ///     The absolute URI each document was retrieved from, in the order
 ///     of ``docs``, for a grammar protocol. Only a grammar protocol's
 ///     reader takes them.

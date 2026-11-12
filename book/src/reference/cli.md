@@ -145,12 +145,13 @@ Validate a schema against a protocol
 Usage: schema validate [OPTIONS] --protocol <PROTOCOL> <SCHEMA>
 
 Arguments:
-  <SCHEMA>  Path to the schema JSON file
+  <SCHEMA>  Path to the schema: panproto schema JSON, or a schema document the protocol's reader reads
 
 Options:
-      --protocol <PROTOCOL>  The protocol name (e.g., "atproto")
-  -v, --verbose              Enable verbose output
-  -h, --help                 Print help
+      --protocol <PROTOCOL>            The protocol name (e.g., "atproto")
+  -v, --verbose                        Enable verbose output
+      --ansible-class <ANSIBLE_CLASS>  The class of an Ansible file, for `--protocol ansible` [possible values: playbook, tasks, vars]
+  -h, --help                           Print help
 ```
 
 ### `schema check`
@@ -180,10 +181,10 @@ Usage: schema compat [OPTIONS] --protocol <PROTOCOL> <OLD> <NEW>
 
 Arguments:
   <OLD>
-          Path to the old schema JSON file
+          Path to the old schema: panproto schema JSON, a schema document the protocol's reader reads, or a project directory
 
   <NEW>
-          Path to the new schema JSON file
+          Path to the new schema, in any shape the old one may take
 
 Options:
       --protocol <PROTOCOL>
@@ -197,6 +198,11 @@ Options:
           
           [default: text]
 
+      --ansible-class <ANSIBLE_CLASS>
+          The class of an Ansible file, for `--protocol ansible`
+          
+          [possible values: playbook, tasks, vars]
+
   -h, --help
           Print help (see a summary with '-h')
 ```
@@ -209,15 +215,16 @@ Generate minimal test data from a protocol theory using free model construction
 Usage: schema scaffold [OPTIONS] --protocol <PROTOCOL> <SCHEMA>
 
 Arguments:
-  <SCHEMA>  Path to the schema JSON file
+  <SCHEMA>  Path to the schema: panproto schema JSON, or a schema document the protocol's reader reads
 
 Options:
-      --protocol <PROTOCOL>    The protocol name (e.g., "atproto")
-  -v, --verbose                Enable verbose output
-      --depth <DEPTH>          Maximum term generation depth (default: 3) [default: 3]
-      --max-terms <MAX_TERMS>  Maximum terms per sort (default: 1000) [default: 1000]
-      --json                   Output as JSON
-  -h, --help                   Print help
+      --protocol <PROTOCOL>            The protocol name (e.g., "atproto")
+  -v, --verbose                        Enable verbose output
+      --depth <DEPTH>                  Maximum term generation depth (default: 3) [default: 3]
+      --max-terms <MAX_TERMS>          Maximum terms per sort (default: 1000) [default: 1000]
+      --json                           Output as JSON
+      --ansible-class <ANSIBLE_CLASS>  The class of an Ansible file, for `--protocol ansible` [possible values: playbook, tasks, vars]
+  -h, --help                           Print help
 ```
 
 ### `schema normalize`
@@ -228,14 +235,15 @@ Simplify a schema by merging equivalent elements
 Usage: schema normalize [OPTIONS] --protocol <PROTOCOL> <SCHEMA>
 
 Arguments:
-  <SCHEMA>  Path to the schema JSON file
+  <SCHEMA>  Path to the schema: panproto schema JSON, or a schema document the protocol's reader reads
 
 Options:
-      --protocol <PROTOCOL>         The protocol name (e.g., "atproto")
-  -v, --verbose                     Enable verbose output
-      --identify <IDENTIFICATIONS>  Pairs of elements to identify, as "A=B"
-      --json                        Output as JSON
-  -h, --help                        Print help
+      --protocol <PROTOCOL>            The protocol name (e.g., "atproto")
+  -v, --verbose                        Enable verbose output
+      --identify <IDENTIFICATIONS>     Pairs of elements to identify, as "A=B"
+      --json                           Output as JSON
+      --ansible-class <ANSIBLE_CLASS>  The class of an Ansible file, for `--protocol ansible` [possible values: playbook, tasks, vars]
+  -h, --help                           Print help
 ```
 
 ### `schema typecheck`
@@ -262,7 +270,7 @@ Usage: schema verify [OPTIONS] --protocol <PROTOCOL> <SCHEMA>
 
 Arguments:
   <SCHEMA>
-          Path to the schema JSON file
+          Path to the schema: panproto schema JSON, or a schema document the protocol's reader reads
 
 Options:
       --protocol <PROTOCOL>
@@ -285,6 +293,11 @@ Options:
           Exit zero when a theory could not be checked at all.
           
           A theory that does not typecheck, or one whose assignment enumeration exhausted `--max-assignments`, establishes nothing about the schema. By default that is an error, since treating it as a pass reports a schema verified that was never examined. This accepts it for exploratory use; the output still says the run was incomplete.
+
+      --ansible-class <ANSIBLE_CLASS>
+          The class of an Ansible file, for `--protocol ansible`
+          
+          [possible values: playbook, tasks, vars]
 
   -h, --help
           Print help (see a summary with '-h')

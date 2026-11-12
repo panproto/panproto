@@ -38,14 +38,14 @@ pub enum StringencyArg {
 }
 
 /// The class of an Ansible file, which the `ansible` reader needs and the
-/// file does not state.
+/// file does not state: a playbook, a task file (such as a role's
+/// `tasks/main.yml`) or a variables file (such as a role's
+/// `defaults/main.yml`). The variants carry no doc comments, so `--help`
+/// lists them on one line.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
-pub enum AnsibleClassArg {
-    /// A playbook: a sequence of plays and playbook imports.
+enum AnsibleClassArg {
     Playbook,
-    /// A task file, such as a role's `tasks/main.yml`.
     Tasks,
-    /// A variables file, such as a role's `defaults/main.yml`.
     Vars,
 }
 
