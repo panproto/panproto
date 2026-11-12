@@ -20,17 +20,17 @@ maturin develop --manifest-path crates/panproto-py/Cargo.toml
 ```python
 import panproto
 
-sql = panproto.get_builtin_protocol("postgresql")
+postgresql = panproto.get_builtin_protocol("postgresql")
 
 # Build source schema
-src = sql.schema()
+src = postgresql.schema()
 src.vertex("users", "table")
 src.vertex("users.id", "integer")
 src.edge("users", "users.id", "prop", "id")
 old = src.build()
 
 # Build target schema (added a column)
-tgt = sql.schema()
+tgt = postgresql.schema()
 tgt.vertex("users", "table")
 tgt.vertex("users.id", "integer")
 tgt.vertex("users.email", "string")
@@ -40,7 +40,7 @@ new = tgt.build()
 
 # Diff and classify
 diff = panproto.diff_schemas(old, new)
-report = diff.classify(sql)
+report = diff.classify(postgresql)
 print(report.compatible)       # True
 print(report.report_text())    # human-readable summary
 ```
