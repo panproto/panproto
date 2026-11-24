@@ -24,6 +24,12 @@ permissions:
 # `python-wheels.yml` workflow.
 
 jobs:
+  verified:
+    uses: ./.github/workflows/require-verified.yml
+    permissions:
+      checks: read
+      contents: read
+
   build:
     name: ${{ matrix.companion }} (${{ matrix.target }})
     strategy:
@@ -132,7 +138,7 @@ jobs:
 
   publish:
     name: Publish ${{ matrix.companion }} to PyPI
-    needs: build
+    needs: [build, verified]
     # Skip the PyPI publish step on a manual `workflow_dispatch` when
     # `skip_publish` is true. Used to build wheels for a manual `twine
     # upload` (typical case: a tag has already published partial

@@ -1,0 +1,42 @@
+name: Require verification
+
+# Publishing cannot be undone, so every publishing workflow starts here: the
+# commit it publishes must have passed CI and every gate of
+# `.config/verification.toml`. The second is the `Corpus Gate` workflow,
+# dispatched on the commit with `release` set.
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: The release tag; the tag of the run when empty
+        type: string
+        default: ""
+      plan:
+        # cargo-dist passes its plan to the jobs it calls.
+        type: string
+        default: ""
+
+permissions:
+  checks: read
+  contents: read
+
+jobs:
+  verified:
+    name: Verified
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          REF: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          commit="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REF" --jq .sha)"
+          passed="$(gh api --paginate "repos/$GITHUB_REPOSITORY/commits/$commit/check-runs" \
+            --jq '.check_runs[] | select(.conclusion == "success") | .name')"
+          for check in "CI OK" "Release verification"; do
+            if ! grep -qxF "$check" <<< "$passed"; then
+              echo "::error::$check has not passed on $commit ($REF)"
+              exit 1
+            fi
+          done
