@@ -160,9 +160,9 @@ resolves in every `Repository` handle of the process that built a schema with
 it, and `add()` stages it, so the commit records it and other processes resolve
 it too. `add_protocol(protocol)` stages a protocol by hand, and
 `set_protocol(protocol)` registers one with a single handle. A commit records
-one protocol. Data committed under any other custom protocol can still be read
-with `decoded_data_at`, checked against its schema alone; staging more of it in
-a new process takes `set_protocol` first.
+every protocol staged into it and keeps those of the commits before it. Data
+whose protocol no commit records can still be read with `decoded_data_at`,
+checked against its schema alone; staging more of it takes `set_protocol` first.
 
 ## Development
 

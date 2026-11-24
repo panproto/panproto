@@ -502,7 +502,7 @@ fn load_protocol(store: &dyn Store, id: ObjectId) -> Result<Protocol, VcsError> 
     }
 }
 
-fn not_a_protocol(object: &Object) -> VcsError {
+const fn not_a_protocol(object: &Object) -> VcsError {
     VcsError::WrongObjectType {
         expected: "protocol",
         found: object.type_name(),

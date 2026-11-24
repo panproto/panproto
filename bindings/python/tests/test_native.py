@@ -2630,6 +2630,41 @@ class TestRepositoryCustomProtocols:
         )
         assert out == "[[{'a': 'abc'}], [{'a': 'abc'}]]"
 
+    def test_a_fresh_process_stages_under_each_protocol_of_a_commit(
+        self, tmp_path: Path
+    ) -> None:
+        path = str(tmp_path / "repo")
+        repo = panproto.Repository.init(path)
+        record = self._record(tmp_path)
+        schema_ids: list[str] = []
+        for name in ("PyCustomFirst", "PyCustomSecond"):
+            index = repo.add(self._schema(self._protocol(name)))
+            schema_ids.append(str(obj(index["staged"])["schema_id"]))
+            repo.add_data(record, name)
+        repo.commit("both", "a")
+        self._fresh_process(
+            "r = panproto.Repository.open(sys.argv[1])\n"
+            "[r.add_data(sys.argv[2], i, schema_id=i) for i in sys.argv[3:]]",
+            path,
+            record,
+            *schema_ids,
+        )
+
+    def test_an_array_with_no_item_edge_is_kept(self, tmp_path: Path) -> None:
+        repo = panproto.Repository.init(str(tmp_path / "repo"))
+        repo.add(self._schema(self._protocol("PyCustomArray")))
+        repo.add_data(self._record(tmp_path, '{"a": ["one", {"b": [2]}]}'), "k")
+        repo.commit("data", "a")
+        assert repo.decoded_data_at("HEAD")[0]["records"] == [{"a": ["one", {"b": [2]}]}]
+
+    def test_amend_records_staged_data(self, tmp_path: Path) -> None:
+        repo = panproto.Repository.init(str(tmp_path / "repo"))
+        repo.add(self._schema(self._protocol("PyCustomAmend")))
+        repo.commit("schema", "a")
+        repo.add_data(self._record(tmp_path), "k")
+        repo.amend("schema and data", "a")
+        assert [d["key"] for d in repo.decoded_data_at("HEAD")] == ["k"]
+
     def test_set_protocol_registers_a_protocol_no_schema_was_built_with(
         self, tmp_path: Path
     ) -> None:

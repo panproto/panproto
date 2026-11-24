@@ -325,9 +325,8 @@ impl PyRepository {
     ///
     /// A schema built under a custom protocol also stages that protocol, so
     /// the commit records it and the schema's data can be staged and decoded
-    /// by a process that never built the protocol. A commit records one
-    /// protocol; data committed under another custom protocol is read in
-    /// such a process after :meth:`set_protocol`.
+    /// by a process that never built the protocol. A commit records every
+    /// protocol staged into it and keeps those of the commits before it.
     #[pyo3(signature = (schema, *, skip_verify=false))]
     fn add(&mut self, py: Python<'_>, schema: &PySchema, skip_verify: bool) -> PyResult<Py<PyAny>> {
         let index = if skip_verify {
@@ -402,9 +401,9 @@ impl PyRepository {
 
     /// Stage ``protocol`` for the next commit, which records it.
     ///
-    /// Returns the updated index. A later commit whose schema names the same
-    /// protocol keeps it. :meth:`add` stages the protocol of a schema built
-    /// under a custom protocol by itself.
+    /// Returns the updated index. Protocols of other names stay staged, and
+    /// later commits keep it. :meth:`add` stages the protocol of a schema
+    /// built under a custom protocol by itself.
     fn add_protocol(&mut self, py: Python<'_>, protocol: &PyProtocol) -> PyResult<Py<PyAny>> {
         let index = self.inner.add_protocol(&protocol.inner).map_err(vcs_err)?;
         convert::to_python(py, &index_to_value(&index))
@@ -471,7 +470,11 @@ impl PyRepository {
         Ok(id.to_string())
     }
 
-    /// Amend the most recent commit with a new message.
+    /// Replace the most recent commit with one that has a new message and
+    /// also records what is staged.
+    ///
+    /// Staged data follows the commit's own. Raises ``VcsError`` for a stage
+    /// that :meth:`commit` refuses.
     fn amend(&mut self, message: &str, author: &str) -> PyResult<String> {
         let id = self.inner.amend(message, author).map_err(vcs_err)?;
         Ok(id.to_string())

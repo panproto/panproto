@@ -12,7 +12,11 @@ All notable changes to panproto will be documented in this file.
 
 - **Python repositories resolve custom protocols** (`panproto-py`): `Repository.add_data`, `decoded_data_at`, `merge`, `cherry_pick` and `rebase` resolve the protocol a schema was built with, in every handle of the process, where 0.77.0 refused the schema's records with `unknown protocol`. `Repository.add` and `add_project` also stage a custom protocol, so the commit records it and a process that never built it resolves it. ([#389](https://github.com/panproto/panproto/issues/389))
 
-- **Commits keep their protocol** (`panproto-vcs`): a commit that stages no protocol, a merge, a cherry-pick and a rebase carry the protocol object their schema names over from the commits they are made from instead of dropping it, and `amend` records a newly staged one.
+- **Commits record and keep every protocol** (`panproto-vcs`): a commit records each custom protocol staged into it, as an `Object::ProtocolSet` when there are several, and a commit, merge, cherry-pick or rebase keeps the protocols of the commits it is made from instead of dropping them. `add_protocol` no longer unstages a protocol of another name. ([#394](https://github.com/panproto/panproto/issues/394))
+
+- **`parse_json` keeps an array that has no item edge** (`panproto-inst`): the elements of a nonempty array at a vertex with no anonymous outgoing edge are held whole as the vertex's value. They were dropped without an error, so `Repository.add_data` committed an empty list as verified. ([#391](https://github.com/panproto/panproto/issues/391))
+
+- **`amend` records everything staged** (`panproto-vcs`): staged data sets follow the commit's own and were lost before; the commit names the staged schema's protocol, records its theory and keeps its CST complements; its migration starts from the parent commit rather than from the commit being replaced; and a stage `commit` refuses is refused. ([#392](https://github.com/panproto/panproto/issues/392))
 
 - **Committed data is read under its own protocol** (`panproto-vcs`): `decoded_data_at` validates records under the protocol object of the commit it reads rather than that of `HEAD`. Data whose protocol name resolves to nothing, such as custom-protocol data committed before 0.77.0, is checked against what its schema decides by itself instead of being unreadable, and an attribute the schema does not declare, which staging has refused since 0.77.0, is returned from data committed earlier. Staging is as strict as before in both respects.
 
