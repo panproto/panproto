@@ -2603,7 +2603,7 @@ mod tests {
                 kind: "prop".into(),
                 name: Some(Name::from(*name)),
             };
-            schema.edges.insert(e.clone(), e.kind.clone());
+            schema.edges.insert(e.clone(), e.kind);
         }
         schema
     }

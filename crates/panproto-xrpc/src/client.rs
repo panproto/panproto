@@ -563,7 +563,7 @@ impl NodeClient {
             let (protocol, commit_count) = match store.get(id) {
                 Ok(Object::Commit(c)) => {
                     let count = count_ancestors(store, id);
-                    (c.protocol.clone(), count)
+                    (c.protocol, count)
                 }
                 _ => ("project".to_owned(), 1),
             };

@@ -305,10 +305,8 @@ pub fn migrate_data_directory(
         let tgt_schema_id = crate::hash::hash_schema(tgt_schema)?;
         let migrated_data = DataSetObject {
             schema_id: tgt_schema_id,
-            data: rmp_serde::to_vec(&vec![view.clone()]).map_err(|e| {
-                VcsError::DataMigrationFailed {
-                    reason: format!("serialize: {e}"),
-                }
+            data: rmp_serde::to_vec(&vec![view]).map_err(|e| VcsError::DataMigrationFailed {
+                reason: format!("serialize: {e}"),
             })?,
             record_count: 1,
             // The source file path is this set's natural key, matching

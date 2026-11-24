@@ -1786,35 +1786,34 @@ pub(crate) fn classify_seq(
     let last_content_idx = members.iter().rposition(|m| unwrap_to_string(m).is_none());
 
     for (i, m) in members.iter().enumerate() {
-        if let Some(value) = unwrap_to_string(m) {
-            let value = value.to_owned();
-            if !roles.contains_key(&value) {
-                if is_word_like(&value) {
-                    roles.insert(value.clone(), TokenRole::Keyword);
-                } else if !in_choice
-                    && first_content_idx.is_some_and(|fc| i < fc)
-                    && is_prefix_sigil(&value)
-                {
-                    roles.insert(value.clone(), TokenRole::BracketOpen);
-                } else if last_content_idx.is_some_and(|lc| i > lc) {
-                    // STRING after all content: suffix (tight before).
-                    // Unlike prefix, this applies in CHOICE branches too
-                    // (e.g. `()` in bash function_definition's CHOICE).
-                    roles.insert(value.clone(), TokenRole::BracketClose);
-                } else if !in_choice
-                    && string_positions.len() == 1
-                    && content_count == 2
-                    && value.len() == 1
-                {
-                    // Single-character STRING between exactly two content
-                    // members in a non-CHOICE SEQ: this is a connector
-                    // (e.g. `.` in `SEQ [object, ".", attr]`).
-                    // Multi-character tokens like `:=`, `<-`, `->` are
-                    // operators (spaced), not connectors.
-                    roles.insert(value.clone(), TokenRole::Connector);
-                } else {
-                    roles.insert(value.clone(), TokenRole::Operator);
-                }
+        if let Some(value) = unwrap_to_string(m)
+            && let std::collections::hash_map::Entry::Vacant(role) = roles.entry(value.to_owned())
+        {
+            if is_word_like(value) {
+                role.insert(TokenRole::Keyword);
+            } else if !in_choice
+                && first_content_idx.is_some_and(|fc| i < fc)
+                && is_prefix_sigil(value)
+            {
+                role.insert(TokenRole::BracketOpen);
+            } else if last_content_idx.is_some_and(|lc| i > lc) {
+                // STRING after all content: suffix (tight before).
+                // Unlike prefix, this applies in CHOICE branches too
+                // (e.g. `()` in bash function_definition's CHOICE).
+                role.insert(TokenRole::BracketClose);
+            } else if !in_choice
+                && string_positions.len() == 1
+                && content_count == 2
+                && value.len() == 1
+            {
+                // Single-character STRING between exactly two content
+                // members in a non-CHOICE SEQ: this is a connector
+                // (e.g. `.` in `SEQ [object, ".", attr]`).
+                // Multi-character tokens like `:=`, `<-`, `->` are
+                // operators (spaced), not connectors.
+                role.insert(TokenRole::Connector);
+            } else {
+                role.insert(TokenRole::Operator);
             }
         }
     }
