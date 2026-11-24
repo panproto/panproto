@@ -2,6 +2,20 @@
 
 All notable changes to panproto will be documented in this file.
 
+## [0.77.1] - 2026-11-23
+
+### Added
+
+- **Custom protocols in the Python `Repository`** (`panproto-py`): `Repository.set_protocol(protocol)` registers a protocol with one handle and `Repository.add_protocol(protocol)` stages one for the next commit to record. `Protocol.from_theories` takes `constraint_semantics`, the meaning of each constraint sort, without which validation refuses a record whose schema carries a constraint of that sort.
+
+### Fixed
+
+- **Python repositories resolve custom protocols** (`panproto-py`): `Repository.add_data`, `decoded_data_at`, `merge`, `cherry_pick` and `rebase` resolve the protocol a schema was built with, in every handle of the process, where 0.77.0 refused the schema's records with `unknown protocol`. `Repository.add` and `add_project` also stage a custom protocol, so the commit records it and a process that never built it resolves it. ([#389](https://github.com/panproto/panproto/issues/389))
+
+- **Commits keep their protocol** (`panproto-vcs`): a commit that stages no protocol, a merge, a cherry-pick and a rebase carry the protocol object their schema names over from the commits they are made from instead of dropping it, and `amend` records a newly staged one.
+
+- **Committed data is read under its own protocol** (`panproto-vcs`): `decoded_data_at` validates records under the protocol object of the commit it reads rather than that of `HEAD`. Data whose protocol name resolves to nothing, such as custom-protocol data committed before 0.77.0, is checked against what its schema decides by itself instead of being unreadable. Staging new data under such a name is still refused.
+
 ## [0.77.0] - 2026-11-11
 
 ### Added
