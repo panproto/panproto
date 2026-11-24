@@ -1,4 +1,4 @@
-//! The generic text formats: YAML, TOML and CSV.
+//! The generic text formats: YAML, TOML, CSV and TSV.
 //!
 //! These protocols name no application. Their files carry structured data
 //! and no schema of their own, so each reads no schema documents
@@ -11,5 +11,7 @@
 pub mod csv;
 /// The TOML protocol.
 pub mod toml;
+/// The TSV protocol.
+pub mod tsv;
 /// The YAML protocol.
 pub mod yaml;

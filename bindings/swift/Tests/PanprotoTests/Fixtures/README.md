@@ -22,21 +22,21 @@ Payloads are CBOR (`ciborium`) except where the file name says `.json`.
 
 | Fixture | Entry point | Bytes | Captured from |
 | --- | --- | --- | --- |
-| `builtin-protocols.cbor` | `Raw.registryListBuiltin()` | 415 | the whole built-in catalogue |
+| `builtin-protocols.cbor` | `Raw.registryListBuiltin()` | 475 | the whole built-in catalogue |
 | `protocol-amr.cbor` | `Raw.registryGetBuiltin(name:)` | 5553 | name `amr` |
-| `protocol-ansible.cbor` | `Raw.registryGetBuiltin(name:)` | 1431 | name `ansible` |
+| `protocol-ansible.cbor` | `Raw.registryGetBuiltin(name:)` | 4015 | name `ansible` |
 | `protocol-arrow.cbor` | `Raw.registryGetBuiltin(name:)` | 1980 | name `arrow` |
 | `protocol-asn1.cbor` | `Raw.registryGetBuiltin(name:)` | 1889 | name `asn1` |
-| `protocol-asyncapi.cbor` | `Raw.registryGetBuiltin(name:)` | 1637 | name `asyncapi` |
+| `protocol-asyncapi.cbor` | `Raw.registryGetBuiltin(name:)` | 9710 | name `asyncapi` |
 | `protocol-atproto.cbor` | `Raw.registryGetBuiltin(name:)` | 2473 | name `atproto` |
 | `protocol-avro.cbor` | `Raw.registryGetBuiltin(name:)` | 1382 | name `avro` |
 | `protocol-bead.cbor` | `Raw.registryGetBuiltin(name:)` | 2936 | name `bead` |
 | `protocol-bond.cbor` | `Raw.registryGetBuiltin(name:)` | 1497 | name `bond` |
 | `protocol-brat.cbor` | `Raw.registryGetBuiltin(name:)` | 2044 | name `brat` |
-| `protocol-bson.cbor` | `Raw.registryGetBuiltin(name:)` | 1558 | name `bson` |
+| `protocol-bson.cbor` | `Raw.registryGetBuiltin(name:)` | 2265 | name `bson` |
 | `protocol-cassandra.cbor` | `Raw.registryGetBuiltin(name:)` | 1777 | name `cassandra` |
 | `protocol-cddl.cbor` | `Raw.registryGetBuiltin(name:)` | 1519 | name `cddl` |
-| `protocol-cloudformation.cbor` | `Raw.registryGetBuiltin(name:)` | 1450 | name `cloudformation` |
+| `protocol-cloudformation.cbor` | `Raw.registryGetBuiltin(name:)` | 2680 | name `cloudformation` |
 | `protocol-concrete.cbor` | `Raw.registryGetBuiltin(name:)` | 2166 | name `concrete` |
 | `protocol-conllu.cbor` | `Raw.registryGetBuiltin(name:)` | 1715 | name `conllu` |
 | `protocol-csv.cbor` | `Raw.registryGetBuiltin(name:)` | 902 | name `csv` |
@@ -45,6 +45,8 @@ Payloads are CBOR (`ciborium`) except where the file name says `.json`.
 | `protocol-docx.cbor` | `Raw.registryGetBuiltin(name:)` | 1907 | name `docx` |
 | `protocol-dynamodb.cbor` | `Raw.registryGetBuiltin(name:)` | 1287 | name `dynamodb` |
 | `protocol-edi-x12.cbor` | `Raw.registryGetBuiltin(name:)` | 1372 | name `edi-x12` |
+| `protocol-edgelist-csv.cbor` | `Raw.registryGetBuiltin(name:)` | 1339 | name `edgelist-csv` |
+| `protocol-edgelist-tsv.cbor` | `Raw.registryGetBuiltin(name:)` | 1339 | name `edgelist-tsv` |
 | `protocol-elan.cbor` | `Raw.registryGetBuiltin(name:)` | 2486 | name `elan` |
 | `protocol-fhir.cbor` | `Raw.registryGetBuiltin(name:)` | 1568 | name `fhir` |
 | `protocol-flatbuffers.cbor` | `Raw.registryGetBuiltin(name:)` | 1480 | name `flatbuffers` |
@@ -53,28 +55,32 @@ Payloads are CBOR (`ciborium`) except where the file name says `.json`.
 | `protocol-geojson.cbor` | `Raw.registryGetBuiltin(name:)` | 1468 | name `geojson` |
 | `protocol-graphql.cbor` | `Raw.registryGetBuiltin(name:)` | 1969 | name `graphql` |
 | `protocol-iso-space.cbor` | `Raw.registryGetBuiltin(name:)` | 2472 | name `iso-space` |
-| `protocol-json-schema.cbor` | `Raw.registryGetBuiltin(name:)` | 2004 | name `json-schema` |
+| `protocol-json-schema.cbor` | `Raw.registryGetBuiltin(name:)` | 3656 | name `json-schema` |
 | `protocol-jsonapi.cbor` | `Raw.registryGetBuiltin(name:)` | 1458 | name `jsonapi` |
-| `protocol-k8s-crd.cbor` | `Raw.registryGetBuiltin(name:)` | 1502 | name `k8s-crd` |
+| `protocol-jsonld.cbor` | `Raw.registryGetBuiltin(name:)` | 1401 | name `jsonld` |
+| `protocol-k8s-crd.cbor` | `Raw.registryGetBuiltin(name:)` | 3668 | name `k8s-crd` |
 | `protocol-laf-graf.cbor` | `Raw.registryGetBuiltin(name:)` | 1820 | name `laf-graf` |
 | `protocol-mongodb.cbor` | `Raw.registryGetBuiltin(name:)` | 1739 | name `mongodb` |
 | `protocol-msgpack-schema.cbor` | `Raw.registryGetBuiltin(name:)` | 1723 | name `msgpack-schema` |
 | `protocol-naf.cbor` | `Raw.registryGetBuiltin(name:)` | 2445 | name `naf` |
 | `protocol-neo4j.cbor` | `Raw.registryGetBuiltin(name:)` | 1565 | name `neo4j` |
 | `protocol-nif.cbor` | `Raw.registryGetBuiltin(name:)` | 2375 | name `nif` |
+| `protocol-ntriples.cbor` | `Raw.registryGetBuiltin(name:)` | 1411 | name `ntriples` |
 | `protocol-odf.cbor` | `Raw.registryGetBuiltin(name:)` | 1846 | name `odf` |
-| `protocol-openapi.cbor` | `Raw.registryGetBuiltin(name:)` | 1920 | name `openapi` |
+| `protocol-openapi.cbor` | `Raw.registryGetBuiltin(name:)` | 8846 | name `openapi` |
 | `protocol-parquet.cbor` | `Raw.registryGetBuiltin(name:)` | 1427 | name `parquet` |
 | `protocol-paula.cbor` | `Raw.registryGetBuiltin(name:)` | 2752 | name `paula` |
 | `protocol-protobuf.cbor` | `Raw.registryGetBuiltin(name:)` | 1594 | name `protobuf` |
 | `protocol-raml.cbor` | `Raw.registryGetBuiltin(name:)` | 1631 | name `raml` |
 | `protocol-redis.cbor` | `Raw.registryGetBuiltin(name:)` | 1106 | name `redis` |
 | `protocol-rss-atom.cbor` | `Raw.registryGetBuiltin(name:)` | 1484 | name `rss-atom` |
-| `protocol-sql.cbor` | `Raw.registryGetBuiltin(name:)` | 1451 | name `sql` |
+| `protocol-postgresql.cbor` | `Raw.registryGetBuiltin(name:)` | 1797 | name `postgresql` |
 | `protocol-swift-mt.cbor` | `Raw.registryGetBuiltin(name:)` | 1241 | name `swift-mt` |
 | `protocol-tei.cbor` | `Raw.registryGetBuiltin(name:)` | 2519 | name `tei` |
 | `protocol-timeml.cbor` | `Raw.registryGetBuiltin(name:)` | 2181 | name `timeml` |
 | `protocol-toml.cbor` | `Raw.registryGetBuiltin(name:)` | 1217 | name `toml` |
+| `protocol-tsv.cbor` | `Raw.registryGetBuiltin(name:)` | 902 | name `tsv` |
+| `protocol-turtle.cbor` | `Raw.registryGetBuiltin(name:)` | 1401 | name `turtle` |
 | `protocol-ucca.cbor` | `Raw.registryGetBuiltin(name:)` | 1891 | name `ucca` |
 | `protocol-uima.cbor` | `Raw.registryGetBuiltin(name:)` | 2318 | name `uima` |
 | `protocol-vcard-ical.cbor` | `Raw.registryGetBuiltin(name:)` | 1455 | name `vcard-ical` |

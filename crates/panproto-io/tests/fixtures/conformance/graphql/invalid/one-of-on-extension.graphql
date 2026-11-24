@@ -1,0 +1,3 @@
+type Query { q: Int }
+input I { a: Int }
+extend input I @oneOf

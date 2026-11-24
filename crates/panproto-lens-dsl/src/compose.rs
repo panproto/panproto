@@ -4,13 +4,25 @@
 //! references to other lens documents (resolved via a callback)
 //! or inline step definitions. Supports both vertical (sequential)
 //! and horizontal (parallel) composition modes.
+//!
+//! Vertical composition concatenates the parts' stages in order, so
+//! composing compiled parts equals compiling the concatenation of their
+//! steps. Horizontal composition fuses each part's chain into one
+//! protolens and folds the fused protolenses from the left with
+//! [`protolens_horizontal`]; the result is one stage carrying every
+//! part's value-level transforms in part order.
 
-use panproto_lens::{ProtolensChain, combinators, protolens_horizontal};
+use panproto_lens::{ProtolensChain, protolens_horizontal};
 
 use crate::compile::CompiledLens;
 use crate::document::{ComposeMode, ComposeSpec, LensRef};
 use crate::error::LensDslError;
+use crate::path::DocumentPath;
 use crate::steps;
+
+/// A resolver for named references: `None` when the name resolves to
+/// nothing, else the referenced lens compiled or its refusal.
+pub type Resolve<'a> = dyn Fn(&str) -> Option<Result<CompiledLens, LensDslError>> + 'a;
 
 /// Compile a composition specification.
 ///
@@ -19,132 +31,108 @@ use crate::steps;
 ///
 /// # Errors
 ///
-/// Returns [`LensDslError::UnresolvedRef`] if a reference cannot
-/// be resolved, [`LensDslError::SymmetricRefInDirectionalCompose`] if a
-/// referenced lens is symmetric, or propagates compilation errors from
-/// inline lenses.
+/// As [`compile_compose_with`].
 pub fn compile_compose(
     spec: &ComposeSpec,
     body_vertex: &str,
     resolver: &dyn Fn(&str) -> Option<CompiledLens>,
 ) -> Result<steps::CompiledSteps, LensDslError> {
-    let mut compiled_parts: Vec<steps::CompiledSteps> = Vec::new();
+    compile_compose_with(spec, body_vertex, &|id: &str| resolver(id).map(Ok))
+}
 
-    for lens_ref in &spec.lenses {
+/// Compile a composition specification, the resolver reporting a
+/// referenced lens's refusal.
+///
+/// # Errors
+///
+/// Refusals located relative to the `compose` object:
+/// [`LensDslError::UnresolvedRef`],
+/// [`LensDslError::SymmetricRefInDirectionalCompose`] and the resolver's
+/// own refusal at `/lenses/i/ref`; an inline lens's refusal at
+/// `/lenses/i/inline/steps/...`; and, for a horizontal composition,
+/// [`LensDslError::EmptyHorizontalPart`] or [`LensDslError::Fuse`] at
+/// `/lenses/i`.
+pub fn compile_compose_with(
+    spec: &ComposeSpec,
+    body_vertex: &str,
+    resolver: &Resolve<'_>,
+) -> Result<steps::CompiledSteps, LensDslError> {
+    let mut parts: Vec<steps::CompiledSteps> = Vec::with_capacity(spec.lenses.len());
+    for (i, lens_ref) in spec.lenses.iter().enumerate() {
+        let here = DocumentPath::root().key("lenses").index(i);
         match lens_ref {
             LensRef::Ref { r#ref } => {
-                let compiled_ref = resolver(r#ref).ok_or_else(|| LensDslError::UnresolvedRef {
-                    lens_ref: r#ref.clone(),
-                })?;
+                let at_ref = here.key("ref");
+                let compiled_ref = resolver(r#ref)
+                    .ok_or_else(|| LensDslError::UnresolvedRef {
+                        lens_ref: r#ref.clone(),
+                    })
+                    .and_then(|resolved| resolved)
+                    .map_err(|e| e.within(&at_ref))?;
                 if compiled_ref.symmetric.is_some() {
                     return Err(LensDslError::SymmetricRefInDirectionalCompose {
                         lens_ref: r#ref.clone(),
-                    });
+                    }
+                    .within(&at_ref));
                 }
-                compiled_parts.push(steps::CompiledSteps {
+                parts.push(steps::CompiledSteps {
                     chain: compiled_ref.chain,
                     field_transforms: compiled_ref.field_transforms,
                     stages: compiled_ref.stages,
                 });
             }
             LensRef::Inline { inline } => {
-                let compiled = steps::compile_steps(&inline.steps, body_vertex)?;
-                compiled_parts.push(compiled);
+                parts.push(
+                    steps::compile_steps(&inline.steps, body_vertex)
+                        .map_err(|e| e.within(&here.key("inline").key("steps")))?,
+                );
             }
         }
     }
-
-    compose_parts(&compiled_parts, spec.mode)
+    match spec.mode {
+        ComposeMode::Vertical => Ok(steps::concat(parts)),
+        ComposeMode::Horizontal => horizontal(parts),
+    }
 }
 
-/// Combine the compiled parts of a composition according to `mode`.
-fn compose_parts(
-    compiled_parts: &[steps::CompiledSteps],
-    mode: ComposeMode,
-) -> Result<steps::CompiledSteps, LensDslError> {
-    match mode {
-        ComposeMode::Vertical => {
-            // Vertical: flatten all chains into a single pipeline.
-            let chains: Vec<ProtolensChain> =
-                compiled_parts.iter().map(|c| c.chain.clone()).collect();
-
-            let mut all_transforms = std::collections::HashMap::new();
-            let mut stages = Vec::new();
-            for part in compiled_parts {
-                for (k, v) in &part.field_transforms {
-                    all_transforms
-                        .entry(k.clone())
-                        .or_insert_with(Vec::new)
-                        .extend(v.clone());
-                }
-                stages.extend(part.stages.iter().cloned());
-            }
-
-            Ok(steps::CompiledSteps {
-                chain: combinators::pipeline(chains),
-                field_transforms: all_transforms,
-                stages,
-            })
+/// Compose parts horizontally: zero parts give the empty composite, and
+/// otherwise the fused parts are folded from the left.
+fn horizontal(parts: Vec<steps::CompiledSteps>) -> Result<steps::CompiledSteps, LensDslError> {
+    let mut fused = None;
+    let mut field_transforms: std::collections::HashMap<_, Vec<_>> =
+        std::collections::HashMap::new();
+    for (i, part) in parts.into_iter().enumerate() {
+        let here = DocumentPath::root().key("lenses").index(i);
+        if part.chain.steps.is_empty() {
+            return Err(LensDslError::EmptyHorizontalPart.within(&here));
         }
-
-        ComposeMode::Horizontal => {
-            // Horizontal composition of natural transformations:
-            // Given η : F ⟹ G and θ : F' ⟹ G', produce η * θ : F∘F' ⟹ G∘G'.
-            //
-            // Each ProtolensChain must first be fused into a single Protolens
-            // (vertical composition within each chain), then horizontal
-            // composition is applied between the fused protolenses.
-            if compiled_parts.is_empty() {
-                return Ok(steps::CompiledSteps {
-                    chain: ProtolensChain::new(vec![]),
-                    field_transforms: std::collections::HashMap::new(),
-                    stages: Vec::new(),
-                });
+        let this = part
+            .chain
+            .fuse()
+            .map_err(|e| LensDslError::Fuse { error: Box::new(e) }.within(&here))?;
+        fused = Some(match fused {
+            None => this,
+            Some(acc) => protolens_horizontal(&acc, &this)
+                .map_err(|e| LensDslError::Fuse { error: Box::new(e) }.within(&here))?,
+        });
+        for stage in part.stages {
+            for (anchor, entries) in stage.field_transforms {
+                field_transforms.entry(anchor).or_default().extend(entries);
             }
-
-            let mut fused =
-                compiled_parts[0]
-                    .chain
-                    .fuse()
-                    .map_err(|e| LensDslError::ExprParse {
-                        step_desc: "horizontal_compose[0].fuse".to_owned(),
-                        message: format!("{e}"),
-                    })?;
-
-            for (i, part) in compiled_parts[1..].iter().enumerate() {
-                let other = part.chain.fuse().map_err(|e| LensDslError::ExprParse {
-                    step_desc: format!("horizontal_compose[{}].fuse", i + 1),
-                    message: format!("{e}"),
-                })?;
-                fused =
-                    protolens_horizontal(&fused, &other).map_err(|e| LensDslError::ExprParse {
-                        step_desc: format!("horizontal_compose[{}]", i + 1),
-                        message: format!("{e}"),
-                    })?;
-            }
-
-            let mut all_transforms = std::collections::HashMap::new();
-            for part in compiled_parts {
-                for (k, v) in &part.field_transforms {
-                    all_transforms
-                        .entry(k.clone())
-                        .or_insert_with(Vec::new)
-                        .extend(v.clone());
-                }
-            }
-
-            let chain = ProtolensChain::new(vec![fused]);
-            let stages = vec![steps::CompiledStage {
-                chain: chain.clone(),
-                field_transforms: all_transforms.clone(),
-            }];
-            Ok(steps::CompiledSteps {
-                chain,
-                field_transforms: all_transforms,
-                stages,
-            })
         }
     }
+    let Some(fused) = fused else {
+        return Ok(steps::concat(Vec::new()));
+    };
+    let chain = ProtolensChain::new(vec![fused]);
+    Ok(steps::CompiledSteps {
+        chain: chain.clone(),
+        field_transforms: field_transforms.clone(),
+        stages: vec![steps::CompiledStage {
+            chain,
+            field_transforms,
+        }],
+    })
 }
 
 #[cfg(test)]
@@ -186,7 +174,13 @@ mod tests {
         };
         let err = compile_compose(&spec, BODY, &|_| None).unwrap_err();
         match err {
-            LensDslError::UnresolvedRef { lens_ref } => assert_eq!(lens_ref, "does.not.exist"),
+            LensDslError::At { path, error } => {
+                assert_eq!(path.to_string(), "/lenses/0/ref");
+                assert!(
+                    matches!(*error, LensDslError::UnresolvedRef { ref lens_ref } if lens_ref == "does.not.exist"),
+                    "{error:?}"
+                );
+            }
             other => panic!("expected UnresolvedRef, got {other:?}"),
         }
     }
@@ -261,7 +255,7 @@ mod tests {
 
         assert!(
             matches!(
-                error,
+                error.unlocated(),
                 LensDslError::SymmetricRefInDirectionalCompose { lens_ref }
                     if lens_ref == "dev.example.symmetric"
             ),

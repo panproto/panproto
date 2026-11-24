@@ -118,6 +118,56 @@ fn default_registry_registers_csv_as_functor() {
     );
 }
 
+/// The `tsv` protocol is a named table codec in the default registry: it
+/// reads the table at the schema's entry vertex in the tab-separated
+/// dialect, where a quote is field text, and an unedited emission
+/// reproduces the source bytes.
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn default_registry_reads_tsv_by_name_as_a_preserving_table() {
+    use panproto_inst::value::Value;
+    use panproto_io::traits::NativeRepr;
+
+    let registry = panproto_io::default_registry();
+    assert_eq!(
+        registry.native_repr("tsv").expect("tsv registered"),
+        NativeRepr::Table
+    );
+    let proto = Protocol {
+        name: "tsv".into(),
+        schema_theory: "ThTsvSchema".into(),
+        instance_theory: "ThTsvInstance".into(),
+        ..Default::default()
+    };
+    let schema = SchemaBuilder::new(&proto)
+        .vertex("rows", "table", None)
+        .expect("table vertex")
+        .entry("rows")
+        .build()
+        .expect("build schema");
+    let input = b"name\tnote\r\nAda\t\"a, b\"\r\n";
+
+    let (instance, complement) = registry
+        .parse_functor_preserving("tsv", &schema, input)
+        .expect("tsv parse");
+    let rows = instance.rows("rows");
+    assert_eq!(rows.len(), 1);
+    let (_, row) = &rows[0];
+    assert_eq!(row.get("name"), Some(&Value::Str("Ada".into())));
+    assert_eq!(row.get("note"), Some(&Value::Str("\"a, b\"".into())));
+    assert!(complement.is_some(), "the tsv codec keeps its CST");
+
+    let emitted = registry
+        .emit_functor_preserving("tsv", &schema, &instance, complement.as_ref())
+        .expect("tsv emit");
+    assert_eq!(emitted, input);
+
+    let canonical = registry
+        .parse_functor("tsv", &schema, input)
+        .expect("canonical tsv parse");
+    assert_eq!(canonical.rows("rows").len(), 1);
+}
+
 /// Without the feature, the same entry points fall back to the canonical
 /// codec: no complement is produced and canonical emission still yields
 /// a re-parseable document.

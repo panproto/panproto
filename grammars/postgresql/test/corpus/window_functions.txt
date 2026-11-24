@@ -1,0 +1,37 @@
+================================================================================
+Basic window
+================================================================================
+
+SELECT count(*) OVER () FROM foo;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (SelectStmt
+        (select_no_parens
+          (simple_select
+            (kw_select)
+            (opt_target_list
+              (target_list
+                (target_el
+                  (a_expr
+                    (a_expr
+                      (c_expr
+                        (func_expr
+                          (func_application
+                            (func_name
+                              (type_function_name
+                                (identifier))))
+                          (over_clause
+                            (kw_over)
+                            (window_specification)))))))))
+            (from_clause
+              (kw_from)
+              (from_list
+                (table_ref
+                  (relation_expr
+                    (qualified_name
+                      (ColId
+                        (identifier)))))))))))))

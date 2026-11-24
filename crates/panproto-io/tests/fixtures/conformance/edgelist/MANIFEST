@@ -1,0 +1,21 @@
+# Edge-list conformance set: each case, the outcome it must have (`ok`,
+# with the canonical text in <case>.expected, or the refusal it draws),
+# and the rule it exercises with its source.
+gephi-required-columns.csv	ok	Gephi CSV import documentation, https://docs.gephi.org/desktop/User_Manual/Import/CSV_Format/: edges tables require columns labeled Source and Target
+gephi-case-insensitive.csv	ok	Gephi CSV import documentation, https://docs.gephi.org/desktop/User_Manual/Import/CSV_Format/: the Source and Target labels can be case insensitive
+gephi-label.csv	ok	Gephi CSV import documentation, https://docs.gephi.org/desktop/User_Manual/Import/CSV_Format/: an edge Label column
+gephi-type-column.csv	UnsupportedColumn	Gephi CSV import documentation, https://docs.gephi.org/desktop/User_Manual/Import/CSV_Format/: the optional edge Type column, which this dialect does not carry
+gephi-weight-column.csv	UnsupportedColumn	Gephi CSV import documentation, https://docs.gephi.org/desktop/User_Manual/Import/CSV_Format/: an edge Weight column, which this dialect does not carry
+gephi-missing-target.csv	MissingColumn	Gephi CSV import documentation, https://docs.gephi.org/desktop/User_Manual/Import/CSV_Format/: Target is mandatory
+gephi-empty-source.csv	EmptyName	Gephi CSV import documentation, https://docs.gephi.org/desktop/User_Manual/Import/CSV_Format/: Source and Target node Ids are mandatory for all rows
+gephi-directed-parallel-loop.csv	ok	Gephi CSV import documentation, https://docs.gephi.org/desktop/User_Manual/Import/CSV_Format/: edge type defaults to Directed; parallel edges and a self-loop are kept
+rfc4180-crlf.csv	ok	RFC 4180 Sec 2, https://www.rfc-editor.org/rfc/rfc4180, rules 1 and 3: CRLF line breaks and a header line
+rfc4180-no-final-break.csv	ok	RFC 4180 Sec 2, https://www.rfc-editor.org/rfc/rfc4180, rule 2: the last record may have no ending line break
+rfc4180-quoted.csv	ok	RFC 4180 Sec 2, https://www.rfc-editor.org/rfc/rfc4180, rule 5: fields enclosed in double quotes
+rfc4180-line-break.csv	ok	RFC 4180 Sec 2, https://www.rfc-editor.org/rfc/rfc4180, rule 6: a quoted field holding a line break
+rfc4180-double-quote.csv	ok	RFC 4180 Sec 2, https://www.rfc-editor.org/rfc/rfc4180, rule 7: a double quote inside a quoted field written twice
+rfc4180-field-count.csv	Table	RFC 4180 Sec 2, https://www.rfc-editor.org/rfc/rfc4180, rule 4: each line has the same number of fields
+iana-header-and-records.tsv	ok	IANA text/tab-separated-values registration, https://www.iana.org/assignments/media-types/text/tab-separated-values: the first line holds field names, each later line one record
+iana-field-count.tsv	Table	IANA text/tab-separated-values registration, https://www.iana.org/assignments/media-types/text/tab-separated-values: each record must have the same number of fields
+iana-quotes-are-text.tsv	ok	IANA text/tab-separated-values registration, https://www.iana.org/assignments/media-types/text/tab-separated-values: no quoting, so a quote is field text
+gephi-duplicate-column.tsv	DuplicateColumn	Gephi CSV import documentation, https://docs.gephi.org/desktop/User_Manual/Import/CSV_Format/: one Source column, its label case insensitive

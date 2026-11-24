@@ -21,6 +21,7 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand, ValueEnum};
 use miette::Result;
 use panproto_core::lens::Stringency;
+use panproto_core::protocols::config::ansible::FileClass;
 
 /// CLI-friendly mirror of [`Stringency`] for `clap` argument parsing.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
@@ -34,6 +35,28 @@ pub enum StringencyArg {
     Lenient,
     /// Adds `Structural` and `Coerce` proposals; spans allowed.
     Exploratory,
+}
+
+/// The class of an Ansible file, which the `ansible` reader needs and the
+/// file does not state: a playbook, a task file (such as a role's
+/// `tasks/main.yml`) or a variables file (such as a role's
+/// `defaults/main.yml`). The variants carry no doc comments, so `--help`
+/// lists them on one line.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
+enum AnsibleClassArg {
+    Playbook,
+    Tasks,
+    Vars,
+}
+
+impl From<AnsibleClassArg> for FileClass {
+    fn from(arg: AnsibleClassArg) -> Self {
+        match arg {
+            AnsibleClassArg::Playbook => Self::Playbook,
+            AnsibleClassArg::Tasks => Self::Tasks,
+            AnsibleClassArg::Vars => Self::Vars,
+        }
+    }
 }
 
 impl From<StringencyArg> for Stringency {
@@ -74,8 +97,13 @@ enum Command {
         #[arg(long)]
         protocol: String,
 
-        /// Path to the schema JSON file.
+        /// Path to the schema: panproto schema JSON, or a schema document
+        /// the protocol's reader reads.
         schema: PathBuf,
+
+        /// The class of an Ansible file, for `--protocol ansible`.
+        #[arg(long, value_enum)]
+        ansible_class: Option<AnsibleClassArg>,
     },
 
     /// Check existence conditions for a migration between two schemas.
@@ -105,10 +133,11 @@ enum Command {
     /// breaking change is found, and `2` on a usage or load error
     /// (unreadable file, unknown protocol, or bad `--format`).
     Compat {
-        /// Path to the old schema JSON file.
+        /// Path to the old schema: panproto schema JSON, a schema document
+        /// the protocol's reader reads, or a project directory.
         old: PathBuf,
 
-        /// Path to the new schema JSON file.
+        /// Path to the new schema, in any shape the old one may take.
         new: PathBuf,
 
         /// The protocol name (e.g., "atproto").
@@ -118,6 +147,10 @@ enum Command {
         /// Output format: `text` (default) or `json`.
         #[arg(long, default_value = "text")]
         format: String,
+
+        /// The class of an Ansible file, for `--protocol ansible`.
+        #[arg(long, value_enum)]
+        ansible_class: Option<AnsibleClassArg>,
     },
 
     /// Generate minimal test data from a protocol theory using free model construction.
@@ -126,7 +159,8 @@ enum Command {
         #[arg(long)]
         protocol: String,
 
-        /// Path to the schema JSON file.
+        /// Path to the schema: panproto schema JSON, or a schema document
+        /// the protocol's reader reads.
         schema: PathBuf,
 
         /// Maximum term generation depth (default: 3).
@@ -140,6 +174,10 @@ enum Command {
         /// Output as JSON.
         #[arg(long)]
         json: bool,
+
+        /// The class of an Ansible file, for `--protocol ansible`.
+        #[arg(long, value_enum)]
+        ansible_class: Option<AnsibleClassArg>,
     },
 
     /// Simplify a schema by merging equivalent elements.
@@ -148,7 +186,8 @@ enum Command {
         #[arg(long)]
         protocol: String,
 
-        /// Path to the schema JSON file.
+        /// Path to the schema: panproto schema JSON, or a schema document
+        /// the protocol's reader reads.
         schema: PathBuf,
 
         /// Pairs of elements to identify, as "A=B".
@@ -158,6 +197,10 @@ enum Command {
         /// Output as JSON.
         #[arg(long)]
         json: bool,
+
+        /// The class of an Ansible file, for `--protocol ansible`.
+        #[arg(long, value_enum)]
+        ansible_class: Option<AnsibleClassArg>,
     },
 
     /// Type-check a migration between two schemas at the GAT level.
@@ -181,7 +224,8 @@ enum Command {
         #[arg(long)]
         protocol: String,
 
-        /// Path to the schema JSON file.
+        /// Path to the schema: panproto schema JSON, or a schema document
+        /// the protocol's reader reads.
         schema: PathBuf,
 
         /// Maximum assignments to check per equation (default: 10000).
@@ -202,6 +246,10 @@ enum Command {
         /// output still says the run was incomplete.
         #[arg(long)]
         allow_incomplete: bool,
+
+        /// The class of an Ansible file, for `--protocol ansible`.
+        #[arg(long, value_enum)]
+        ansible_class: Option<AnsibleClassArg>,
     },
 
     // -- VCS commands --
@@ -1354,7 +1402,15 @@ fn dispatch(command: Command, verbose: bool) -> Result<()> {
             new,
             protocol,
             format,
-        } => cmd::schema::cmd_compat(&old, &new, &protocol, &format, verbose),
+            ansible_class,
+        } => cmd::schema::cmd_compat(
+            &old,
+            &new,
+            &protocol,
+            &format,
+            ansible_class.map(FileClass::from),
+            verbose,
+        ),
         Command::Show {
             target,
             format,
@@ -1399,9 +1455,16 @@ fn dispatch(command: Command, verbose: bool) -> Result<()> {
 /// Dispatch schema tool commands (validate, check, lift, auto-migrate, scaffold, etc.).
 fn dispatch_schema_commands(command: Command, verbose: bool) -> Result<()> {
     match command {
-        Command::Validate { protocol, schema } => {
-            cmd::schema::cmd_validate(&protocol, &schema, verbose)
-        }
+        Command::Validate {
+            protocol,
+            schema,
+            ansible_class,
+        } => cmd::schema::cmd_validate(
+            &protocol,
+            &schema,
+            ansible_class.map(FileClass::from),
+            verbose,
+        ),
         Command::Check {
             src,
             tgt,
@@ -1414,13 +1477,30 @@ fn dispatch_schema_commands(command: Command, verbose: bool) -> Result<()> {
             depth,
             max_terms,
             json,
-        } => cmd::schema::cmd_scaffold(&protocol, &schema, depth, max_terms, json, verbose),
+            ansible_class,
+        } => cmd::schema::cmd_scaffold(
+            &protocol,
+            &schema,
+            depth,
+            max_terms,
+            json,
+            ansible_class.map(FileClass::from),
+            verbose,
+        ),
         Command::Normalize {
             protocol,
             schema,
             identifications,
             json,
-        } => cmd::schema::cmd_normalize(&protocol, &schema, &identifications, json, verbose),
+            ansible_class,
+        } => cmd::schema::cmd_normalize(
+            &protocol,
+            &schema,
+            &identifications,
+            json,
+            ansible_class.map(FileClass::from),
+            verbose,
+        ),
         Command::Typecheck {
             src,
             tgt,
@@ -1432,12 +1512,14 @@ fn dispatch_schema_commands(command: Command, verbose: bool) -> Result<()> {
             max_assignments,
             format,
             allow_incomplete,
+            ansible_class,
         } => cmd::schema::cmd_verify(
             &protocol,
             &schema,
             max_assignments,
             &format,
             allow_incomplete,
+            ansible_class.map(FileClass::from),
             verbose,
         ),
         Command::Lift {

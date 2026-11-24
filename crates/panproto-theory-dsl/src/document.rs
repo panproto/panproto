@@ -12,7 +12,12 @@ use panproto_schema::Protocol;
 use serde::{Deserialize, Serialize};
 
 /// Top-level theory document. Exactly one body variant must be present.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// Deserialization reads the value through
+/// [`crate::shape::read_document`], so every route that deserializes a
+/// document refuses the same values: a document with no body or several, or
+/// any object carrying a member the grammar does not name.
+#[derive(Debug, Clone, Serialize)]
 pub struct TheoryDocument {
     /// Unique identifier (reverse-DNS, e.g. `"dev.attitudes.conjunction"`).
     pub id: String,
@@ -21,6 +26,13 @@ pub struct TheoryDocument {
     /// Exactly one body variant (discriminated by field presence).
     #[serde(flatten)]
     pub body: TheoryBody,
+}
+
+impl<'de> Deserialize<'de> for TheoryDocument {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        crate::shape::read_document(&value).map_err(serde::de::Error::custom)
+    }
 }
 
 /// Body variant of a theory document.

@@ -52,7 +52,7 @@ fn an_oversized_document_is_refused_and_the_error_names_the_resource() {
 
 #[test]
 fn oversized_source_text_is_refused() {
-    let err = parse_schema_source_within("graphql", &"a".repeat(4_096), &tiny_budget(0, 64))
+    let err = parse_schema_source_within("protobuf", &"a".repeat(4_096), &tiny_budget(0, 64))
         .expect_err("source past the byte bound");
     assert!(matches!(err, ProtocolError::LimitExceeded(l) if l.resource == Resource::InputBytes));
 }

@@ -13,20 +13,32 @@ import type { BuiltSchema } from './schema.js';
 import { Instance } from './instance.js';
 import { unpackFromWasm } from './msgpack.js';
 
-/** Protocol names organized by category. */
+/**
+ * The canonical names of the protocols that have an instance codec, organized
+ * by the module of `panproto-protocols` that defines each.
+ *
+ * The names are the registry's canonical hyphenated spellings, the ones
+ * {@link IoRegistry.protocols} reports. The `edgelist`, `rdf` and `text`
+ * codecs, and the `postgresql` codec, read through tree-sitter grammars and
+ * are registered only in a build with format preservation, so
+ * {@link IoRegistry.protocols} lists them only there.
+ */
 export const PROTOCOL_CATEGORIES: Readonly<Record<string, readonly string[]>> = {
   annotation: [
-    'brat', 'conllu', 'naf', 'uima', 'folia', 'tei', 'timeml', 'elan',
-    'iso_space', 'paula', 'laf_graf', 'decomp', 'ucca', 'fovea', 'bead',
-    'web_annotation', 'amr', 'concrete', 'nif',
+    'amr', 'bead', 'brat', 'concrete', 'conllu', 'decomp', 'elan', 'folia',
+    'fovea', 'iso-space', 'laf-graf', 'naf', 'nif', 'paula', 'tei', 'timeml',
+    'ucca', 'uima', 'web-annotation',
   ],
-  api: ['openapi', 'asyncapi', 'jsonapi', 'raml'],
-  config: ['cloudformation', 'ansible', 'k8s_crd'],
-  data_schema: ['cddl', 'bson'],
-  data_science: ['dataframe', 'parquet', 'arrow'],
-  database: ['mongodb', 'dynamodb', 'cassandra', 'neo4j', 'redis'],
-  domain: ['geojson', 'fhir', 'rss_atom', 'vcard_ical', 'swift_mt', 'edi_x12'],
-  serialization: ['avro', 'flatbuffers', 'asn1', 'bond', 'msgpack_schema'],
+  api: ['asyncapi', 'jsonapi', 'openapi', 'raml'],
+  config: ['ansible', 'cloudformation', 'k8s-crd'],
+  data_schema: ['bson', 'cddl'],
+  data_science: ['arrow', 'dataframe', 'parquet'],
+  database: ['cassandra', 'dynamodb', 'mongodb', 'neo4j', 'postgresql', 'redis'],
+  domain: ['edi-x12', 'fhir', 'geojson', 'rss-atom', 'swift-mt', 'vcard-ical'],
+  edgelist: ['edgelist-csv', 'edgelist-tsv'],
+  rdf: ['jsonld', 'ntriples', 'turtle'],
+  serialization: ['asn1', 'avro', 'bond', 'flatbuffers', 'msgpack-schema'],
+  text: ['csv', 'toml', 'tsv', 'yaml'],
   web_document: ['atproto', 'docx', 'odf'],
 };
 

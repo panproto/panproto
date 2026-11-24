@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
 
-Python companion extension for the `group-data` grammars: JSON, TOML, XML, YAML, SQL, CSV, GraphQL, and Protobuf.
+Python companion extension for the `group-data` grammars: JSON, TOML, XML, YAML, SQL, PostgreSQL, CSV, GraphQL, and Protobuf.
 
 ## Installation
 

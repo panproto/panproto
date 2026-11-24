@@ -1,0 +1,175 @@
+================================================================================
+INNER JOIN
+================================================================================
+
+SELECT a FROM foo INNER JOIN bar ON foo.id = bar.id;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (SelectStmt
+        (select_no_parens
+          (simple_select
+            (kw_select)
+            (opt_target_list
+              (target_list
+                (target_el
+                  (a_expr
+                    (a_expr
+                      (c_expr
+                        (columnref
+                          (ColId
+                            (identifier)))))))))
+            (from_clause
+              (kw_from)
+              (from_list
+                (table_ref
+                  (joined_table
+                    (table_ref
+                      (relation_expr
+                        (qualified_name
+                          (ColId
+                            (identifier)))))
+                    (join_type
+                      (kw_inner))
+                    (kw_join)
+                    (table_ref
+                      (relation_expr
+                        (qualified_name
+                          (ColId
+                            (identifier)))))
+                    (join_qual
+                      (kw_on)
+                      (a_expr
+                        (a_expr
+                          (a_expr_prec
+                            (c_expr
+                              (columnref
+                                (ColId
+                                  (identifier))
+                                (indirection
+                                  (indirection_el
+                                    (attr_name
+                                      (ColLabel
+                                        (identifier))))))))
+                          (a_expr_prec
+                            (c_expr
+                              (columnref
+                                (ColId
+                                  (identifier))
+                                (indirection
+                                  (indirection_el
+                                    (attr_name
+                                      (ColLabel
+                                        (identifier)))))))))))))))))))))
+
+================================================================================
+LEFT JOIN
+================================================================================
+
+SELECT a FROM foo LEFT JOIN bar ON foo.id = bar.id;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (SelectStmt
+        (select_no_parens
+          (simple_select
+            (kw_select)
+            (opt_target_list
+              (target_list
+                (target_el
+                  (a_expr
+                    (a_expr
+                      (c_expr
+                        (columnref
+                          (ColId
+                            (identifier)))))))))
+            (from_clause
+              (kw_from)
+              (from_list
+                (table_ref
+                  (joined_table
+                    (table_ref
+                      (relation_expr
+                        (qualified_name
+                          (ColId
+                            (identifier)))))
+                    (join_type
+                      (kw_left))
+                    (kw_join)
+                    (table_ref
+                      (relation_expr
+                        (qualified_name
+                          (ColId
+                            (identifier)))))
+                    (join_qual
+                      (kw_on)
+                      (a_expr
+                        (a_expr
+                          (a_expr_prec
+                            (c_expr
+                              (columnref
+                                (ColId
+                                  (identifier))
+                                (indirection
+                                  (indirection_el
+                                    (attr_name
+                                      (ColLabel
+                                        (identifier))))))))
+                          (a_expr_prec
+                            (c_expr
+                              (columnref
+                                (ColId
+                                  (identifier))
+                                (indirection
+                                  (indirection_el
+                                    (attr_name
+                                      (ColLabel
+                                        (identifier)))))))))))))))))))))
+
+================================================================================
+CROSS JOIN
+================================================================================
+
+SELECT a FROM foo CROSS JOIN bar;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (SelectStmt
+        (select_no_parens
+          (simple_select
+            (kw_select)
+            (opt_target_list
+              (target_list
+                (target_el
+                  (a_expr
+                    (a_expr
+                      (c_expr
+                        (columnref
+                          (ColId
+                            (identifier)))))))))
+            (from_clause
+              (kw_from)
+              (from_list
+                (table_ref
+                  (joined_table
+                    (table_ref
+                      (relation_expr
+                        (qualified_name
+                          (ColId
+                            (identifier)))))
+                    (kw_cross)
+                    (kw_join)
+                    (table_ref
+                      (relation_expr
+                        (qualified_name
+                          (ColId
+                            (identifier)))))))))))))))

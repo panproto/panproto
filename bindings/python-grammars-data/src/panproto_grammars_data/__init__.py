@@ -1,7 +1,7 @@
 """panproto grammar pack: data languages.
 
 Companion package to panproto. Brings tree-sitter grammars for
-JSON, TOML, XML, YAML, SQL, CSV, GraphQL, Protobuf into ``panproto.AstParserRegistry`` via the
+JSON, TOML, XML, YAML, SQL, PostgreSQL, CSV, GraphQL, Protobuf into ``panproto.AstParserRegistry`` via the
 ``panproto.grammars`` entry point.
 
 Installation:

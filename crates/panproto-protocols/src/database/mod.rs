@@ -9,7 +9,7 @@ mod keyword;
 pub mod mongodb;
 /// Neo4j graph database protocol definition and parser/emitter.
 pub mod neo4j;
+/// SQL DDL protocol definition and parser/emitter.
+pub mod postgresql;
 /// Redis RediSearch protocol definition and parser/emitter.
 pub mod redis;
-/// SQL DDL protocol definition and parser/emitter.
-pub mod sql;

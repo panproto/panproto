@@ -1182,7 +1182,7 @@ fn plan_digest_covers_every_protocol_field_compilation_reads() {
         (
             "name",
             Protocol {
-                name: "sql".into(),
+                name: "postgresql".into(),
                 ..Protocol::default()
             },
         ),
@@ -2271,7 +2271,7 @@ fn a_sql_table_signature_must_equal_its_columns() {
         h.kind = "table".into();
     }
     let mut p = Protocol {
-        name: "sql".into(),
+        name: "postgresql".into(),
         ..Protocol::default()
     };
     let findings =

@@ -293,7 +293,7 @@ fn parse_record(
                 let type_name = avro_type_name(field_type);
                 if !type_name.is_empty() {
                     field_infos.push(FieldInfo {
-                        field_id: field_id.clone(),
+                        field_id,
                         type_name,
                     });
                 }

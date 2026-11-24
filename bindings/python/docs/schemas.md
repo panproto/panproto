@@ -8,18 +8,18 @@ A protocol defines:
 
 - **Sorts** $\mathcal{S}$: the vertex kinds (e.g., `table`, `integer`, `string` for SQL)
 - **Operations** $\mathcal{O}$: the edge kinds (e.g., `prop`, `foreign-key`) with source/target kind constraints
-- **Equations** $\mathcal{E}$: structural laws (e.g., constraint sorts like `primary_key`, `maxLength`)
+- **Equations** $\mathcal{E}$: structural laws (e.g., constraint sorts like `NOT NULL`, `maxLength`)
 
 ```python
 import panproto
 
-sql = panproto.get_builtin_protocol("sql")
-print(sql.name)           # "sql"
-print(sql.obj_kinds)      # ["table", "integer", "string", ...]
-print(sql.edge_rules)     # [{edge_kind: "prop", src_kinds: ["table"], ...}, ...]
+postgresql = panproto.get_builtin_protocol("postgresql")
+print(postgresql.name)           # "postgresql"
+print(postgresql.obj_kinds)      # ["table", "integer", "string", ...]
+print(postgresql.edge_rules)     # [{edge_kind: "prop", src_kinds: ["table"], ...}, ...]
 ```
 
-The 57 semantic protocols and the grammars compiled into the extension are built in. List their canonical names with:
+The 63 semantic protocols and the grammars compiled into the extension are built in. List their canonical names with:
 
 ```python
 panproto.list_builtin_protocols()
@@ -30,13 +30,13 @@ panproto.list_builtin_protocols()
 `Protocol.schema()` returns a mutable `SchemaBuilder`. Call `vertex()`, `edge()`, `hyper_edge()`, and `constraint()` to add elements, then `build()` to produce a validated `Schema`.
 
 ```python
-builder = sql.schema()
+builder = postgresql.schema()
 builder.vertex("users", "table")
 builder.vertex("users.id", "integer")
 builder.vertex("users.name", "string")
 builder.edge("users", "users.id", "prop", "id")
 builder.edge("users", "users.name", "prop", "name")
-builder.constraint("users.id", "primary_key", "")
+builder.constraint("users.id", "NOT NULL", "true")
 schema = builder.build()
 ```
 
@@ -45,7 +45,7 @@ Each call validates against the protocol's edge rules. Adding a `prop` edge from
 ## Schema properties
 
 ```python
-schema.protocol       # "sql"
+schema.protocol       # "postgresql"
 schema.vertex_count   # 3
 schema.edge_count     # 2
 schema.vertices       # [Vertex(id="users", kind="table"), ...]
@@ -77,7 +77,7 @@ Returns `None` when the named field is absent. Named-node field children continu
 
 ```python
 normalized = schema.normalize()         # collapse ref-chains
-issues = schema.validate(sql)           # list[str], empty if valid
+issues = schema.validate(postgresql)           # list[str], empty if valid
 ```
 
 ## Serialization

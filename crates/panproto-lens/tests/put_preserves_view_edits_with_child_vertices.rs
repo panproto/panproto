@@ -310,22 +310,27 @@ fn put_preserves_view_edit_via_json_reparse_and_remap() {
 
     // The reparse turns the `bio` field the lens adds into a `user.bio`
     // child node, which no source vertex can hold: `put` is strict and
-    // refuses that arc rather than dropping it, since `get` of any source
-    // it wrote back would not give it again.
-    let (bio_id, bio_arc) = remapped
+    // refuses that node, at a target vertex no surviving source vertex
+    // reaches, rather than dropping it, since `get` of any source it wrote
+    // back would not give it again.
+    let bio_id = remapped
         .arcs
         .iter()
         .find(|(_, child, _)| remapped.nodes[child].anchor == "user.bio")
-        .map(|(parent, child, _)| (*child, (*parent, *child)))
+        .map(|(_, child, _)| *child)
         .expect("the reparse adds a user.bio node");
     match asymmetric::put(&lens, &remapped, &complement) {
         Err(panproto_lens::LensError::PutDomain(error)) => match *error {
-            panproto_lens::PutDomainError::UnrepresentableViewEdge {
-                elem: panproto_inst::ViewRef::Arc { parent, child },
-            } => assert_eq!((parent, child), bio_arc),
-            other => panic!("expected the user.bio arc to be refused, got {other:?}"),
+            panproto_lens::PutDomainError::AmbiguousReverseAnchor {
+                elem: panproto_inst::ViewRef::Node(node),
+                candidates,
+            } => {
+                assert_eq!(node, bio_id);
+                assert!(candidates.is_empty(), "{candidates:?}");
+            }
+            other => panic!("expected the user.bio node to be refused, got {other:?}"),
         },
-        other => panic!("expected the user.bio arc to be refused, got {other:?}"),
+        other => panic!("expected the user.bio node to be refused, got {other:?}"),
     }
     // The view holds `bio` as a derived cell of `user`; move the value the
     // reparse put on the child back there, unedited.

@@ -1,0 +1,462 @@
+================================================================================
+CREATE TABLE
+================================================================================
+
+CREATE TABLE foo (id int, name text);
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (CreateStmt
+        (kw_create)
+        (kw_table)
+        (qualified_name
+          (ColId
+            (identifier)))
+        (OptTableElementList
+          (TableElementList
+            (TableElementList
+              (TableElement
+                (columnDef
+                  (ColId
+                    (identifier))
+                  (Typename
+                    (SimpleTypename
+                      (Numeric
+                        (kw_int)))))))
+            (TableElement
+              (columnDef
+                (ColId
+                  (unreserved_keyword
+                    (kw_name)))
+                (Typename
+                  (SimpleTypename
+                    (GenericType
+                      (type_function_name
+                        (unreserved_keyword
+                          (kw_text))))))))))))))
+
+================================================================================
+DROP TABLE
+================================================================================
+
+DROP TABLE foo;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (DropStmt
+        (kw_drop)
+        (object_type_any_name
+          (kw_table))
+        (any_name_list
+          (any_name
+            (ColId
+              (identifier))))))))
+
+================================================================================
+CREATE INDEX
+================================================================================
+
+CREATE INDEX idx ON foo (name);
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (IndexStmt
+        (kw_create)
+        (kw_index)
+        (opt_single_name
+          (ColId
+            (identifier)))
+        (kw_on)
+        (relation_expr
+          (qualified_name
+            (ColId
+              (identifier))))
+        (index_params
+          (index_elem
+            (ColId
+              (unreserved_keyword
+                (kw_name)))))))))
+
+================================================================================
+CREATE INDEX column DESC
+================================================================================
+
+CREATE INDEX idx_a ON t USING btree (a DESC);
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (IndexStmt
+        (kw_create)
+        (kw_index)
+        (opt_single_name
+          (ColId
+            (identifier)))
+        (kw_on)
+        (relation_expr
+          (qualified_name
+            (ColId
+              (identifier))))
+        (access_method_clause
+          (kw_using)
+          (name
+            (ColId
+              (identifier))))
+        (index_params
+          (index_elem
+            (ColId
+              (identifier))
+            (index_elem_options
+              (opt_asc_desc
+                (kw_desc)))))))))
+
+================================================================================
+CREATE INDEX column ASC
+================================================================================
+
+CREATE INDEX idx_b ON t USING btree (b ASC);
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (IndexStmt
+        (kw_create)
+        (kw_index)
+        (opt_single_name
+          (ColId
+            (identifier)))
+        (kw_on)
+        (relation_expr
+          (qualified_name
+            (ColId
+              (identifier))))
+        (access_method_clause
+          (kw_using)
+          (name
+            (ColId
+              (identifier))))
+        (index_params
+          (index_elem
+            (ColId
+              (identifier))
+            (index_elem_options
+              (opt_asc_desc
+                (kw_asc)))))))))
+
+================================================================================
+CREATE INDEX column DESC NULLS LAST
+================================================================================
+
+CREATE INDEX idx_c ON t USING btree (c DESC NULLS LAST);
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (IndexStmt
+        (kw_create)
+        (kw_index)
+        (opt_single_name
+          (ColId
+            (identifier)))
+        (kw_on)
+        (relation_expr
+          (qualified_name
+            (ColId
+              (identifier))))
+        (access_method_clause
+          (kw_using)
+          (name
+            (ColId
+              (identifier))))
+        (index_params
+          (index_elem
+            (ColId
+              (identifier))
+            (index_elem_options
+              (opt_asc_desc
+                (kw_desc))
+              (opt_nulls_order
+                (kw_nulls)
+                (kw_last)))))))))
+
+================================================================================
+CREATE INDEX column ASC NULLS FIRST
+================================================================================
+
+CREATE INDEX idx_d ON t USING btree (d ASC NULLS FIRST);
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (IndexStmt
+        (kw_create)
+        (kw_index)
+        (opt_single_name
+          (ColId
+            (identifier)))
+        (kw_on)
+        (relation_expr
+          (qualified_name
+            (ColId
+              (identifier))))
+        (access_method_clause
+          (kw_using)
+          (name
+            (ColId
+              (identifier))))
+        (index_params
+          (index_elem
+            (ColId
+              (identifier))
+            (index_elem_options
+              (opt_asc_desc
+                (kw_asc))
+              (opt_nulls_order
+                (kw_nulls)
+                (kw_first)))))))))
+
+================================================================================
+CREATE INDEX column NULLS FIRST
+================================================================================
+
+CREATE INDEX idx_nulls_first ON t USING btree (e NULLS FIRST);
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (IndexStmt
+        (kw_create)
+        (kw_index)
+        (opt_single_name
+          (ColId
+            (identifier)))
+        (kw_on)
+        (relation_expr
+          (qualified_name
+            (ColId
+              (identifier))))
+        (access_method_clause
+          (kw_using)
+          (name
+            (ColId
+              (identifier))))
+        (index_params
+          (index_elem
+            (ColId
+              (identifier))
+            (index_elem_options
+              (opt_nulls_order
+                (kw_nulls)
+                (kw_first)))))))))
+
+================================================================================
+CREATE INDEX column NULLS LAST
+================================================================================
+
+CREATE INDEX idx_nulls_last ON t USING btree (f NULLS LAST);
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (IndexStmt
+        (kw_create)
+        (kw_index)
+        (opt_single_name
+          (ColId
+            (identifier)))
+        (kw_on)
+        (relation_expr
+          (qualified_name
+            (ColId
+              (identifier))))
+        (access_method_clause
+          (kw_using)
+          (name
+            (ColId
+              (identifier))))
+        (index_params
+          (index_elem
+            (ColId
+              (identifier))
+            (index_elem_options
+              (opt_nulls_order
+                (kw_nulls)
+                (kw_last)))))))))
+
+================================================================================
+CREATE INDEX multiple sorted columns
+================================================================================
+
+CREATE INDEX idx_multi ON t USING btree (a DESC, b ASC NULLS FIRST);
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (IndexStmt
+        (kw_create)
+        (kw_index)
+        (opt_single_name
+          (ColId
+            (identifier)))
+        (kw_on)
+        (relation_expr
+          (qualified_name
+            (ColId
+              (identifier))))
+        (access_method_clause
+          (kw_using)
+          (name
+            (ColId
+              (identifier))))
+        (index_params
+          (index_params
+            (index_elem
+              (ColId
+                (identifier))
+              (index_elem_options
+                (opt_asc_desc
+                  (kw_desc)))))
+          (index_elem
+            (ColId
+              (identifier))
+            (index_elem_options
+              (opt_asc_desc
+                (kw_asc))
+              (opt_nulls_order
+                (kw_nulls)
+                (kw_first)))))))))
+
+================================================================================
+CREATE INDEX expression DESC
+================================================================================
+
+CREATE INDEX idx_expr ON t USING btree ((lower(a)) DESC);
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (IndexStmt
+        (kw_create)
+        (kw_index)
+        (opt_single_name
+          (ColId
+            (identifier)))
+        (kw_on)
+        (relation_expr
+          (qualified_name
+            (ColId
+              (identifier))))
+        (access_method_clause
+          (kw_using)
+          (name
+            (ColId
+              (identifier))))
+        (index_params
+          (index_elem
+            (a_expr
+              (a_expr
+                (c_expr
+                  (func_expr
+                    (func_application
+                      (func_name
+                        (type_function_name
+                          (identifier)))
+                      (func_arg_list
+                        (func_arg_expr
+                          (a_expr
+                            (a_expr
+                              (c_expr
+                                (columnref
+                                  (ColId
+                                    (identifier)))))))))))))
+            (index_elem_options
+              (opt_asc_desc
+                (kw_desc)))))))))
+
+================================================================================
+CREATE TABLE quoted identifiers
+================================================================================
+
+CREATE TABLE "My Table" ("Col""umn" int);
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (CreateStmt
+        (kw_create)
+        (kw_table)
+        (qualified_name
+          (ColId
+            (quoted_identifier)))
+        (OptTableElementList
+          (TableElementList
+            (TableElement
+              (columnDef
+                (ColId
+                  (quoted_identifier))
+                (Typename
+                  (SimpleTypename
+                    (Numeric
+                      (kw_int))))))))))))
+
+================================================================================
+CREATE INDEX column COLLATE quoted DESC
+================================================================================
+
+CREATE INDEX i ON t (c COLLATE "fr_FR" DESC);
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (IndexStmt
+        (kw_create)
+        (kw_index)
+        (opt_single_name
+          (ColId
+            (identifier)))
+        (kw_on)
+        (relation_expr
+          (qualified_name
+            (ColId
+              (identifier))))
+        (index_params
+          (index_elem
+            (ColId
+              (identifier))
+            (index_elem_options
+              (opt_collate
+                (kw_collate)
+                (any_name
+                  (ColId
+                    (quoted_identifier))))
+              (opt_asc_desc
+                (kw_desc)))))))))

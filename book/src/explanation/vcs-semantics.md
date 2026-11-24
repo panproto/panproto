@@ -6,6 +6,8 @@ This distinction changes the form of a conflict. A text merge reports overlappin
 
 ## Objects and references
 
+A repository records the format it was written in. `Repository::init` writes `.panproto/format`, holding the repository format version ([`REPOSITORY_FORMAT_VERSION`](https://docs.rs/panproto-vcs/latest/panproto_vcs/constant.REPOSITORY_FORMAT_VERSION.html), currently 1) as a decimal numeral and a line feed, and refuses with `AlreadyARepository` where `.panproto/` already exists. `Repository::open` refuses any other marker content with `UnsupportedRepositoryFormat`, before any object is decoded. A repository with no marker was written before the marker existed, in the only format there has been, so it is read as version 1; reads leave it as it is, and the first write through the store writes the marker. Version 1 is the layout described here, with objects encoded as MessagePack.
+
 Every object identifier is a BLAKE3 digest of the object's type-specific canonical serialization. Objects are stored under `.panproto/objects/`, branch references under `.panproto/refs/heads/`, and tag references under `.panproto/refs/tags/`. The filesystem store writes objects and refs through a flushed sibling temporary file followed by a same-directory rename. It recomputes an object's identifier when reading it and returns `ObjectCorrupted` if the stored object does not match its path. Ref names must consist only of ordinary relative path components.
 
 | Object | Contents |
@@ -19,6 +21,10 @@ Every object identifier is a BLAKE3 digest of the object's type-specific canonic
 | `Tag` | An annotated reference to another stored object. |
 
 A branch is a mutable reference rather than an immutable object. A commit may have more than one parent, so the commit relation forms a DAG rather than a simple sequence.
+
+## Migration selection at stage
+
+Staging a schema selects the migration the commit will record. The first commit records none. Every later stage diffs the staged schema against HEAD's, refuses an empty diff with `ValidationFailed` and the reason `no changes detected`, and derives a migration with [`derive_migration`](https://docs.rs/panproto-vcs/latest/panproto_vcs/auto_mig/fn.derive_migration.html): the identity on every vertex the two schemas share (a vertex whose kind changed included), the identity on every edge they share, and for an edge whose endpoints survive but which is gone, the edge of the same name between the same endpoints when there is one. When the change both removes a vertex and adds another, the migration may instead take the right leg of an injective span search, pinned by detected renames, when that leg maps more vertices and type-checks; the search pins every vertex of unchanged kind that survives to itself, and a survivor whose kind changed may be sent to a vertex of its old kind. The selected migration is stored as a `Migration` object whose source and target are the identifiers of the HEAD schema and the staged schema stored as `FlatSchema` objects, which is how the migration's identity is tied to the two schemas it relates. [Schema merge](../correctness/schema-merge.md#L-schema-merge-3) states this as a law.
 
 ## Validation at stage and commit
 
@@ -41,6 +47,8 @@ $$
 $$
 
 The implementation constructs $M$ with a field-by-field structural three-way merge. Compatible additions and modifications are combined. Incompatible edits become `MergeConflict` variants, and conflicted elements retain their base values until the caller supplies a resolution. `apply_resolutions` requires a choice of ours or theirs for every reported conflict and then verifies the resulting square.
+
+For vertices and edges the rule is per element: a value both branches agree on is taken, a branch that left the base value gives way to the other, and three different values are a conflict. Deleting a vertex depends on the other branch's changes at it. When one branch deletes a vertex and the other changes its kind, or adds an edge at it, the merge reports `DeleteModifyVertex` and keeps the vertex with its base kind, so the added edge keeps its endpoint; a merge without conflicts is therefore a well-formed schema. Resolving that conflict takes the chosen side's vertex together with its edges at the vertex. Conflicts are listed sorted by the derived order of `MergeConflict` (by class, then by the contested element), so a conflict's index, which a `ResolutionStrategy` keys on, is the same in every process. [Schema merge](../correctness/schema-merge.md) states these rules as laws and checks them against a reference.
 
 Combining compatible additions means that two branches adding the same name compatibly contribute one element rather than one each, so $M$ is the pushout quotiented by same-name identification. `MergeResult::identified_additions` reports every name collapsed this way. [Pushouts and merge](./semantics/pushouts-and-merge.md) states what that quotient costs.
 

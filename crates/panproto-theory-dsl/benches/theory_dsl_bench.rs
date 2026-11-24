@@ -19,5 +19,5 @@ const TH_GRAPH_JSON: &str = r#"{
 
 #[divan::bench]
 fn parse_thgraph_json(bencher: divan::Bencher) {
-    bencher.bench(|| eval::eval_json(TH_GRAPH_JSON));
+    bencher.bench(|| eval::eval_json(TH_GRAPH_JSON).map_err(Box::new));
 }

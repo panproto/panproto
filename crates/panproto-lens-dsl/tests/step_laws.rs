@@ -334,7 +334,7 @@ fn step_law_add_field() {
     // has no source datum, so the round trip recovers the original.
     assert_chain_getput(
         r#"{ "id": "l", "source": "s", "target": "t",
-             "steps": [{ "add_field": { "name": "note", "kind": "string", "fallback": "d" } }] }"#,
+             "steps": [{ "add_field": { "name": "note", "kind": "string", "default": "d" } }] }"#,
         &nested_schema(),
         &nested_instance(),
     );
@@ -345,7 +345,7 @@ fn ordered_stage_keeps_default_synthesized_by_add_field() {
     let compiled = compile_doc(
         r#"{ "id": "l", "source": "s", "target": "t",
              "steps": [{ "add_field": {
-                 "name": "note", "kind": "string", "fallback": "d"
+                 "name": "note", "kind": "string", "default": "d"
              } }] }"#,
     );
     let schema = nested_schema();

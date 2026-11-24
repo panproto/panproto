@@ -38,11 +38,24 @@ const THEORY_CONTRACT_SOURCE: &str = include_str!("../contracts/theory.ncl");
 ///
 /// Returns [`TheoryDslError::NickelEvalSpanned`] when evaluation fails at a
 /// locatable point in `source`, [`TheoryDslError::NickelEval`] when it fails
-/// without a recoverable span (for example a deserialization mismatch).
+/// without a recoverable span, and [`TheoryDslError::Shape`] when the
+/// exported value is not a document.
 pub fn eval_nickel(
     source: &str,
     import_paths: &[PathBuf],
 ) -> Result<TheoryDocument, TheoryDslError> {
+    crate::shape::read_document(&nickel_value(source, import_paths)?)
+}
+
+/// Evaluate a Nickel source string to the document value it exports.
+///
+/// # Errors
+///
+/// As [`eval_nickel`], before the value is read as a document.
+pub fn nickel_value(
+    source: &str,
+    import_paths: &[PathBuf],
+) -> Result<serde_json::Value, TheoryDslError> {
     panproto_dsl_eval::eval_nickel(
         source,
         import_paths,
@@ -58,18 +71,30 @@ pub fn eval_nickel(
 ///
 /// # Errors
 ///
-/// Returns [`TheoryDslError::Json`] if parsing fails.
+/// Returns [`TheoryDslError::Json`] if parsing fails and
+/// [`TheoryDslError::Shape`] if the value is not a document.
 pub fn eval_json(source: &str) -> Result<TheoryDocument, TheoryDslError> {
-    panproto_dsl_eval::eval_json(source).map_err(TheoryDslError::from)
+    let value: serde_json::Value = panproto_dsl_eval::eval_json(source)?;
+    crate::shape::read_document(&value)
 }
 
 /// Evaluate a YAML string to a [`TheoryDocument`].
 ///
 /// # Errors
 ///
-/// Returns [`TheoryDslError::Yaml`] if parsing fails.
+/// Returns [`TheoryDslError::Yaml`] if parsing fails and
+/// [`TheoryDslError::Shape`] if the value is not a document.
 pub fn eval_yaml(source: &str) -> Result<TheoryDocument, TheoryDslError> {
-    panproto_dsl_eval::eval_yaml(source).map_err(TheoryDslError::from)
+    crate::shape::read_document(&yaml_value(source)?)
+}
+
+/// Parse a YAML string to the document value it holds.
+///
+/// # Errors
+///
+/// Returns [`TheoryDslError::Yaml`] if parsing fails.
+pub fn yaml_value(source: &str) -> Result<serde_json::Value, TheoryDslError> {
+    Ok(panproto_dsl_eval::eval_yaml(source)?)
 }
 
 #[cfg(test)]
@@ -131,18 +156,23 @@ mod tests {
         );
     }
 
-    /// When evaluation succeeds but the value does not deserialize to a
-    /// [`TheoryDocument`], the error is the un-spanned deserialization
-    /// variant: there is no Nickel diagnostic, hence no source span.
+    /// When evaluation succeeds but the value is not a document, the error
+    /// is the grammar's refusal at the value's path: there is no Nickel
+    /// diagnostic, hence no source span.
     #[test]
-    fn deserialization_failure_is_unspanned() {
-        // Evaluates fine, but lacks the required document fields.
+    fn a_nickel_value_that_is_not_a_document_is_refused_by_the_grammar() {
         let Err(err) = eval_nickel("{ foo = 1 }", &[]) else {
             panic!("bad document must fail");
         };
         assert!(
-            matches!(err, TheoryDslError::NickelEval { .. }),
-            "a deserialization failure should not fabricate a span: {err:?}",
+            matches!(
+                err,
+                TheoryDslError::Shape {
+                    problem: crate::shape::ShapeProblem::NoBody,
+                    ..
+                }
+            ),
+            "{err:?}",
         );
     }
 }

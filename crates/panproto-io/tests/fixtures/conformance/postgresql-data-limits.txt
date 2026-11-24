@@ -1,0 +1,4 @@
+# Declared limits of the PostgreSQL data reader on the conformance corpora.
+# Each line: case, limit, the refusal class the case shows.
+postgresql-docs/data-cases/dml-insert-06.sql insert-select Unsupported
+postgresql-docs/data-cases/tutorial-basics.sql type-point Unsupported

@@ -1,0 +1,1 @@
+# GraphQL corpus cases the reader does not pass: case, then the limit.

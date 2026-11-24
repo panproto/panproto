@@ -573,14 +573,21 @@ pub mod theory {
         }
     }
 
-    fn unify_terms(mut equalities: Vec<(Term, Term)>) -> Result<BTreeMap<Name, Term>, String> {
+    /// First-order unification that binds only the variables `bindable`
+    /// admits; every other variable is rigid.
+    fn unify_terms_binding(
+        mut equalities: Vec<(Term, Term)>,
+        bindable: &dyn Fn(&str) -> bool,
+    ) -> Result<BTreeMap<Name, Term>, String> {
         let mut substitution = BTreeMap::new();
         while let Some((left, right)) = equalities.pop() {
             let left = substitute_term_map(&left, &substitution);
             let right = substitute_term_map(&right, &substitution);
             match (left, right) {
                 (Term::Var(left), Term::Var(right)) if left == right => {}
-                (Term::Var(variable), term) | (term, Term::Var(variable)) => {
+                (Term::Var(variable), term) | (term, Term::Var(variable))
+                    if bindable(&variable) =>
+                {
                     if occurs_in(&variable, &term) {
                         return Err(format!("occurs check failed: {variable} in {term}"));
                     }
@@ -606,16 +613,25 @@ pub mod theory {
     }
 
     fn unify_sorts(left: &SortExpr, right: &SortExpr) -> Result<BTreeMap<Name, Term>, String> {
+        unify_sorts_binding(left, right, &|_| true)
+    }
+
+    fn unify_sorts_binding(
+        left: &SortExpr,
+        right: &SortExpr,
+        bindable: &dyn Fn(&str) -> bool,
+    ) -> Result<BTreeMap<Name, Term>, String> {
         if left.head() != right.head() || sort_arguments(left).len() != sort_arguments(right).len()
         {
             return Err(format!("cannot unify {left} with {right}"));
         }
-        unify_terms(
+        unify_terms_binding(
             sort_arguments(left)
                 .iter()
                 .cloned()
                 .zip(sort_arguments(right).iter().cloned())
                 .collect(),
+            bindable,
         )
     }
 
@@ -648,6 +664,16 @@ pub mod theory {
                 substitution.insert(name.clone(), Term::Var(format!("?{name}_{index}")));
             }
         }
+        // Solving binds only this application's implicit inputs; every other
+        // variable, the context's included, is rigid.
+        let fresh: BTreeSet<Name> = substitution
+            .values()
+            .filter_map(|value| match value {
+                Term::Var(name) => Some(name.clone()),
+                _ => None,
+            })
+            .collect();
+        let bindable = |name: &str| fresh.contains(name);
         let mut explicit = arguments.iter();
         let mut explicit_index = 0;
         let mut unification_failure: Option<String> = None;
@@ -678,7 +704,7 @@ pub mod theory {
                 // every argument is typed, so a failure waits for the
                 // later arguments' own refusals.
                 if unification_failure.is_none() {
-                    match unify_sorts(&expected, &found) {
+                    match unify_sorts_binding(&expected, &found, &bindable) {
                         Ok(unifier) => {
                             for value in substitution.values_mut() {
                                 *value = substitute_term_map(value, &unifier);
@@ -929,15 +955,27 @@ pub mod theory {
         infer_term_with_expected(t, ctx, term, None)
     }
 
+    /// Term equalities gathered while inferring an equation's variable sorts.
+    #[derive(Default)]
+    struct Constraints {
+        /// From two uses of one variable.
+        variables: Vec<(Term, Term)>,
+        /// From an argument that is an application: its output sort against
+        /// the declared input sort at its position.
+        arguments: Vec<(Term, Term)>,
+    }
+
+    /// The constraints an application contributes; returns its output sort,
+    /// the implicit inputs standing as fresh variables.
     fn collect_application_constraints(
         t: &Theory,
         name: &str,
         args: &[Term],
         bound: &BTreeSet<Name>,
         ctx: &mut BTreeMap<Name, SortExpr>,
-        equalities: &mut Vec<(Term, Term)>,
+        constraints: &mut Constraints,
         next_implicit_scope: &mut usize,
-    ) -> Result<(), String> {
+    ) -> Result<SortExpr, String> {
         let op = find_op(t, name).ok_or_else(|| format!("operation {name} is not declared"))?;
         if args.len() != op.explicit_arity() {
             return Err(format!(
@@ -981,32 +1019,45 @@ pub mod theory {
                             "variable {variable} is constrained at both {previous:?} and {expected:?}"
                         ));
                     }
-                    equalities.extend(
+                    constraints.variables.extend(
                         sort_arguments(previous)
                             .iter()
                             .cloned()
                             .zip(sort_arguments(&expected).iter().cloned()),
                     );
                 } else {
-                    ctx.insert(variable.clone(), expected);
+                    ctx.insert(variable.clone(), expected.clone());
                 }
             }
-            collect_equation_constraints(t, arg, bound, ctx, equalities, next_implicit_scope)?;
+            if let Some(found) =
+                collect_equation_constraints(t, arg, bound, ctx, constraints, next_implicit_scope)?
+                && found.head() == expected.head()
+                && sort_arguments(&found).len() == sort_arguments(&expected).len()
+            {
+                constraints.arguments.extend(
+                    sort_arguments(&found)
+                        .iter()
+                        .cloned()
+                        .zip(sort_arguments(&expected).iter().cloned()),
+                );
+            }
             substitution.insert(parameter.clone(), arg.clone());
         }
-        Ok(())
+        Ok(substitute_sort_map(&op.output, &substitution))
     }
 
+    /// The constraints a term contributes; returns the sort of an
+    /// application and `None` for any other term.
     fn collect_equation_constraints(
         t: &Theory,
         term: &Term,
         bound: &BTreeSet<Name>,
         ctx: &mut BTreeMap<Name, SortExpr>,
-        equalities: &mut Vec<(Term, Term)>,
+        constraints: &mut Constraints,
         next_implicit_scope: &mut usize,
-    ) -> Result<(), String> {
+    ) -> Result<Option<SortExpr>, String> {
         match term {
-            Term::Var(_) => Ok(()),
+            Term::Var(_) => Ok(None),
             Term::Hole(_) => Err("an equation contains a hole".to_owned()),
             Term::App(name, args) => collect_application_constraints(
                 t,
@@ -1014,21 +1065,23 @@ pub mod theory {
                 args,
                 bound,
                 ctx,
-                equalities,
+                constraints,
                 next_implicit_scope,
-            ),
+            )
+            .map(Some),
             Term::Let(name, value, body) => {
                 collect_equation_constraints(
                     t,
                     value,
                     bound,
                     ctx,
-                    equalities,
+                    constraints,
                     next_implicit_scope,
                 )?;
                 let mut inner = bound.clone();
                 inner.insert(name.clone());
-                collect_equation_constraints(t, body, &inner, ctx, equalities, next_implicit_scope)
+                collect_equation_constraints(t, body, &inner, ctx, constraints, next_implicit_scope)
+                    .map(|_| None)
             }
             Term::Case(scrutinee, branches) => {
                 collect_equation_constraints(
@@ -1036,7 +1089,7 @@ pub mod theory {
                     scrutinee,
                     bound,
                     ctx,
-                    equalities,
+                    constraints,
                     next_implicit_scope,
                 )?;
                 for branch in branches {
@@ -1047,11 +1100,11 @@ pub mod theory {
                         &branch.body,
                         &inner,
                         ctx,
-                        equalities,
+                        constraints,
                         next_implicit_scope,
                     )?;
                 }
-                Ok(())
+                Ok(None)
             }
         }
     }
@@ -1060,14 +1113,14 @@ pub mod theory {
     /// positions, then require both sides to be fully well typed at one sort.
     fn equation_well_typed(t: &Theory, lhs: &Term, rhs: &Term) -> Result<(), String> {
         let mut inferred = BTreeMap::new();
-        let mut equalities = Vec::new();
+        let mut constraints = Constraints::default();
         let mut next_implicit_scope = 0;
         collect_equation_constraints(
             t,
             lhs,
             &BTreeSet::new(),
             &mut inferred,
-            &mut equalities,
+            &mut constraints,
             &mut next_implicit_scope,
         )?;
         collect_equation_constraints(
@@ -1075,10 +1128,21 @@ pub mod theory {
             rhs,
             &BTreeSet::new(),
             &mut inferred,
-            &mut equalities,
+            &mut constraints,
             &mut next_implicit_scope,
         )?;
-        let unifier = unify_terms(equalities)?;
+        // Only the implicit inputs' fresh variables are unknowns: the
+        // equation's own variables are fixed. The argument constraints only
+        // sharpen the inferred sorts: when they admit no unifier, the
+        // variable constraints alone are used and the term judgement below
+        // refuses the ill-typed argument.
+        let fresh = |name: &str| name.starts_with('?');
+        let mut combined = constraints.variables.clone();
+        combined.extend(constraints.arguments);
+        let unifier = match unify_terms_binding(combined, &fresh) {
+            Ok(unifier) => unifier,
+            Err(_) => unify_terms_binding(constraints.variables, &fresh)?,
+        };
         for sort in inferred.values_mut() {
             *sort = substitute_sort_map(sort, &unifier);
         }
@@ -1111,20 +1175,49 @@ pub mod theory {
             .any(|argument| occurs_in(name, argument))
     }
 
+    /// Definition: implicit-input inference.
+    ///
+    /// An implicit input of `operation` can be inferred when it occurs as a
+    /// variable in the sort of an explicit input or in the output sort.
+    ///
+    /// # Errors
+    ///
+    /// The first implicit input, in telescope order, that cannot be inferred.
+    pub fn implicit_inputs_inferable(operation: &Op) -> Result<(), Name> {
+        for (parameter, _, implicit) in &operation.inputs {
+            if *implicit == Implicit::Yes
+                && !operation.inputs.iter().any(|(_, sort, other)| {
+                    *other == Implicit::No && sort_mentions_var(sort, parameter)
+                })
+                && !sort_mentions_var(&operation.output, parameter)
+            {
+                return Err(parameter.clone());
+            }
+        }
+        Ok(())
+    }
+
+    /// Definition: equation typing.
+    ///
+    /// Each variable takes its sort from the argument positions it fills;
+    /// the implicit inputs of every application are solved by first-order
+    /// unification in which only those inputs are unknowns; both sides must
+    /// then have one sort.
+    ///
+    /// # Errors
+    ///
+    /// A description of the first typing failure.
+    pub fn typecheck_equation(theory: &Theory, equation: &Equation) -> Result<(), String> {
+        equation_well_typed(theory, &equation.lhs, &equation.rhs)
+    }
+
     fn typecheck_theory_body(theory: &Theory) -> Result<(), String> {
         for operation in &theory.ops {
-            for (parameter, _, implicit) in &operation.inputs {
-                if *implicit == Implicit::Yes
-                    && !operation.inputs.iter().any(|(_, sort, other)| {
-                        *other == Implicit::No && sort_mentions_var(sort, parameter)
-                    })
-                    && !sort_mentions_var(&operation.output, parameter)
-                {
-                    return Err(format!(
-                        "implicit parameter {parameter} of operation {} cannot be inferred",
-                        operation.name
-                    ));
-                }
+            if let Err(parameter) = implicit_inputs_inferable(operation) {
+                return Err(format!(
+                    "implicit parameter {parameter} of operation {} cannot be inferred",
+                    operation.name
+                ));
             }
         }
 
@@ -6386,7 +6479,21 @@ pub mod theory {
         }
 
         #[test]
+        fn unification_binds_only_the_variables_it_is_given() {
+            let bindable = |name: &str| name.starts_with('?');
+            assert_eq!(
+                unify_terms_binding(vec![(var("a"), var("b"))], &bindable),
+                Err("cannot unify a with b".to_owned())
+            );
+            assert_eq!(
+                unify_terms_binding(vec![(var("a"), var("?m"))], &bindable),
+                Ok(BTreeMap::from([("?m".to_owned(), var("a"))]))
+            );
+        }
+
+        #[test]
         fn unification_solves_variables_and_refuses_clashes() {
+            let unify_terms = |equalities| unify_terms_binding(equalities, &|_| true);
             let x = || var("x");
             assert_eq!(unify_terms(vec![(x(), x())]), Ok(BTreeMap::new()));
             assert_eq!(
@@ -7878,5 +7985,6 @@ pub mod theory {
 }
 
 pub use self::theory::{
-    apply_morphism, check_morphism, compose, quotient, recompose, typecheck_signature,
+    apply_morphism, check_morphism, compose, implicit_inputs_inferable, quotient, recompose,
+    typecheck_equation, typecheck_signature,
 };

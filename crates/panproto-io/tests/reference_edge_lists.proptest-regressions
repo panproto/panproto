@@ -1,0 +1,11 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 2435121bb5746e270b421f677ff9bda10598cf0ebbbb3885bd38d9430786865d # shrinks to csv = "source\na\"b,c\n", tsv = "source\ttarget\n"
+cc 27d679cb0b4bccf7846739a93c7e16e155ca1d3b94e15c6003e2c5a8f6d65c55 # shrinks to csv = "source\n\"ab,c\n\"a,1\",\"b\"\"c\"\n", tsv = "source\ttarget\n"
+cc 4b14d3f6984e221cfffa8760ba663ae0d459e412aadc29529f6d0658e1ca5f5f # shrinks to csv = "\nsource,target\n", tsv = "source\ttarget\n"
+cc 2fd95459044996a6cefc07e59daa02dd1442d75a2ba5716e4343e1c07512d79d # shrinks to csv = "source,target\n", tsv = "source\ttarget\n\tb\n\tb\n"
+cc 68ce26d6ea8bf56661f2b1bfb52b8e32885b5519efd78f3534c36bea53fbaed1 # shrinks to csv = "source,target\nx\"a,b\"y,c\n", tsv = "source\ttarget\n"

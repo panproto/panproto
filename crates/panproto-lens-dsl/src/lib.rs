@@ -8,9 +8,14 @@
 //!
 //! ## Evaluation pipeline
 //!
-//! 1. Surface syntax (Nickel/JSON/YAML) is evaluated to a normalized record
-//! 2. The record is deserialized into a [`LensDocument`]
+//! 1. Surface syntax (Nickel/JSON/YAML) is evaluated to a document value
+//! 2. The value is checked against the closed document grammar
+//!    ([`shape`]) and deserialized into a [`LensDocument`]
 //! 3. The document is compiled to ordered structural and value-level stages
+//!
+//! Every refusal names the [`DocumentPath`] of the element it refuses;
+//! [`read_source`] and [`compile_source`] also attach the byte range of
+//! that element when the source is JSON.
 //!
 //! ## Example
 //!
@@ -30,16 +35,23 @@ pub mod error;
 pub mod eval;
 pub mod resolver;
 pub mod rules;
+pub mod shape;
 pub mod steps;
+
+pub use panproto_dsl_eval::path;
 
 use std::path::Path;
 
-pub use compile::{CompiledLens, SymmetricChains, compile_with_schemas};
+pub use compile::{
+    CompiledLens, SourceFormat, SymmetricChains, compile_source, compile_with,
+    compile_with_schemas, compile_with_source, read_source,
+};
 pub use document::{
     Constraint, DirectedEquationSpec, FromDiffSpec, HintSpec, HintStringency, LensDocument,
     PreferencePredicate, SymmetricSpec,
 };
 pub use error::LensDslError;
+pub use path::{DocumentPath, PathSegment, locate_json};
 pub use resolver::{compile_in_dir, compile_with_refs};
 
 /// Load a lens document from a file.

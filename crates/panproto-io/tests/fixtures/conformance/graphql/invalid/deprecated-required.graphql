@@ -1,0 +1,2 @@
+type Query { q: Int }
+type A { a(x: Int! @deprecated): Int }

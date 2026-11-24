@@ -1,0 +1,3 @@
+type Query { q: Int }
+input I { j: J! }
+input J { i: I! }

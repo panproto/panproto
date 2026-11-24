@@ -1003,7 +1003,7 @@ struct HomWireTests {
     @Test("a schema morphism writes all six keys in declaration order")
     func schemaMorphismWritesEveryKey() throws {
         let encoded = try CBOREncoder().encode(
-            SchemaMorphism(name: "identity", srcProtocol: "sql", tgtProtocol: "sql")
+            SchemaMorphism(name: "identity", srcProtocol: "postgresql", tgtProtocol: "postgresql")
         )
         let reflected = try CBORDecoder().decode(CBORValue.self, from: encoded)
         guard case .map(let entries) = reflected else {

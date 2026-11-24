@@ -15,18 +15,20 @@ import { Panproto } from '@panproto/core';
 const p = await Panproto.init();
 
 // Register the source protocol before running its existence check.
-p.protocol('json-schema');
+const jsonSchema = p.protocol('json-schema');
 const openapi = p.protocol('openapi');
 
-const source = p.parseSchemaDocument('json-schema', {
-  title: 'User',
-  type: 'object',
-  properties: {
-    name: { type: 'string' },
-    age: { type: 'integer' },
-  },
-  required: ['name'],
-});
+// The graph the JSON Schema reader builds from
+// {"title": "User", "type": "object", "properties": {"name": {"type":
+// "string"}, "age": {"type": "integer"}}}: one vertex per subschema,
+// named by its JSON pointer.
+const source = jsonSchema.schema()
+  .vertex('#', 'object')
+  .vertex('#/properties/name', 'string')
+  .vertex('#/properties/age', 'integer')
+  .edge('#', '#/properties/name', 'prop', { name: 'name' })
+  .edge('#', '#/properties/age', 'prop', { name: 'age' })
+  .build();
 
 const target = openapi.schema()
   .vertex('user', 'object')
@@ -37,11 +39,11 @@ const target = openapi.schema()
   .build();
 
 const mapping = p.migration(source, target)
-  .map('root', 'user')
-  .map('root.name', 'user.displayName')
-  .map('root.age', 'user.years')
+  .map('#', 'user')
+  .map('#/properties/name', 'user.displayName')
+  .map('#/properties/age', 'user.years')
   .mapEdge(
-    { src: 'root', tgt: 'root.name', kind: 'prop', name: 'name' },
+    { src: '#', tgt: '#/properties/name', kind: 'prop', name: 'name' },
     {
       src: 'user',
       tgt: 'user.displayName',
@@ -50,7 +52,7 @@ const mapping = p.migration(source, target)
     },
   )
   .mapEdge(
-    { src: 'root', tgt: 'root.age', kind: 'prop', name: 'age' },
+    { src: '#', tgt: '#/properties/age', kind: 'prop', name: 'age' },
     { src: 'user', tgt: 'user.years', kind: 'prop', name: 'years' },
   );
 
@@ -60,7 +62,7 @@ if (!existence.valid) {
 }
 
 const migration = mapping.compile();
-const converted = migration.liftJson({ name: 'Alice', age: 30 }, 'root');
+const converted = migration.liftJson({ name: 'Alice', age: 30 }, '#');
 
 assert.deepEqual(converted, { displayName: 'Alice', years: 30 });
 console.log('existence valid?', existence.valid);
@@ -89,7 +91,7 @@ converted: { displayName: 'Alice', years: 30 }
 
 ## What crossed the protocol boundary
 
-`parseSchemaDocument('json-schema', ...)` uses the JSON Schema document parser and produces a schema rooted at `root`. The target is built against the registered `openapi` protocol. The migration maps vertices and edges across those two schema handles, and `liftJson()` emits the target field names.
+The source is the graph that [`read_schema`](https://docs.rs/panproto-io/latest/panproto_io/data_schema/json_schema/fn.read_schema.html), the JSON Schema reader of `panproto-io`, builds from the `User` document: a vertex per subschema, named by its JSON pointer from the root `#`, and a `prop` edge per property (the reader also keeps each keyword, such as `type`, as a constraint, which the listing leaves out). The reader runs in Rust through the tree-sitter JSON grammar, so the TypeScript listing writes the graph with the builder. The target is built against the registered `openapi` protocol. The migration maps vertices and edges across those two schema handles, and `liftJson()` emits the target field names.
 
 The existence report checks the explicit mapping with the source schema's registered protocol. The `assert.deepEqual` call separately checks this forward result. Neither check proves that arbitrary JSON Schema and OpenAPI documents can be translated, and the example does not establish a reverse trip.
 

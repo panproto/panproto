@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/person.schema.json",
+  "title": "Person",
+  "type": "object",
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "age": { "type": "integer", "minimum": 0 },
+    "email": { "type": "string", "format": "email" },
+    "address": { "$ref": "#/$defs/address" },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "uniqueItems": true
+    },
+    "contact": {
+      "oneOf": [
+        { "$ref": "#phone" },
+        { "type": "null" }
+      ]
+    }
+  },
+  "required": ["name"],
+  "additionalProperties": false,
+  "$defs": {
+    "address": {
+      "type": "object",
+      "properties": {
+        "street": { "type": "string" },
+        "postalCode": { "type": "string", "pattern": "^[0-9]{5}$" }
+      },
+      "required": ["street"]
+    },
+    "phone": {
+      "$anchor": "phone",
+      "type": "string",
+      "pattern": "^\\+[0-9]+$"
+    }
+  }
+}

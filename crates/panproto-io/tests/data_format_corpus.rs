@@ -27,7 +27,11 @@
 use panproto_inst::value::Value;
 use panproto_io::byte_tabular::ByteTabularCodec;
 #[cfg(feature = "tree-sitter")]
+use panproto_io::data_schema::bson::BsonCodec;
+#[cfg(feature = "tree-sitter")]
 use panproto_io::unified_codec::UnifiedCodec;
+#[cfg(feature = "tree-sitter")]
+use panproto_io::{InstanceEmitter, InstanceParser};
 #[cfg(feature = "tree-sitter")]
 use panproto_schema::{Protocol, SchemaBuilder};
 #[cfg(feature = "tree-sitter")]
@@ -95,6 +99,7 @@ enum FixtureRoute {
     Yaml,
     AmrTsv,
     Delimited,
+    Bson,
 }
 
 /// Select a syntax from the protocol declaration, never from the fixture's
@@ -107,6 +112,7 @@ fn fixture_route(protocol: &str) -> FixtureRoute {
         | "uima" | "rss-atom" | "docx" | "odf" => FixtureRoute::Xml,
         "amr" => FixtureRoute::AmrTsv,
         "conllu" | "redis" | "swift-mt" | "edi-x12" => FixtureRoute::Delimited,
+        "bson" => FixtureRoute::Bson,
         _ => FixtureRoute::Json,
     }
 }
@@ -148,7 +154,7 @@ fn fixture_protocol(label: &str) -> Option<&'static str> {
         path if path.starts_with("config/ansible_") => "ansible",
         path if path.starts_with("config/cloudformation_") => "cloudformation",
         path if path.starts_with("config/k8s_") => "k8s-crd",
-        "data_schema/bson_instance.json" => "bson",
+        "data_schema/bson_instance.bson" => "bson",
         "data_schema/cddl_instance.json" => "cddl",
         "data_science/arrow_batch.json" => "arrow",
         "data_science/dataframe_instance.json" => "dataframe",
@@ -274,6 +280,26 @@ fn fixture_corpus_is_byte_faithful() {
             continue;
         }
 
+        // Binary BSON is decoded into the BSON tree encoding and encoded
+        // back in its canonical form, which the fixture is.
+        if fixture_route(protocol) == FixtureRoute::Bson {
+            let codec = BsonCodec;
+            let tree = panproto_protocols::data_schema::bson::tree_schema().expect("tree schema");
+            match codec.parse_wtype(&tree, &input) {
+                Ok(instance) => match codec.emit_wtype(&tree, &instance) {
+                    Ok(out) if out == input => covered += 1,
+                    Ok(out) => failures.push(format!(
+                        "{label}: byte mismatch ({} in / {} out)",
+                        input.len(),
+                        out.len()
+                    )),
+                    Err(e) => failures.push(format!("{label}: emit failed: {e}")),
+                },
+                Err(e) => failures.push(format!("{label}: parse failed: {e}")),
+            }
+            continue;
+        }
+
         // AMR (TSV) goes through the tree-sitter CST-complement preserving path.
         if fixture_route(protocol) == FixtureRoute::AmrTsv {
             let codec = match UnifiedCodec::tsv(protocol, "amr_graph") {
@@ -308,7 +334,7 @@ fn fixture_corpus_is_byte_faithful() {
             FixtureRoute::Yaml => UnifiedCodec::yaml(protocol),
             FixtureRoute::Xml => UnifiedCodec::xml(protocol),
             FixtureRoute::Json => UnifiedCodec::json(protocol),
-            FixtureRoute::AmrTsv | FixtureRoute::Delimited => {
+            FixtureRoute::AmrTsv | FixtureRoute::Delimited | FixtureRoute::Bson => {
                 unreachable!("non-tree route handled above")
             }
         };

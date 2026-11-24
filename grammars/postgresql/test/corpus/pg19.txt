@@ -1,0 +1,541 @@
+================================================================================
+REPACK
+================================================================================
+
+REPACK;
+REPACK t1;
+REPACK t1 USING INDEX idx1;
+REPACK (VERBOSE) t1 USING INDEX;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (RepackStmt
+        (kw_repack))))
+  (toplevel_stmt
+    (stmt
+      (RepackStmt
+        (kw_repack)
+        (qualified_name
+          (ColId
+            (identifier))))))
+  (toplevel_stmt
+    (stmt
+      (RepackStmt
+        (kw_repack)
+        (qualified_name
+          (ColId
+            (identifier)))
+        (kw_using)
+        (kw_index)
+        (name
+          (ColId
+            (identifier))))))
+  (toplevel_stmt
+    (stmt
+      (RepackStmt
+        (kw_repack)
+        (opt_utility_option_list
+          (utility_option_list
+            (utility_option_elem
+              (utility_option_name
+                (NonReservedWord
+                  (type_func_name_keyword
+                    (kw_verbose)))))))
+        (qualified_name
+          (ColId
+            (identifier)))
+        (opt_usingindex
+          (kw_using)
+          (kw_index))))))
+
+================================================================================
+WAIT FOR LSN
+================================================================================
+
+WAIT FOR LSN '0/3F0000';
+WAIT FOR LSN '0/3F0000' WITH (timeout 1000);
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (WaitStmt
+        (kw_wait)
+        (kw_for)
+        (kw_lsn)
+        (Sconst
+          (string_literal)))))
+  (toplevel_stmt
+    (stmt
+      (WaitStmt
+        (kw_wait)
+        (kw_for)
+        (kw_lsn)
+        (Sconst
+          (string_literal))
+        (opt_wait_with_clause
+          (kw_with)
+          (utility_option_list
+            (utility_option_elem
+              (utility_option_name
+                (NonReservedWord
+                  (identifier)))
+              (utility_option_arg
+                (NumericOnly
+                  (SignedIconst
+                    (Iconst
+                      (integer_literal))))))))))))
+
+================================================================================
+Window function null treatment
+================================================================================
+
+SELECT lag(x) IGNORE NULLS OVER (ORDER BY y) FROM t;
+SELECT first_value(x) RESPECT NULLS OVER w FROM t WINDOW w AS (ORDER BY y);
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (SelectStmt
+        (select_no_parens
+          (simple_select
+            (kw_select)
+            (opt_target_list
+              (target_list
+                (target_el
+                  (a_expr
+                    (a_expr
+                      (c_expr
+                        (func_expr
+                          (func_application
+                            (func_name
+                              (type_function_name
+                                (identifier)))
+                            (func_arg_list
+                              (func_arg_expr
+                                (a_expr
+                                  (a_expr
+                                    (c_expr
+                                      (columnref
+                                        (ColId
+                                          (identifier)))))))))
+                          (null_treatment
+                            (kw_ignore)
+                            (kw_nulls))
+                          (over_clause
+                            (kw_over)
+                            (window_specification
+                              (opt_sort_clause
+                                (sort_clause
+                                  (kw_order)
+                                  (kw_by)
+                                  (sortby_list
+                                    (sortby
+                                      (a_expr
+                                        (a_expr
+                                          (c_expr
+                                            (columnref
+                                              (ColId
+                                                (identifier)))))))))))))))))))
+            (from_clause
+              (kw_from)
+              (from_list
+                (table_ref
+                  (relation_expr
+                    (qualified_name
+                      (ColId
+                        (identifier))))))))))))
+  (toplevel_stmt
+    (stmt
+      (SelectStmt
+        (select_no_parens
+          (simple_select
+            (kw_select)
+            (opt_target_list
+              (target_list
+                (target_el
+                  (a_expr
+                    (a_expr
+                      (c_expr
+                        (func_expr
+                          (func_application
+                            (func_name
+                              (type_function_name
+                                (identifier)))
+                            (func_arg_list
+                              (func_arg_expr
+                                (a_expr
+                                  (a_expr
+                                    (c_expr
+                                      (columnref
+                                        (ColId
+                                          (identifier)))))))))
+                          (null_treatment
+                            (kw_respect)
+                            (kw_nulls))
+                          (over_clause
+                            (kw_over)
+                            (ColId
+                              (identifier))))))))))
+            (from_clause
+              (kw_from)
+              (from_list
+                (table_ref
+                  (relation_expr
+                    (qualified_name
+                      (ColId
+                        (identifier)))))))
+            (window_clause
+              (kw_window)
+              (window_definition_list
+                (window_definition
+                  (ColId
+                    (identifier))
+                  (kw_as)
+                  (window_specification
+                    (opt_sort_clause
+                      (sort_clause
+                        (kw_order)
+                        (kw_by)
+                        (sortby_list
+                          (sortby
+                            (a_expr
+                              (a_expr
+                                (c_expr
+                                  (columnref
+                                    (ColId
+                                      (identifier))))))))))))))))))))
+
+================================================================================
+ON CONFLICT DO SELECT
+================================================================================
+
+INSERT INTO t (id) VALUES (1) ON CONFLICT (id) DO SELECT RETURNING id;
+INSERT INTO t (id) VALUES (1) ON CONFLICT (id) DO SELECT FOR UPDATE RETURNING id;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (InsertStmt
+        (kw_insert)
+        (kw_into)
+        (insert_target
+          (qualified_name
+            (ColId
+              (identifier))))
+        (insert_rest
+          (insert_column_list
+            (insert_column_item
+              (ColId
+                (identifier))))
+          (SelectStmt
+            (select_no_parens
+              (simple_select
+                (values_clause
+                  (kw_values)
+                  (expr_list
+                    (a_expr
+                      (a_expr
+                        (c_expr
+                          (AexprConst
+                            (Iconst
+                              (integer_literal))))))))))))
+        (opt_on_conflict
+          (kw_on)
+          (kw_conflict)
+          (opt_conf_expr
+            (index_params
+              (index_elem
+                (ColId
+                  (identifier)))))
+          (kw_do)
+          (kw_select))
+        (returning_clause
+          (kw_returning)
+          (target_list
+            (target_el
+              (a_expr
+                (a_expr
+                  (c_expr
+                    (columnref
+                      (ColId
+                        (identifier))))))))))))
+  (toplevel_stmt
+    (stmt
+      (InsertStmt
+        (kw_insert)
+        (kw_into)
+        (insert_target
+          (qualified_name
+            (ColId
+              (identifier))))
+        (insert_rest
+          (insert_column_list
+            (insert_column_item
+              (ColId
+                (identifier))))
+          (SelectStmt
+            (select_no_parens
+              (simple_select
+                (values_clause
+                  (kw_values)
+                  (expr_list
+                    (a_expr
+                      (a_expr
+                        (c_expr
+                          (AexprConst
+                            (Iconst
+                              (integer_literal))))))))))))
+        (opt_on_conflict
+          (kw_on)
+          (kw_conflict)
+          (opt_conf_expr
+            (index_params
+              (index_elem
+                (ColId
+                  (identifier)))))
+          (kw_do)
+          (kw_select)
+          (opt_for_locking_strength
+            (for_locking_strength
+              (kw_for)
+              (kw_update))))
+        (returning_clause
+          (kw_returning)
+          (target_list
+            (target_el
+              (a_expr
+                (a_expr
+                  (c_expr
+                    (columnref
+                      (ColId
+                        (identifier)))))))))))))
+
+================================================================================
+Publication of sequences with EXCEPT
+================================================================================
+
+CREATE PUBLICATION p1 FOR ALL TABLES EXCEPT (TABLE t1, t2);
+CREATE PUBLICATION p2 FOR ALL SEQUENCES;
+CREATE PUBLICATION p3 FOR ALL TABLES, ALL SEQUENCES;
+ALTER SUBSCRIPTION s1 REFRESH SEQUENCES;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (CreatePublicationStmt
+        (kw_create)
+        (kw_publication)
+        (name
+          (ColId
+            (identifier)))
+        (kw_for)
+        (pub_all_obj_type_list
+          (PublicationAllObjSpec
+            (kw_all)
+            (kw_tables)
+            (opt_pub_except_clause
+              (kw_except)
+              (kw_table)
+              (pub_except_obj_list
+                (pub_except_obj_list
+                  (PublicationExceptObjSpec
+                    (relation_expr
+                      (qualified_name
+                        (ColId
+                          (identifier))))))
+                (PublicationExceptObjSpec
+                  (relation_expr
+                    (qualified_name
+                      (ColId
+                        (identifier))))))))))))
+  (toplevel_stmt
+    (stmt
+      (CreatePublicationStmt
+        (kw_create)
+        (kw_publication)
+        (name
+          (ColId
+            (identifier)))
+        (kw_for)
+        (pub_all_obj_type_list
+          (PublicationAllObjSpec
+            (kw_all)
+            (kw_sequences))))))
+  (toplevel_stmt
+    (stmt
+      (CreatePublicationStmt
+        (kw_create)
+        (kw_publication)
+        (name
+          (ColId
+            (identifier)))
+        (kw_for)
+        (pub_all_obj_type_list
+          (pub_all_obj_type_list
+            (PublicationAllObjSpec
+              (kw_all)
+              (kw_tables)))
+          (PublicationAllObjSpec
+            (kw_all)
+            (kw_sequences))))))
+  (toplevel_stmt
+    (stmt
+      (AlterSubscriptionStmt
+        (kw_alter)
+        (kw_subscription)
+        (name
+          (ColId
+            (identifier)))
+        (kw_refresh)
+        (kw_sequences)))))
+
+================================================================================
+CHECKPOINT with options
+================================================================================
+
+CHECKPOINT;
+CHECKPOINT (MODE FAST);
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (CheckPointStmt
+        (kw_checkpoint))))
+  (toplevel_stmt
+    (stmt
+      (CheckPointStmt
+        (kw_checkpoint)
+        (opt_utility_option_list
+          (utility_option_list
+            (utility_option_elem
+              (utility_option_name
+                (NonReservedWord
+                  (unreserved_keyword
+                    (kw_mode))))
+              (utility_option_arg
+                (opt_boolean_or_string
+                  (NonReservedWord_or_Sconst
+                    (NonReservedWord
+                      (identifier))))))))))))
+
+================================================================================
+SET variable to NULL
+================================================================================
+
+SET work_mem = NULL;
+SET search_path TO NULL;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (VariableSetStmt
+        (kw_set)
+        (set_rest
+          (set_rest_more
+            (generic_set
+              (var_name
+                (ColId
+                  (identifier)))
+              (kw_null)))))))
+  (toplevel_stmt
+    (stmt
+      (VariableSetStmt
+        (kw_set)
+        (set_rest
+          (set_rest_more
+            (generic_set
+              (var_name
+                (ColId
+                  (identifier)))
+              (kw_to)
+              (kw_null))))))))
+
+================================================================================
+Arrow and pipe as generic operators
+================================================================================
+
+SELECT j -> 'key' FROM t;
+SELECT a | b FROM t;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (SelectStmt
+        (select_no_parens
+          (simple_select
+            (kw_select)
+            (opt_target_list
+              (target_list
+                (target_el
+                  (a_expr
+                    (a_expr
+                      (a_expr
+                        (c_expr
+                          (columnref
+                            (ColId
+                              (identifier))))))
+                    (qual_Op
+                      (operator))
+                    (a_expr
+                      (a_expr
+                        (c_expr
+                          (AexprConst
+                            (Sconst
+                              (string_literal))))))))))
+            (from_clause
+              (kw_from)
+              (from_list
+                (table_ref
+                  (relation_expr
+                    (qualified_name
+                      (ColId
+                        (identifier))))))))))))
+  (toplevel_stmt
+    (stmt
+      (SelectStmt
+        (select_no_parens
+          (simple_select
+            (kw_select)
+            (opt_target_list
+              (target_list
+                (target_el
+                  (a_expr
+                    (a_expr
+                      (a_expr
+                        (c_expr
+                          (columnref
+                            (ColId
+                              (identifier))))))
+                    (qual_Op
+                      (operator))
+                    (a_expr
+                      (a_expr
+                        (c_expr
+                          (columnref
+                            (ColId
+                              (identifier))))))))))
+            (from_clause
+              (kw_from)
+              (from_list
+                (table_ref
+                  (relation_expr
+                    (qualified_name
+                      (ColId
+                        (identifier)))))))))))))

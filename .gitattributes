@@ -14,3 +14,7 @@ tests/fixtures/theory_composition/** linguist-generated
 tests/fixtures/complement_upgrade/** linguist-generated
 *.cbor binary
 *.msgpack binary
+
+# The W3C RDF test suites test exact bytes: line endings, control
+# characters and trailing blanks are part of the cases.
+crates/panproto-io/tests/fixtures/conformance/rdf-tests/** -text -whitespace linguist-vendored

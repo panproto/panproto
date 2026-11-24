@@ -11,6 +11,31 @@
 //! as constraints (interstitials, byte positions, indentation), and
 //! `emit_from_schema` reconstructs the original bytes exactly.
 //!
+//! ## Text routes and their declared domains
+//!
+//! Every YAML, TOML, CSV and TSV source must be UTF-8; any other byte
+//! sequence is refused with [`ParseInstanceError::Parse`] naming the first
+//! invalid byte. A leading UTF-8 byte-order mark is not part of the data:
+//! [`CstComplement::byte_order_mark`] records it and the preserving emitters
+//! write it back.
+//!
+//! The CSV route reads one fixed dialect, the RFC 4180 grammar with a header
+//! record: fields separated by `,`; a field quoted with `"` may hold `,`, a
+//! line break and a doubled `""` for one quote; records end in LF or CRLF,
+//! and the last may end the file without one. The first record names the
+//! columns and its names must be distinct. Every later record must have as
+//! many fields as the header. Nothing is trimmed, no line is a comment, and
+//! no field is a null or missing token: a field is read as text under its
+//! column's declared kind, and an empty field is the empty string. The route
+//! does not detect another delimiter, so a `;`-separated file is a
+//! one-column CSV.
+//!
+//! The TSV route reads the IANA `text/tab-separated-values` dialect with a
+//! header record: fields separated by a tab, no quoting (a `"` is ordinary
+//! field text), records ending in LF or CRLF, and the same header, field
+//! count, comment and null rules as CSV. A field cannot hold a tab or a line
+//! break.
+//!
 //! ## Feature gate
 //!
 //! This module requires the `tree-sitter` feature flag, which brings in
@@ -32,6 +57,37 @@ use crate::error::{EmitInstanceError, ParseInstanceError, UnifiedCodecError};
 use crate::json_codec::{missing_entry_message, resolve_entry_vertex};
 use crate::json_pathway::protocol_definition;
 use crate::traits::{InstanceEmitter, InstanceParser, NativeRepr};
+
+/// The CST parser of the bundled tree-sitter grammar `grammar_name`.
+///
+/// # Errors
+///
+/// Returns [`UnifiedCodecError::MissingGrammar`] if the grammar is not
+/// compiled in, or [`UnifiedCodecError::ParserInit`] if its initialization
+/// fails.
+pub(crate) fn language_parser(grammar_name: &str) -> Result<LanguageParser, UnifiedCodecError> {
+    let grammar = panproto_grammars::grammars()
+        .into_iter()
+        .find(|g| g.name == grammar_name)
+        .ok_or_else(|| UnifiedCodecError::MissingGrammar {
+            format: grammar_name.to_owned(),
+        })?;
+
+    let config = panproto_parse::languages::walker_configs::walker_config_for(grammar_name);
+    LanguageParser::from_language_with_grammar_json(
+        grammar_name,
+        grammar.extensions.to_vec(),
+        grammar.language,
+        grammar.node_types,
+        grammar.tags_query,
+        config,
+        grammar.grammar_json,
+    )
+    .map_err(|e| UnifiedCodecError::ParserInit {
+        format: grammar_name.to_owned(),
+        source: Box::new(e),
+    })
+}
 
 /// A unified codec backed by tree-sitter parsing and CST extraction.
 ///
@@ -128,29 +184,7 @@ impl UnifiedCodec {
         native_repr: NativeRepr,
     ) -> Result<Self, UnifiedCodecError> {
         let protocol = protocol.into();
-        let grammar_name = format.grammar_name();
-
-        let grammar = panproto_grammars::grammars()
-            .into_iter()
-            .find(|g| g.name == grammar_name)
-            .ok_or_else(|| UnifiedCodecError::MissingGrammar {
-                format: grammar_name.to_owned(),
-            })?;
-
-        let config = panproto_parse::languages::walker_configs::walker_config_for(grammar_name);
-        let lang_parser = LanguageParser::from_language_with_grammar_json(
-            grammar_name,
-            grammar.extensions.to_vec(),
-            grammar.language,
-            grammar.node_types,
-            grammar.tags_query,
-            config,
-            grammar.grammar_json,
-        )
-        .map_err(|e| UnifiedCodecError::ParserInit {
-            format: grammar_name.to_owned(),
-            source: Box::new(e),
-        })?;
+        let lang_parser = language_parser(format.grammar_name())?;
 
         Ok(Self {
             protocol,
@@ -183,7 +217,7 @@ impl UnifiedCodec {
         let cst_schema = self.parse_to_cst(input)?;
         let protocol = protocol_definition(&self.protocol);
 
-        let (instance, complement) = match self.format {
+        let (instance, mut complement) = match self.format {
             FormatKind::Json => {
                 extract_json_cst_with_protocol(&cst_schema, schema, &protocol, root)
                     .map_err(|error| map_cst_parse_error(error, &self.protocol))?
@@ -206,6 +240,7 @@ impl UnifiedCodec {
                 });
             }
         };
+        complement.byte_order_mark = self.keeps_byte_order_mark(input);
 
         Ok((instance, complement))
     }
@@ -251,6 +286,7 @@ impl UnifiedCodec {
 
         self.lang_parser
             .emit(&updated_cst)
+            .map(|bytes| with_byte_order_mark(bytes, complement))
             .map_err(|e| EmitInstanceError::Emit {
                 protocol: self.protocol.clone(),
                 message: e.to_string(),
@@ -298,6 +334,7 @@ impl UnifiedCodec {
             extract_tabular_cst_with_protocol(&cst_schema, schema, &protocol, table_vertex)
                 .map_err(|error| map_cst_parse_error(error, &self.protocol))?;
         complement.format = complement_format.into();
+        complement.byte_order_mark = self.keeps_byte_order_mark(input);
         Ok((instance, complement))
     }
 
@@ -357,6 +394,7 @@ impl UnifiedCodec {
             .map_err(|error| map_cst_emit_error(error, &self.protocol))?;
         self.lang_parser
             .emit(&updated_cst)
+            .map(|bytes| with_byte_order_mark(bytes, complement))
             .map_err(|e| EmitInstanceError::Emit {
                 protocol: self.protocol.clone(),
                 message: e.to_string(),
@@ -365,12 +403,44 @@ impl UnifiedCodec {
 
     /// Parse raw bytes to a CST Schema via tree-sitter.
     fn parse_to_cst(&self, input: &[u8]) -> Result<Schema, ParseInstanceError> {
+        self.require_utf8(input)?;
         let file_name = format!("input.{}", self.format.extensions()[0]);
         self.lang_parser
             .parse(input, &file_name)
             .map_err(|e| ParseInstanceError::Parse {
                 protocol: self.protocol.clone(),
                 message: e.to_string(),
+            })
+    }
+
+    /// Whether a YAML, TOML, CSV or TSV source begins with a UTF-8
+    /// byte-order mark that preserving emission must write back.
+    fn keeps_byte_order_mark(&self, input: &[u8]) -> bool {
+        !matches!(self.format, FormatKind::Json | FormatKind::Xml)
+            && input.starts_with(UTF8_BYTE_ORDER_MARK)
+    }
+
+    /// Refuse a YAML, TOML, CSV or TSV source that is not UTF-8.
+    ///
+    /// Each of these routes reads UTF-8 text only (YAML 1.2.2 Sec 5.2 also
+    /// admits UTF-16 and UTF-32, which this route does not). The tree-sitter
+    /// grammar would otherwise lex an invalid sequence as no token, so a
+    /// cell or scalar holding one would read as empty text and an unedited
+    /// emission would not reproduce the source. The refusal names the
+    /// offset of the first byte that is not part of a valid sequence.
+    fn require_utf8(&self, input: &[u8]) -> Result<(), ParseInstanceError> {
+        if matches!(self.format, FormatKind::Json | FormatKind::Xml) {
+            return Ok(());
+        }
+        std::str::from_utf8(input)
+            .map(|_| ())
+            .map_err(|error| ParseInstanceError::Parse {
+                protocol: self.protocol.clone(),
+                message: format!(
+                    "{} source is not UTF-8: invalid byte sequence at byte {}",
+                    self.format.grammar_name(),
+                    error.valid_up_to()
+                ),
             })
     }
 
@@ -396,6 +466,23 @@ impl UnifiedCodec {
 
         Ok(instance)
     }
+}
+
+/// The UTF-8 encoding of U+FEFF.
+const UTF8_BYTE_ORDER_MARK: &[u8] = b"\xEF\xBB\xBF";
+
+/// `bytes` with the source's byte-order mark restored in front.
+///
+/// Tree-sitter skips a leading mark, so the CST replays every source byte
+/// after it but not the mark itself.
+fn with_byte_order_mark(bytes: Vec<u8>, complement: &CstComplement) -> Vec<u8> {
+    if !complement.byte_order_mark || bytes.starts_with(UTF8_BYTE_ORDER_MARK) {
+        return bytes;
+    }
+    let mut marked = Vec::with_capacity(UTF8_BYTE_ORDER_MARK.len() + bytes.len());
+    marked.extend_from_slice(UTF8_BYTE_ORDER_MARK);
+    marked.extend_from_slice(&bytes);
+    marked
 }
 
 fn map_cst_parse_error(error: CstCodecError, protocol: &str) -> ParseInstanceError {

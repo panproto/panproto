@@ -1622,10 +1622,10 @@ impl Builder<'_> {
                 }
                 if !reference.nullable {
                     self.add_on(
-                        CheckKey::new(CheckKind::RequiredEdge, decl.clone()),
+                        CheckKey::new(CheckKind::RequiredEdge, decl),
                         Compiled::Required { edge: edge.clone() },
                         None,
-                        anchors.clone(),
+                        anchors,
                         &[semantic],
                         Requirement::Required,
                     );
@@ -1667,7 +1667,7 @@ impl Builder<'_> {
                     ));
                 }
             }
-            if self.protocol.name == "sql" && h.kind == "table" {
+            if self.protocol.name == "postgresql" && h.kind == "table" {
                 let table = &h.parent_label;
                 let columns: BTreeSet<(Name, Name)> = self
                     .schema

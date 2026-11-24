@@ -91,7 +91,10 @@ pub struct MergeResult {
     /// The merged schema. When conflicts exist, conflicted elements
     /// retain their base values.
     pub merged_schema: Schema,
-    /// Any conflicts detected during the merge.
+    /// Any conflicts detected during the merge, sorted by the derived order
+    /// of [`MergeConflict`], so the same merge lists them in the same order
+    /// in every process and a conflict's index (which
+    /// [`ResolutionStrategy`] keys on) is a function of the merge.
     pub conflicts: Vec<MergeConflict>,
     /// Migration from "ours" schema to the merged schema.
     pub migration_from_ours: Migration,
@@ -146,7 +149,11 @@ pub enum IdentifiedAddition {
 /// Each variant corresponds to a case where the pushout does not exist
 /// cleanly because both sides made incompatible changes to the same
 /// schema element.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+///
+/// The derived order is the order [`MergeResult::conflicts`] is listed in:
+/// by variant in declaration order, then by the variant's fields in
+/// declaration order, the contested element's identifier first.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum MergeConflict {
     // --- Vertices ---
@@ -170,7 +177,12 @@ pub enum MergeConflict {
         theirs_kind: String,
     },
 
-    /// One branch deleted a vertex that the other modified.
+    /// One branch deleted a vertex that the other modified or used.
+    ///
+    /// The other branch modified the vertex when it changed its kind, and
+    /// used it when it added an edge at it. Deleting the vertex would leave
+    /// that edge without an endpoint, so the deletion and the use are not
+    /// independent changes and the merge does not choose between them.
     DeleteModifyVertex {
         /// The ID of the contested vertex.
         vertex_id: String,
@@ -456,7 +468,9 @@ pub enum MergeConflict {
 }
 
 /// Which side of the merge performed an operation.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+///
+/// Ordered `Ours` before `Theirs`.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Side {
     /// Our branch.
     Ours,
@@ -594,7 +608,9 @@ pub fn apply_resolutions(
     merge_result: &MergeResult,
     strategy: &ResolutionStrategy,
 ) -> Result<ResolvedMerge, PushoutError> {
-    let unresolved = merge_result.conflicts.len() - strategy.resolutions.len();
+    let unresolved = (0..merge_result.conflicts.len())
+        .filter(|index| !strategy.resolutions.contains_key(index))
+        .count();
     if unresolved > 0 {
         return Err(PushoutError::UnresolvedConflicts {
             count: unresolved,
@@ -616,6 +632,7 @@ pub fn apply_resolutions(
                 })?;
         apply_single_resolution(&mut schema, base, ours, theirs, conflict, resolution);
     }
+    (schema.outgoing, schema.incoming, schema.between) = edge_indices(&schema.edges);
 
     // Re-derive migrations from the resolved schema.
     let ours_diff = diff::diff(ours, &schema);
@@ -712,12 +729,30 @@ fn apply_single_resolution(
             }
         }
         MergeConflict::DeleteModifyVertex { vertex_id, .. } => {
-            if source.vertex(vertex_id).is_none() {
-                schema.vertices.remove(vertex_id.as_str());
-            } else if let Some(v) = source.vertex(vertex_id) {
-                schema
-                    .vertices
-                    .insert(Name::from(vertex_id.as_str()), v.clone());
+            // The chosen side's state of the vertex includes its edges: a
+            // deletion takes the edges at the vertex with it, and a kept
+            // vertex keeps the chosen side's edges at it whose other
+            // endpoint is in the merge.
+            let vertex = Name::from(vertex_id.as_str());
+            schema
+                .edges
+                .retain(|edge, _| edge.src != vertex && edge.tgt != vertex);
+            match source.vertex(vertex_id) {
+                None => {
+                    schema.vertices.remove(&vertex);
+                }
+                Some(v) => {
+                    schema.vertices.insert(vertex.clone(), v.clone());
+                    for (edge, kind) in &source.edges {
+                        let at = edge.src == vertex || edge.tgt == vertex;
+                        if at
+                            && schema.vertices.contains_key(&edge.src)
+                            && schema.vertices.contains_key(&edge.tgt)
+                        {
+                            schema.edges.insert(edge.clone(), kind.clone());
+                        }
+                    }
+                }
             }
         }
         MergeConflict::DeleteModifyEdge { edge, .. } => {
@@ -1734,27 +1769,7 @@ pub fn three_way_merge(base: &Schema, ours: &Schema, theirs: &Schema) -> MergeRe
     // `canonical_digest`. Settling that needs canonical serialisation of those
     // fields, or dropping the derived indices from the wire form and rebuilding
     // them on deserialise.
-    let mut outgoing: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
-    let mut incoming: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
-    let mut between: HashMap<(Name, Name), SmallVec<Edge, 2>> = HashMap::new();
-
-    let mut ordered_edges: Vec<&Edge> = edges.keys().collect();
-    ordered_edges.sort_unstable();
-
-    for edge in ordered_edges {
-        outgoing
-            .entry(edge.src.clone())
-            .or_default()
-            .push(edge.clone());
-        incoming
-            .entry(edge.tgt.clone())
-            .or_default()
-            .push(edge.clone());
-        between
-            .entry((edge.src.clone(), edge.tgt.clone()))
-            .or_default()
-            .push(edge.clone());
-    }
+    let (outgoing, incoming, between) = edge_indices(&edges);
 
     let entries = three_way_merge_entries(base, ours, theirs, &vertices);
 
@@ -1812,6 +1827,7 @@ pub fn three_way_merge(base: &Schema, ours: &Schema, theirs: &Schema) -> MergeRe
         auto_mig::derive_migration(theirs, &merged_schema, &diff_theirs_to_merged);
 
     identified_additions.sort_unstable();
+    conflicts.sort_unstable();
 
     MergeResult {
         merged_schema,
@@ -1822,6 +1838,37 @@ pub fn three_way_merge(base: &Schema, ours: &Schema, theirs: &Schema) -> MergeRe
         pullback_error,
         identified_additions,
     }
+}
+
+/// The edges at each vertex, as a schema's `outgoing` and `incoming` hold them.
+type EdgesAt = HashMap<Name, SmallVec<Edge, 4>>;
+
+/// The edges between each ordered vertex pair, as a schema's `between` holds them.
+type EdgesBetween = HashMap<(Name, Name), SmallVec<Edge, 2>>;
+
+/// The `outgoing`, `incoming` and `between` indices of an edge set, each
+/// bucket filled in ascending edge order.
+fn edge_indices(edges: &HashMap<Edge, Name>) -> (EdgesAt, EdgesAt, EdgesBetween) {
+    let mut outgoing: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
+    let mut incoming: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
+    let mut between: HashMap<(Name, Name), SmallVec<Edge, 2>> = HashMap::new();
+    let mut ordered_edges: Vec<&Edge> = edges.keys().collect();
+    ordered_edges.sort_unstable();
+    for edge in ordered_edges {
+        outgoing
+            .entry(edge.src.clone())
+            .or_default()
+            .push(edge.clone());
+        incoming
+            .entry(edge.tgt.clone())
+            .or_default()
+            .push(edge.clone());
+        between
+            .entry((edge.src.clone(), edge.tgt.clone()))
+            .or_default()
+            .push(edge.clone());
+    }
+    (outgoing, incoming, between)
 }
 
 /// Three-way merge on the pointed structure of a schema.
@@ -2101,23 +2148,25 @@ fn merge_vertices(
         let t_modified = theirs_kind_changed.contains(vid.as_str());
 
         match (o_removed, t_removed, o_modified, t_modified) {
-            // Both removed, or one removed while the other unchanged.
-            (true, true, _, _) | (true, false, _, false) | (false, true, false, _) => {}
-            // Ours removed, theirs modified → conflict.
-            (true, false, _, true) => {
-                conflicts.push(MergeConflict::DeleteModifyVertex {
-                    vertex_id: vid.to_string(),
-                    deleted_by: Side::Ours,
-                });
-                result.insert(vid.clone(), base_v.clone());
-            }
-            // Theirs removed, ours modified → conflict.
-            (false, true, true, _) => {
-                conflicts.push(MergeConflict::DeleteModifyVertex {
-                    vertex_id: vid.to_string(),
-                    deleted_by: Side::Theirs,
-                });
-                result.insert(vid.clone(), base_v.clone());
+            // Both removed.
+            (true, true, _, _) => {}
+            // One side removed the vertex. The removal stands unless the
+            // other side modified the vertex or used it, by adding an edge
+            // at it that would otherwise lose an endpoint; then the two
+            // changes conflict and the vertex keeps its base value.
+            (true, false, _, other_modified) | (false, true, other_modified, _) => {
+                let (deleted_by, other) = if o_removed {
+                    (Side::Ours, theirs)
+                } else {
+                    (Side::Theirs, ours)
+                };
+                if other_modified || adds_edge_at(base, other, vid) {
+                    conflicts.push(MergeConflict::DeleteModifyVertex {
+                        vertex_id: vid.to_string(),
+                        deleted_by,
+                    });
+                    result.insert(vid.clone(), base_v.clone());
+                }
             }
             // Both modified.
             (false, false, true, true) => {
@@ -2193,6 +2242,13 @@ fn merge_vertices(
     }
 
     result
+}
+
+/// Whether `side` has an edge at `vertex` that `base` does not have.
+fn adds_edge_at(base: &Schema, side: &Schema, vertex: &Name) -> bool {
+    side.edges
+        .keys()
+        .any(|edge| (&edge.src == vertex || &edge.tgt == vertex) && !base.edges.contains_key(edge))
 }
 
 fn merge_edges(
@@ -3304,8 +3360,8 @@ mod tests {
                 .ok_or("vertex missing in swapped merge")?;
             assert_eq!(v1, v2, "vertex {id} differs between merge directions");
         }
-        assert!(r1.conflicts.is_empty());
-        assert!(r2.conflicts.is_empty());
+        assert_eq!(r1.conflicts, vec![]);
+        assert_eq!(r2.conflicts, vec![]);
         Ok(())
     }
 
@@ -3330,7 +3386,7 @@ mod tests {
         let x = make_schema(&[("a", "object"), ("b", "string")], &[]);
 
         let r = three_way_merge(&base, &base, &x);
-        assert!(r.conflicts.is_empty());
+        assert_eq!(r.conflicts, vec![]);
         assert_eq!(r.merged_schema.vertices.len(), 2);
         assert!(r.merged_schema.vertices.contains_key("b"));
     }
@@ -3341,7 +3397,7 @@ mod tests {
         let x = make_schema(&[("a", "object"), ("b", "string")], &[]);
 
         let r = three_way_merge(&base, &x, &base);
-        assert!(r.conflicts.is_empty());
+        assert_eq!(r.conflicts, vec![]);
         assert_eq!(r.merged_schema.vertices.len(), 2);
         assert!(r.merged_schema.vertices.contains_key("b"));
     }
@@ -3352,7 +3408,7 @@ mod tests {
         let x = make_schema(&[("a", "object"), ("b", "string")], &[]);
 
         let r = three_way_merge(&base, &x, &x);
-        assert!(r.conflicts.is_empty());
+        assert_eq!(r.conflicts, vec![]);
         assert_eq!(r.merged_schema.vertices.len(), 2);
     }
 
@@ -3367,7 +3423,7 @@ mod tests {
         let theirs = make_schema(&[("a", "object"), ("c", "integer")], &[]);
 
         let result = three_way_merge(&base, &ours, &theirs);
-        assert!(result.conflicts.is_empty());
+        assert_eq!(result.conflicts, vec![]);
         assert_eq!(result.merged_schema.vertices.len(), 3);
     }
 
@@ -3378,7 +3434,7 @@ mod tests {
         let theirs = make_schema(&[("a", "object"), ("b", "string")], &[]);
 
         let result = three_way_merge(&base, &ours, &theirs);
-        assert!(result.conflicts.is_empty());
+        assert_eq!(result.conflicts, vec![]);
         assert_eq!(result.merged_schema.vertices.len(), 2);
     }
 
@@ -3405,7 +3461,7 @@ mod tests {
         let theirs = make_schema(&[("a", "string")], &[]);
 
         let result = three_way_merge(&base, &ours, &theirs);
-        assert!(result.conflicts.is_empty());
+        assert_eq!(result.conflicts, vec![]);
         assert_eq!(result.merged_schema.vertices["a"].kind, "string");
     }
 
@@ -3436,8 +3492,9 @@ mod tests {
         let theirs = make_schema(&[("a", "object"), ("b", "string")], &[]); // unchanged
 
         let result = three_way_merge(&base, &ours, &theirs);
-        assert!(
-            result.conflicts.is_empty(),
+        assert_eq!(
+            result.conflicts,
+            vec![],
             "should be clean removal, got {:?}",
             result.conflicts
         );
@@ -3527,7 +3584,7 @@ mod tests {
         let theirs = make_schema(&[("a", "object"), ("b", "string")], &[edge_theirs]);
 
         let result = three_way_merge(&base, &ours, &theirs);
-        assert!(result.conflicts.is_empty());
+        assert_eq!(result.conflicts, vec![]);
         assert_eq!(result.merged_schema.edges.len(), 2);
     }
 
@@ -3564,7 +3621,7 @@ mod tests {
         );
 
         let result = three_way_merge(&base, &ours, &theirs);
-        assert!(result.conflicts.is_empty());
+        assert_eq!(result.conflicts, vec![]);
         assert_eq!(result.merged_schema.orderings[&edge], 1);
     }
 
@@ -3587,7 +3644,7 @@ mod tests {
         let theirs = base.clone(); // unchanged
 
         let result = three_way_merge(&base, &ours, &theirs);
-        assert!(result.conflicts.is_empty());
+        assert_eq!(result.conflicts, vec![]);
         assert!(!result.merged_schema.hyper_edges.contains_key("he1"));
     }
 
@@ -3611,7 +3668,7 @@ mod tests {
         let theirs = base.clone();
 
         let result = three_way_merge(&base, &ours, &theirs);
-        assert!(result.conflicts.is_empty());
+        assert_eq!(result.conflicts, vec![]);
         assert!(result.merged_schema.spans.contains_key("s1"));
     }
 
@@ -3630,7 +3687,7 @@ mod tests {
         let theirs = base.clone();
 
         let result = three_way_merge(&base, &ours, &theirs);
-        assert!(result.conflicts.is_empty());
+        assert_eq!(result.conflicts, vec![]);
         assert_eq!(result.merged_schema.nominal.get("a"), Some(&true));
     }
 
@@ -3667,7 +3724,7 @@ mod tests {
         );
 
         let result = three_way_merge(&base, &ours, &theirs);
-        assert!(result.conflicts.is_empty());
+        assert_eq!(result.conflicts, vec![]);
         assert_eq!(result.merged_schema.usage_modes[&edge], UsageMode::Linear);
     }
 
@@ -3740,7 +3797,7 @@ mod tests {
         let theirs = base.clone();
 
         let result = three_way_merge(&base, &ours, &theirs);
-        assert!(result.conflicts.is_empty());
+        assert_eq!(result.conflicts, vec![]);
         let merged_variants = result.merged_schema.variants.get("u");
         assert!(merged_variants.is_none_or(Vec::is_empty));
     }
@@ -3909,7 +3966,7 @@ mod tests {
         let theirs = make_schema(&[("a", "object"), ("c", "integer")], &[]);
 
         let result = three_way_merge(&base, &ours, &theirs);
-        assert!(result.conflicts.is_empty());
+        assert_eq!(result.conflicts, vec![]);
         let Some(ref overlap) = result.pullback_overlap else {
             panic!("pullback overlap should be present");
         };

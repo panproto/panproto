@@ -30,13 +30,13 @@ fn atproto_lexicon() -> serde_json::Value {
 
 /// The same logical shape, inlined (no indirection): an object with a
 /// nested object field.
-fn json_schema_doc() -> serde_json::Value {
-    serde_json::json!({
+const fn json_schema_doc() -> &'static str {
+    r#"{
         "type": "object", "required": ["kf"],
         "properties": { "kf": {
             "type": "object", "required": ["t"],
             "properties": { "t": { "type": "integer" } } } }
-    })
+    }"#
 }
 
 /// A structural signature of an instance graph that ignores vertex ids
@@ -78,12 +78,13 @@ fn signature(
 #[test]
 fn ref_and_inlined_schemas_produce_the_same_instance_graph() -> Result<(), Box<dyn Error>> {
     let at = atproto::parse_lexicon(&atproto_lexicon())?;
-    let js = panproto_protocols::parse_schema_document("json-schema", &json_schema_doc())?;
+    let js =
+        panproto_io::data_schema::json_schema::read_schema(json_schema_doc().as_bytes())?.schema;
 
     let record = serde_json::json!({ "kf": { "t": 5 } });
 
     let at_sig = signature(&at, "d.a", &record)?;
-    let js_sig = signature(&js, "root", &record)?;
+    let js_sig = signature(&js, "#", &record)?;
 
     assert_eq!(
         at_sig, js_sig,

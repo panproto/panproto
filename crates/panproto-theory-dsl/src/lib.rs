@@ -35,17 +35,21 @@ pub mod compile_theory;
 pub mod document;
 pub mod error;
 pub mod eval;
+pub mod shape;
 
 use std::path::Path;
 
 pub use compile::{
-    builtin_resolver, compile_bundle, compile_unchecked, compile_with_registry, compile_with_source,
+    SourceFormat, builtin_resolver, compile_bundle, compile_source, compile_unchecked,
+    compile_with_registry, compile_with_source, read_source,
 };
 pub use compile_theory::{
     compile_theory, compile_theory_with_law_check, compile_theory_with_law_check_and_var,
 };
 pub use document::{BundleSpec, CompiledTheorySet, TheoryBody, TheoryDocument, TheorySpec};
 pub use error::TheoryDslError;
+pub use panproto_dsl_eval::path;
+pub use path::{DocumentPath, PathSegment, locate_json};
 
 /// Load a theory document from a file.
 ///

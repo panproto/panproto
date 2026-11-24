@@ -5,6 +5,7 @@
 #   extensions  = file extensions this grammar handles (empty for injection grammars)
 #   c_symbol    = C function suffix: tree_sitter_{c_symbol}() (defaults to TOML key)
 #   directory   = subdirectory within repo for multi-grammar repos (optional)
+#   rev         = upstream commit to fetch (optional; the default branch otherwise)
 #
 # The tools/fetch-grammars.py script reads this file and populates grammars/{lang}/src/
 # with parser.c, scanner.c/scanner.cc (if present), node-types.json, and tree_sitter/parser.h.
@@ -696,6 +697,15 @@ extensions = ["po", "pot"]
 [pony]
 repo = "https://github.com/tree-sitter-grammars/tree-sitter-pony"
 extensions = ["pony"]
+
+[postgresql]
+repo = "https://github.com/gmr/tree-sitter-postgres"
+directory = "postgres"
+c_symbol = "postgres"
+rev = "d6ba3d1f1db62922aa5f2b94c04d33afbcdbc6ed"
+# `.sql` stays with the dialect-neutral `sql` grammar; PostgreSQL is chosen
+# by name or by the `.pgsql` extension.
+extensions = ["pgsql"]
 
 [postscript]
 repo = "https://github.com/smoeding/tree-sitter-postscript"

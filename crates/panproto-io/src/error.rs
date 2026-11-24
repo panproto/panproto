@@ -231,6 +231,35 @@ pub enum ParseInstanceError {
         byte_offset: Option<u64>,
     },
 
+    /// An edge-list document the protocol's reader refuses.
+    #[error("protocol '{protocol}' refuses the edge list: {error}")]
+    EdgeList {
+        /// The protocol name.
+        protocol: String,
+        /// The refusal.
+        error: crate::edgelist::EdgeListReadError,
+    },
+
+    /// A binary BSON document the decoder refuses, with the byte offset at
+    /// fault.
+    #[error("protocol '{protocol}' refuses the BSON document at {error}")]
+    Bson {
+        /// The protocol name.
+        protocol: String,
+        /// The refusal.
+        error: crate::data_schema::bson::BsonDecodeError,
+    },
+
+    /// An RDF document the protocol's reader refuses, with the byte offset
+    /// of the token at fault.
+    #[error("protocol '{protocol}' refuses the document {error}")]
+    Rdf {
+        /// The protocol name.
+        protocol: String,
+        /// The refusal.
+        error: crate::rdf::RdfReadError,
+    },
+
     /// The syntactic source parsed, and resolving it into its semantic
     /// shape failed with this typed error.
     #[error("resolution error: {0}")]
@@ -299,6 +328,43 @@ pub enum EmitInstanceError {
         column: String,
     },
 
+    /// A graph the protocol's edge-list writer refuses, with the node at
+    /// fault.
+    #[error("protocol '{protocol}' cannot write the graph: {error}")]
+    EdgeList {
+        /// The protocol name.
+        protocol: String,
+        /// The refusal.
+        error: crate::edgelist::EdgeListWriteError,
+    },
+
+    /// An instance the BSON tree encoding refuses, with the node at fault.
+    #[error("protocol '{protocol}' cannot write the instance: {error}")]
+    BsonInstance {
+        /// The protocol name.
+        protocol: String,
+        /// The refusal.
+        error: crate::data_schema::bson::BsonInstanceError,
+    },
+
+    /// A document the binary BSON writer refuses, with the path at fault.
+    #[error("protocol '{protocol}' cannot write the document: {error}")]
+    BsonWrite {
+        /// The protocol name.
+        protocol: String,
+        /// The refusal.
+        error: crate::data_schema::bson::BsonWriteError,
+    },
+
+    /// A graph the protocol's RDF writer refuses, with the node at fault.
+    #[error("protocol '{protocol}' cannot write the graph: {error}")]
+    Rdf {
+        /// The protocol name.
+        protocol: String,
+        /// The refusal.
+        error: crate::rdf::RdfWriteError,
+    },
+
     /// Putting the semantic instance back to its syntactic source failed
     /// with this typed error.
     #[error("resolution error: {0}")]
@@ -341,6 +407,16 @@ pub enum UnifiedCodecError {
         /// Underlying parse-error from `LanguageParser::from_language`.
         #[source]
         source: Box<panproto_parse::error::ParseError>,
+    },
+
+    /// The fixed schema a codec reads its text under could not be built.
+    #[error("failed to build the {format} table schema: {source}")]
+    SchemaInit {
+        /// Grammar / format name.
+        format: String,
+        /// The schema builder's refusal.
+        #[source]
+        source: Box<panproto_schema::SchemaError>,
     },
 }
 

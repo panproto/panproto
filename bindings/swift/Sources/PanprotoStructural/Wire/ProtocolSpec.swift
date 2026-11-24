@@ -480,7 +480,7 @@ public struct ScalarKind: Codable, Hashable, Sendable {
 /// protocol declarations, so the wire name survives only in the
 /// documentation and the payload.
 public struct ProtocolSpec: Codable, Hashable, Sendable {
-    /// The protocol name, such as `atproto` or `sql`.
+    /// The protocol name, such as `atproto` or `postgresql`.
     public var name: String
     /// The schema theory this protocol is a model of.
     public var schemaTheory: String

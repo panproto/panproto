@@ -10,6 +10,12 @@ permissions:
   contents: read
 
 jobs:
+  verified:
+    uses: ./.github/workflows/require-verified.yml
+    permissions:
+      checks: read
+      contents: read
+
   build:
     name: Build (${{ matrix.target }})
     strategy:
@@ -162,7 +168,7 @@ jobs:
 
   publish:
     name: Publish to PyPI
-    needs: build
+    needs: [build, verified]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

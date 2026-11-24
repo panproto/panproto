@@ -35,7 +35,7 @@ assert!(panproto_grammars::has_grammar("python"));
 
 ## How it works
 
-`grammars.toml` defines 261 grammar entries. Each `lang-{name}` feature selects one entry, and the `group-*` features select fixed sets. The default feature is `group-core`, which selects 11 languages: Python, JavaScript, TypeScript, Java, C#, C++, PHP, Bash, C, Go, and Rust.
+`grammars.toml` defines 262 grammar entries. Each `lang-{name}` feature selects one entry, and the `group-*` features select fixed sets. The default feature is `group-core`, which selects 11 languages: Python, JavaScript, TypeScript, Java, C#, C++, PHP, Bash, C, Go, and Rust.
 
 In a workspace build, `build.rs` compiles the enabled vendored C or C++ sources. A missing source directory, missing `parser.c`, or compilation failure causes that grammar to be omitted. Thus `grammars()` reports the grammars that compiled, not every feature that Cargo enabled.
 
@@ -50,12 +50,12 @@ The crates.io package cannot include the workspace-level `grammars.toml` and `gr
 | `group-systems` | C, C++, Rust, Go, Zig, D, Nim, Odin, V, Hare |
 | `group-jvm` | Java, Kotlin, Scala, Groovy, Clojure |
 | `group-scripting` | Python, Ruby, Lua, Bash, Perl, R, Julia, Nushell, Fish |
-| `group-data` | JSON, TOML, XML, YAML, SQL, CSV, GraphQL, Protobuf |
+| `group-data` | JSON, TOML, XML, YAML, SQL, PostgreSQL, CSV, GraphQL, Protobuf |
 | `group-functional` | Haskell, OCaml, Elm, Gleam, Erlang, Elixir, PureScript, F#, Clojure, Scheme, Racket |
 | `group-devops` | Dockerfile, Terraform, HCL, Nix, Bash, YAML, TOML, Make, CMake |
 | `group-mobile` | Swift, Kotlin, Dart, Java, Objective-C |
 | `group-music` | SuperCollider, LilyPond, ABC, Csound, ChucK, Glicol, Tidal mini-notation, Strudel mini-notation |
-| `group-all` | All 261 manifest entries |
+| `group-all` | All 262 manifest entries |
 | `lang-{name}` | Any individual language by name |
 
 ## Companion grammar packs
@@ -89,4 +89,4 @@ Each wheel contains a separate pyo3 cdylib built from `crates/panproto-grammars-
 
 ## License
 
-[MIT](../../LICENSE)
+[MIT](../../LICENSE) for this crate's own code. Each vendored grammar keeps its upstream licence, copied unchanged into `grammars/<name>/LICENSE` beside its sources, and a binary that compiles a grammar in carries that grammar's terms with it. The BSD-licensed grammars require their copyright notice, conditions and disclaimer to be reproduced in the documentation of a binary distribution: [`janet`](../../grammars/janet/LICENSE) and [`jq`](../../grammars/jq/LICENSE) (BSD 3-Clause), [`postscript`](../../grammars/postscript/LICENSE) (BSD 2-Clause), and [`postgresql`](../../grammars/postgresql/LICENSE) (BSD 3-Clause, from [gmr/tree-sitter-postgres](https://github.com/gmr/tree-sitter-postgres), Copyright (c) 2026 Gavin M. Roy, AWeber).

@@ -1,20 +1,104 @@
-//! Kubernetes CRD protocol definition.
+//! Kubernetes `CustomResourceDefinition` protocol definition.
 //!
 //! Uses Group A theory: constrained multigraph + W-type.
+//!
+//! A CRD document (`apiextensions.k8s.io/v1`, Kubernetes 1.37) is YAML, and
+//! this crate links no YAML grammar: `panproto_io::config::k8s_crd::read_crd`
+//! reads it through the shared YAML route of `panproto-io` (feature
+//! `tree-sitter`) into a schema of this protocol, and both schema dispatches
+//! refuse the protocol with an error naming that reader.
+//!
+//! The schema has one `custom-resource` vertex named by the CRD's
+//! `metadata.name`, a `version` vertex `<crd>/<version>` per served version
+//! joined to it by a `version` edge, and the structural schema of each version
+//! below a `schema` edge: an `object`, `array`, `string`, `integer`, `number`,
+//! `boolean`, `int-or-string` or `any` vertex per schema node, joined by `prop`
+//! edges (named by the property), `items` edges and `values` edges (an
+//! `additionalProperties` schema).
 
 use std::collections::HashMap;
 use std::hash::BuildHasher;
 
 use panproto_gat::Theory;
-use panproto_schema::{EdgeRule, Protocol, Schema, SchemaBuilder};
+use panproto_schema::{EdgeRule, Protocol};
 
-use crate::emit::{children_by_edge, find_roots};
-use crate::error::ProtocolError;
 use crate::theories;
+
+/// The keywords of a `JSONSchemaProps` node that the reader keeps as
+/// constraints of the node's vertex, each holding the keyword's value as
+/// canonical JSON text.
+pub const SCHEMA_CONSTRAINTS: &[&str] = &[
+    "description",
+    "title",
+    "format",
+    "default",
+    "example",
+    "enum",
+    "nullable",
+    "maximum",
+    "exclusiveMaximum",
+    "minimum",
+    "exclusiveMinimum",
+    "multipleOf",
+    "maxLength",
+    "minLength",
+    "pattern",
+    "maxItems",
+    "minItems",
+    "uniqueItems",
+    "maxProperties",
+    "minProperties",
+    "required",
+    "allOf",
+    "anyOf",
+    "oneOf",
+    "not",
+    "externalDocs",
+    "x-kubernetes-preserve-unknown-fields",
+    "x-kubernetes-embedded-resource",
+    "x-kubernetes-int-or-string",
+    "x-kubernetes-list-type",
+    "x-kubernetes-list-map-keys",
+    "x-kubernetes-map-type",
+    "x-kubernetes-validations",
+];
+
+/// The fields of the CRD kept as constraints of its `custom-resource`
+/// vertex, each holding the field's value as canonical JSON text.
+pub const RESOURCE_CONSTRAINTS: &[&str] = &[
+    "group",
+    "scope",
+    "kind",
+    "plural",
+    "singular",
+    "listKind",
+    "shortNames",
+    "categories",
+    "metadata",
+    "status",
+];
+
+/// The fields of a version kept as constraints of its `version` vertex,
+/// each holding the field's value as canonical JSON text.
+pub const VERSION_CONSTRAINTS: &[&str] = &[
+    "served",
+    "storage",
+    "deprecated",
+    "deprecationWarning",
+    "subresources",
+    "additionalPrinterColumns",
+    "selectableFields",
+];
 
 /// Returns the K8s CRD protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
+    let constraint_sorts = SCHEMA_CONSTRAINTS
+        .iter()
+        .chain(RESOURCE_CONSTRAINTS)
+        .chain(VERSION_CONSTRAINTS)
+        .map(|sort| (*sort).to_owned())
+        .collect();
     let mut protocol = Protocol {
         name: "k8s-crd".into(),
         schema_theory: "ThK8sCrdSchema".into(),
@@ -23,16 +107,16 @@ pub fn protocol() -> Protocol {
         obj_kinds: vec![
             "custom-resource".into(),
             "version".into(),
-            "schema-object".into(),
-            "field".into(),
+            "object".into(),
+            "array".into(),
             "string".into(),
             "integer".into(),
             "number".into(),
             "boolean".into(),
-            "array".into(),
-            "object".into(),
+            "int-or-string".into(),
+            "any".into(),
         ],
-        constraint_sorts: vec!["required".into(), "format".into()],
+        constraint_sorts,
         has_order: true,
         has_coproducts: true,
         has_recursion: true,
@@ -48,234 +132,73 @@ pub fn register_theories<S: BuildHasher>(registry: &mut HashMap<String, Theory, 
     theories::register_constrained_multigraph_wtype(registry, "ThK8sCrdSchema", "ThK8sCrdInstance");
 }
 
-/// Parse a JSON-based K8s CRD schema into a [`Schema`].
-///
-/// # Errors
-///
-/// Returns [`ProtocolError`] if parsing fails.
-pub fn parse_k8s_crd_schema(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
-    let ordered = crate::key_order::in_key_order(json);
-    let json = ordered.as_ref();
-    let proto = protocol();
-    let mut builder = SchemaBuilder::new(&proto);
-    let mut counter: usize = 0;
-
-    let name = json
-        .get("name")
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| ProtocolError::MissingField("name".into()))?;
-
-    builder = builder.vertex(name, "custom-resource", None)?;
-
-    if let Some(versions) = json.get("versions").and_then(serde_json::Value::as_array) {
-        for ver in versions.iter() {
-            let ver_name = ver
-                .get("name")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("v1");
-            let ver_id = format!("{name}:{ver_name}");
-            builder = builder.vertex(&ver_id, "version", None)?;
-            builder = builder.edge(name, &ver_id, "prop", Some(ver_name))?;
-
-            if let Some(schema_val) = ver.get("schema") {
-                builder = walk_k8s_schema(builder, schema_val, &ver_id, &mut counter)?;
-            }
-        }
-    }
-
-    if let Some(schema_val) = json.get("schema") {
-        builder = walk_k8s_schema(builder, schema_val, name, &mut counter)?;
-    }
-
-    let schema = builder.build()?;
-    Ok(schema)
-}
-
-/// Walk a K8s CRD openAPIV3Schema recursively.
-fn walk_k8s_schema(
-    mut builder: SchemaBuilder,
-    schema: &serde_json::Value,
-    parent_id: &str,
-    counter: &mut usize,
-) -> Result<SchemaBuilder, ProtocolError> {
-    if let Some(properties) = schema
-        .get("properties")
-        .and_then(serde_json::Value::as_object)
-    {
-        for (prop_name, prop_def) in properties {
-            let prop_id = format!("{parent_id}.{prop_name}");
-            let type_str = prop_def
-                .get("type")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("string");
-            let kind = k8s_type_to_kind(type_str);
-            builder = builder.vertex(&prop_id, kind, None)?;
-            builder = builder.edge(parent_id, &prop_id, "prop", Some(prop_name))?;
-
-            // Recurse into nested objects.
-            if type_str == "object" {
-                builder = walk_k8s_schema(builder, prop_def, &prop_id, counter)?;
-            }
-
-            // Handle array items.
-            if type_str == "array"
-                && let Some(items) = prop_def.get("items")
-            {
-                *counter += 1;
-                let items_id = format!("{prop_id}:items{counter}");
-                let items_type = items
-                    .get("type")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("string");
-                let items_kind = k8s_type_to_kind(items_type);
-                builder = builder.vertex(&items_id, items_kind, None)?;
-                builder = builder.edge(&prop_id, &items_id, "items", None)?;
-                if items_type == "object" {
-                    builder = walk_k8s_schema(builder, items, &items_id, counter)?;
-                }
-            }
-        }
-    }
-
-    Ok(builder)
-}
-
-/// Map K8s type to vertex kind.
-fn k8s_type_to_kind(type_str: &str) -> &'static str {
-    match type_str {
-        "string" => "string",
-        "integer" => "integer",
-        "number" => "number",
-        "boolean" => "boolean",
-        "array" => "array",
-        "object" => "object",
-        _ => "field",
-    }
-}
-
-/// Emit a [`Schema`] as a JSON K8s CRD schema.
-///
-/// # Errors
-///
-/// Returns [`ProtocolError`] if emission fails.
-pub fn emit_k8s_crd_schema(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
-    let structural = &["prop", "items"];
-    let roots = find_roots(schema, structural);
-
-    let root = roots
-        .iter()
-        .find(|v| v.kind == "custom-resource")
-        .ok_or_else(|| ProtocolError::Emit("no custom-resource root".into()))?;
-
-    let mut result = serde_json::Map::new();
-    result.insert("name".into(), serde_json::json!(root.id));
-
-    let versions = children_by_edge(schema, &root.id, "prop");
-    let ver_arr: Vec<serde_json::Value> = versions
-        .iter()
-        .filter(|(_, v)| v.kind == "version")
-        .map(|(e, v)| {
-            let ver_name = e.name.as_deref().unwrap_or(&v.id);
-            let schema_obj = emit_k8s_schema_obj(schema, &v.id);
-            serde_json::json!({
-                "name": ver_name,
-                "schema": schema_obj,
-            })
-        })
-        .collect();
-
-    if !ver_arr.is_empty() {
-        result.insert("versions".into(), serde_json::Value::Array(ver_arr));
-    }
-
-    Ok(serde_json::Value::Object(result))
-}
-
-/// Emit a schema object with properties.
-fn emit_k8s_schema_obj(schema: &Schema, vertex_id: &str) -> serde_json::Value {
-    let props = children_by_edge(schema, vertex_id, "prop");
-    if props.is_empty() {
-        return serde_json::json!({});
-    }
-
-    let mut properties = serde_json::Map::new();
-    for (edge, child) in &props {
-        let name = edge.name.as_deref().unwrap_or(&child.id);
-        let mut obj = serde_json::Map::new();
-        obj.insert("type".into(), serde_json::json!(child.kind));
-
-        if child.kind == "object" {
-            let nested = emit_k8s_schema_obj(schema, &child.id);
-            if let serde_json::Value::Object(nested_obj) = &nested
-                && let Some(nested_props) = nested_obj.get("properties")
-            {
-                obj.insert("properties".into(), nested_props.clone());
-            }
-        }
-
-        properties.insert(name.to_string(), serde_json::Value::Object(obj));
-    }
-
-    serde_json::json!({ "properties": properties })
-}
+/// The vertex kinds of a structural schema node.
+const SCHEMA_KINDS: &[&str] = &[
+    "object",
+    "array",
+    "string",
+    "integer",
+    "number",
+    "boolean",
+    "int-or-string",
+    "any",
+];
 
 fn edge_rules() -> Vec<EdgeRule> {
+    let schema_kinds = || SCHEMA_KINDS.iter().map(|kind| (*kind).into()).collect();
     vec![
         EdgeRule {
+            edge_kind: "version".into(),
+            src_kinds: vec!["custom-resource".into()],
+            tgt_kinds: vec!["version".into()],
+        },
+        EdgeRule {
+            edge_kind: "schema".into(),
+            src_kinds: vec!["version".into()],
+            tgt_kinds: vec!["object".into()],
+        },
+        EdgeRule {
             edge_kind: "prop".into(),
-            src_kinds: vec![
-                "custom-resource".into(),
-                "version".into(),
-                "object".into(),
-                "schema-object".into(),
-            ],
-            tgt_kinds: vec![],
+            src_kinds: vec!["object".into()],
+            tgt_kinds: schema_kinds(),
         },
         EdgeRule {
             edge_kind: "items".into(),
             src_kinds: vec!["array".into()],
-            tgt_kinds: vec![],
+            tgt_kinds: schema_kinds(),
+        },
+        EdgeRule {
+            edge_kind: "values".into(),
+            src_kinds: vec!["object".into()],
+            tgt_kinds: schema_kinds(),
         },
     ]
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
 
     #[test]
-    fn protocol_def() {
+    fn the_protocol_declares_every_kept_field_as_a_constraint_sort() {
         let p = protocol();
         assert_eq!(p.name, "k8s-crd");
+        for sort in SCHEMA_CONSTRAINTS
+            .iter()
+            .chain(RESOURCE_CONSTRAINTS)
+            .chain(VERSION_CONSTRAINTS)
+        {
+            assert!(
+                p.constraint_sorts.iter().any(|s| s == sort),
+                "{sort} is not declared"
+            );
+        }
     }
 
     #[test]
-    fn register_theories_works() {
+    fn register_theories_registers_the_schema_theory() {
         let mut registry = HashMap::new();
         register_theories(&mut registry);
         assert!(registry.contains_key("ThK8sCrdSchema"));
-    }
-
-    #[test]
-    fn parse_and_emit() {
-        let json = serde_json::json!({
-            "name": "MyResource",
-            "versions": [{
-                "name": "v1",
-                "schema": {
-                    "properties": {
-                        "spec": {"type": "object", "properties": {
-                            "replicas": {"type": "integer"}
-                        }},
-                        "status": {"type": "string"}
-                    }
-                }
-            }]
-        });
-        let schema = parse_k8s_crd_schema(&json).expect("should parse");
-        assert!(schema.has_vertex("MyResource"));
-        let emitted = emit_k8s_crd_schema(&schema).expect("emit");
-        assert!(emitted.get("name").is_some());
     }
 }

@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
 
-Python companion extension for all 261 entries in the `panproto-grammars` manifest.
+Python companion extension for all 262 entries in the `panproto-grammars` manifest.
 
 ## Installation
 

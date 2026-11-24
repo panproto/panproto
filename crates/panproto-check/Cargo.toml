@@ -11,8 +11,6 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-panproto-mig = { workspace = true }
-panproto-lens = { workspace = true }
 panproto-schema = { workspace = true }
 panproto-gat = { workspace = true }
 serde = { workspace = true }

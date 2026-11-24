@@ -15,12 +15,14 @@
 //!   (via [`load_dir`](crate::load_dir)) and resolves against those.
 //!   [`load_and_compile`](crate::load_and_compile) uses this.
 //!
-//! Resolution is one level deep: a referenced document is compiled with
-//! the null resolver, so a referenced document may not itself contain a
-//! `compose` body of further named references. This keeps resolution
-//! total and cycle-free; deeper composition should be flattened at
-//! authoring time or expressed inline.
+//! Resolution is transitive: a referenced document's own references
+//! resolve against the same set. A reference to a document already being
+//! compiled along the current chain of references is refused with
+//! [`LensDslError::RefCycle`], and a referenced document's refusal is
+//! reported as [`LensDslError::InRef`], located in that document, rather
+//! than as an unresolved reference.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::hash::BuildHasher;
 use std::path::Path;
@@ -32,39 +34,57 @@ use crate::error::LensDslError;
 /// Compile `doc`, resolving `compose` named references against
 /// `docs_by_id`.
 ///
-/// Each referenced document is compiled with the same `body_vertex` and
-/// the null resolver (one-level resolution). A reference whose `id` is
-/// absent from `docs_by_id`, or whose target fails to compile, surfaces
-/// as [`LensDslError::UnresolvedRef`] naming the missing `id`.
-/// A referenced document with a `symmetric` body surfaces as
-/// [`LensDslError::SymmetricRefInDirectionalCompose`], because directed
-/// composition cannot select one leg without losing the span's meaning.
+/// Each referenced document is compiled with the same `body_vertex`,
+/// resolving its own references against the same set.
 ///
 /// # Errors
 ///
-/// Propagates compilation errors from `doc`, including
-/// [`LensDslError::UnresolvedRef`] for unresolved references and
-/// [`LensDslError::SymmetricRefInDirectionalCompose`] for symmetric
-/// references in a directed `compose` body.
+/// Propagates compilation errors from `doc`. At a reference
+/// (`/compose/lenses/i/ref`): [`LensDslError::UnresolvedRef`] for an `id`
+/// absent from `docs_by_id`, [`LensDslError::RefCycle`] for a reference
+/// back into the chain being compiled (`doc` itself included),
+/// [`LensDslError::InRef`] carrying a referenced document's own located
+/// refusal, and [`LensDslError::SymmetricRefInDirectionalCompose`] for a
+/// referenced document with a `symmetric` body.
 pub fn compile_with_refs<S: BuildHasher>(
     doc: &LensDocument,
     body_vertex: &str,
     docs_by_id: &HashMap<String, LensDocument, S>,
 ) -> Result<CompiledLens, LensDslError> {
-    let resolver = |id: &str| -> Option<CompiledLens> {
-        docs_by_id
-            .get(id)
-            .and_then(|referenced| compile::compile(referenced, body_vertex, &null_resolver).ok())
+    let chain = RefCell::new(vec![doc.id.clone()]);
+    compile_in_chain(doc, body_vertex, docs_by_id, &chain)
+}
+
+fn compile_in_chain<S: BuildHasher>(
+    doc: &LensDocument,
+    body_vertex: &str,
+    docs_by_id: &HashMap<String, LensDocument, S>,
+    chain: &RefCell<Vec<String>>,
+) -> Result<CompiledLens, LensDslError> {
+    let resolver = |id: &str| -> Option<Result<CompiledLens, LensDslError>> {
+        if chain.borrow().iter().any(|open| open == id) {
+            let mut cycle = chain.borrow().clone();
+            cycle.push(id.to_owned());
+            return Some(Err(LensDslError::RefCycle { cycle }));
+        }
+        let referenced = docs_by_id.get(id)?;
+        chain.borrow_mut().push(id.to_owned());
+        let compiled = compile_in_chain(referenced, body_vertex, docs_by_id, chain);
+        chain.borrow_mut().pop();
+        Some(compiled.map_err(|error| LensDslError::InRef {
+            lens_ref: id.to_owned(),
+            error: Box::new(error),
+        }))
     };
-    compile::compile(doc, body_vertex, &resolver)
+    compile::compile_with(doc, body_vertex, &resolver)
 }
 
 /// Compile `doc`, resolving `compose` named references against the other
 /// lens documents found in `dir`.
 ///
-/// Sibling documents are loaded via [`load_dir`](crate::load_dir). The
-/// document's own `id` is excluded from the resolution set so a
-/// self-reference cannot recurse.
+/// Sibling documents are loaded via [`load_dir`](crate::load_dir); a
+/// sibling with `doc`'s own `id` is left out of the resolution set, and a
+/// reference to that `id` is a cycle.
 ///
 /// # Errors
 ///
@@ -83,10 +103,4 @@ pub fn compile_in_dir(
         .map(|sibling| (sibling.id.clone(), sibling))
         .collect();
     compile_with_refs(doc, body_vertex, &docs_by_id)
-}
-
-/// The null resolver: resolves nothing. Used for one-level resolution of
-/// referenced documents.
-const fn null_resolver(_id: &str) -> Option<CompiledLens> {
-    None
 }

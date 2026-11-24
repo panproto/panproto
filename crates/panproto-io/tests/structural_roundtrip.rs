@@ -153,11 +153,6 @@ json_structural!(
     "cddl",
     "../fixtures/data_schema/cddl_instance.json"
 );
-json_structural!(
-    struct_bson,
-    "bson",
-    "../fixtures/data_schema/bson_instance.json"
-);
 
 // Database
 json_structural!(
@@ -649,11 +644,6 @@ preserving_byte_equal!(
     pres_cddl,
     "cddl",
     "../fixtures/data_schema/cddl_instance.json"
-);
-preserving_byte_equal!(
-    pres_bson,
-    "bson",
-    "../fixtures/data_schema/bson_instance.json"
 );
 preserving_byte_equal!(
     pres_mongodb,

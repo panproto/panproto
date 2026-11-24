@@ -1,7 +1,7 @@
 //! Companion grammar package: data languages.
 //!
 //! pyo3 cdylib that bakes the `panproto-grammars` `group-data`
-//! feature (JSON, TOML, XML, YAML, SQL, CSV, GraphQL, Protobuf)
+//! feature (JSON, TOML, XML, YAML, SQL, PostgreSQL, CSV, GraphQL, Protobuf)
 //! into static memory and exposes the metadata `panproto`'s
 //! `AstParserRegistry` consumes through the `panproto.grammars`
 //! entry point. See the architecture notes in the sibling

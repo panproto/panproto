@@ -4,7 +4,7 @@
 [![Python](https://img.shields.io/pypi/pyversions/panproto-grammars-data)](https://pypi.org/project/panproto-grammars-data/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
 
-Python companion package for JSON, TOML, XML, YAML, SQL, CSV, GraphQL, and Protobuf.
+Python companion package for JSON, TOML, XML, YAML, SQL, PostgreSQL, CSV, GraphQL, and Protobuf.
 
 ## Installation
 

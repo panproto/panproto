@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 533f342ecc9a6c566c9dc2e318d4ed829f71eb1a65467f5fb28c79a52d8c279a # shrinks to base = None, header = "", statements = [("<http://e/s> a <http://e/o>", "\n"), ("\"s\" a \"x\"@", "\n"), ("<http://e/s> a <http://e/o> .", "\n")]
+cc e413e9bf2a317bf2651d18274cfc647bd11532845cb7ff6c8a6921af52e3869e # shrinks to base = Some("http://b/d/f"), header = "@prefix : <http://e/> .\n", statements = [("\"s\" a _:x", "\n"), ("<http://e/s> <http://e/p> :\\-x.y", "\n")]
+cc 17af4349bb19c33d890c1283e08e104a9c872838de5062195249740a3c0d7b2f # shrinks to base = Some("http://b/d/f"), header = "", statements = [("<http://e/s> a \"\\u0041\\t\"", "\n"), ("@prefix : <http://f/> .", "\n")]

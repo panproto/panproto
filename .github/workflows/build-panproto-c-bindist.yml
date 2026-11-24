@@ -25,6 +25,15 @@ permissions:
   contents: write
 
 jobs:
+  verified:
+    uses: ./.github/workflows/require-verified.yml
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.tag != ''
+    with:
+      tag: ${{ inputs.tag || github.ref_name }}
+    permissions:
+      checks: read
+      contents: read
+
   build:
     name: Build (${{ matrix.target }})
     strategy:
@@ -191,7 +200,7 @@ jobs:
     # The Swift binding is the only consumer that needs these, and it
     # consumes them through an XCFramework rather than a tarball.
     # Default features only: the `git` feature vendors libgit2 and
-    # OpenSSL, and `full-parse` compiles 261 tree-sitter grammars, so
+    # OpenSSL, and `full-parse` compiles 262 tree-sitter grammars, so
     # the gated tiers stay macOS-only by policy.
     strategy:
       fail-fast: false
@@ -436,7 +445,7 @@ jobs:
     # which waits on the XCFramework this job attaches. The attestation
     # that consumes the inventory is guarded on the file existing
     # instead.
-    needs: [build, build-ios, build-full, xcframework]
+    needs: [verified, build, build-ios, build-full, xcframework]
     if: startsWith(github.ref, 'refs/tags/v') || inputs.tag != ''
     runs-on: ubuntu-latest
     permissions:

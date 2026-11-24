@@ -18,9 +18,9 @@ mod data_schema;
 mod data_science;
 mod database;
 mod domain;
+mod postgresql;
 mod rdf;
 mod serialization;
-mod sql;
 mod text;
 mod web_document;
 
@@ -48,7 +48,7 @@ const FAMILIES: &[&[ShapeRow]] = &[
     domain::ROWS,
     rdf::ROWS,
     serialization::ROWS,
-    sql::ROWS,
+    postgresql::ROWS,
     text::ROWS,
     web_document::ROWS,
 ];

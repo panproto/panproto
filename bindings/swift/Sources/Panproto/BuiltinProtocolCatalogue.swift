@@ -27,7 +27,7 @@ import PanprotoStructural
 /// that matches whatever a search was looking for can be turned into a
 /// slab entry without another lookup.
 public struct BuiltinProtocol: Hashable, Sendable {
-    /// The catalogue name, such as `atproto` or `sql`.
+    /// The catalogue name, such as `atproto` or `postgresql`.
     public var name: String
     /// The protocol that name resolves to.
     public var specification: ProtocolSpec

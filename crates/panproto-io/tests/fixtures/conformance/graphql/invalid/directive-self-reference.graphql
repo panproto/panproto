@@ -1,0 +1,2 @@
+type Query { q: Int }
+directive @d(x: Int @d) on ARGUMENT_DEFINITION

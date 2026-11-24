@@ -21,9 +21,9 @@ mod data_schema;
 mod data_science;
 mod database;
 mod domain;
+mod postgresql;
 mod rdf;
 mod serialization;
-mod sql;
 mod text;
 mod web_document;
 
@@ -60,7 +60,7 @@ const FAMILIES: &[&[ValueKindRow]] = &[
     domain::ROWS,
     rdf::ROWS,
     serialization::ROWS,
-    sql::ROWS,
+    postgresql::ROWS,
     text::ROWS,
     web_document::ROWS,
 ];
@@ -78,7 +78,7 @@ const NON_SCALAR_FAMILIES: &[&[NonScalarRow]] = &[
     domain::NON_SCALAR,
     rdf::NON_SCALAR,
     serialization::NON_SCALAR,
-    sql::NON_SCALAR,
+    postgresql::NON_SCALAR,
     text::NON_SCALAR,
     web_document::NON_SCALAR,
 ];

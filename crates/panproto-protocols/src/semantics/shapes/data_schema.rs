@@ -14,7 +14,7 @@ pub(super) const ROWS: &[ShapeRow] = &[
     ShapeRow {
         protocol: "bson",
         syntactic: InstanceShapeKind::Tree,
-        semantic: InstanceShapeKind::Graph,
+        semantic: InstanceShapeKind::Tree,
     },
     ShapeRow {
         protocol: "cddl",

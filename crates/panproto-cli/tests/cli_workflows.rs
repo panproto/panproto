@@ -4048,7 +4048,7 @@ fn cli_atproto_project_versions_compare_through_compat() {
     // A protocol that disagrees with the manifest is a usage error, not
     // a silent override, and must be distinguishable from "breaking".
     schema_cmd()
-        .args(["compat", "old", "new", "--protocol", "sql"])
+        .args(["compat", "old", "new", "--protocol", "postgresql"])
         .current_dir(tmp.path())
         .assert()
         .code(2);

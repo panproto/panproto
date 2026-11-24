@@ -66,8 +66,18 @@ class TestProtocolRegistry:
 
     def test_list_builtin_protocols_includes_semantic(self) -> None:
         names = panproto.list_builtin_protocols()
-        assert len(names) >= 57
-        assert {"csv", "toml", "yaml"}.issubset(names)
+        assert len(names) >= 63
+        assert {
+            "csv",
+            "edgelist-csv",
+            "edgelist-tsv",
+            "jsonld",
+            "ntriples",
+            "toml",
+            "tsv",
+            "turtle",
+            "yaml",
+        }.issubset(names)
         for canonical in (
             "edi-x12",
             "iso-space",
@@ -1235,8 +1245,10 @@ class TestIoRegistry:
     """Tests for the I/O protocol registry."""
 
     def test_create_registry(self) -> None:
+        # The wheel's default `format-preserving` feature registers the
+        # tree-sitter codecs, including the text, RDF and edge-list ones.
         io = panproto.IoRegistry()
-        assert len(io) == 50
+        assert len(io) == 60
 
     def test_list_protocols(self) -> None:
         io = panproto.IoRegistry()
@@ -1245,7 +1257,7 @@ class TestIoRegistry:
 
     def test_repr(self) -> None:
         io = panproto.IoRegistry()
-        assert "50" in repr(io)
+        assert "60" in repr(io)
 
 
 class TestAstParserRegistryOverride:

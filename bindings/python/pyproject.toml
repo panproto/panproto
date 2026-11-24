@@ -8,7 +8,7 @@ name = "panproto"
 # `crates/panproto-py/Cargo.toml`, which inherits the workspace version,
 # so the wheel and the workspace cannot disagree.
 dynamic = ["version"]
-description = "Schematic version control for 51 schema languages and 261 programming languages"
+description = "Schematic version control for 51 schema languages and 262 programming languages"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.13"

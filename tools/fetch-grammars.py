@@ -2,10 +2,14 @@
 """Fetch tree-sitter grammar sources from git repos based on grammars.toml.
 
 For each grammar entry, this script:
-1. Clones the repo at the default branch (shallow)
-2. Copies src/parser.c, src/scanner.c or src/scanner.cc (if present),
+1. Clones the repo (shallow) at the entry's `rev` commit, or at the default
+   branch when the entry names none
+2. Replaces any Git LFS pointer among the fetched sources with the object it
+   names, downloaded through the repository's LFS batch API and checked
+   against the pointer's sha256 and size
+3. Copies src/parser.c, src/scanner.c or src/scanner.cc (if present),
    src/node-types.json, and src/tree_sitter/parser.h into grammars/{lang}/src/
-3. Copies the LICENSE file into grammars/{lang}/
+4. Copies the LICENSE file into grammars/{lang}/
 
 Usage:
     python3 tools/fetch-grammars.py              # fetch all grammars
@@ -16,10 +20,14 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
+import os
 import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.request
 from pathlib import Path
 
 try:
@@ -46,7 +54,13 @@ PERMISSIVE_LICENSES = {
     "0bsd",
     "zlib",
     "boost",
+    # The BSD licence texts do not name themselves; their first condition does.
+    "redistribution and use in source and binary forms",
 }
+
+LFS_POINTER_HEADER = b"version https://git-lfs.github.com/spec/v1\n"
+LFS_MEDIA_TYPE = "application/vnd.git-lfs+json"
+USER_AGENT = "panproto-fetch-grammars"
 
 
 def load_manifest() -> dict[str, dict]:
@@ -59,15 +73,144 @@ def is_permissive_license(license_text: str) -> bool:
     return any(tag in lower for tag in PERMISSIVE_LICENSES)
 
 
+def read_lfs_pointer(path: Path) -> tuple[str, int] | None:
+    """Return the (sha256, size) a Git LFS pointer file names, or None.
+
+    A pointer is a small text file that starts with the LFS spec line and
+    carries `oid sha256:<hex>` and `size <bytes>` lines. A checkout made
+    without git-lfs (or with GIT_LFS_SKIP_SMUDGE=1) holds the pointer in
+    place of the real file.
+    """
+    if path.stat().st_size > 1024:
+        return None
+    data = path.read_bytes()
+    if not data.startswith(LFS_POINTER_HEADER):
+        return None
+    oid = None
+    size = None
+    for line in data.decode("ascii", errors="replace").splitlines():
+        key, _, value = line.partition(" ")
+        if key == "oid" and value.startswith("sha256:"):
+            oid = value.removeprefix("sha256:")
+        elif key == "size" and value.isdigit():
+            size = int(value)
+    if oid is None or size is None:
+        raise ValueError(f"malformed Git LFS pointer at {path}")
+    return oid, size
+
+
+def lfs_batch_url(repo: str) -> str:
+    base = repo.removesuffix("/").removesuffix(".git")
+    return f"{base}.git/info/lfs/objects/batch"
+
+
+def resolve_lfs_pointer(repo: str, path: Path) -> bool:
+    """Replace the LFS pointer at `path` with the object it names.
+
+    Asks the repository's LFS server (the batch API every LFS host serves)
+    for a download action, streams the object into place, and checks its
+    sha256 and size against the pointer. Returns False when `path` is not a
+    pointer; raises on any download or verification failure.
+    """
+    pointer = read_lfs_pointer(path)
+    if pointer is None:
+        return False
+    oid, size = pointer
+    request_body = json.dumps(
+        {
+            "operation": "download",
+            "transfers": ["basic"],
+            "objects": [{"oid": oid, "size": size}],
+        }
+    ).encode()
+    request = urllib.request.Request(
+        lfs_batch_url(repo),
+        data=request_body,
+        method="POST",
+        headers={
+            "Accept": LFS_MEDIA_TYPE,
+            "Content-Type": LFS_MEDIA_TYPE,
+            "User-Agent": USER_AGENT,
+        },
+    )
+    with urllib.request.urlopen(request, timeout=60) as response:
+        batch = json.load(response)
+    objects = batch.get("objects", [])
+    if len(objects) != 1 or "error" in objects[0]:
+        raise RuntimeError(f"LFS server refused object {oid}: {objects}")
+    download = objects[0]["actions"]["download"]
+    headers = dict(download.get("header", {}))
+    headers["User-Agent"] = USER_AGENT
+    object_request = urllib.request.Request(download["href"], headers=headers)
+
+    digest = hashlib.sha256()
+    received = 0
+    partial = path.with_name(path.name + ".lfs-download")
+    with urllib.request.urlopen(object_request, timeout=600) as response, open(partial, "wb") as out:
+        while chunk := response.read(1 << 20):
+            digest.update(chunk)
+            received += len(chunk)
+            out.write(chunk)
+    if received != size or digest.hexdigest() != oid:
+        partial.unlink()
+        raise RuntimeError(
+            f"LFS object for {path.name} does not match its pointer: "
+            f"got {received} bytes with sha256 {digest.hexdigest()}, "
+            f"pointer names {size} bytes with sha256 {oid}"
+        )
+    partial.replace(path)
+    return True
+
+
+def clone_at(repo: str, rev: str | None, clone_dir: Path) -> subprocess.CompletedProcess:
+    """Shallow-clone `repo` into `clone_dir`, at `rev` when one is given.
+
+    The LFS filter is switched off for these commands, overriding any global
+    git-lfs configuration, so that LFS-tracked files arrive as pointers on
+    every machine, with or without git-lfs installed; `resolve_lfs_pointer`
+    then fetches and verifies them.
+    """
+    env = {**os.environ, "GIT_LFS_SKIP_SMUDGE": "1"}
+    git = [
+        "git",
+        "-c",
+        "filter.lfs.process=",
+        "-c",
+        "filter.lfs.smudge=",
+        "-c",
+        "filter.lfs.required=false",
+    ]
+    if rev is None:
+        return subprocess.run(
+            [*git, "clone", "--depth=1", "--single-branch", "--quiet", repo, str(clone_dir)],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+    clone_dir.mkdir(parents=True)
+    for command in (
+        [*git, "init", "--quiet"],
+        [*git, "remote", "add", "origin", repo],
+        [*git, "fetch", "--depth=1", "--quiet", "origin", rev],
+        [*git, "checkout", "--quiet", "FETCH_HEAD"],
+    ):
+        result = subprocess.run(command, cwd=clone_dir, capture_output=True, text=True, env=env)
+        if result.returncode != 0:
+            return result
+    return result
+
+
 def fetch_grammar(name: str, spec: dict, dry_run: bool = False) -> bool:
     repo = spec["repo"]
+    rev = spec.get("rev")
     extensions = spec.get("extensions", [])
     directory = spec.get("directory", "")
     dest = GRAMMARS_DIR / name / "src"
 
     if dry_run:
         ext_str = ", ".join(extensions) if extensions else "(injection)"
-        print(f"  {name}: {repo} -> grammars/{name}/src/ [{ext_str}]")
+        at = f"@{rev[:8]}" if rev else ""
+        print(f"  {name}: {repo}{at} -> grammars/{name}/src/ [{ext_str}]")
         return True
 
     # If the grammar is authored in-repo (`grammars/<name>/grammar.js`
@@ -88,17 +231,23 @@ def fetch_grammar(name: str, spec: dict, dry_run: bool = False) -> bool:
     with tempfile.TemporaryDirectory() as tmpdir:
         clone_dir = Path(tmpdir) / "repo"
 
-        result = subprocess.run(
-            ["git", "clone", "--depth=1", "--single-branch", "--quiet", repo, str(clone_dir)],
-            capture_output=True,
-            text=True,
-        )
+        result = clone_at(repo, rev, clone_dir)
         if result.returncode != 0:
             print(f"FAILED (clone: {result.stderr.strip()})")
             return False
 
         grammar_root = clone_dir / directory if directory else clone_dir
         src_dir = grammar_root / "src"
+
+        if src_dir.is_dir():
+            for item in sorted(src_dir.rglob("*")):
+                if item.is_file() and not item.is_symlink():
+                    try:
+                        if resolve_lfs_pointer(repo, item):
+                            print(f"(LFS {item.name}) ", end="", flush=True)
+                    except (OSError, RuntimeError, ValueError, KeyError) as error:
+                        print(f"FAILED (LFS {item.name}: {error})")
+                        return False
         parser_c = src_dir / "parser.c"
         node_types = src_dir / "node-types.json"
 

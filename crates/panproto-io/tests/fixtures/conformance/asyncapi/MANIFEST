@@ -1,0 +1,59 @@
+# AsyncAPI conformance cases: file, JSON pointer of the refusal, refusal class, rule.
+# Every invalid case is listed; an upstream document listed here is refused where it says.
+invalid/duplicate-key.json		Syntax	the JSON route refuses a repeated key (field names are unique)
+invalid/action.yaml	/operations/o/action	Invalid	action is send or receive
+invalid/address-query.yaml	/channels/c/address	Invalid	a channel address SHALL NOT use query parameters or fragments
+invalid/address-template.yaml	/channels/c/address	Template	an address expression is a name enclosed in braces
+invalid/address-type.yaml	/channels/c/address	WrongType	address is a string or null
+invalid/api-key-in.yaml	/components/securitySchemes/s/in	Invalid	an apiKey is in user or password
+invalid/bearer-format.yaml	/components/securitySchemes/s/bearerFormat	Invalid	bearerFormat applies to the bearer scheme
+invalid/binding-type.yaml	/servers/s/bindings/mqtt	WrongType	a binding is an object
+invalid/bindings-unknown.yaml	/servers/s/bindings/zeromq	UnknownField	a Server Bindings Object has a field per listed protocol
+invalid/channel-components.yaml	/operations/o/channel/$ref	Placement	a root operation MUST name a channel of the root Channels Object
+invalid/channel-inline.yaml	/operations/o/channel	Invalid	an operation channel MUST be a Reference Object
+invalid/component-name.yaml	/components/messages/a~1b	Name	a component name matches ^[a-zA-Z0-9\.\-_]+$
+invalid/content-type.yaml	/components/messages/m/contentType	Invalid	contentType MUST be a specific media type
+invalid/dangling-ref.yaml	/channels/c/messages/m/$ref	RefTarget	a reference names an object of the description
+invalid/default-content-type.yaml	/defaultContentType	Invalid	defaultContentType MUST be a specific media type
+invalid/extension-name.yaml	/x-a b	Name	an extension name matches ^x-[\w\d\.\x2d_]+$
+invalid/external-docs-url.yaml	/info/externalDocs/url	Invalid	an External Documentation url MUST be an absolute URL
+invalid/external-ref.yaml	/channels/c/messages/m/$ref	External	the reader fetches no document outside the bundle
+invalid/flow-scopes.yaml	/components/securitySchemes/s/flows/clientCredentials	Missing	availableScopes is REQUIRED
+invalid/flow-url.yaml	/components/securitySchemes/s/flows/implicit/tokenUrl	Invalid	tokenUrl does not apply to the implicit flow
+invalid/format-mismatch.yaml	/components/messages/m/payload/$ref	FormatMismatch	a reference MUST name a schema of the referring schema format
+invalid/id-relative.yaml	/id	Invalid	id is a URI (RFC 3986), so it has a scheme
+invalid/license-name.yaml	/info/license	Missing	a License has a REQUIRED name
+invalid/message-example-empty.yaml	/components/messages/m/examples/0	Missing	a Message Example MUST contain headers and/or payload
+invalid/message-not-in-channel.yaml	/operations/o/messages/0/$ref	NotInChannel	an operation MUST name a subset of the messages of its channel
+invalid/messages-inline.yaml	/operations/o/messages/0	Invalid	operation messages MUST be Reference Objects
+invalid/missing-info.yaml		Missing	info is REQUIRED
+invalid/missing-parameter.yaml	/channels/c/parameters	MissingParameter	the Parameters Object MUST contain every parameter of the address
+invalid/not-asyncapi.yaml		NotAsyncApi	the asyncapi field is REQUIRED
+invalid/parameter-location.yaml	/channels/c/parameters/id/location	Invalid	a parameter location is a runtime expression
+invalid/parameter-name.yaml	/channels/c/parameters/a.b	Name	a parameter name matches ^[A-Za-z0-9_\-]+$
+invalid/parameters-without-expression.yaml	/channels/c/parameters	Invalid	parameters MUST be present only when the address contains expressions
+invalid/ref-cycle.yaml	/components/messages/a/$ref	RefCycle	a chain of references does not return to its start
+invalid/ref-kind.yaml	/channels/c/messages/m/$ref	RefKind	a message reference names a Message Object
+invalid/ref-type.yaml	/channels/c/messages/m/$ref	WrongType	$ref is a string
+invalid/reply-address-channel.yaml	/operations/o/reply/address	Invalid	a reply with an address MUST name a channel whose address is null or absent
+invalid/runtime-expression.yaml	/components/correlationIds/c/location	Invalid	a correlation ID location is a runtime expression
+invalid/schema-defs.yaml	/components/schemas/s/$defs	Schema	$defs is not a draft-07 keyword
+invalid/schema-dependencies.yaml	/components/schemas/s/dependencies	Schema	dependencies is not read
+invalid/schema-discriminator.yaml	/components/schemas/s/discriminator	Schema	an AsyncAPI discriminator is a string
+invalid/schema-format.yaml	/components/schemas/s/schemaFormat	SchemaFormat	an Avro schema is not read (the reader refuses formats it does not read)
+invalid/schema-id.yaml	/components/schemas/s/$id	Schema	a Schema Object $ref follows the Reference Object, so $id is not read
+invalid/schema-items-array.yaml	/components/schemas/s/items	Schema	items as an array (draft-07 tuple form) is not read
+invalid/schema-ref-sibling.yaml	/components/schemas/s/properties/a/description	Schema	members beside a Schema Object $ref are ignored, which the reader refuses to drop
+invalid/schema-type.yaml	/components/messages/m/payload	WrongType	a payload is a schema
+invalid/scheme-field.yaml	/components/securitySchemes/s/scheme	Invalid	scheme applies to http only
+invalid/scheme-missing.yaml	/components/securitySchemes/s	Missing	name is REQUIRED for httpApiKey
+invalid/scheme-type.yaml	/components/securitySchemes/s/type	Invalid	type is one of the thirteen security scheme types
+invalid/server-components.yaml	/channels/c/servers/0/$ref	Placement	a root channel MUST name servers of the root Servers Object
+invalid/server-name.yaml	/servers/my server	Name	a server name matches ^[A-Za-z0-9_\-]+$
+invalid/servers-inline.yaml	/channels/c/servers/0	Invalid	a channel servers list MUST hold Reference Objects
+invalid/terms-relative.yaml	/info/termsOfService	Invalid	termsOfService MUST be an absolute URL
+invalid/trait-field.yaml	/components/operationTraits/t/action	UnknownField	an Operation Trait has no action
+invalid/unknown-field.yaml	/paths	UnknownField	the AsyncAPI Object has no field paths
+invalid/unknown-parameter.yaml	/channels/c/parameters/x	UnknownParameter	a parameter key MUST match a parameter name of the address
+invalid/version-2.yaml	/asyncapi	Version	asyncapi is a 3.0 or 3.1 version string (Version String; only major 3 is read)
+invalid/version-3-2.yaml	/asyncapi	Version	a 3.2 document is not read against the 3.1.0 text

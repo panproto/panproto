@@ -28,12 +28,27 @@ const CODEC_NOT_YET_REPLACED: &[(&str, NativeRepr)] = &[
 
 /// Protocols with a declared shape and no instance codec yet. Each is
 /// checked to still have none, so the entry is removed when the codec is
-/// registered. The generic text formats have codecs only under the
-/// `tree-sitter` feature, so the default build lists them too.
+/// registered. The generic text formats, PostgreSQL, N-Triples, Turtle, JSON-LD and the
+/// edge lists have codecs only under the `tree-sitter` feature, so the default
+/// build lists them too.
 #[cfg(feature = "tree-sitter")]
 const NO_CODEC_YET: &[&str] = &["graphql", "json-schema", "protobuf"];
 #[cfg(not(feature = "tree-sitter"))]
-const NO_CODEC_YET: &[&str] = &["csv", "graphql", "json-schema", "protobuf", "toml", "yaml"];
+const NO_CODEC_YET: &[&str] = &[
+    "csv",
+    "edgelist-csv",
+    "edgelist-tsv",
+    "graphql",
+    "json-schema",
+    "jsonld",
+    "ntriples",
+    "protobuf",
+    "postgresql",
+    "toml",
+    "tsv",
+    "turtle",
+    "yaml",
+];
 
 /// What is wrong with the codec registered as `name`, if anything: its
 /// native representation against its protocol's syntactic shape, and the

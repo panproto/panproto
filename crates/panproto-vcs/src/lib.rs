@@ -59,7 +59,7 @@ pub use data_mig::{
 pub use edit_mig::{decode_edit_log, encode_edit_log, incremental_migrate};
 pub use error::VcsError;
 pub use expr::{load_expr, store_expr};
-pub use fs_store::FsStore;
+pub use fs_store::{FsStore, REPOSITORY_FORMAT_VERSION};
 pub use hash::ObjectId;
 pub use index::Index;
 pub use mem_store::MemStore;

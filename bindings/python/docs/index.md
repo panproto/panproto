@@ -20,17 +20,17 @@ maturin develop --manifest-path crates/panproto-py/Cargo.toml
 ```python
 import panproto
 
-sql = panproto.get_builtin_protocol("sql")
+postgresql = panproto.get_builtin_protocol("postgresql")
 
 # Build source schema
-src = sql.schema()
+src = postgresql.schema()
 src.vertex("users", "table")
 src.vertex("users.id", "integer")
 src.edge("users", "users.id", "prop", "id")
 old = src.build()
 
 # Build target schema (added a column)
-tgt = sql.schema()
+tgt = postgresql.schema()
 tgt.vertex("users", "table")
 tgt.vertex("users.id", "integer")
 tgt.vertex("users.email", "string")
@@ -40,7 +40,7 @@ new = tgt.build()
 
 # Diff and classify
 diff = panproto.diff_schemas(old, new)
-report = diff.classify(sql)
+report = diff.classify(postgresql)
 print(report.compatible)       # True
 print(report.report_text())    # human-readable summary
 ```
@@ -51,7 +51,7 @@ panproto treats schemas as models of generalized algebraic theories (GATs). A pr
 
 Migrations between schemas are compiled into restrict functors $M^*: \mathbf{Set}^T \to \mathbf{Set}^S$ that transform instance data. The get/put interface forms an asymmetric lens with a complement $C$ capturing the data lost in the forward direction.
 
-The extension exposes 57 semantic protocols plus the source-language grammars compiled into the installed build. The semantic catalog covers annotation, API, config, data schema, data science, database, domain, serialization, text, and web document formats.
+The extension exposes 63 semantic protocols plus the source-language grammars compiled into the installed build. The semantic catalog covers annotation, API, config, data schema, data science, database, domain, edge list, RDF, serialization, text, and web document formats.
 
 ## Modules
 

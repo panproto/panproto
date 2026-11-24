@@ -100,7 +100,7 @@ The WASM surface exposes span search but not the Rust total-morphism functions `
 
 ## Boundary limits
 
-The SDK passes structured payloads through the WASM layer and stores live engine resources behind integer handles. The package does not expose the Rust `panproto-parse` full-AST registry, multi-file `panproto-project` builder, or `panproto-git` bridge. Schema-document and schema-source parsers available through `Panproto.parseSchemaDocument` and `Panproto.parseSchemaSource` are separate from that full-AST surface.
+The SDK passes structured payloads through the WASM layer and stores live engine resources behind integer handles. The package does not expose the Rust `panproto-parse` full-AST registry, multi-file `panproto-project` builder, or `panproto-git` bridge. Schema-document and schema-source parsers available through `Panproto.parseSchemaDocument` and `Panproto.parseSchemaSource` are separate from that full-AST surface. The published module leaves out the tree-sitter grammars, so these methods refuse the protocols read through one (`openapi`, `asyncapi`, `json-schema`, `k8s-crd`, `cloudformation`, `ansible`, `postgresql`) with an error that names the reader and the `format-preserving` feature of `panproto-wasm`, which a build that includes them enables.
 
 The current `executeQuery` wrapper does not match the current WASM entry point. TypeScript sends only a query and instance, while Rust requires query, instance, and schema payloads. The TypeScript wire fields also use `projection`, `groupBy`, and `nodeId`, while the Rust query types use `project`, `group_by`, and `node_id`. Treat `executeQuery` as unavailable until the binding and WASM signatures are aligned.
 

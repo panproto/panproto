@@ -42,7 +42,7 @@ extension ProtocolHandle {
     /// decoded on the way, so this is the direct route to a handle;
     /// ``builtinSpecification(named:)`` is the route to the value.
     ///
-    /// - Parameter name: the catalogue name, such as `atproto` or `sql`.
+    /// - Parameter name: the catalogue name, such as `atproto` or `postgresql`.
     /// - Returns: a handle on the registered protocol.
     /// - Throws: ``PanprotoError`` in the ``PanprotoError/io(_:)``
     ///   domain, with status `RawStatus.operation`, when the catalogue
@@ -88,7 +88,7 @@ extension ProtocolHandle {
     /// specification of your own: amend the value and hand it to
     /// ``define(_:)``.
     ///
-    /// - Parameter name: the catalogue name, such as `atproto` or `sql`.
+    /// - Parameter name: the catalogue name, such as `atproto` or `postgresql`.
     /// - Returns: the protocol as a value.
     /// - Throws: ``PanprotoError`` in the ``PanprotoError/io(_:)``
     ///   domain, with status `RawStatus.operation`, when the catalogue

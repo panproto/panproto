@@ -321,6 +321,8 @@ struct Fragment {
 /// - `interstitial-N` on parent nodes: text between named children (keywords,
 ///   punctuation, whitespace, comments from anonymous/unnamed tokens), spanning
 ///   `interstitial-N-start-byte` … `interstitial-N-end-byte`
+/// - `doc-prefix` on the document root: the bytes before the root's start,
+///   spanning the source from its first byte
 ///
 /// Replay walks the fragments in source order and writes each one whose recorded
 /// span begins at or after the end of the last span written. Coverage is
@@ -346,6 +348,19 @@ fn emit_from_schema(schema: &Schema, protocol: &str) -> Result<Vec<u8>, ParseErr
             .collect();
         let recorded_byte =
             |sort: &str| -> Option<usize> { by_sort.get(sort)?.parse::<usize>().ok() };
+
+        // The bytes ahead of the document root that tree-sitter left out of
+        // its span (a byte-order mark, leading whitespace, a leading comment),
+        // which the walker records on the root as `doc-prefix`. They span
+        // the source from its first byte to the root's start.
+        if let Some(prefix) = by_sort.get("doc-prefix") {
+            fragments.push(Fragment {
+                start: 0,
+                end: prefix.len(),
+                rank: 1,
+                text: (*prefix).to_owned(),
+            });
+        }
 
         // The leaf literal, spanning the vertex itself.
         if let (Some(start), Some(text)) = (

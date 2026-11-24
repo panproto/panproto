@@ -1461,7 +1461,7 @@ mod tests {
                 let delta = edit.to_delta().unwrap();
                 // Normal form: no no-op change, no change of a row the delta
                 // deletes or adds; re-normalizing changes nothing.
-                prop_assert_eq!(TableDelta::normalize(delta.to_parts()), delta.clone());
+                prop_assert_eq!(&TableDelta::normalize(delta.to_parts()), &delta);
                 for ((row, _), change) in delta.cells() {
                     prop_assert!(
                         !delta.del_rows().contains_key(row) && !delta.add_rows().contains_key(row)

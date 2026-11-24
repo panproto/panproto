@@ -89,14 +89,16 @@ pub enum TheoryDslError {
         context: String,
     },
 
-    /// Type-checking a theory failed.
-    #[error("type error in theory '{theory}': {message}")]
+    /// Type-checking a theory failed: its signature is ill formed, an
+    /// implicit input cannot be inferred, a closed sort's constructors are
+    /// wrong, or an equation is ill typed.
+    #[error("type error in theory '{theory}': {error}")]
     #[diagnostic(code(panproto_theory_dsl::typecheck))]
     TypeCheck {
         /// The theory that failed typechecking.
         theory: String,
-        /// Human-readable type error.
-        message: String,
+        /// The checker's refusal.
+        error: panproto_gat::GatError,
     },
 
     /// A theory's directed rewrite system is not provably sound.
@@ -125,36 +127,83 @@ pub enum TheoryDslError {
         message: String,
     },
 
-    /// Type-checking a theory failed, with a source-pointed diagnostic.
-    ///
-    /// Populated when the DSL compiler has the original source text on
-    /// hand and can locate a span corresponding to the failing element
-    /// (the theory name, an op name, etc.). Nickel-loaded theories
-    /// currently fall back to the un-spanned [`Self::TypeCheck`] variant
-    /// because spans are lost through Nickel evaluation.
-    #[error("type error in theory '{theory}': {message}")]
-    #[diagnostic(code(panproto_theory_dsl::typecheck_spanned))]
-    TypeCheckSpanned {
-        /// The theory that failed typechecking.
-        theory: String,
-        /// Human-readable type error.
-        message: String,
-        /// Source text, used by miette for rendering.
+    /// A document value breaks the document grammar.
+    #[error("malformed document at '{path}': {problem}")]
+    #[diagnostic(code(panproto_theory_dsl::shape))]
+    Shape {
+        /// The path of the refused value (for a missing field, of the
+        /// object that lacks it).
+        path: crate::path::DocumentPath,
+        /// What is wrong with it.
+        problem: crate::shape::ShapeProblem,
+    },
+
+    /// A refusal of the document element at `path`.
+    #[error("{error} (at '{path}')")]
+    #[diagnostic(code(panproto_theory_dsl::at))]
+    At {
+        /// The path of the element refused.
+        path: crate::path::DocumentPath,
+        /// The refusal.
+        error: Box<Self>,
+    },
+
+    /// A refusal located in the source text the document was read from.
+    #[error("{error}")]
+    #[diagnostic(code(panproto_theory_dsl::spanned))]
+    Spanned {
+        /// The path of the element refused, when the refusal names one.
+        path: Option<crate::path::DocumentPath>,
+        /// The source text.
         #[source_code]
         src: String,
-        /// Span into `src` pointing at the failing element.
-        #[label("in this theory")]
+        /// The byte range of the refused text in `src`.
+        #[label("here")]
         span: miette::SourceSpan,
+        /// The refusal.
+        error: Box<Self>,
+    },
+
+    /// An operation declares both the unary `input` shorthand and an
+    /// `inputs` list.
+    #[error("operation '{op}' declares both `input` and `inputs`")]
+    #[diagnostic(code(panproto_theory_dsl::ambiguous_inputs))]
+    AmbiguousOpInputs {
+        /// The operation.
+        op: String,
+    },
+
+    /// An import exposes a name the imported theory does not declare.
+    #[error("import of '{from}' exposes '{name}', which it does not declare")]
+    #[diagnostic(code(panproto_theory_dsl::unknown_exposed))]
+    UnknownExposed {
+        /// The imported theory.
+        from: String,
+        /// The exposed name.
+        name: String,
+    },
+
+    /// A morphism's sort map or operation map has an entry for a symbol its
+    /// domain does not declare.
+    #[error("morphism '{morphism}' maps {kind} '{name}', which its domain does not declare")]
+    #[diagnostic(code(panproto_theory_dsl::unknown_map_key))]
+    UnknownMapKey {
+        /// The morphism.
+        morphism: String,
+        /// `sort` or `op`.
+        kind: String,
+        /// The entry's key.
+        name: String,
     },
 
     /// Morphism validation failed.
-    #[error("morphism check failed for '{morphism}': {message}")]
+    #[error("morphism check failed for '{morphism}': {error}")]
     #[diagnostic(code(panproto_theory_dsl::morphism_check))]
     MorphismCheck {
         /// The morphism that failed validation.
         morphism: String,
-        /// Human-readable error.
-        message: String,
+        /// The checker's refusal.
+        error: panproto_gat::GatError,
     },
 
     /// Colimit composition failed.
@@ -275,6 +324,50 @@ pub struct CoercionLawViolationDetail {
 impl std::fmt::Display for CoercionLawViolationDetail {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}: {:?}", self.equation, self.violation)
+    }
+}
+
+impl TheoryDslError {
+    /// This refusal, raised by an element at `prefix`, located in the
+    /// enclosing document: a path the refusal already names is taken
+    /// relative to `prefix`, and a refusal that names none is located at
+    /// `prefix` itself.
+    #[must_use]
+    pub fn within(self, prefix: &crate::path::DocumentPath) -> Self {
+        match self {
+            Self::At { path, error } => Self::At {
+                path: prefix.join(&path),
+                error,
+            },
+            Self::Shape { path, problem } => Self::Shape {
+                path: prefix.join(&path),
+                problem,
+            },
+            Self::Spanned { .. } => self,
+            error => Self::At {
+                path: prefix.clone(),
+                error: Box::new(error),
+            },
+        }
+    }
+
+    /// The document path this refusal names, if any.
+    #[must_use]
+    pub const fn path(&self) -> Option<&crate::path::DocumentPath> {
+        match self {
+            Self::At { path, .. } | Self::Shape { path, .. } => Some(path),
+            Self::Spanned { path, .. } => path.as_ref(),
+            _ => None,
+        }
+    }
+
+    /// The refusal without its location.
+    #[must_use]
+    pub fn unlocated(&self) -> &Self {
+        match self {
+            Self::At { error, .. } | Self::Spanned { error, .. } => error.unlocated(),
+            other => other,
+        }
     }
 }
 

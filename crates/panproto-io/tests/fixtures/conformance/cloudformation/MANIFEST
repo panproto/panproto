@@ -1,0 +1,27 @@
+# The refusal cases of the CloudFormation corpus. Each file under invalid/
+# is the template SNS/SNSTopic.yaml (or SNS/SNSTopic.json) of
+# aws-cloudformation-templates changed to break one rule of the template
+# format; an upstream/ file listed here is an unchanged upstream template
+# the reader refuses.
+# Columns: file, path of the refusal, refusal class, the rule broken.
+invalid/version.yaml	AWSTemplateFormatVersion	FormatVersion	the template format version is 2010-09-09
+invalid/transform.yaml	Transform	Unsupported	transforms are out of scope
+invalid/unresolved-ref.yaml	Resources.SNSSubscription.Properties.TopicArn.Ref	Unresolved	a Ref names a parameter, a resource or a pseudo parameter
+invalid/unresolved-getatt.yaml	Outputs.QueueName.Value.Fn::GetAtt	Unresolved	Fn::GetAtt names a resource
+invalid/unknown-section.yaml	Resource	UnknownField	a template has only its ten sections
+invalid/logical-id.yaml	Resources.SNS-Topic	Invalid	a logical ID is alphanumeric
+invalid/parameter-type.yaml	Parameters.SubscriptionEndPoint.Type	Invalid	a parameter type is one the format defines
+invalid/resource-type.yaml	Resources.SNSTopic.Type	Invalid	a resource type is Custom::name or three segments
+invalid/unknown-attribute.yaml	Resources.SNSTopic.Deletion	UnknownField	a resource has only its nine attributes
+invalid/depends-on.yaml	Resources.SNSTopic.DependsOn	Unresolved	DependsOn names resources
+invalid/condition.yaml	Resources.SNSTopic.Condition	Unresolved	a resource's Condition names a condition
+invalid/deletion-policy.yaml	Resources.SNSTopic.DeletionPolicy	Invalid	the deletion policies are Delete, Retain, RetainExceptOnCreate and Snapshot
+invalid/unknown-tag.yaml	Resources.SNSSubscription.Properties.Endpoint	UnknownTag	a local tag is a short form
+invalid/tagged-sequence.yaml		TaggedCollection	the shared YAML route carries no tag on a sequence
+invalid/macro.yaml	Resources.SNSTopic.Properties.Fn::Transform	Unsupported	macros are out of scope
+invalid/output-no-value.yaml	Outputs.TopicARN	Missing	an output has a Value
+invalid/duplicate-name.yaml	Resources.SNSTopic	DuplicateName	a parameter and a resource do not share a logical ID
+invalid/rules.yaml	Rules	Unsupported	the Rules section is out of scope
+invalid/two-documents.yaml		Syntax	one document is one template
+invalid/duplicate-key.json		Syntax	a JSON object's keys are distinct
+upstream/CloudFormation_fn-foreach-ddb.json	Transform	Unsupported	the AWS::LanguageExtensions transform is out of scope

@@ -25,6 +25,8 @@ proptest = { workspace = true }
 [dev-dependencies]
 panproto-inst = { workspace = true }
 panproto-protocols = { workspace = true }
+# PostgreSQL DDL is read through the tree-sitter PostgreSQL grammar.
+panproto-io = { workspace = true, features = ["tree-sitter"] }
 panproto-lens = { workspace = true }
 panproto-lens-dsl = { workspace = true }
 panproto-check = { workspace = true }

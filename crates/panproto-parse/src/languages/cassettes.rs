@@ -548,7 +548,7 @@ impl GrammarCassette for KotlinCassette {
 ///
 /// Grammars not enumerated here get the default empty cassette, which
 /// delegates every lookup to [`common_external_default`]. That is sufficient for
-/// the majority of the 261 vendored grammars — the per-language
+/// the majority of the 262 vendored grammars — the per-language
 /// implementations above only exist for grammars whose externals
 /// genuinely need grammar-specific overrides.
 #[must_use]

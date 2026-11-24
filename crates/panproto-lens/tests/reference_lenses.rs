@@ -923,6 +923,9 @@ fn restrict_reason(error: &RestrictError) -> String {
         } => {
             format!("UndeclaredTransformField {source_vertex} {target_vertex} {field}")
         }
+        // The evaluator's diagnostic is the expression language's, outside
+        // the reference; the refused field is the common observation.
+        RestrictError::FieldTransformFailed { key, .. } => format!("FieldTransformFailed {key}"),
         other => format!("production restrict refusal {other:?}"),
     }
 }
@@ -1084,6 +1087,9 @@ fn ref_engine_reason(error: &EngineError) -> String {
         }
         EngineError::ExpansionTooLong { src, tgt, hops } => {
             format!("ExpansionTooLong {src} {tgt} {hops}")
+        }
+        EngineError::Layer(LayerRefusal { kind, detail }) if kind == "field_transform_failed" => {
+            format!("FieldTransformFailed {detail}")
         }
         other => format!("reference engine refusal {other:?}"),
     }
@@ -11342,7 +11348,7 @@ fn a_derived_field_presented_as_a_child_is_refused_like_the_reference() {
         );
         assert_eq!(
             production.and_then(|outcome| outcome.put.ok()),
-            Some(source.clone()),
+            Some(source),
             "{name}"
         );
     }
@@ -12117,7 +12123,7 @@ fn declared_transform_attribute_edges_agree_with_the_reference() {
             target: schema.clone(),
             migration: RefMigration {
                 surviving_verts: schema.vertices.keys().cloned().collect(),
-                surviving_edges: schema.edges.clone(),
+                surviving_edges: schema.edges,
                 transformed: ["a".to_owned()].into(),
                 output_fields: [("a".to_owned(), vec![BOUNDED_LENS_FIELD.to_owned()])].into(),
                 ..RefMigration::default()
@@ -13111,8 +13117,8 @@ fn parallel_edge_resolver_does_not_relabel_a_dropped_protolens_edge() {
     let endpoint = ("a".to_owned(), "a".to_owned());
     assert_eq!(
         reference_migration.resolver.get(&endpoint),
-        Some(&retained),
-        "the fixture must exercise the endpoint-resolver fallback",
+        None,
+        "the resolver resolves no endpoint pair that a source edge joins",
     );
     let reference_plan =
         panproto_reference::restrict::compile(&source, &reference_target, &reference_migration)
@@ -17376,5 +17382,2411 @@ mod transformed_tables {
         // From the one-row source the floor is 1, so row 0 is a source row
         // and its unedited view restores the source.
         assert_eq!(agreed_put(&pair, &view, &view).put, Ok(view.clone()));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Elementary protolens kinds: instantiation, get, put and their refusals
+// against the reference's elementary kinds
+// ---------------------------------------------------------------------------
+
+use panproto_reference::enumerate::lenses::{
+    ELEMENTARY_SOURCE_BOUND, ELEMENTARY_VIEW_BOUND, elementary_protolens_alphabet,
+    elementary_protolens_count_certificate, elementary_protolens_schemas, elementary_view_schema,
+    graph_state_count_up_to, graph_states_up_to,
+};
+use panproto_reference::lens::{ElementaryProtolens, ElementaryRefusal};
+
+/// The production protolens of each entry of
+/// [`elementary_protolens_alphabet`], built with the constructors the lens
+/// DSL's steps compile to.
+fn production_elementary_alphabet() -> Vec<panproto_lens::Protolens> {
+    use std::sync::Arc;
+    let swap = |left: &str, right: &str| {
+        HashMap::from([
+            (Arc::<str>::from(left), Arc::<str>::from(right)),
+            (Arc::<str>::from(right), Arc::<str>::from(left)),
+        ])
+    };
+    let equation = panproto_gat::Equation {
+        name: Arc::from("eq"),
+        lhs: panproto_gat::Term::Var(Arc::from("v")),
+        rhs: panproto_gat::Term::Var(Arc::from("v")),
+    };
+    vec![
+        elementary::rename_sort("s", "u"),
+        elementary::rename_sort("s", "t"),
+        elementary::rename_op("p", "r"),
+        elementary::rename_op("p", "q"),
+        elementary::rename_edge_name("a", "b", "x", "z"),
+        elementary::rename_edge_name("a", "b", "x", "y"),
+        elementary::pullback(panproto_gat::TheoryMorphism::new(
+            "swap",
+            "domain",
+            "codomain",
+            swap("s", "t"),
+            swap("p", "q"),
+        )),
+        elementary::add_equation(equation),
+        elementary::drop_equation("eq"),
+        elementary::drop_sort("t"),
+        elementary::drop_sort("a"),
+        elementary::drop_op("p"),
+        elementary::drop_edge("a", "b", Some("x".into())),
+        elementary::add_sort("c", "t", Value::Null),
+        elementary::add_edge("a", "b", "w", "p"),
+        elementary::add_op("o", "a", "b", "o"),
+    ]
+}
+
+/// The observable result of applying an elementary protolens to a source:
+/// the typed category of a refusal before instantiation, or the target
+/// schema with the view and complement, or a refusal of get.
+#[derive(Debug, PartialEq, Eq)]
+enum ElementaryApplication {
+    Inapplicable,
+    IdentifiesEdges,
+    Applied(Box<(RefSchema, RefGraph, RefComplement)>),
+    Refused(String),
+}
+
+const IDENTIFIES_EDGES: &str = "renaming operations sends the edges";
+
+fn production_elementary_application(
+    protolens: &panproto_lens::Protolens,
+    schema: &RefSchema,
+    source: &RefGraph,
+) -> ElementaryApplication {
+    match panproto_lens::graph_protolens::apply(
+        protolens,
+        &prod_schema(schema),
+        &Protocol::default(),
+        &prod_graph(source),
+    ) {
+        Ok(applied) => ElementaryApplication::Applied(Box::new((
+            ref_schema(&applied.lens.tgt_schema),
+            ref_graph(&applied.view),
+            ref_complement(&applied.complement),
+        ))),
+        Err(LensError::ProtolensInapplicable { .. }) => ElementaryApplication::Inapplicable,
+        Err(LensError::ProtolensError(message)) if message.starts_with(IDENTIFIES_EDGES) => {
+            ElementaryApplication::IdentifiesEdges
+        }
+        Err(error) => ElementaryApplication::Refused(format!("{:?}", lens_reason(&error))),
+    }
+}
+
+fn reference_elementary_application(
+    kind: &ElementaryProtolens,
+    schema: &RefSchema,
+    source: &RefGraph,
+) -> ElementaryApplication {
+    if !kind.precondition().holds(schema) {
+        return ElementaryApplication::Inapplicable;
+    }
+    let protolens = match kind.at(schema) {
+        Ok(protolens) => protolens,
+        Err(ElementaryRefusal::IdentifiesEdges { .. }) => {
+            return ElementaryApplication::IdentifiesEdges;
+        }
+    };
+    match panproto_reference::lens::protolens_instance(&protolens, schema, source) {
+        Ok(application) => ElementaryApplication::Applied(Box::new((
+            application.lens.target().clone(),
+            application.view,
+            without_identity(&application.complement),
+        ))),
+        Err(RefProtolensError::FalsePrecondition { .. }) => ElementaryApplication::Inapplicable,
+        Err(RefProtolensError::Restrict(error)) => ElementaryApplication::Refused(format!(
+            "{:?}",
+            Reason::Restrict(ref_restrict_reason(&error))
+        )),
+        Err(RefProtolensError::Plan(error)) => ElementaryApplication::Refused(format!(
+            "{:?}",
+            Reason::Restrict(ref_restrict_reason(&RefRestrictError::Plan(error)))
+        )),
+    }
+}
+
+/// One elementary case: a kind, a schema and a source, with a view to put
+/// back or none for the application itself.
+#[derive(Clone, Copy, Debug)]
+struct ElementaryCase {
+    kind: usize,
+    schema: usize,
+    source: usize,
+    view: Option<usize>,
+}
+
+/// Per-thread state of the elementary certificate: the two alphabets, the
+/// carrier, and for each instantiated `(kind, schema)` its lens pair and put
+/// views.
+struct ElementaryContext {
+    production: Vec<panproto_lens::Protolens>,
+    reference: Vec<ElementaryProtolens>,
+    schemas: Vec<RefSchema>,
+    sources: Vec<Vec<RefGraph>>,
+    pairs: BTreeMap<(usize, usize), (Pair, Vec<RefGraph>)>,
+}
+
+impl ElementaryContext {
+    fn new() -> Self {
+        let production = production_elementary_alphabet();
+        let reference = elementary_protolens_alphabet();
+        let schemas = elementary_protolens_schemas();
+        let (nodes, edges) = ELEMENTARY_SOURCE_BOUND;
+        let sources = schemas
+            .iter()
+            .map(|schema| graph_states_up_to(schema, nodes, edges))
+            .collect();
+        let mut pairs = BTreeMap::new();
+        for (kind, reference_kind) in reference.iter().enumerate() {
+            for (index, schema) in schemas.iter().enumerate() {
+                if !reference_kind.precondition().holds(schema) {
+                    continue;
+                }
+                let Ok((target, migration)) = reference_kind.target_and_migration(schema) else {
+                    continue;
+                };
+                let lens = production[kind]
+                    .instantiate_checked(&prod_schema(schema), &Protocol::default())
+                    .unwrap_or_else(|error| {
+                        panic!("kind {kind} instantiates at schema {index} in production: {error}")
+                    });
+                let (view_nodes, view_edges) = ELEMENTARY_VIEW_BOUND;
+                let views = graph_states_up_to(
+                    &elementary_view_schema(schema, &target),
+                    view_nodes,
+                    view_edges,
+                );
+                let pair =
+                    Pair::with_production(schema.clone(), target, migration, &NoValueLayer, lens);
+                pairs.insert((kind, index), (pair, views));
+            }
+        }
+        Self {
+            production,
+            reference,
+            schemas,
+            sources,
+            pairs,
+        }
+    }
+
+    fn expand(&self, unit: &(usize, usize, usize)) -> Vec<ElementaryCase> {
+        let &(kind, schema, source) = unit;
+        let mut cases = vec![ElementaryCase {
+            kind,
+            schema,
+            source,
+            view: None,
+        }];
+        if let Some((_, views)) = self.pairs.get(&(kind, schema)) {
+            cases.extend((0..views.len()).map(|view| ElementaryCase {
+                kind,
+                schema,
+                source,
+                view: Some(view),
+            }));
+        }
+        cases
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum ElementaryObservation {
+    Application(ElementaryApplication),
+    Put(Box<Option<PutOutcome>>),
+}
+
+fn production_elementary_case(
+    context: &ElementaryContext,
+    case: &ElementaryCase,
+) -> ElementaryObservation {
+    let source = &context.sources[case.schema][case.source];
+    case.view.map_or_else(
+        || {
+            ElementaryObservation::Application(production_elementary_application(
+                &context.production[case.kind],
+                &context.schemas[case.schema],
+                source,
+            ))
+        },
+        |view| {
+            let (pair, views) = &context.pairs[&(case.kind, case.schema)];
+            ElementaryObservation::Put(Box::new(production_put(pair, source, &views[view])))
+        },
+    )
+}
+
+fn reference_elementary_case(
+    context: &ElementaryContext,
+    case: &ElementaryCase,
+) -> ElementaryObservation {
+    let source = &context.sources[case.schema][case.source];
+    case.view.map_or_else(
+        || {
+            ElementaryObservation::Application(reference_elementary_application(
+                &context.reference[case.kind],
+                &context.schemas[case.schema],
+                source,
+            ))
+        },
+        |view| {
+            let (pair, views) = &context.pairs[&(case.kind, case.schema)];
+            ElementaryObservation::Put(Box::new(reference_put(pair, source, &views[view])))
+        },
+    )
+}
+
+#[test]
+fn elementary_protolens_kinds_agree_with_the_reference_exhaustively() {
+    let certificate = elementary_protolens_count_certificate();
+    assert_eq!(certificate.kinds, 16);
+    assert_eq!(certificate.schemas, 14);
+    assert_eq!(certificate.source_states, 678);
+    assert_eq!(certificate.get_cases, 10_848);
+    assert_eq!(certificate.inapplicable, 19);
+    assert_eq!(certificate.identifying, 2);
+    assert_eq!(certificate.instantiated, 203);
+    assert_eq!(certificate.put_cases, 388_847);
+
+    let context = ElementaryContext::new();
+    assert_eq!(context.production.len(), certificate.kinds);
+    assert_eq!(context.pairs.len(), certificate.instantiated);
+    let (nodes, edges) = ELEMENTARY_SOURCE_BOUND;
+    for (schema, sources) in context.schemas.iter().zip(&context.sources) {
+        assert_eq!(sources.len(), graph_state_count_up_to(schema, nodes, edges));
+    }
+    let units: Vec<(usize, usize, usize)> = (0..certificate.kinds)
+        .flat_map(|kind| {
+            context
+                .sources
+                .iter()
+                .enumerate()
+                .flat_map(move |(schema, sources)| {
+                    (0..sources.len()).map(move |source| (kind, schema, source))
+                })
+        })
+        .collect();
+    assert_eq!(units.len(), certificate.get_cases);
+    let bound = format!(
+        "L-lenses-21 elementary protolens kinds: kinds={}, schemas={}, source_states={}, \
+         get_cases={}, inapplicable={}, identifying={}, instantiated={}, put_cases={}",
+        certificate.kinds,
+        certificate.schemas,
+        certificate.source_states,
+        certificate.get_cases,
+        certificate.inapplicable,
+        certificate.identifying,
+        certificate.instantiated,
+        certificate.put_cases
+    );
+    let compared = assert_agree(agree_in_parallel(
+        &bound,
+        &units,
+        ElementaryContext::new,
+        ElementaryContext::expand,
+        production_elementary_case,
+        reference_elementary_case,
+        |production, reference| production == reference,
+    ));
+    assert_eq!(
+        compared,
+        u64::try_from(certificate.get_cases + certificate.put_cases).unwrap()
+    );
+}
+
+/// A random graph over `schema` with at most four nodes and four edges,
+/// each edge a typed candidate between its nodes' anchors.
+fn random_elementary_graph(schema: &RefSchema, seed: u64) -> RefGraph {
+    let mut state = seed;
+    let mut next = |bound: usize| {
+        state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        usize::try_from(state >> 33).unwrap() % bound.max(1)
+    };
+    let vertices: Vec<&String> = schema.vertices.keys().collect();
+    let mut graph = RefGraph::default();
+    for id in 0..u32::try_from(next(5)).unwrap() {
+        let node = RefNode::new(id, vertices[next(vertices.len())]);
+        let node = if next(2) == 1 {
+            node.with_value(BOUNDED_LENS_VALUE)
+        } else {
+            node
+        };
+        graph.nodes.insert(id, node);
+    }
+    let mut candidates = Vec::new();
+    for (src, src_node) in &graph.nodes {
+        for (tgt, tgt_node) in &graph.nodes {
+            for label in &schema.edges {
+                if label.src == src_node.anchor && label.tgt == tgt_node.anchor {
+                    candidates.push((*src, *tgt, label.clone()));
+                }
+            }
+        }
+    }
+    if !candidates.is_empty() {
+        for id in 0..u32::try_from(next(5)).unwrap() {
+            let (src, tgt, label) = candidates[next(candidates.len())].clone();
+            graph.edges.insert(
+                id,
+                RefGEdge {
+                    src,
+                    tgt,
+                    label,
+                    position: None,
+                },
+            );
+        }
+    }
+    graph
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(512))]
+    #[test]
+    fn randomized_elementary_protolens_differential(
+        kind in 0..16_usize,
+        schema in 0..14_usize,
+        source_seed in any::<u64>(),
+        view_seed in any::<u64>(),
+    ) {
+        let production = production_elementary_alphabet();
+        let reference = elementary_protolens_alphabet();
+        let schemas = elementary_protolens_schemas();
+        let schema_ref = &schemas[schema];
+        let source = random_elementary_graph(schema_ref, source_seed);
+        let production_application =
+            production_elementary_application(&production[kind], schema_ref, &source);
+        let reference_application =
+            reference_elementary_application(&reference[kind], schema_ref, &source);
+        prop_assert_eq!(&production_application, &reference_application);
+        if let ElementaryApplication::Applied(applied) = reference_application {
+            let (target, view, _) = *applied;
+            let (_, migration) = reference[kind]
+                .target_and_migration(schema_ref)
+                .expect("an applied kind has a target");
+            let lens = production[kind]
+                .instantiate_checked(&prod_schema(schema_ref), &Protocol::default())
+                .expect("an applied kind instantiates");
+            let edited =
+                random_elementary_graph(&elementary_view_schema(schema_ref, &target), view_seed);
+            let pair =
+                Pair::with_production(schema_ref.clone(), target, migration, &NoValueLayer, lens);
+            for put_view in [&view, &edited] {
+                prop_assert_eq!(
+                    production_put(&pair, &source, put_view),
+                    reference_put(&pair, &source, put_view)
+                );
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Fused chains, scoped protolenses and sequential composites against the
+// reference's protolens terms
+// ---------------------------------------------------------------------------
+
+use panproto_reference::enumerate::lenses::{
+    COMPOSITE_SOURCE_BOUND, FUSED_SOURCE_BOUND, composite_protolens_count_certificate,
+    composite_protolens_pairs, fused_protolens_alphabet, fused_protolens_count_certificate,
+    fused_protolens_layer, fused_protolens_schemas, put_views_of,
+};
+use panproto_reference::lens::{
+    CompositeInstantiationError, CompositeLens, CompositePutError, ProtolensTerm, TermRefusal,
+};
+
+/// The production chain of each entry of [`fused_protolens_alphabet`], built
+/// with the combinators the lens DSL's steps compile to.
+fn production_fused_alphabet() -> Vec<panproto_lens::ProtolensChain> {
+    use panproto_lens::ProtolensChain;
+    use panproto_lens::protolens::combinators;
+    let hoist = combinators::hoist_field("p", "i", "c");
+    let fused_hoist = hoist.fuse().expect("the hoist chain fuses");
+    let scoped = |focus: &str, inner: panproto_lens::Protolens| {
+        ProtolensChain::new(vec![combinators::map_items(focus, inner)])
+    };
+    vec![
+        combinators::add_field("p", "f", "integer", Value::Int(0)),
+        hoist,
+        combinators::nest_field("p", "c", "m", "object", "prop", Some("c".into()), "m", "c"),
+        scoped("i", elementary::drop_sort("c")),
+        scoped("i", elementary::rename_sort("string", "text")),
+        scoped("i", elementary::rename_edge_name("i", "c", "c", "d")),
+        scoped("i", elementary::drop_edge("i", "c", Some("c".into()))),
+        scoped("i", elementary::add_sort("z", "string", Value::Null)),
+        scoped("p", fused_hoist),
+        scoped("c", elementary::drop_sort("c")),
+    ]
+}
+
+/// The production chain of each pair of [`composite_protolens_pairs`]: the
+/// two elementary protolenses as one chain.
+fn production_pair_chains() -> Vec<panproto_lens::ProtolensChain> {
+    let alphabet = production_elementary_alphabet();
+    composite_protolens_pairs()
+        .into_iter()
+        .map(|(first, second)| {
+            panproto_lens::ProtolensChain::new(vec![
+                alphabet[first].clone(),
+                alphabet[second].clone(),
+            ])
+        })
+        .collect()
+}
+
+/// The reference term of each pair of [`composite_protolens_pairs`], fused.
+fn reference_pair_terms() -> Vec<ProtolensTerm> {
+    let alphabet = elementary_protolens_alphabet();
+    composite_protolens_pairs()
+        .into_iter()
+        .map(|(first, second)| {
+            ProtolensTerm::Fused(vec![
+                ProtolensTerm::Elementary(alphabet[first].clone()),
+                ProtolensTerm::Elementary(alphabet[second].clone()),
+            ])
+        })
+        .collect()
+}
+
+/// The category of a production refusal before instantiation: a
+/// relabelling that identifies two edges, or any other failed precondition.
+fn production_instantiation_refusal(reasons: &str) -> ElementaryApplication {
+    if reasons.contains(IDENTIFIES_EDGES) {
+        ElementaryApplication::IdentifiesEdges
+    } else {
+        ElementaryApplication::Inapplicable
+    }
+}
+
+fn production_term_application(
+    chain: &panproto_lens::ProtolensChain,
+    schema: &RefSchema,
+    source: &RefGraph,
+) -> ElementaryApplication {
+    match panproto_lens::graph_protolens::apply_chain(
+        chain,
+        &prod_schema(schema),
+        &Protocol::default(),
+        &prod_graph(source),
+    ) {
+        Ok(applied) => ElementaryApplication::Applied(Box::new((
+            ref_schema(&applied.lens.tgt_schema),
+            ref_graph(&applied.view),
+            ref_complement(&applied.complement),
+        ))),
+        Err(LensError::ProtolensInapplicable { reasons }) => {
+            production_instantiation_refusal(&reasons.join("; "))
+        }
+        Err(error) => ElementaryApplication::Refused(format!("{:?}", lens_reason(&error))),
+    }
+}
+
+/// The reference's application of a term: its refusal category, or the
+/// target, view and complement of get through the graph lens of its
+/// protolens with the term's value layer.
+fn reference_term_application(
+    term: &ProtolensTerm,
+    layer: &'static dyn ValueLayer,
+    schema: &RefSchema,
+    source: &RefGraph,
+) -> ElementaryApplication {
+    let protolens = match term.at(schema) {
+        Ok(protolens) => protolens,
+        Err(TermRefusal::Inapplicable) => return ElementaryApplication::Inapplicable,
+        Err(TermRefusal::Elementary(_)) => return ElementaryApplication::IdentifiesEdges,
+    };
+    let plan = match panproto_reference::restrict::compile(
+        schema,
+        &protolens.target,
+        &protolens.migration,
+    ) {
+        Ok(plan) => plan,
+        Err(error) => {
+            return ElementaryApplication::Refused(format!(
+                "{:?}",
+                Reason::Restrict(ref_restrict_reason(&RefRestrictError::Plan(error)))
+            ));
+        }
+    };
+    let lens = RefGraphLens::new(
+        schema,
+        &protolens.target,
+        &protolens.migration,
+        &plan,
+        &BTreeMap::new(),
+        layer,
+    )
+    .expect("a plan binds the schemas it was compiled for");
+    match lens.get(source) {
+        Ok((view, complement)) => ElementaryApplication::Applied(Box::new((
+            protolens.target.clone(),
+            view,
+            without_identity(&complement),
+        ))),
+        Err(error) => ElementaryApplication::Refused(format!(
+            "{:?}",
+            Reason::Restrict(ref_restrict_reason(&error))
+        )),
+    }
+}
+
+/// One term case: a term, a schema and a source, with a view to put back or
+/// none for the application itself.
+#[derive(Clone, Debug)]
+struct TermCase {
+    kind: usize,
+    schema: usize,
+    source: usize,
+    view: Option<RefGraph>,
+}
+
+/// Per-thread state of a term certificate: the two alphabets, the carrier,
+/// and for each instantiated `(kind, schema)` its lens pair.
+struct TermContext {
+    production: Vec<panproto_lens::ProtolensChain>,
+    reference: Vec<ProtolensTerm>,
+    schemas: Vec<RefSchema>,
+    sources: Vec<Vec<RefGraph>>,
+    pairs: BTreeMap<(usize, usize), Pair>,
+}
+
+impl TermContext {
+    fn new(
+        production: Vec<panproto_lens::ProtolensChain>,
+        reference: Vec<ProtolensTerm>,
+        schemas: Vec<RefSchema>,
+        (nodes, edges): (usize, usize),
+    ) -> Self {
+        let sources = schemas
+            .iter()
+            .map(|schema| graph_states_up_to(schema, nodes, edges))
+            .collect();
+        let mut pairs = BTreeMap::new();
+        for (kind, term) in reference.iter().enumerate() {
+            for (index, schema) in schemas.iter().enumerate() {
+                let Ok(protolens) = term.at(schema) else {
+                    continue;
+                };
+                let Ok(lens) =
+                    production[kind].instantiate(&prod_schema(schema), &Protocol::default())
+                else {
+                    continue;
+                };
+                let pair = Pair::with_production(
+                    schema.clone(),
+                    protolens.target,
+                    protolens.migration,
+                    fused_protolens_layer(term),
+                    lens,
+                );
+                pairs.insert((kind, index), pair);
+            }
+        }
+        Self {
+            production,
+            reference,
+            schemas,
+            sources,
+            pairs,
+        }
+    }
+
+    fn fused() -> Self {
+        Self::new(
+            production_fused_alphabet(),
+            fused_protolens_alphabet(),
+            fused_protolens_schemas(),
+            FUSED_SOURCE_BOUND,
+        )
+    }
+
+    fn fused_pairs() -> Self {
+        Self::new(
+            production_pair_chains(),
+            reference_pair_terms(),
+            elementary_protolens_schemas(),
+            COMPOSITE_SOURCE_BOUND,
+        )
+    }
+
+    /// The units of the carrier: every `(kind, schema, source)`.
+    fn units(&self) -> Vec<(usize, usize, usize)> {
+        (0..self.reference.len())
+            .flat_map(|kind| {
+                self.sources
+                    .iter()
+                    .enumerate()
+                    .flat_map(move |(schema, sources)| {
+                        (0..sources.len()).map(move |source| (kind, schema, source))
+                    })
+            })
+            .collect()
+    }
+
+    /// The application case, then a put case for the reference view and
+    /// each of its one-step edits.
+    fn expand(&self, unit: &(usize, usize, usize)) -> Vec<TermCase> {
+        let &(kind, schema, source) = unit;
+        let mut cases = vec![TermCase {
+            kind,
+            schema,
+            source,
+            view: None,
+        }];
+        let term = &self.reference[kind];
+        if let ElementaryApplication::Applied(applied) = reference_term_application(
+            term,
+            fused_protolens_layer(term),
+            &self.schemas[schema],
+            &self.sources[schema][source],
+        ) {
+            let (target, view, complement) = *applied;
+            cases.extend(
+                put_views_of(&view, &target, &complement)
+                    .into_iter()
+                    .map(|view| TermCase {
+                        kind,
+                        schema,
+                        source,
+                        view: Some(view),
+                    }),
+            );
+        }
+        cases
+    }
+}
+
+fn production_term_case(context: &TermContext, case: &TermCase) -> ElementaryObservation {
+    let source = &context.sources[case.schema][case.source];
+    case.view.as_ref().map_or_else(
+        || {
+            ElementaryObservation::Application(production_term_application(
+                &context.production[case.kind],
+                &context.schemas[case.schema],
+                source,
+            ))
+        },
+        |view| {
+            ElementaryObservation::Put(Box::new(
+                context
+                    .pairs
+                    .get(&(case.kind, case.schema))
+                    .and_then(|pair| production_put(pair, source, view)),
+            ))
+        },
+    )
+}
+
+fn reference_term_case(context: &TermContext, case: &TermCase) -> ElementaryObservation {
+    let source = &context.sources[case.schema][case.source];
+    case.view.as_ref().map_or_else(
+        || {
+            let term = &context.reference[case.kind];
+            ElementaryObservation::Application(reference_term_application(
+                term,
+                fused_protolens_layer(term),
+                &context.schemas[case.schema],
+                source,
+            ))
+        },
+        |view| {
+            ElementaryObservation::Put(Box::new(
+                context
+                    .pairs
+                    .get(&(case.kind, case.schema))
+                    .and_then(|pair| reference_put(pair, source, view)),
+            ))
+        },
+    )
+}
+
+#[test]
+fn fused_and_scoped_protolenses_agree_with_the_reference_exhaustively() {
+    check_fused_and_scoped_protolenses(LawShard::from_environment());
+}
+
+/// The quarter of the fused and scoped carrier at residue `0`, which the
+/// ordinary CI profile runs; the full carrier runs, sharded, in the
+/// `exhaustive-reference` job.
+#[test]
+fn fused_and_scoped_protolenses_agree_with_the_reference_on_one_quarter_of_the_carrier() {
+    check_fused_and_scoped_protolenses(Some(LawShard { index: 0, count: 4 }));
+}
+
+/// The L-lenses-22 and L-lenses-23 fused carrier differential, over the
+/// get cases of `shard` (every case when there is none).
+fn check_fused_and_scoped_protolenses(shard: Option<LawShard>) {
+    let certificate = fused_protolens_count_certificate();
+    assert_eq!(certificate.kinds, 10);
+    assert_eq!(certificate.schemas, 8);
+    assert_eq!(certificate.source_states, 7448);
+    assert_eq!(certificate.get_cases, 74_480);
+    assert_eq!(certificate.inapplicable, 0);
+    assert_eq!(certificate.identifying, 0);
+    assert_eq!(certificate.instantiated, 80);
+    assert_eq!(certificate.get_refusals, 192);
+    assert_eq!(certificate.put_cases, 1_534_344);
+
+    let context = TermContext::fused();
+    assert_eq!(context.production.len(), certificate.kinds);
+    let (nodes, edges) = FUSED_SOURCE_BOUND;
+    for (schema, sources) in context.schemas.iter().zip(&context.sources) {
+        assert_eq!(sources.len(), graph_state_count_up_to(schema, nodes, edges));
+    }
+    let units = context.units();
+    assert_eq!(units.len(), certificate.get_cases);
+    let units = sharded_units(shard, units);
+    let bound =
+        format!("L-lenses-22 and L-lenses-23 fused and scoped protolenses: {certificate:?}");
+    let compared = assert_agree(agree_in_parallel(
+        &bound,
+        &units,
+        TermContext::fused,
+        TermContext::expand,
+        production_term_case,
+        reference_term_case,
+        |production, reference| production == reference,
+    ));
+    assert_sharded_count(
+        shard,
+        compared,
+        certificate.get_cases + certificate.put_cases,
+    );
+}
+
+/// The units of `shard` in enumeration order, or every unit when there is
+/// none: the units whose position is the shard's residue.
+fn sharded_units<U>(shard: Option<LawShard>, units: Vec<U>) -> Vec<U> {
+    let total = units.len();
+    let selected: Vec<U> = units
+        .into_iter()
+        .enumerate()
+        .filter(|(position, _)| shard.is_none_or(|shard| shard.contains(*position)))
+        .map(|(_, unit)| unit)
+        .collect();
+    if let Some(shard) = shard {
+        assert_eq!(selected.len(), shard.share(total));
+    }
+    selected
+}
+
+/// The full carrier compares `total` cases; a shard compares some of them.
+fn assert_sharded_count(shard: Option<LawShard>, compared: u64, total: usize) {
+    let total = u64::try_from(total).unwrap();
+    if shard.is_some() {
+        assert!(compared > 0 && compared <= total);
+    } else {
+        assert_eq!(compared, total);
+    }
+}
+
+/// The observable result of a sequential composite: the category of a
+/// refusal before instantiation, or the target, the view and, when the
+/// production path keeps one complement per part, the complements, or a
+/// refusal of get.
+#[derive(Debug, PartialEq, Eq)]
+enum CompositeApplication {
+    Inapplicable,
+    IdentifiesEdges,
+    Applied(Box<(RefSchema, RefGraph, Option<Vec<RefComplement>>)>),
+    Refused(String),
+}
+
+/// The production composite of elementary protolenses at a schema, as the
+/// lens DSL instantiates compiled stages: each chain at the running schema,
+/// the lenses joined into a path.
+fn production_composite(
+    parts: &[&panproto_lens::Protolens],
+    schema: &RefSchema,
+) -> Result<panproto_lens::LensPath, CompositeApplication> {
+    let protocol = Protocol::default();
+    let refuse = |error: LensError| match error {
+        LensError::ProtolensError(message) => production_composite_refusal(&message),
+        other => CompositeApplication::Refused(format!("{:?}", lens_reason(&other))),
+    };
+    let mut path: Option<panproto_lens::LensPath> = None;
+    let source = prod_schema(schema);
+    for part in parts {
+        let running = path
+            .as_ref()
+            .map_or(&source, panproto_lens::LensPath::tgt_schema);
+        let lens = panproto_lens::ProtolensChain::new(vec![(*part).clone()])
+            .instantiate(running, &protocol)
+            .map_err(refuse)?;
+        let stage = panproto_lens::LensPath::single(lens);
+        path = Some(match path {
+            Some(path) => path.then(&stage).map_err(refuse)?,
+            None => stage,
+        });
+    }
+    Ok(path.unwrap_or_else(|| panproto_lens::LensPath::identity(&source)))
+}
+
+fn production_composite_refusal(message: &str) -> CompositeApplication {
+    match production_instantiation_refusal(message) {
+        ElementaryApplication::IdentifiesEdges => CompositeApplication::IdentifiesEdges,
+        _ => CompositeApplication::Inapplicable,
+    }
+}
+
+/// The inner refusal of a located path error.
+fn path_reason(error: &LensError) -> Reason {
+    match error {
+        LensError::AtStage { error, .. } => lens_reason(error),
+        other => lens_reason(other),
+    }
+}
+
+fn production_composite_application(
+    path: &Result<panproto_lens::LensPath, CompositeApplication>,
+    source: &RefGraph,
+) -> CompositeApplication {
+    let path = match path {
+        Ok(path) => path,
+        Err(CompositeApplication::Inapplicable) => return CompositeApplication::Inapplicable,
+        Err(CompositeApplication::IdentifiesEdges) => {
+            return CompositeApplication::IdentifiesEdges;
+        }
+        Err(other) => return CompositeApplication::Refused(format!("{other:?}")),
+    };
+    match path.get_graph(&prod_graph(source)) {
+        Ok((view, complement)) => {
+            let complements: Vec<RefComplement> = complement
+                .entries()
+                .iter()
+                .flat_map(|entry| entry.complement.complements())
+                .map(ref_complement)
+                .collect();
+            CompositeApplication::Applied(Box::new((
+                ref_schema(path.tgt_schema()),
+                ref_graph(&view),
+                (complements.len() == path.stages().len()).then_some(complements),
+            )))
+        }
+        Err(error) => CompositeApplication::Refused(format!("{:?}", path_reason(&error))),
+    }
+}
+
+fn reference_composite_application(
+    composite: &Result<CompositeLens, CompositeApplication>,
+    source: &RefGraph,
+) -> CompositeApplication {
+    let composite = match composite {
+        Ok(composite) => composite,
+        Err(CompositeApplication::Inapplicable) => return CompositeApplication::Inapplicable,
+        Err(CompositeApplication::IdentifiesEdges) => {
+            return CompositeApplication::IdentifiesEdges;
+        }
+        Err(other) => return CompositeApplication::Refused(format!("{other:?}")),
+    };
+    match composite.get(source) {
+        Ok((view, complements)) => CompositeApplication::Applied(Box::new((
+            composite.target().cloned().unwrap_or_default(),
+            view,
+            Some(complements.iter().map(without_identity).collect()),
+        ))),
+        Err(refusal) => CompositeApplication::Refused(format!(
+            "{:?}",
+            Reason::Restrict(ref_restrict_reason(&refusal.error))
+        )),
+    }
+}
+
+fn reference_composite(
+    parts: &[&ElementaryProtolens],
+    schema: &RefSchema,
+) -> Result<CompositeLens, CompositeApplication> {
+    let parts: Vec<ProtolensTerm> = parts
+        .iter()
+        .map(|kind| ProtolensTerm::Elementary((*kind).clone()))
+        .collect();
+    CompositeLens::instantiate(&parts, schema).map_err(|refusal| match refusal.error {
+        CompositeInstantiationError::Term(TermRefusal::Inapplicable) => {
+            CompositeApplication::Inapplicable
+        }
+        CompositeInstantiationError::Term(TermRefusal::Elementary(_)) => {
+            CompositeApplication::IdentifiesEdges
+        }
+        CompositeInstantiationError::Plan(error) => CompositeApplication::Refused(format!(
+            "{:?}",
+            Reason::Restrict(ref_restrict_reason(&RefRestrictError::Plan(error)))
+        )),
+    })
+}
+
+fn production_composite_put(
+    path: &panproto_lens::LensPath,
+    source: &RefGraph,
+    edited: &RefGraph,
+) -> Option<PutOutcome> {
+    let (_, complement) = path.get_graph(&prod_graph(source)).ok()?;
+    let view = prod_graph(edited);
+    Some(PutOutcome {
+        put: path
+            .put_graph(&view, &complement)
+            .map(|restored| ref_graph(&restored))
+            .map_err(|error| path_reason(&error)),
+        domain: path
+            .check_graph_put_domain(&view, &complement)
+            .map_err(|(_, errors)| errors.iter().map(put_domain_reason).collect()),
+    })
+}
+
+fn reference_composite_put(
+    composite: &CompositeLens,
+    source: &RefGraph,
+    edited: &RefGraph,
+) -> Option<PutOutcome> {
+    let (_, complements) = composite.get(source).ok()?;
+    Some(PutOutcome {
+        put: composite
+            .put(edited, &complements)
+            .map_err(|refusal| match refusal.error {
+                CompositePutError::Lens(error) => ref_lens_reason(&error),
+                other => Reason::Identity(format!("{other:?}")),
+            }),
+        domain: composite
+            .check_put_domain(edited, &complements)
+            .map_err(|refusal| refusal.error.iter().map(ref_put_domain_reason).collect()),
+    })
+}
+
+/// Per-thread state of the sequential composite certificate: each pair at
+/// each schema instantiated on both sides.
+struct CompositeContext {
+    schemas: Vec<RefSchema>,
+    sources: Vec<Vec<RefGraph>>,
+    production: Vec<Vec<Result<panproto_lens::LensPath, CompositeApplication>>>,
+    reference: Vec<Vec<Result<CompositeLens, CompositeApplication>>>,
+}
+
+impl CompositeContext {
+    fn new() -> Self {
+        let production_alphabet = production_elementary_alphabet();
+        let reference_alphabet = elementary_protolens_alphabet();
+        let schemas = elementary_protolens_schemas();
+        let (nodes, edges) = COMPOSITE_SOURCE_BOUND;
+        let sources = schemas
+            .iter()
+            .map(|schema| graph_states_up_to(schema, nodes, edges))
+            .collect();
+        let pairs = composite_protolens_pairs();
+        let production = pairs
+            .iter()
+            .map(|&(first, second)| {
+                schemas
+                    .iter()
+                    .map(|schema| {
+                        production_composite(
+                            &[&production_alphabet[first], &production_alphabet[second]],
+                            schema,
+                        )
+                    })
+                    .collect()
+            })
+            .collect();
+        let reference = pairs
+            .iter()
+            .map(|&(first, second)| {
+                schemas
+                    .iter()
+                    .map(|schema| {
+                        reference_composite(
+                            &[&reference_alphabet[first], &reference_alphabet[second]],
+                            schema,
+                        )
+                    })
+                    .collect()
+            })
+            .collect();
+        Self {
+            schemas,
+            sources,
+            production,
+            reference,
+        }
+    }
+
+    fn units(&self) -> Vec<(usize, usize, usize)> {
+        (0..self.reference.len())
+            .flat_map(|pair| {
+                self.sources
+                    .iter()
+                    .enumerate()
+                    .flat_map(move |(schema, sources)| {
+                        (0..sources.len()).map(move |source| (pair, schema, source))
+                    })
+            })
+            .collect()
+    }
+
+    /// The application case, then a put case for the reference view and
+    /// each of its one-step edits over the second part's target against
+    /// its complement.
+    fn expand(&self, unit: &(usize, usize, usize)) -> Vec<TermCase> {
+        let &(kind, schema, source) = unit;
+        let mut cases = vec![TermCase {
+            kind,
+            schema,
+            source,
+            view: None,
+        }];
+        if let Ok(composite) = &self.reference[kind][schema]
+            && let Ok((view, complements)) = composite.get(&self.sources[schema][source])
+            && let Some(target) = composite.target()
+        {
+            cases.extend(
+                put_views_of(&view, target, &complements[complements.len() - 1])
+                    .into_iter()
+                    .map(|view| TermCase {
+                        kind,
+                        schema,
+                        source,
+                        view: Some(view),
+                    }),
+            );
+        }
+        cases
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum CompositeObservation {
+    Application(CompositeApplication),
+    Put(Box<Option<PutOutcome>>),
+}
+
+fn production_composite_case(context: &CompositeContext, case: &TermCase) -> CompositeObservation {
+    let source = &context.sources[case.schema][case.source];
+    let path = &context.production[case.kind][case.schema];
+    case.view.as_ref().map_or_else(
+        || CompositeObservation::Application(production_composite_application(path, source)),
+        |view| {
+            CompositeObservation::Put(Box::new(
+                path.as_ref()
+                    .ok()
+                    .and_then(|path| production_composite_put(path, source, view)),
+            ))
+        },
+    )
+}
+
+fn reference_composite_case(context: &CompositeContext, case: &TermCase) -> CompositeObservation {
+    let source = &context.sources[case.schema][case.source];
+    let composite = &context.reference[case.kind][case.schema];
+    case.view.as_ref().map_or_else(
+        || CompositeObservation::Application(reference_composite_application(composite, source)),
+        |view| {
+            CompositeObservation::Put(Box::new(
+                composite
+                    .as_ref()
+                    .ok()
+                    .and_then(|composite| reference_composite_put(composite, source, view)),
+            ))
+        },
+    )
+}
+
+/// Production and reference composite observations agree: equal, except
+/// that a production path that fused the two parts into one group keeps one
+/// complement for both, which is then compared through put alone.
+fn composite_observations_agree(
+    production: &CompositeObservation,
+    reference: &CompositeObservation,
+) -> bool {
+    match (production, reference) {
+        (
+            CompositeObservation::Application(CompositeApplication::Applied(production)),
+            CompositeObservation::Application(CompositeApplication::Applied(reference)),
+        ) => {
+            let (production_target, production_view, production_complements) = &**production;
+            let (reference_target, reference_view, reference_complements) = &**reference;
+            production_target == reference_target
+                && production_view == reference_view
+                && production_complements
+                    .as_ref()
+                    .is_none_or(|complements| Some(complements) == reference_complements.as_ref())
+        }
+        _ => production == reference,
+    }
+}
+
+#[test]
+fn sequential_composites_of_elementary_protolenses_agree_with_the_reference_exhaustively() {
+    check_sequential_composites(LawShard::from_environment());
+}
+
+/// The eighth of the sequential composite carrier at residue `0`, which
+/// the ordinary CI profile runs; the full carrier runs, sharded, in the
+/// `exhaustive-reference` job.
+#[test]
+fn sequential_composites_of_elementary_protolenses_agree_with_the_reference_on_one_eighth_of_the_carrier()
+ {
+    check_sequential_composites(Some(LawShard { index: 0, count: 8 }));
+}
+
+/// The L-lenses-24 sequential composite differential, over the get cases of
+/// `shard` (every case when there is none).
+fn check_sequential_composites(shard: Option<LawShard>) {
+    let certificate = composite_protolens_count_certificate().sequential;
+    assert_eq!(certificate.kinds, 256);
+    assert_eq!(certificate.schemas, 14);
+    assert_eq!(certificate.source_states, 438);
+    assert_eq!(certificate.get_cases, 112_128);
+    assert_eq!(certificate.inapplicable, 777);
+    assert_eq!(certificate.identifying, 54);
+    assert_eq!(certificate.instantiated, 2753);
+    assert_eq!(certificate.get_refusals, 0);
+    assert_eq!(certificate.put_cases, 953_227);
+
+    let context = CompositeContext::new();
+    let (nodes, edges) = COMPOSITE_SOURCE_BOUND;
+    for (schema, sources) in context.schemas.iter().zip(&context.sources) {
+        assert_eq!(sources.len(), graph_state_count_up_to(schema, nodes, edges));
+    }
+    let units = context.units();
+    assert_eq!(units.len(), certificate.get_cases);
+    let units = sharded_units(shard, units);
+    let bound = format!("L-lenses-24 sequential composites: {certificate:?}");
+    let compared = assert_agree(agree_in_parallel(
+        &bound,
+        &units,
+        CompositeContext::new,
+        CompositeContext::expand,
+        production_composite_case,
+        reference_composite_case,
+        composite_observations_agree,
+    ));
+    assert_sharded_count(
+        shard,
+        compared,
+        certificate.get_cases + certificate.put_cases,
+    );
+}
+
+#[test]
+fn fused_two_step_chains_of_elementary_protolenses_agree_with_the_reference_exhaustively() {
+    let certificate = composite_protolens_count_certificate().fused;
+    assert_eq!(certificate.kinds, 256);
+    assert_eq!(certificate.schemas, 14);
+    assert_eq!(certificate.source_states, 438);
+    assert_eq!(certificate.get_cases, 112_128);
+    assert_eq!(certificate.inapplicable, 777);
+    assert_eq!(certificate.identifying, 54);
+    assert_eq!(certificate.instantiated, 2753);
+    assert_eq!(certificate.get_refusals, 0);
+    assert_eq!(certificate.put_cases, 961_969);
+
+    let context = TermContext::fused_pairs();
+    let units = context.units();
+    assert_eq!(units.len(), certificate.get_cases);
+    let bound = format!("L-lenses-22 fused two-step chains: {certificate:?}");
+    let compared = assert_agree(agree_in_parallel(
+        &bound,
+        &units,
+        TermContext::fused_pairs,
+        TermContext::expand,
+        production_term_case,
+        reference_term_case,
+        |production, reference| production == reference,
+    ));
+    assert_eq!(
+        compared,
+        u64::try_from(certificate.get_cases + certificate.put_cases).unwrap()
+    );
+}
+
+/// One case of the fused and scoped protolens property differential.
+fn fused_and_scoped_case(
+    kind: usize,
+    schema: usize,
+    source_seed: u64,
+    view_seed: u64,
+) -> Result<(), proptest::test_runner::TestCaseError> {
+    let production = production_fused_alphabet();
+    let reference = fused_protolens_alphabet();
+    let schemas = fused_protolens_schemas();
+    let schema_ref = &schemas[schema];
+    let term = &reference[kind];
+    let layer = fused_protolens_layer(term);
+    let source = random_elementary_graph(schema_ref, source_seed);
+    let production_application =
+        production_term_application(&production[kind], schema_ref, &source);
+    let reference_application = reference_term_application(term, layer, schema_ref, &source);
+    prop_assert_eq!(&production_application, &reference_application);
+    if let ElementaryApplication::Applied(applied) = reference_application {
+        let (target, view, _) = *applied;
+        let protolens = term
+            .at(schema_ref)
+            .expect("an applied term has a protolens");
+        let lens = production[kind]
+            .instantiate(&prod_schema(schema_ref), &Protocol::default())
+            .expect("an applied chain instantiates");
+        let edited =
+            random_elementary_graph(&elementary_view_schema(schema_ref, &target), view_seed);
+        let pair = Pair::with_production(
+            schema_ref.clone(),
+            protolens.target,
+            protolens.migration,
+            layer,
+            lens,
+        );
+        for put_view in [&view, &edited] {
+            prop_assert_eq!(
+                production_put(&pair, &source, put_view),
+                reference_put(&pair, &source, put_view)
+            );
+        }
+    }
+    Ok(())
+}
+
+/// One case of the sequential composite property differential.
+fn sequential_composite_case(
+    steps: &[usize],
+    schema: usize,
+    source_seed: u64,
+    view_seed: u64,
+) -> Result<(), proptest::test_runner::TestCaseError> {
+    let production_alphabet = production_elementary_alphabet();
+    let reference_alphabet = elementary_protolens_alphabet();
+    let schemas = elementary_protolens_schemas();
+    let schema_ref = &schemas[schema];
+    let production_parts: Vec<&panproto_lens::Protolens> = steps
+        .iter()
+        .map(|step| &production_alphabet[*step])
+        .collect();
+    let reference_parts: Vec<&ElementaryProtolens> = steps
+        .iter()
+        .map(|step| &reference_alphabet[*step])
+        .collect();
+    let path = production_composite(&production_parts, schema_ref);
+    let composite = reference_composite(&reference_parts, schema_ref);
+    let source = random_elementary_graph(schema_ref, source_seed);
+    let production_application = production_composite_application(&path, &source);
+    let reference_application = reference_composite_application(&composite, &source);
+    prop_assert!(
+        composite_observations_agree(
+            &CompositeObservation::Application(production_application),
+            &CompositeObservation::Application(reference_application),
+        ),
+        "the composite applications differ"
+    );
+    if let (Ok(path), Ok(composite)) = (&path, &composite)
+        && let Ok((view, _)) = composite.get(&source)
+    {
+        let target = composite.target().expect("a composite has a target");
+        let edited =
+            random_elementary_graph(&elementary_view_schema(schema_ref, target), view_seed);
+        for put_view in [&view, &edited] {
+            prop_assert_eq!(
+                production_composite_put(path, &source, put_view),
+                reference_composite_put(composite, &source, put_view)
+            );
+        }
+    }
+    Ok(())
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(512))]
+    #[test]
+    fn randomized_fused_and_scoped_protolens_differential(
+        kind in 0..10_usize,
+        schema in 0..8_usize,
+        source_seed in any::<u64>(),
+        view_seed in any::<u64>(),
+    ) {
+        fused_and_scoped_case(kind, schema, source_seed, view_seed)?;
+    }
+
+    #[test]
+    fn randomized_sequential_composite_differential(
+        steps in proptest::collection::vec(0..16_usize, 1..=5),
+        schema in 0..14_usize,
+        source_seed in any::<u64>(),
+        view_seed in any::<u64>(),
+    ) {
+        sequential_composite_case(&steps, schema, source_seed, view_seed)?;
+    }
+}
+
+/// The two property cases that found a view edge mapped back between
+/// restored anchors and a synthesized edge left unchecked, kept as fixed
+/// cases.
+#[test]
+fn the_fused_and_sequential_property_cases_found_on_ci_agree_with_the_reference() {
+    fused_and_scoped_case(8, 3, 13_441_363_339_738_864_164, 15_836_754_594_278_096_309)
+        .unwrap_or_else(|error| panic!("{error}"));
+    sequential_composite_case(&[4, 15, 4], 4, 0, 5_140_339_549_472_419_083)
+        .unwrap_or_else(|error| panic!("{error}"));
+}
+
+// ---------------------------------------------------------------------------
+// Sort coercions against the reference's coercion value layer
+// ---------------------------------------------------------------------------
+
+use panproto_reference::enumerate::lenses::{
+    COERCION_SOURCE_BOUND, coercion_alphabet, coercion_count_certificate, coercion_schemas,
+};
+
+/// The production protolens of each entry of [`coercion_alphabet`]: the
+/// same maps as expressions over the coerced value `v`.
+fn production_coercion_alphabet() -> Vec<panproto_lens::Protolens> {
+    use panproto_expr::{BuiltinOp, Expr, Literal};
+    use panproto_gat::{CoercionClass, ValueKind};
+    let v = || Expr::Var(std::sync::Arc::from("v"));
+    let successor = || Expr::Builtin(BuiltinOp::Add, vec![v(), Expr::Lit(Literal::Int(1))]);
+    let coerce = |forward, inverse, kind, class| {
+        elementary::sort_coerce("integer", kind, forward, inverse, class)
+    };
+    vec![
+        coerce(
+            Expr::Builtin(BuiltinOp::IntToStr, vec![v()]),
+            Some(Expr::Builtin(BuiltinOp::StrToInt, vec![v()])),
+            ValueKind::Str,
+            CoercionClass::Iso,
+        ),
+        coerce(
+            successor(),
+            Some(Expr::Builtin(
+                BuiltinOp::Sub,
+                vec![v(), Expr::Lit(Literal::Int(1))],
+            )),
+            ValueKind::Int,
+            CoercionClass::Retraction,
+        ),
+        coerce(successor(), None, ValueKind::Int, CoercionClass::Projection),
+        coerce(successor(), None, ValueKind::Int, CoercionClass::Opaque),
+    ]
+}
+
+/// Per-thread state of the sort coercion certificate.
+struct CoercionContext {
+    production: Vec<panproto_lens::Protolens>,
+    layers: Vec<&'static panproto_reference::lens::SortCoercion>,
+    schemas: Vec<RefSchema>,
+    sources: Vec<Vec<RefGraph>>,
+    pairs: BTreeMap<(usize, usize), Pair>,
+}
+
+impl CoercionContext {
+    fn new() -> Self {
+        let production = production_coercion_alphabet();
+        let layers: Vec<&'static panproto_reference::lens::SortCoercion> = coercion_alphabet()
+            .into_iter()
+            .map(|layer| &*Box::leak(Box::new(layer)))
+            .collect();
+        let schemas = coercion_schemas();
+        let (nodes, edges) = COERCION_SOURCE_BOUND;
+        let sources = schemas
+            .iter()
+            .map(|schema| graph_states_up_to(schema, nodes, edges))
+            .collect();
+        let mut pairs = BTreeMap::new();
+        for (kind, layer) in layers.iter().enumerate() {
+            for (index, schema) in schemas.iter().enumerate() {
+                let (target, migration) = layer.target_and_migration(schema);
+                let Ok(lens) = production[kind]
+                    .instantiate_checked(&prod_schema(schema), &Protocol::default())
+                else {
+                    continue;
+                };
+                pairs.insert(
+                    (kind, index),
+                    Pair::with_production(schema.clone(), target, migration, *layer, lens),
+                );
+            }
+        }
+        Self {
+            production,
+            layers,
+            schemas,
+            sources,
+            pairs,
+        }
+    }
+
+    fn units(&self) -> Vec<(usize, usize, usize)> {
+        (0..self.layers.len())
+            .flat_map(|kind| {
+                self.sources
+                    .iter()
+                    .enumerate()
+                    .flat_map(move |(schema, sources)| {
+                        (0..sources.len()).map(move |source| (kind, schema, source))
+                    })
+            })
+            .collect()
+    }
+
+    fn reference_application(
+        &self,
+        kind: usize,
+        schema: usize,
+        source: usize,
+    ) -> ElementaryApplication {
+        let Some(pair) = self.pairs.get(&(kind, schema)) else {
+            return ElementaryApplication::Inapplicable;
+        };
+        match reference_get(pair, &self.sources[schema][source]) {
+            Ok((view, complement)) => {
+                ElementaryApplication::Applied(Box::new((pair.tgt.clone(), view, complement)))
+            }
+            Err(reason) => ElementaryApplication::Refused(format!("{reason:?}")),
+        }
+    }
+
+    fn expand(&self, unit: &(usize, usize, usize)) -> Vec<TermCase> {
+        let &(kind, schema, source) = unit;
+        let mut cases = vec![TermCase {
+            kind,
+            schema,
+            source,
+            view: None,
+        }];
+        if let ElementaryApplication::Applied(applied) =
+            self.reference_application(kind, schema, source)
+        {
+            let (target, view, complement) = *applied;
+            cases.extend(
+                put_views_of(&view, &target, &complement)
+                    .into_iter()
+                    .map(|view| TermCase {
+                        kind,
+                        schema,
+                        source,
+                        view: Some(view),
+                    }),
+            );
+        }
+        cases
+    }
+}
+
+fn production_coercion_case(context: &CoercionContext, case: &TermCase) -> ElementaryObservation {
+    let source = &context.sources[case.schema][case.source];
+    case.view.as_ref().map_or_else(
+        || {
+            ElementaryObservation::Application(production_elementary_application(
+                &context.production[case.kind],
+                &context.schemas[case.schema],
+                source,
+            ))
+        },
+        |view| {
+            ElementaryObservation::Put(Box::new(
+                context
+                    .pairs
+                    .get(&(case.kind, case.schema))
+                    .and_then(|pair| production_put(pair, source, view)),
+            ))
+        },
+    )
+}
+
+fn reference_coercion_case(context: &CoercionContext, case: &TermCase) -> ElementaryObservation {
+    let source = &context.sources[case.schema][case.source];
+    case.view.as_ref().map_or_else(
+        || {
+            ElementaryObservation::Application(context.reference_application(
+                case.kind,
+                case.schema,
+                case.source,
+            ))
+        },
+        |view| {
+            ElementaryObservation::Put(Box::new(
+                context
+                    .pairs
+                    .get(&(case.kind, case.schema))
+                    .and_then(|pair| reference_put(pair, source, view)),
+            ))
+        },
+    )
+}
+
+#[test]
+fn sort_coercions_agree_with_the_reference_exhaustively() {
+    let certificate = coercion_count_certificate();
+    assert_eq!(certificate.kinds, 4);
+    assert_eq!(certificate.schemas, 3);
+    assert_eq!(certificate.source_states, 81);
+    assert_eq!(certificate.get_cases, 324);
+    assert_eq!(certificate.inapplicable, 0);
+    assert_eq!(certificate.identifying, 0);
+    assert_eq!(certificate.instantiated, 12);
+    assert_eq!(certificate.get_refusals, 0);
+    assert_eq!(certificate.put_cases, 3_624);
+
+    let context = CoercionContext::new();
+    let (nodes, edges) = COERCION_SOURCE_BOUND;
+    for (schema, sources) in context.schemas.iter().zip(&context.sources) {
+        assert_eq!(sources.len(), graph_state_count_up_to(schema, nodes, edges));
+    }
+    assert_eq!(context.pairs.len(), certificate.instantiated);
+    let units = context.units();
+    assert_eq!(units.len(), certificate.get_cases);
+    let bound = format!("L-lenses-25 sort coercions: {certificate:?}");
+    let compared = assert_agree(agree_in_parallel(
+        &bound,
+        &units,
+        CoercionContext::new,
+        CoercionContext::expand,
+        production_coercion_case,
+        reference_coercion_case,
+        |production, reference| production == reference,
+    ));
+    assert_eq!(
+        compared,
+        u64::try_from(certificate.get_cases + certificate.put_cases).unwrap()
+    );
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(512))]
+    #[test]
+    fn randomized_sort_coercion_differential(
+        kind in 0..4_usize,
+        schema in 0..3_usize,
+        source_seed in any::<u64>(),
+        view_seed in any::<u64>(),
+    ) {
+        let context = CoercionContext::new();
+        let schema_ref = &context.schemas[schema];
+        let source = random_elementary_graph(schema_ref, source_seed);
+        prop_assert_eq!(
+            production_elementary_application(&context.production[kind], schema_ref, &source),
+            match reference_get(&context.pairs[&(kind, schema)], &source) {
+                Ok((view, complement)) => ElementaryApplication::Applied(Box::new((
+                    schema_ref.clone(),
+                    view,
+                    complement,
+                ))),
+                Err(reason) => ElementaryApplication::Refused(format!("{reason:?}")),
+            }
+        );
+        let pair = &context.pairs[&(kind, schema)];
+        if let Ok((view, _)) = reference_get(pair, &source) {
+            let edited = random_elementary_graph(schema_ref, view_seed);
+            for put_view in [&view, &edited] {
+                prop_assert_eq!(
+                    production_put(pair, &source, put_view),
+                    reference_put(pair, &source, put_view)
+                );
+            }
+        }
+    }
+}
+
+/// A migration that merges two source vertices into one target vertex: a
+/// view edge between the merged anchors maps back to the source label only
+/// between its endpoints' restored anchors, on both sides.
+#[test]
+fn a_view_edge_between_merged_anchors_maps_back_between_its_restored_endpoints() {
+    let edge_ab = RefSEdge::new("a", "b", "k", Some("e"));
+    let edge_tt = RefSEdge::new("t", "t", "k", Some("e"));
+    let src = RefSchema::default()
+        .vertex("a", "s")
+        .vertex("b", "s")
+        .edge("a", "b", "k", Some("e"));
+    let tgt = RefSchema::default()
+        .vertex("t", "s")
+        .edge("t", "t", "k", Some("e"));
+    let migration = RefMigration {
+        surviving_verts: std::iter::once("t".to_owned()).collect(),
+        surviving_edges: [edge_ab.clone(), edge_tt.clone()].into_iter().collect(),
+        vertex_remap: [
+            ("a".to_owned(), "t".to_owned()),
+            ("b".to_owned(), "t".to_owned()),
+        ]
+        .into_iter()
+        .collect(),
+        edge_remap: std::iter::once((edge_ab.clone(), edge_tt.clone())).collect(),
+        ..RefMigration::default()
+    };
+    let pair = Pair::new(src, tgt, migration);
+    let mut source = RefGraph::default();
+    source.nodes.insert(0, RefNode::new(0, "a"));
+    source.nodes.insert(1, RefNode::new(1, "b"));
+    source.edges.insert(
+        0,
+        RefGEdge {
+            src: 0,
+            tgt: 1,
+            label: edge_ab.clone(),
+            position: None,
+        },
+    );
+    let (view, _) = reference_get(&pair, &source).expect("get reads the source");
+    let added = |src: u32, tgt: u32| {
+        let mut edited = view.clone();
+        edited.edges.insert(
+            5,
+            RefGEdge {
+                src,
+                tgt,
+                label: edge_tt.clone(),
+                position: None,
+            },
+        );
+        edited
+    };
+    let forward = added(0, 1);
+    let mut restored = source.clone();
+    restored.edges.insert(
+        5,
+        RefGEdge {
+            src: 0,
+            tgt: 1,
+            label: edge_ab,
+            position: None,
+        },
+    );
+    let expected_forward = Some(PutOutcome {
+        put: Ok(restored),
+        domain: Ok(()),
+    });
+    assert_eq!(production_put(&pair, &source, &forward), expected_forward);
+    assert_eq!(reference_put(&pair, &source, &forward), expected_forward);
+    let backward = added(1, 0);
+    let refused = Some(PutOutcome {
+        put: Err(Reason::PutDomain(
+            "UnrepresentableViewEdge Edge(5)".to_owned(),
+        )),
+        domain: Err(vec!["UnrepresentableViewEdge Edge(5)".to_owned()]),
+    });
+    assert_eq!(production_put(&pair, &source, &backward), refused);
+    assert_eq!(reference_put(&pair, &source, &backward), refused);
+}
+
+// ---------------------------------------------------------------------------
+// Sort merges against the reference's merge relabelling
+// ---------------------------------------------------------------------------
+
+use panproto_reference::enumerate::lenses::{merge_sorts_alphabet, merge_sorts_count_certificate};
+
+/// The production protolens of each entry of [`merge_sorts_alphabet`].
+fn production_merge_alphabet() -> Vec<panproto_lens::Protolens> {
+    let merger = || panproto_expr::Expr::Var(std::sync::Arc::from("v"));
+    merge_sorts_alphabet()
+        .into_iter()
+        .map(|kind| match kind {
+            ElementaryProtolens::MergeSorts {
+                first,
+                second,
+                merged,
+            } => {
+                elementary::merge_sorts(first.as_str(), second.as_str(), merged.as_str(), merger())
+            }
+            other => panic!("the merge alphabet holds only merges, not {other:?}"),
+        })
+        .collect()
+}
+
+/// Per-thread state of the sort merge certificate: the elementary context's
+/// layout over the merge alphabet.
+struct MergeContext {
+    production: Vec<panproto_lens::Protolens>,
+    reference: Vec<ElementaryProtolens>,
+    schemas: Vec<RefSchema>,
+    sources: Vec<Vec<RefGraph>>,
+    pairs: BTreeMap<(usize, usize), (Pair, Vec<RefGraph>)>,
+}
+
+impl MergeContext {
+    fn new() -> Self {
+        let production = production_merge_alphabet();
+        let reference = merge_sorts_alphabet();
+        let schemas = elementary_protolens_schemas();
+        let (nodes, edges) = ELEMENTARY_SOURCE_BOUND;
+        let sources = schemas
+            .iter()
+            .map(|schema| graph_states_up_to(schema, nodes, edges))
+            .collect();
+        let mut pairs = BTreeMap::new();
+        for (kind, reference_kind) in reference.iter().enumerate() {
+            for (index, schema) in schemas.iter().enumerate() {
+                if !reference_kind.precondition().holds(schema) {
+                    continue;
+                }
+                let Ok((target, migration)) = reference_kind.target_and_migration(schema) else {
+                    continue;
+                };
+                let lens = production[kind]
+                    .instantiate_checked(&prod_schema(schema), &Protocol::default())
+                    .unwrap_or_else(|error| {
+                        panic!("merge {kind} instantiates at schema {index} in production: {error}")
+                    });
+                let (view_nodes, view_edges) = ELEMENTARY_VIEW_BOUND;
+                let views = graph_states_up_to(
+                    &elementary_view_schema(schema, &target),
+                    view_nodes,
+                    view_edges,
+                );
+                let pair =
+                    Pair::with_production(schema.clone(), target, migration, &NoValueLayer, lens);
+                pairs.insert((kind, index), (pair, views));
+            }
+        }
+        Self {
+            production,
+            reference,
+            schemas,
+            sources,
+            pairs,
+        }
+    }
+
+    fn units(&self) -> Vec<(usize, usize, usize)> {
+        (0..self.reference.len())
+            .flat_map(|kind| {
+                self.sources
+                    .iter()
+                    .enumerate()
+                    .flat_map(move |(schema, sources)| {
+                        (0..sources.len()).map(move |source| (kind, schema, source))
+                    })
+            })
+            .collect()
+    }
+
+    fn expand(&self, unit: &(usize, usize, usize)) -> Vec<ElementaryCase> {
+        let &(kind, schema, source) = unit;
+        let mut cases = vec![ElementaryCase {
+            kind,
+            schema,
+            source,
+            view: None,
+        }];
+        if let Some((_, views)) = self.pairs.get(&(kind, schema)) {
+            cases.extend((0..views.len()).map(|view| ElementaryCase {
+                kind,
+                schema,
+                source,
+                view: Some(view),
+            }));
+        }
+        cases
+    }
+}
+
+fn production_merge_case(context: &MergeContext, case: &ElementaryCase) -> ElementaryObservation {
+    let source = &context.sources[case.schema][case.source];
+    case.view.map_or_else(
+        || {
+            ElementaryObservation::Application(production_elementary_application(
+                &context.production[case.kind],
+                &context.schemas[case.schema],
+                source,
+            ))
+        },
+        |view| {
+            let (pair, views) = &context.pairs[&(case.kind, case.schema)];
+            ElementaryObservation::Put(Box::new(production_put(pair, source, &views[view])))
+        },
+    )
+}
+
+fn reference_merge_case(context: &MergeContext, case: &ElementaryCase) -> ElementaryObservation {
+    let source = &context.sources[case.schema][case.source];
+    case.view.map_or_else(
+        || {
+            ElementaryObservation::Application(reference_elementary_application(
+                &context.reference[case.kind],
+                &context.schemas[case.schema],
+                source,
+            ))
+        },
+        |view| {
+            let (pair, views) = &context.pairs[&(case.kind, case.schema)];
+            ElementaryObservation::Put(Box::new(reference_put(pair, source, &views[view])))
+        },
+    )
+}
+
+#[test]
+fn sort_merges_agree_with_the_reference_exhaustively() {
+    let certificate = merge_sorts_count_certificate();
+    assert_eq!(certificate.kinds, 4);
+    assert_eq!(certificate.schemas, 14);
+    assert_eq!(certificate.source_states, 678);
+    assert_eq!(certificate.get_cases, 2_712);
+    assert_eq!(certificate.inapplicable, 28);
+    assert_eq!(certificate.identifying, 0);
+    assert_eq!(certificate.instantiated, 28);
+    assert_eq!(certificate.put_cases, 45_276);
+
+    let context = MergeContext::new();
+    assert_eq!(context.pairs.len(), certificate.instantiated);
+    let units = context.units();
+    assert_eq!(units.len(), certificate.get_cases);
+    let bound = format!("L-lenses-26 sort merges: {certificate:?}");
+    let compared = assert_agree(agree_in_parallel(
+        &bound,
+        &units,
+        MergeContext::new,
+        MergeContext::expand,
+        production_merge_case,
+        reference_merge_case,
+        |production, reference| production == reference,
+    ));
+    assert_eq!(
+        compared,
+        u64::try_from(certificate.get_cases + certificate.put_cases).unwrap()
+    );
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(256))]
+    #[test]
+    fn randomized_sort_merge_differential(
+        kind in 0..4_usize,
+        schema in 0..14_usize,
+        source_seed in any::<u64>(),
+        view_seed in any::<u64>(),
+    ) {
+        let production = production_merge_alphabet();
+        let reference = merge_sorts_alphabet();
+        let schemas = elementary_protolens_schemas();
+        let schema_ref = &schemas[schema];
+        let source = random_elementary_graph(schema_ref, source_seed);
+        prop_assert_eq!(
+            production_elementary_application(&production[kind], schema_ref, &source),
+            reference_elementary_application(&reference[kind], schema_ref, &source)
+        );
+        if let Ok((target, migration)) = reference[kind].target_and_migration(schema_ref)
+            && reference[kind].precondition().holds(schema_ref)
+        {
+            let lens = production[kind]
+                .instantiate_checked(&prod_schema(schema_ref), &Protocol::default())
+                .unwrap();
+            let pair = Pair::with_production(
+                schema_ref.clone(),
+                target.clone(),
+                migration,
+                &NoValueLayer,
+                lens,
+            );
+            let edited = random_elementary_graph(&elementary_view_schema(schema_ref, &target), view_seed);
+            prop_assert_eq!(
+                production_put(&pair, &source, &edited),
+                reference_put(&pair, &source, &edited)
+            );
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Value-level steps against the reference's field programs
+// ---------------------------------------------------------------------------
+
+use panproto_reference::enumerate::lenses::{
+    VALUE_STEP_FIELDS, VALUE_STEP_PARENT, value_step_alphabet, value_step_count_certificate,
+    value_step_schemas, value_step_sources, value_step_view_count, value_step_views,
+};
+
+/// A value-level step as production instantiates it: a compiled stage (a
+/// chain with the value transforms it carries, keyed by the parent, as
+/// `CompiledLens::instantiate` instantiates a stage), or a protolens.
+enum ProductionValueStep {
+    Stage {
+        chain: panproto_lens::ProtolensChain,
+        transforms: Vec<panproto_inst::FieldTransform>,
+    },
+    Protolens(Box<panproto_lens::Protolens>),
+}
+
+impl ProductionValueStep {
+    fn instantiate(&self, schema: &Schema) -> Result<Lens, LensError> {
+        let protocol = Protocol::default();
+        match self {
+            Self::Stage { chain, transforms } => {
+                let mut lens = chain.instantiate(schema, &protocol)?;
+                if !transforms.is_empty() {
+                    lens.compiled
+                        .field_transforms
+                        .entry(VALUE_STEP_PARENT.into())
+                        .or_default()
+                        .extend(transforms.iter().cloned());
+                }
+                panproto_inst::RestrictPlan::compile_with_protocols(
+                    &lens.src_schema,
+                    &lens.tgt_schema,
+                    &lens.compiled,
+                    panproto_inst::BoundaryProtocols {
+                        src: &protocol,
+                        tgt: &protocol,
+                    },
+                )?;
+                Ok(lens)
+            }
+            Self::Protolens(protolens) => protolens.instantiate_checked(schema, &protocol),
+        }
+    }
+}
+
+/// The production step of each entry of [`value_step_alphabet`]: the field
+/// transforms and chains the lens DSL compiles `apply_expr`, `compute_field`
+/// and `add_field` to, and the directed equations, with their maps as
+/// expressions.
+fn production_value_step_alphabet() -> Vec<ProductionValueStep> {
+    use panproto_expr::{BuiltinOp, Expr, Literal};
+    use panproto_gat::{CoercionClass, DirectedEquation, Term};
+    use panproto_inst::FieldTransform;
+    use panproto_lens::ProtolensChain;
+    let var = |name: &str| Expr::Var(std::sync::Arc::from(name));
+    let succ =
+        |name: &str| Expr::Builtin(BuiltinOp::Add, vec![var(name), Expr::Lit(Literal::Int(1))]);
+    let pred =
+        |name: &str| Expr::Builtin(BuiltinOp::Sub, vec![var(name), Expr::Lit(Literal::Int(1))]);
+    let stage = |chain, transforms| ProductionValueStep::Stage { chain, transforms };
+    let apply = |inverse: Option<Expr>, class| FieldTransform::ApplyExpr {
+        key: "n".to_owned(),
+        expr: succ("n"),
+        inverse,
+        coercion_class: class,
+    };
+    let compute = |inverse: Option<Expr>, class| FieldTransform::ComputeField {
+        target_key: "d".to_owned(),
+        expr: succ("n"),
+        inverse,
+        coercion_class: class,
+    };
+    let add_field = || {
+        panproto_lens::combinators::add_field_with_label(
+            VALUE_STEP_PARENT,
+            "p.d",
+            "d",
+            "integer",
+            Value::Int(0),
+        )
+    };
+    let none = || ProtolensChain::new(Vec::new());
+    let equation = |lhs: Term, rhs: Term, inverse: Option<Expr>, class| {
+        ProductionValueStep::Protolens(Box::new(elementary::directed_eq(DirectedEquation {
+            name: std::sync::Arc::from("succ"),
+            lhs,
+            rhs,
+            impl_term: succ("x"),
+            inverse,
+            source_kind: None,
+            target_kind: None,
+            coercion_class: class,
+        })))
+    };
+    let n_of_x = || Term::app("n", vec![Term::var("x")]);
+    vec![
+        stage(none(), vec![apply(Some(pred("n")), CoercionClass::Iso)]),
+        stage(none(), vec![apply(None, CoercionClass::Projection)]),
+        stage(none(), vec![compute(None, CoercionClass::Projection)]),
+        stage(none(), vec![compute(Some(pred("d")), CoercionClass::Iso)]),
+        stage(add_field(), Vec::new()),
+        stage(add_field(), vec![compute(None, CoercionClass::Projection)]),
+        equation(n_of_x(), n_of_x(), Some(pred("x")), CoercionClass::Iso),
+        equation(n_of_x(), n_of_x(), None, CoercionClass::Projection),
+        equation(
+            Term::var("x"),
+            Term::app("succ", vec![Term::var("x")]),
+            None,
+            CoercionClass::Projection,
+        ),
+    ]
+}
+
+/// An evaluation failure's message is the expression evaluator's, which the
+/// reference does not model; its location and kind remain compared.
+fn without_evaluator_message(reason: &str) -> String {
+    const KIND: &str = "EvaluationFailed";
+    reason.find(KIND).map_or_else(
+        || reason.to_owned(),
+        |at| reason[..at + KIND.len()].to_owned(),
+    )
+}
+
+fn without_evaluator_messages(outcome: PutOutcome) -> PutOutcome {
+    PutOutcome {
+        put: outcome.put.map_err(|reason| match reason {
+            Reason::PutDomain(text) => Reason::PutDomain(without_evaluator_message(&text)),
+            other => other,
+        }),
+        domain: outcome.domain.map_err(|reasons| {
+            reasons
+                .iter()
+                .map(|reason| without_evaluator_message(reason))
+                .collect()
+        }),
+    }
+}
+
+/// Per-thread state of the value-level certificate.
+struct ValueStepContext {
+    production: Vec<ProductionValueStep>,
+    schemas: Vec<RefSchema>,
+    sources: Vec<RefGraph>,
+    applications: BTreeMap<(usize, usize), Result<Pair, String>>,
+}
+
+impl ValueStepContext {
+    fn new() -> Self {
+        let production = production_value_step_alphabet();
+        let schemas = value_step_schemas();
+        let mut applications = BTreeMap::new();
+        for (kind, term) in value_step_alphabet().into_iter().enumerate() {
+            for (index, schema) in schemas.iter().enumerate() {
+                let (target, migration, program) = term.at(schema);
+                let layer: &'static dyn ValueLayer = Box::leak(Box::new(program));
+                let application = match production[kind].instantiate(&prod_schema(schema)) {
+                    Ok(lens) => Ok(Pair::with_production(
+                        schema.clone(),
+                        target,
+                        migration,
+                        layer,
+                        lens,
+                    )),
+                    Err(error) => Err(format!("{:?}", lens_reason(&error))),
+                };
+                applications.insert((kind, index), application);
+            }
+        }
+        Self {
+            production,
+            schemas,
+            sources: value_step_sources(),
+            applications,
+        }
+    }
+
+    fn units(&self) -> Vec<(usize, usize, usize)> {
+        let sources = self.sources.len();
+        (0..self.production.len())
+            .flat_map(|kind| {
+                (0..self.schemas.len())
+                    .flat_map(move |schema| (0..sources).map(move |source| (kind, schema, source)))
+            })
+            .collect()
+    }
+
+    fn reference_application(
+        &self,
+        kind: usize,
+        schema: usize,
+        source: &RefGraph,
+    ) -> ElementaryApplication {
+        let (target, migration, program) = value_step_alphabet()[kind].at(&self.schemas[schema]);
+        let plan =
+            match panproto_reference::restrict::compile(&self.schemas[schema], &target, &migration)
+            {
+                Ok(plan) => plan,
+                Err(error) => {
+                    return ElementaryApplication::Refused(format!(
+                        "{:?}",
+                        Reason::Restrict(ref_restrict_reason(&RefRestrictError::Plan(error)))
+                    ));
+                }
+            };
+        let lens = RefGraphLens::new(
+            &self.schemas[schema],
+            &target,
+            &migration,
+            &plan,
+            &BTreeMap::new(),
+            &program,
+        )
+        .expect("a plan binds the schemas it was compiled for");
+        match panproto_reference::lens::get(&lens, source) {
+            Ok((view, complement)) => ElementaryApplication::Applied(Box::new((
+                target,
+                view,
+                without_identity(&complement),
+            ))),
+            Err(error) => ElementaryApplication::Refused(format!(
+                "{:?}",
+                Reason::Restrict(ref_restrict_reason(&error))
+            )),
+        }
+    }
+
+    fn production_application(
+        &self,
+        kind: usize,
+        schema: usize,
+        source: &RefGraph,
+    ) -> ElementaryApplication {
+        let lens = match self.production[kind].instantiate(&prod_schema(&self.schemas[schema])) {
+            Ok(lens) => lens,
+            Err(LensError::ProtolensInapplicable { .. }) => {
+                return ElementaryApplication::Inapplicable;
+            }
+            Err(error) => {
+                return ElementaryApplication::Refused(format!("{:?}", lens_reason(&error)));
+            }
+        };
+        match graph_lens::get(&lens, &prod_graph(source)) {
+            Ok((view, complement)) => ElementaryApplication::Applied(Box::new((
+                ref_schema(&lens.tgt_schema),
+                ref_graph(&view),
+                ref_complement(&complement),
+            ))),
+            Err(error) => ElementaryApplication::Refused(format!("{:?}", lens_reason(&error))),
+        }
+    }
+
+    fn expand(&self, unit: &(usize, usize, usize)) -> Vec<TermCase> {
+        let &(kind, schema, source) = unit;
+        let mut cases = vec![TermCase {
+            kind,
+            schema,
+            source,
+            view: None,
+        }];
+        if let ElementaryApplication::Applied(applied) =
+            self.reference_application(kind, schema, &self.sources[source])
+        {
+            let (_, view, complement) = *applied;
+            cases.extend(
+                value_step_views(&view, &complement)
+                    .into_iter()
+                    .map(|view| TermCase {
+                        kind,
+                        schema,
+                        source,
+                        view: Some(view),
+                    }),
+            );
+        }
+        cases
+    }
+}
+
+fn production_value_step_case(
+    context: &ValueStepContext,
+    case: &TermCase,
+) -> ElementaryObservation {
+    let source = &context.sources[case.source];
+    case.view.as_ref().map_or_else(
+        || {
+            ElementaryObservation::Application(context.production_application(
+                case.kind,
+                case.schema,
+                source,
+            ))
+        },
+        |view| {
+            ElementaryObservation::Put(Box::new(
+                context.applications[&(case.kind, case.schema)]
+                    .as_ref()
+                    .ok()
+                    .and_then(|pair| production_put(pair, source, view))
+                    .map(without_evaluator_messages),
+            ))
+        },
+    )
+}
+
+fn reference_value_step_case(context: &ValueStepContext, case: &TermCase) -> ElementaryObservation {
+    let source = &context.sources[case.source];
+    case.view.as_ref().map_or_else(
+        || {
+            ElementaryObservation::Application(context.reference_application(
+                case.kind,
+                case.schema,
+                source,
+            ))
+        },
+        |view| {
+            ElementaryObservation::Put(Box::new(
+                context.applications[&(case.kind, case.schema)]
+                    .as_ref()
+                    .ok()
+                    .and_then(|pair| reference_put(pair, source, view))
+                    .map(without_evaluator_messages),
+            ))
+        },
+    )
+}
+
+#[test]
+fn value_level_steps_agree_with_the_reference_exhaustively() {
+    let certificate = value_step_count_certificate();
+    assert_eq!(certificate.kinds, 9);
+    assert_eq!(certificate.schemas, 2);
+    assert_eq!(certificate.source_states, 182);
+    assert_eq!(certificate.get_cases, 1_638);
+    assert_eq!(certificate.inapplicable, 2);
+    assert_eq!(certificate.identifying, 0);
+    assert_eq!(certificate.instantiated, 16);
+    assert_eq!(certificate.get_refusals, 192);
+    assert_eq!(certificate.put_cases, 144_992);
+
+    let context = ValueStepContext::new();
+    assert_eq!(VALUE_STEP_FIELDS.len(), 2);
+    assert_eq!(
+        context.sources.len() * context.schemas.len(),
+        certificate.source_states
+    );
+    assert_eq!(
+        context
+            .applications
+            .values()
+            .filter(|application| application.is_ok())
+            .count(),
+        certificate.instantiated
+    );
+    assert_eq!(value_step_view_count(0), 2);
+    assert_eq!(value_step_view_count(2), 128);
+    let units = context.units();
+    assert_eq!(units.len(), certificate.get_cases);
+    let bound = format!("L-lenses-27 value-level steps: {certificate:?}");
+    let compared = assert_agree(agree_in_parallel(
+        &bound,
+        &units,
+        ValueStepContext::new,
+        ValueStepContext::expand,
+        production_value_step_case,
+        reference_value_step_case,
+        |production, reference| production == reference,
+    ));
+    assert_eq!(
+        compared,
+        u64::try_from(certificate.get_cases + certificate.put_cases).unwrap()
+    );
+}
+
+/// A put of a view edited at two nodes reports every node's edit beside the
+/// one refusal of the replay get, and of several nodes whose computation
+/// lacks its read field only the first, as one get refuses once.
+#[test]
+fn a_view_edited_at_two_nodes_reports_each_edit_and_the_first_replay_refusal() {
+    let context = ValueStepContext::new();
+    // `compute_field` of `d` as the successor of `n`, with no inverse.
+    let pair = context.applications[&(2, 1)]
+        .as_ref()
+        .expect("the computation applies where `d` is declared");
+    let mut source = RefGraph::default();
+    for id in 0..2 {
+        let mut node = RefNode::new(id, VALUE_STEP_PARENT);
+        node.fields.insert("n".to_owned(), RefValue::Int(0));
+        source.nodes.insert(id, node);
+    }
+    let (view, _) = reference_get_of(&context, 2, 1, &source).expect("get computes `d`");
+    let edit = |edits: &[(u32, Option<i64>, &str)]| {
+        let mut edited = view.clone();
+        for (id, value, field) in edits {
+            let fields = &mut edited.nodes.get_mut(id).expect("a view node").fields;
+            match value {
+                Some(value) => {
+                    fields.insert((*field).to_owned(), RefValue::Int(*value));
+                }
+                None => {
+                    fields.remove(*field);
+                }
+            }
+        }
+        edited
+    };
+    let cases = [
+        (
+            edit(&[(0, Some(2), "d"), (1, None, "n")]),
+            vec![
+                "DerivedCellEdited Node(0) d",
+                "SurvivalPredicateRefused Node(1) EvaluationFailed",
+            ],
+        ),
+        (
+            edit(&[(0, None, "n"), (1, None, "n")]),
+            vec!["SurvivalPredicateRefused Node(0) EvaluationFailed"],
+        ),
+    ];
+    for (edited, expected) in cases {
+        let production = production_put(pair, &source, &edited).map(without_evaluator_messages);
+        assert_eq!(
+            production,
+            reference_put(pair, &source, &edited).map(without_evaluator_messages)
+        );
+        let domain = production
+            .expect("get succeeds")
+            .domain
+            .expect_err("the view is outside the domain");
+        assert_eq!(domain, expected);
+    }
+}
+
+/// The reference's get of a value-level source, when it succeeds.
+fn reference_get_of(
+    context: &ValueStepContext,
+    kind: usize,
+    schema: usize,
+    source: &RefGraph,
+) -> Result<(RefGraph, RefComplement), ()> {
+    match context.reference_application(kind, schema, source) {
+        ElementaryApplication::Applied(applied) => {
+            let (_, view, complement) = *applied;
+            Ok((view, complement))
+        }
+        _ => Err(()),
+    }
+}
+
+/// A random value-level source: up to four nodes at the parent, each field
+/// absent or a value in `-2..=3`.
+fn random_value_step_graph(seed: u64) -> RefGraph {
+    let mut state = seed;
+    let mut next = |bound: u64| {
+        state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        (state >> 33) % bound
+    };
+    let mut graph = RefGraph::default();
+    for id in 0..u32::try_from(next(5)).unwrap() {
+        let mut node = RefNode::new(id, VALUE_STEP_PARENT);
+        for field in VALUE_STEP_FIELDS {
+            let choice = next(7);
+            if choice > 0 {
+                node.fields.insert(
+                    field.to_owned(),
+                    RefValue::Int(i64::try_from(choice).unwrap() - 3),
+                );
+            }
+        }
+        graph.nodes.insert(id, node);
+    }
+    graph
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(512))]
+    #[test]
+    fn randomized_value_level_step_differential(
+        kind in 0..9_usize,
+        schema in 0..2_usize,
+        source_seed in any::<u64>(),
+        view_seed in any::<u64>(),
+    ) {
+        let context = ValueStepContext::new();
+        let source = random_value_step_graph(source_seed);
+        prop_assert_eq!(
+            context.production_application(kind, schema, &source),
+            context.reference_application(kind, schema, &source)
+        );
+        if let (Ok(pair), Ok((view, complement))) = (
+            &context.applications[&(kind, schema)],
+            reference_get_of(&context, kind, schema, &source),
+        ) {
+            // A view of the law's domain differs from get's view at any set
+            // of nodes.
+            let views = value_step_views(&view, &complement);
+            let edited = &views[usize::try_from(view_seed % u64::try_from(views.len()).unwrap()).unwrap()];
+            prop_assert_eq!(
+                production_put(pair, &source, edited).map(without_evaluator_messages),
+                reference_put(pair, &source, edited).map(without_evaluator_messages)
+            );
+        }
     }
 }

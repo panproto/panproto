@@ -4,11 +4,13 @@
 //! equations, directed equations, and conflict policies. Runs
 //! typechecking on the result.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use panproto_gat::{
-    CoercionClass, ConflictPolicy, ConflictStrategy, DirectedEquation, Equation, Operation, Sort,
-    SortExpr, SortKind, SortParam, Theory, ValueKind,
+    CoercionClass, ConflictPolicy, ConflictStrategy, DirectedEquation, Equation, GatError,
+    Operation, SignatureDefect, SignatureSite, Sort, SortExpr, SortKind, SortParam, Theory,
+    ValueKind,
 };
 
 use crate::document::{
@@ -16,6 +18,7 @@ use crate::document::{
     TheorySpec,
 };
 use crate::error::TheoryDslError;
+use crate::path::DocumentPath;
 
 /// Compile a [`TheorySpec`] into a [`Theory`].
 ///
@@ -124,314 +127,609 @@ pub(crate) fn enforce_coercion_laws(
     })
 }
 
-/// Compile a [`TheorySpec`] with support for imports.
+/// Compile a [`TheorySpec`], resolving its parents and imports.
+///
+/// The compiled theory's declarations are, in this order: those of each
+/// parent named in `extends` (as the resolver returns it) and of each
+/// import renamed, a declaration equal to one already included being
+/// included once, and then the spec's own declarations. Two declarations
+/// of one name that remain are refused by the signature check as a
+/// duplicate.
+///
+/// An import of theory `F` with alias `A` and exposed names `X` renames
+/// every sort, operation, equation, directed equation and policy name `n`
+/// of `F` to `n` when `n` is in `X`, to `A_n` when there is an alias, and
+/// to `F_n` otherwise, applying the renaming to every sort and operation
+/// named inside a declaration. In the spec's own declarations a sort head
+/// or operation head `t` stands for: `t` when the spec or one of its
+/// parents declares `t` as a symbol of that kind; otherwise `ρ(n)` when `t`
+/// is `F.n` or `A.n` for an import that declares `n`; otherwise `ρ(t)` for
+/// the first import that declares `t` as a symbol of that kind and either
+/// has no alias or exposes `t`; otherwise `t`.
+///
+/// Every refusal names the document path of the element refused, relative
+/// to the spec: a local declaration by its own path, and a declaration a
+/// parent or import contributes by the path of that `extends` or `imports`
+/// entry.
 ///
 /// # Errors
 ///
 /// Same as [`compile_theory`], plus [`TheoryDslError::TheoryNotFound`]
-/// when an import names a theory the resolver cannot find.
+/// when a parent or import names a theory the resolver cannot find, and
+/// [`TheoryDslError::UnknownExposed`] when an import exposes a name its
+/// theory does not declare.
 pub fn compile_theory_with_resolver(
     spec: &TheorySpec,
     resolver: &dyn Fn(&str) -> Option<Theory>,
 ) -> Result<Theory, TheoryDslError> {
-    let spec = if spec.imports.is_empty() {
-        spec.clone()
-    } else {
-        resolve_imports(spec, resolver)?
-    };
-    compile_theory_inner(&spec)
-}
-
-fn resolve_imports(
-    spec: &TheorySpec,
-    resolver: &dyn Fn(&str) -> Option<Theory>,
-) -> Result<TheorySpec, TheoryDslError> {
-    let mut out = spec.clone();
-    out.imports = Vec::new();
-    for imp in &spec.imports {
-        let imported = resolver(&imp.from).ok_or_else(|| TheoryDslError::TheoryNotFound {
-            name: imp.from.clone(),
-            context: format!("import in theory '{}'", spec.theory),
+    let mut union = Presentation::default();
+    for (index, parent) in spec.extends.iter().enumerate() {
+        let at = DocumentPath::root().key("extends").index(index);
+        let theory = resolver(parent).ok_or_else(|| {
+            TheoryDslError::TheoryNotFound {
+                name: parent.clone(),
+                context: format!("parent of theory '{}'", spec.theory),
+            }
+            .within(&at)
         })?;
-        let expose_set: std::collections::HashSet<String> = imp.expose.iter().cloned().collect();
-        let mut name_rewrite: std::collections::HashMap<String, String> =
-            std::collections::HashMap::new();
-        let rename =
-            |name: &str| canonical_name(name, &imp.from, imp.alias.as_deref(), &expose_set);
-        for s in &imported.sorts {
-            let canonical = rename(&s.name);
-            record_rewrite(
-                &mut name_rewrite,
-                &s.name,
-                &canonical,
-                imp.alias.as_deref(),
-                &expose_set,
-                &imp.from,
-            );
-            out.sorts.insert(0, imported_sort_to_spec(s, canonical));
-        }
-        for op in &imported.ops {
-            let canonical = rename(&op.name);
-            record_rewrite(
-                &mut name_rewrite,
-                &op.name,
-                &canonical,
-                imp.alias.as_deref(),
-                &expose_set,
-                &imp.from,
-            );
-            out.ops
-                .insert(0, imported_op_to_spec(op, canonical, &name_rewrite));
-        }
-        rewrite_inplace(&mut out, &name_rewrite);
+        union.include(&theory, &Origin::Included(at));
     }
-    Ok(out)
-}
-
-fn canonical_name(
-    name: &str,
-    from: &str,
-    alias: Option<&str>,
-    expose: &std::collections::HashSet<String>,
-) -> String {
-    if expose.contains(name) {
-        name.to_string()
-    } else if let Some(a) = alias {
-        format!("{a}_{name}")
-    } else {
-        format!("{from}_{name}")
-    }
-}
-
-fn record_rewrite(
-    rewrite: &mut std::collections::HashMap<String, String>,
-    original: &str,
-    canonical: &str,
-    alias: Option<&str>,
-    expose: &std::collections::HashSet<String>,
-    from: &str,
-) {
-    // Always populate the fully-qualified form so that references like
-    // `<importee_id>.Foo` resolve regardless of alias or expose
-    // settings.
-    rewrite.insert(format!("{from}.{original}"), canonical.to_string());
-    if let Some(a) = alias {
-        rewrite.insert(format!("{a}.{original}"), canonical.to_string());
-    }
-    if expose.contains(original) {
-        rewrite.insert(original.to_string(), canonical.to_string());
-    }
-    // For no-alias, no-expose imports, let the bare name still resolve
-    // to the canonical name: callers frequently write `Foo` expecting
-    // the importee's sort to be reachable, and the canonical rename
-    // already disambiguates when two imports collide.
-    if alias.is_none() && !expose.contains(original) {
-        rewrite
-            .entry(original.to_string())
-            .or_insert_with(|| canonical.to_string());
-    }
-}
-
-fn imported_sort_to_spec(s: &Sort, canonical: String) -> SortSpec {
-    SortSpec {
-        name: canonical,
-        params: s
-            .params
+    let own = OwnNames {
+        sorts: spec
+            .sorts
             .iter()
-            .map(|p| crate::document::ParamSpec {
-                name: p.name.to_string(),
-                sort: p.sort.to_string(),
-                implicit: false,
-            })
+            .map(|s| s.name.as_str())
+            .chain(union.sorts.iter().map(|(s, _)| &*s.name))
+            .map(Arc::from)
             .collect(),
-        kind: match &s.kind {
-            panproto_gat::SortKind::Structural => crate::document::SortKindSpec::Structural,
-            panproto_gat::SortKind::Val(vk) => crate::document::SortKindSpec::Val {
-                value_kind: vk.as_str().to_string(),
-            },
-            panproto_gat::SortKind::Coercion { from, to, class } => {
-                crate::document::SortKindSpec::Coercion {
-                    from: from.as_str().to_string(),
-                    to: to.as_str().to_string(),
-                    class: format!("{class:?}"),
-                }
+        ops: spec
+            .ops
+            .iter()
+            .map(|o| o.name.as_str())
+            .chain(union.ops.iter().map(|(o, _)| &*o.name))
+            .map(Arc::from)
+            .collect(),
+    };
+    let mut scope = Scope::default();
+    for (index, import) in spec.imports.iter().enumerate() {
+        let at = DocumentPath::root().key("imports").index(index);
+        let theory = resolver(&import.from).ok_or_else(|| {
+            TheoryDslError::TheoryNotFound {
+                name: import.from.clone(),
+                context: format!("import in theory '{}'", spec.theory),
             }
-            panproto_gat::SortKind::Merger(vk) => crate::document::SortKindSpec::Merger {
-                value_kind: vk.as_str().to_string(),
-            },
-        },
-        closed: match &s.closure {
-            panproto_gat::SortClosure::Open => None,
-            panproto_gat::SortClosure::Closed(cs) => {
-                Some(cs.iter().map(ToString::to_string).collect())
-            }
-        },
+            .within(&at.key("from"))
+        })?;
+        let renamed = scope.import(import, &theory, &at)?;
+        union.include(&renamed, &Origin::Included(at));
+    }
+    let local = compile_local(spec, &scope.local_maps(&own))?;
+    union.include_local(local);
+    union.check(spec)
+}
+
+/// The sort and operation names the spec and its parents declare, which a
+/// bare imported name does not shadow.
+struct OwnNames {
+    sorts: Vec<Arc<str>>,
+    ops: Vec<Arc<str>>,
+}
+
+/// Where a declaration of the compiled theory comes from.
+#[derive(Clone)]
+enum Origin {
+    /// The spec's own declaration at this path.
+    Local(DocumentPath),
+    /// A declaration of the parent or import at this path.
+    Included(DocumentPath),
+}
+
+impl Origin {
+    /// The path of the declaration, followed by `suffix` when the
+    /// declaration is the spec's own.
+    fn path(&self, suffix: &[&str]) -> DocumentPath {
+        match self {
+            Self::Local(path) => suffix.iter().fold(path.clone(), |path, step| {
+                step.parse::<usize>()
+                    .map_or_else(|_| path.key(step), |index| path.index(index))
+            }),
+            Self::Included(path) => path.clone(),
+        }
     }
 }
 
-fn imported_op_to_spec(
-    op: &Operation,
-    canonical: String,
-    name_rewrite: &std::collections::HashMap<String, String>,
-) -> OpSpec {
-    OpSpec {
-        name: canonical,
-        input: None,
-        inputs: Some(
-            op.inputs
+/// A union of declarations with the origin of each.
+#[derive(Default)]
+struct Presentation {
+    /// The operations the spec declares with the unary `input` shorthand.
+    unary_ops: Vec<Arc<str>>,
+    sorts: Vec<(Sort, Origin)>,
+    ops: Vec<(Operation, Origin)>,
+    eqs: Vec<(Equation, Origin)>,
+    directed_eqs: Vec<(DirectedEquation, Origin)>,
+    policies: Vec<(ConflictPolicy, Origin)>,
+}
+
+fn add<T: PartialEq>(into: &mut Vec<(T, Origin)>, item: T, origin: Origin) {
+    if !into.iter().any(|(present, _)| *present == item) {
+        into.push((item, origin));
+    }
+}
+
+impl Presentation {
+    fn include(&mut self, theory: &Theory, origin: &Origin) {
+        for sort in &theory.sorts {
+            add(&mut self.sorts, sort.clone(), origin.clone());
+        }
+        for op in &theory.ops {
+            add(&mut self.ops, op.clone(), origin.clone());
+        }
+        for eq in &theory.eqs {
+            add(&mut self.eqs, eq.clone(), origin.clone());
+        }
+        for eq in &theory.directed_eqs {
+            add(&mut self.directed_eqs, eq.clone(), origin.clone());
+        }
+        for policy in &theory.policies {
+            add(&mut self.policies, policy.clone(), origin.clone());
+        }
+    }
+
+    fn include_local(&mut self, local: Self) {
+        self.unary_ops.extend(local.unary_ops);
+        self.sorts.extend(local.sorts);
+        self.ops.extend(local.ops);
+        self.eqs.extend(local.eqs);
+        self.directed_eqs.extend(local.directed_eqs);
+        self.policies.extend(local.policies);
+    }
+
+    fn sort_origin(&self, name: &str) -> Option<&Origin> {
+        self.sorts
+            .iter()
+            .find(|(sort, _)| &*sort.name == name)
+            .map(|(_, origin)| origin)
+    }
+
+    fn op_origin(&self, name: &str) -> Option<&Origin> {
+        self.ops
+            .iter()
+            .find(|(op, _)| &*op.name == name)
+            .map(|(_, origin)| origin)
+    }
+
+    /// The path of the first signature defect.
+    fn defect_path(&self, defect: &SignatureDefect) -> DocumentPath {
+        let site_path = |site: &SignatureSite| match site {
+            SignatureSite::SortParam { sort, index } => self
+                .sort_origin(sort)
+                .map(|origin| origin.path(&["params", &index.to_string(), "sort"])),
+            SignatureSite::OpInput { op, index } => self
+                .ops
                 .iter()
-                .map(|(n, s, _)| crate::document::ParamSpec {
-                    name: n.to_string(),
-                    sort: rewrite_sort_string(&s.to_string(), name_rewrite),
-                    implicit: false,
-                })
-                .collect(),
-        ),
-        output: rewrite_sort_string(&op.output.to_string(), name_rewrite),
-    }
-}
-
-fn rewrite_inplace(out: &mut TheorySpec, name_rewrite: &std::collections::HashMap<String, String>) {
-    for sort in &mut out.sorts {
-        for p in &mut sort.params {
-            p.sort = rewrite_sort_string(&p.sort, name_rewrite);
-        }
-    }
-    for op in &mut out.ops {
-        op.output = rewrite_sort_string(&op.output, name_rewrite);
-        if let Some(ins) = &mut op.inputs {
-            for p in ins {
-                p.sort = rewrite_sort_string(&p.sort, name_rewrite);
+                .find(|(o, _)| o.name == *op)
+                .map(|(_, origin)| {
+                    if matches!(origin, Origin::Local(_)) && self.unary_ops.contains(op) {
+                        origin.path(&["input"])
+                    } else {
+                        origin.path(&["inputs", &index.to_string(), "sort"])
+                    }
+                }),
+            SignatureSite::OpOutput { op } => {
+                self.op_origin(op).map(|origin| origin.path(&["output"]))
             }
-        }
-        if let Some(i) = &mut op.input {
-            *i = rewrite_sort_string(i, name_rewrite);
-        }
+        };
+        let path = match defect {
+            SignatureDefect::UndeclaredSort { site, .. }
+            | SignatureDefect::SortArity { site, .. }
+            | SignatureDefect::ParamIllTyped { site, .. }
+            | SignatureDefect::UnboundParamVar { site, .. }
+            | SignatureDefect::DuplicateBinder { site, .. } => site_path(site),
+            SignatureDefect::DuplicateSymbol { kind, name } => {
+                let origins: Vec<&Origin> = match kind {
+                    panproto_gat::SymKind::Sort => self
+                        .sorts
+                        .iter()
+                        .filter(|(d, _)| d.name == *name)
+                        .map(|(_, o)| o)
+                        .collect(),
+                    panproto_gat::SymKind::Op => self
+                        .ops
+                        .iter()
+                        .filter(|(d, _)| d.name == *name)
+                        .map(|(_, o)| o)
+                        .collect(),
+                    panproto_gat::SymKind::Eq => self
+                        .eqs
+                        .iter()
+                        .filter(|(d, _)| d.name == *name)
+                        .map(|(_, o)| o)
+                        .collect(),
+                    panproto_gat::SymKind::DirectedEq => self
+                        .directed_eqs
+                        .iter()
+                        .filter(|(d, _)| d.name == *name)
+                        .map(|(_, o)| o)
+                        .collect(),
+                    panproto_gat::SymKind::Policy => self
+                        .policies
+                        .iter()
+                        .filter(|(d, _)| d.name == *name)
+                        .map(|(_, o)| o)
+                        .collect(),
+                };
+                origins.get(1).map(|origin| origin.path(&[]))
+            }
+        };
+        path.unwrap_or_default()
     }
-}
 
-fn rewrite_sort_string(s: &str, rewrite: &std::collections::HashMap<String, String>) -> String {
-    // Replace `Alias.Name` (or bare exposed names) with their canonical
-    // form. We match tokens separated by non-identifier characters so
-    // that `Foo.Bar(x)` rewrites to the canonical `Foo_Bar(x)` and a
-    // bare `Bar` in the `expose` list rewrites the same way.
-    let mut result = String::with_capacity(s.len());
-    let mut chars = s.char_indices().peekable();
-    while let Some((start, c)) = chars.next() {
-        if c.is_ascii_alphabetic() || c == '_' {
-            let mut end = start + c.len_utf8();
-            while let Some(&(i, cc)) = chars.peek() {
-                if cc.is_ascii_alphanumeric() || cc == '_' || cc == '.' {
-                    end = i + cc.len_utf8();
-                    chars.next();
-                } else {
-                    break;
+    /// Build the theory and check it: its signature, then the body of
+    /// [`panproto_gat::typecheck_theory`] (implicit inputs, closed sorts,
+    /// then each equation in order), then the rewrite system.
+    fn check(self, spec: &TheorySpec) -> Result<Theory, TheoryDslError> {
+        let theory = Theory::full(
+            spec.theory.as_str(),
+            spec.extends.iter().map(|s| Arc::from(s.as_str())).collect(),
+            self.sorts.iter().map(|(d, _)| d.clone()).collect(),
+            self.ops.iter().map(|(d, _)| d.clone()).collect(),
+            self.eqs.iter().map(|(d, _)| d.clone()).collect(),
+            self.directed_eqs.iter().map(|(d, _)| d.clone()).collect(),
+            self.policies.iter().map(|(d, _)| d.clone()).collect(),
+        );
+        let type_error = |error| TheoryDslError::TypeCheck {
+            theory: spec.theory.clone(),
+            error,
+        };
+        if let Err(defects) = panproto_gat::typecheck_signature(&theory) {
+            let path = defects
+                .first()
+                .map(|defect| self.defect_path(defect))
+                .unwrap_or_default();
+            return Err(type_error(GatError::IllTypedSignature { defects }).within(&path));
+        }
+        // The body check sees the equations: an operation into a closed sort
+        // that an equation defines is not one of its constructors, and the
+        // equations are typed in order after the closed sorts are checked.
+        if let Err(error) = panproto_gat::typecheck_theory_body(&theory) {
+            let path = match &error {
+                GatError::NonInferrableImplicit { op, .. } => {
+                    self.op_origin(op).map(|origin| origin.path(&[]))
                 }
-            }
-            let tok = &s[start..end];
-            result.push_str(rewrite.get(tok).map_or(tok, String::as_str));
-        } else {
-            result.push(c);
+                GatError::InvalidClosedSortConstructor { sort, .. } => self
+                    .sort_origin(sort)
+                    .map(|origin| origin.path(&["closed"])),
+                _ => self
+                    .eqs
+                    .iter()
+                    .find(|(eq, _)| panproto_gat::typecheck_equation(eq, &theory).is_err())
+                    .map(|(_, origin)| origin.path(&[])),
+            };
+            return Err(type_error(error).within(&path.unwrap_or_default()));
         }
+
+        // Gate the theory's directed rewrite system on local confluence
+        // and LPO termination. Normalization decides this theory's
+        // equality judgment by running that system, so a system that is
+        // not provably sound makes the judgment unsound. Both the analysis
+        // failing and the analysis reporting a violation are refusals.
+        let report = panproto_gat::validate_rewrite_system(&theory).map_err(|e| {
+            TheoryDslError::RewriteSystemCheck {
+                theory: spec.theory.clone(),
+                message: e.to_string(),
+            }
+        })?;
+        let warnings = report.warnings();
+        if !warnings.is_empty() {
+            return Err(TheoryDslError::UnsoundRewriteSystem {
+                theory: spec.theory.clone(),
+                warnings,
+            });
+        }
+        Ok(theory)
     }
-    result
 }
 
-fn compile_theory_inner(spec: &TheorySpec) -> Result<Theory, TheoryDslError> {
-    let sorts: Vec<Sort> = spec
+/// The names the imports bring into scope.
+#[derive(Default)]
+struct Scope {
+    /// `F.n` and `A.n` for every sort `n` of an import, to its new name.
+    qualified_sorts: HashMap<String, Arc<str>>,
+    /// The same for operations.
+    qualified_ops: HashMap<String, Arc<str>>,
+    /// Bare names of sorts brought in by an exposing import or an import
+    /// without an alias, the first import winning.
+    bare_sorts: HashMap<String, Arc<str>>,
+    /// The same for operations.
+    bare_ops: HashMap<String, Arc<str>>,
+}
+
+impl Scope {
+    /// Record `import` of `theory` and return the theory renamed.
+    fn import(
+        &mut self,
+        import: &crate::document::ImportSpec,
+        theory: &Theory,
+        at: &DocumentPath,
+    ) -> Result<Theory, TheoryDslError> {
+        for (index, name) in import.expose.iter().enumerate() {
+            let declared = theory.sorts.iter().any(|s| *s.name == **name)
+                || theory.ops.iter().any(|o| *o.name == **name)
+                || theory.eqs.iter().any(|e| *e.name == **name)
+                || theory.directed_eqs.iter().any(|e| *e.name == **name)
+                || theory.policies.iter().any(|p| *p.name == **name);
+            if !declared {
+                return Err(TheoryDslError::UnknownExposed {
+                    from: import.from.clone(),
+                    name: name.clone(),
+                }
+                .within(&at.key("expose").index(index)));
+            }
+        }
+        let rename = |name: &str| -> Arc<str> {
+            if import.expose.iter().any(|e| e == name) {
+                Arc::from(name)
+            } else {
+                let prefix = import.alias.as_deref().unwrap_or(&import.from);
+                Arc::from(format!("{prefix}_{name}"))
+            }
+        };
+        let sort_map: HashMap<Arc<str>, Arc<str>> = theory
+            .sorts
+            .iter()
+            .map(|s| (Arc::clone(&s.name), rename(&s.name)))
+            .collect();
+        let op_map: HashMap<Arc<str>, Arc<str>> = theory
+            .ops
+            .iter()
+            .map(|o| (Arc::clone(&o.name), rename(&o.name)))
+            .collect();
+        let mut qualifiers = vec![import.from.as_str()];
+        qualifiers.extend(import.alias.as_deref());
+        for (old, new) in &sort_map {
+            for q in &qualifiers {
+                self.qualified_sorts
+                    .entry(format!("{q}.{old}"))
+                    .or_insert_with(|| Arc::clone(new));
+            }
+            if import.alias.is_none() || import.expose.iter().any(|e| **e == **old) {
+                self.bare_sorts
+                    .entry(old.to_string())
+                    .or_insert_with(|| Arc::clone(new));
+            }
+        }
+        for (old, new) in &op_map {
+            for q in &qualifiers {
+                self.qualified_ops
+                    .entry(format!("{q}.{old}"))
+                    .or_insert_with(|| Arc::clone(new));
+            }
+            if import.alias.is_none() || import.expose.iter().any(|e| **e == **old) {
+                self.bare_ops
+                    .entry(old.to_string())
+                    .or_insert_with(|| Arc::clone(new));
+            }
+        }
+        Ok(rename_theory(theory, &sort_map, &op_map, &rename))
+    }
+
+    /// The renaming of sort heads and operation heads in the spec's own
+    /// declarations: a bare imported name the spec or a parent declares is
+    /// left as it is.
+    fn local_maps(&self, own: &OwnNames) -> Maps {
+        let pick = |qualified: &HashMap<String, Arc<str>>,
+                    bare: &HashMap<String, Arc<str>>,
+                    own: &[Arc<str>]| {
+            let mut map: HashMap<Arc<str>, Arc<str>> = bare
+                .iter()
+                .filter(|(name, _)| !own.iter().any(|n| **n == ***name))
+                .map(|(name, new)| (Arc::from(name.as_str()), Arc::clone(new)))
+                .collect();
+            for (name, new) in qualified {
+                map.insert(Arc::from(name.as_str()), Arc::clone(new));
+            }
+            map
+        };
+        Maps {
+            sorts: pick(&self.qualified_sorts, &self.bare_sorts, &own.sorts),
+            ops: pick(&self.qualified_ops, &self.bare_ops, &own.ops),
+        }
+    }
+}
+
+/// A renaming of sort and operation names.
+struct Maps {
+    sorts: HashMap<Arc<str>, Arc<str>>,
+    ops: HashMap<Arc<str>, Arc<str>>,
+}
+
+impl Maps {
+    fn sort(&self, sort: &SortExpr) -> SortExpr {
+        sort.apply_maps(&self.sorts, &self.ops)
+    }
+}
+
+/// `theory` with every declaration renamed by `rename` and every sort and
+/// operation named inside a declaration renamed by the two maps.
+fn rename_theory(
+    theory: &Theory,
+    sort_map: &HashMap<Arc<str>, Arc<str>>,
+    op_map: &HashMap<Arc<str>, Arc<str>>,
+    rename: &dyn Fn(&str) -> Arc<str>,
+) -> Theory {
+    let sorts = theory
         .sorts
         .iter()
-        .map(|s| compile_sort(s, &spec.theory))
-        .collect::<Result<Vec<_>, _>>()?;
-    let ops: Vec<Operation> = spec
+        .map(|s| Sort {
+            name: rename(&s.name),
+            params: s
+                .params
+                .iter()
+                .map(|p| SortParam::new(Arc::clone(&p.name), p.sort.apply_maps(sort_map, op_map)))
+                .collect(),
+            kind: s.kind.clone(),
+            closure: match &s.closure {
+                panproto_gat::SortClosure::Open => panproto_gat::SortClosure::Open,
+                panproto_gat::SortClosure::Closed(ctors) => panproto_gat::SortClosure::Closed(
+                    ctors
+                        .iter()
+                        .map(|c| op_map.get(c).cloned().unwrap_or_else(|| Arc::clone(c)))
+                        .collect(),
+                ),
+            },
+        })
+        .collect();
+    let ops = theory
         .ops
         .iter()
-        .map(|o| compile_op(o, &spec.theory))
-        .collect::<Result<Vec<_>, _>>()?;
-    let eqs: Vec<Equation> = spec
-        .equations
+        .map(|o| {
+            Operation::with_implicit(
+                rename(&o.name),
+                o.inputs
+                    .iter()
+                    .map(|(n, s, i)| (Arc::clone(n), s.apply_maps(sort_map, op_map), *i))
+                    .collect(),
+                o.output.apply_maps(sort_map, op_map),
+            )
+        })
+        .collect();
+    let eqs = theory
+        .eqs
         .iter()
-        .map(|eq| compile_equation(eq, &spec.theory))
-        .collect::<Result<Vec<_>, _>>()?;
-    let directed_eqs: Vec<DirectedEquation> = spec
-        .directed_equations
+        .map(|e| {
+            Equation::new(
+                rename(&e.name),
+                e.lhs.rename_ops(op_map),
+                e.rhs.rename_ops(op_map),
+            )
+        })
+        .collect();
+    let directed_eqs = theory
+        .directed_eqs
         .iter()
-        .map(|deq| compile_directed_eq(deq, &spec.theory))
-        .collect::<Result<Vec<_>, _>>()?;
-    let policies: Vec<ConflictPolicy> = spec
+        .map(|e| {
+            let mut renamed = e.rename_ops(op_map);
+            renamed.name = rename(&e.name);
+            renamed
+        })
+        .collect();
+    let policies = theory
         .policies
         .iter()
-        .map(|p| compile_policy(p, &spec.theory))
-        .collect::<Result<Vec<_>, _>>()?;
-
-    let extends: Vec<Arc<str>> = spec.extends.iter().map(|s| Arc::from(s.as_str())).collect();
-
-    let theory = Theory::full(
-        spec.theory.as_str(),
-        extends,
+        .map(|p| ConflictPolicy {
+            name: rename(&p.name),
+            value_kind: p.value_kind,
+            strategy: p.strategy.clone(),
+        })
+        .collect();
+    Theory::full(
+        Arc::clone(&theory.name),
+        theory.extends.clone(),
         sorts,
         ops,
         eqs,
         directed_eqs,
         policies,
-    );
+    )
+}
 
-    panproto_gat::typecheck_theory(&theory).map_err(|e| TheoryDslError::TypeCheck {
-        theory: spec.theory.clone(),
-        message: e.to_string(),
-    })?;
-
-    // Gate the theory's directed rewrite system on local confluence and
-    // LPO termination. Normalization decides this theory's equality
-    // judgment by running that system, so a system that is not provably
-    // sound makes the judgment unsound, and handing the theory back as
-    // if it were fine would let every later normalization silently rest
-    // on it. Both the analysis failing and the analysis reporting a
-    // violation are returned to the caller.
-    let report = panproto_gat::validate_rewrite_system(&theory).map_err(|e| {
-        TheoryDslError::RewriteSystemCheck {
-            theory: spec.theory.clone(),
-            message: e.to_string(),
+/// The spec's own declarations, parsed and with imported names resolved.
+fn compile_local(spec: &TheorySpec, maps: &Maps) -> Result<Presentation, TheoryDslError> {
+    let mut local = Presentation::default();
+    let root = DocumentPath::root();
+    for (index, sort) in spec.sorts.iter().enumerate() {
+        let at = root.key("sorts").index(index);
+        let mut compiled = compile_sort(sort, &spec.theory).map_err(|e| e.within(&at))?;
+        compiled.params = compiled
+            .params
+            .iter()
+            .map(|p| SortParam::new(Arc::clone(&p.name), maps.sort(&p.sort)))
+            .collect();
+        if let panproto_gat::SortClosure::Closed(ctors) = &compiled.closure {
+            compiled.closure = panproto_gat::SortClosure::Closed(
+                ctors
+                    .iter()
+                    .map(|c| maps.ops.get(c).cloned().unwrap_or_else(|| Arc::clone(c)))
+                    .collect(),
+            );
         }
-    })?;
-    let warnings = report.warnings();
-    if !warnings.is_empty() {
-        return Err(TheoryDslError::UnsoundRewriteSystem {
-            theory: spec.theory.clone(),
-            warnings,
-        });
+        local.sorts.push((compiled, Origin::Local(at)));
     }
-
-    Ok(theory)
+    for (index, op) in spec.ops.iter().enumerate() {
+        let at = root.key("ops").index(index);
+        let compiled = compile_op(op, &spec.theory).map_err(|e| e.within(&at))?;
+        if op.input.is_some() {
+            local.unary_ops.push(Arc::clone(&compiled.name));
+        }
+        let compiled = Operation::with_implicit(
+            Arc::clone(&compiled.name),
+            compiled
+                .inputs
+                .iter()
+                .map(|(n, s, i)| (Arc::clone(n), maps.sort(s), *i))
+                .collect(),
+            maps.sort(&compiled.output),
+        );
+        local.ops.push((compiled, Origin::Local(at)));
+    }
+    for (index, eq) in spec.equations.iter().enumerate() {
+        let at = root.key("equations").index(index);
+        let compiled = compile_equation(eq, &spec.theory).map_err(|e| e.within(&at))?;
+        local
+            .eqs
+            .push((compiled.rename_ops(&maps.ops), Origin::Local(at)));
+    }
+    for (index, eq) in spec.directed_equations.iter().enumerate() {
+        let at = root.key("directed_equations").index(index);
+        let compiled = compile_directed_eq(eq, &spec.theory).map_err(|e| e.within(&at))?;
+        local
+            .directed_eqs
+            .push((compiled.rename_ops(&maps.ops), Origin::Local(at)));
+    }
+    for (index, policy) in spec.policies.iter().enumerate() {
+        let at = root.key("policies").index(index);
+        let compiled = compile_policy(policy, &spec.theory).map_err(|e| e.within(&at))?;
+        local.policies.push((compiled, Origin::Local(at)));
+    }
+    Ok(local)
 }
 
 fn compile_sort(spec: &SortSpec, theory_name: &str) -> Result<Sort, TheoryDslError> {
     let params: Vec<SortParam> = spec
         .params
         .iter()
-        .map(|p| {
+        .enumerate()
+        .map(|(index, p)| {
             parse_sort_expr(&p.sort)
                 .map(|sort| SortParam::new(p.name.as_str(), sort))
-                .map_err(|msg| TheoryDslError::TermParse {
-                    context: format!(
-                        "parameter '{pname}' of sort '{sname}' in theory '{theory_name}'",
-                        pname = p.name,
-                        sname = spec.name,
-                    ),
-                    message: msg,
+                .map_err(|msg| {
+                    TheoryDslError::TermParse {
+                        context: format!(
+                            "parameter '{pname}' of sort '{sname}' in theory '{theory_name}'",
+                            pname = p.name,
+                            sname = spec.name,
+                        ),
+                        message: msg,
+                    }
+                    .within(&DocumentPath::root().key("params").index(index).key("sort"))
                 })
         })
         .collect::<Result<Vec<_>, _>>()?;
 
+    let at = |field: &str| DocumentPath::root().key("kind").key(field);
     let kind = match &spec.kind {
         SortKindSpec::Structural => SortKind::Structural,
-        SortKindSpec::Val { value_kind } => SortKind::Val(parse_value_kind(value_kind)?),
+        SortKindSpec::Val { value_kind } => {
+            SortKind::Val(parse_value_kind(value_kind).map_err(|e| e.within(&at("value_kind")))?)
+        }
         SortKindSpec::Coercion { from, to, class } => SortKind::Coercion {
-            from: parse_value_kind(from)?,
-            to: parse_value_kind(to)?,
-            class: parse_coercion_class(class)?,
+            from: parse_value_kind(from).map_err(|e| e.within(&at("from")))?,
+            to: parse_value_kind(to).map_err(|e| e.within(&at("to")))?,
+            class: parse_coercion_class(class).map_err(|e| e.within(&at("class")))?,
         },
-        SortKindSpec::Merger { value_kind } => SortKind::Merger(parse_value_kind(value_kind)?),
+        SortKindSpec::Merger { value_kind } => {
+            SortKind::Merger(parse_value_kind(value_kind).map_err(|e| e.within(&at("value_kind")))?)
+        }
     };
 
     let closure = spec
@@ -456,11 +754,19 @@ fn compile_op(spec: &OpSpec, theory_name: &str) -> Result<Operation, TheoryDslEr
             opname = spec.name,
         )
     };
-    let output = parse_sort_expr(&spec.output).map_err(|msg| TheoryDslError::TermParse {
-        context: op_context("output sort"),
-        message: msg,
+    let output = parse_sort_expr(&spec.output).map_err(|msg| {
+        TheoryDslError::TermParse {
+            context: op_context("output sort"),
+            message: msg,
+        }
+        .within(&DocumentPath::root().key("output"))
     })?;
     Ok(match (&spec.input, &spec.inputs) {
+        (Some(_), Some(_)) => {
+            return Err(TheoryDslError::AmbiguousOpInputs {
+                op: spec.name.clone(),
+            });
+        }
         (Some(input_sort), _) => {
             // Take the first character safely: byte slicing with [..1]
             // would panic on a multi-byte UTF-8 boundary. Fall back to a
@@ -470,16 +776,20 @@ fn compile_op(spec: &OpSpec, theory_name: &str) -> Result<Operation, TheoryDslEr
             let first_char = input_sort.chars().next().filter(char::is_ascii_alphabetic);
             let param_name: String =
                 first_char.map_or_else(|| "x".to_string(), |c| c.to_ascii_lowercase().to_string());
-            let input = parse_sort_expr(input_sort).map_err(|msg| TheoryDslError::TermParse {
-                context: op_context("input sort"),
-                message: msg,
+            let input = parse_sort_expr(input_sort).map_err(|msg| {
+                TheoryDslError::TermParse {
+                    context: op_context("input sort"),
+                    message: msg,
+                }
+                .within(&DocumentPath::root().key("input"))
             })?;
             Operation::unary(spec.name.as_str(), param_name.as_str(), input, output)
         }
         (None, Some(inputs)) => {
             let input_triples: Vec<(Arc<str>, SortExpr, panproto_gat::Implicit)> = inputs
                 .iter()
-                .map(|p| {
+                .enumerate()
+                .map(|(index, p)| {
                     parse_sort_expr(&p.sort)
                         .map(|sort| {
                             let imp = if p.implicit {
@@ -489,9 +799,12 @@ fn compile_op(spec: &OpSpec, theory_name: &str) -> Result<Operation, TheoryDslEr
                             };
                             (Arc::from(p.name.as_str()), sort, imp)
                         })
-                        .map_err(|msg| TheoryDslError::TermParse {
-                            context: op_context(&format!("input '{pname}'", pname = p.name)),
-                            message: msg,
+                        .map_err(|msg| {
+                            TheoryDslError::TermParse {
+                                context: op_context(&format!("input '{pname}'", pname = p.name)),
+                                message: msg,
+                            }
+                            .within(&DocumentPath::root().key("inputs").index(index).key("sort"))
                         })
                 })
                 .collect::<Result<Vec<_>, _>>()?;
@@ -520,12 +833,12 @@ pub fn parse_sort_expr(s: &str) -> Result<SortExpr, String> {
     }
     match trimmed.find('(') {
         None => {
-            validate_identifier(trimmed, "sort name")?;
+            validate_symbol(trimmed, "sort name")?;
             Ok(SortExpr::Name(Arc::from(trimmed)))
         }
         Some(paren_pos) => {
             let head = trimmed[..paren_pos].trim();
-            validate_identifier(head, "sort head")?;
+            validate_symbol(head, "sort head")?;
             let inner = &trimmed[paren_pos + 1..];
             let close = find_matching_paren(inner)
                 .ok_or_else(|| format!("unclosed parenthesis in sort expression: {trimmed:?}"))?;
@@ -547,20 +860,20 @@ pub fn parse_sort_expr(s: &str) -> Result<SortExpr, String> {
 }
 
 fn compile_equation(spec: &EquationSpec, theory_name: &str) -> Result<Equation, TheoryDslError> {
-    let lhs = parse_term(&spec.lhs).map_err(|msg| TheoryDslError::TermParse {
-        context: format!(
-            "equation '{name}' in theory '{theory_name}'",
-            name = spec.name
-        ),
-        message: msg,
-    })?;
-    let rhs = parse_term(&spec.rhs).map_err(|msg| TheoryDslError::TermParse {
-        context: format!(
-            "equation '{name}' in theory '{theory_name}'",
-            name = spec.name
-        ),
-        message: msg,
-    })?;
+    let side = |text: &str, field: &str| {
+        parse_term(text).map_err(|msg| {
+            TheoryDslError::TermParse {
+                context: format!(
+                    "equation '{name}' in theory '{theory_name}'",
+                    name = spec.name
+                ),
+                message: msg,
+            }
+            .within(&DocumentPath::root().key(field))
+        })
+    };
+    let lhs = side(&spec.lhs, "lhs")?;
+    let rhs = side(&spec.rhs, "rhs")?;
     Ok(Equation::new(spec.name.as_str(), lhs, rhs))
 }
 
@@ -572,32 +885,37 @@ fn compile_directed_eq(
         "directed equation '{name}' in theory '{theory_name}'",
         name = spec.name
     );
-    let lhs = parse_term(&spec.lhs).map_err(|msg| TheoryDslError::TermParse {
-        context: ctx.clone(),
-        message: msg,
-    })?;
-    let rhs = parse_term(&spec.rhs).map_err(|msg| TheoryDslError::TermParse {
-        context: ctx.clone(),
-        message: msg,
-    })?;
-    let impl_term = parse_expr(&spec.impl_expr, &ctx)?;
+    let at = |field: &str| DocumentPath::root().key(field);
+    let side = |text: &str, field: &str| {
+        parse_term(text).map_err(|msg| {
+            TheoryDslError::TermParse {
+                context: ctx.clone(),
+                message: msg,
+            }
+            .within(&at(field))
+        })
+    };
+    let lhs = side(&spec.lhs, "lhs")?;
+    let rhs = side(&spec.rhs, "rhs")?;
+    let impl_term = parse_expr(&spec.impl_expr, &ctx).map_err(|e| e.within(&at("impl_expr")))?;
     let inverse = spec
         .inverse
         .as_ref()
-        .map(|inv| parse_expr(inv, &ctx))
+        .map(|inv| parse_expr(inv, &ctx).map_err(|e| e.within(&at("inverse"))))
         .transpose()?;
 
     let source_kind = spec
         .source_kind
         .as_deref()
-        .map(parse_value_kind)
+        .map(|kind| parse_value_kind(kind).map_err(|e| e.within(&at("source_kind"))))
         .transpose()?;
     let target_kind = spec
         .target_kind
         .as_deref()
-        .map(parse_value_kind)
+        .map(|kind| parse_value_kind(kind).map_err(|e| e.within(&at("target_kind"))))
         .transpose()?;
-    let coercion_class = parse_coercion_class(&spec.coercion_class)?;
+    let coercion_class =
+        parse_coercion_class(&spec.coercion_class).map_err(|e| e.within(&at("coercion_class")))?;
 
     Ok(DirectedEquation {
         name: Arc::from(spec.name.as_str()),
@@ -621,14 +939,16 @@ fn compile_policy(spec: &PolicySpec, theory_name: &str) -> Result<ConflictPolicy
                 "policy '{name}' in theory '{theory_name}'",
                 name = spec.name
             );
-            let parsed = parse_expr(expr, &ctx)?;
+            let parsed = parse_expr(expr, &ctx)
+                .map_err(|e| e.within(&DocumentPath::root().key("strategy").key("expr")))?;
             ConflictStrategy::Custom(parsed)
         }
     };
 
     Ok(ConflictPolicy {
         name: Arc::from(spec.name.as_str()),
-        value_kind: parse_value_kind(&spec.value_kind)?,
+        value_kind: parse_value_kind(&spec.value_kind)
+            .map_err(|e| e.within(&DocumentPath::root().key("value_kind")))?,
         strategy,
     })
 }
@@ -766,7 +1086,7 @@ fn parse_term_at_depth(s: &str, depth: usize) -> Result<panproto_gat::Term, Stri
         }
         Some(paren_pos) => {
             let op_name = s[..paren_pos].trim();
-            validate_identifier(op_name, "term operation")?;
+            validate_symbol(op_name, "term operation")?;
             let inner = &s[paren_pos + 1..];
             let close = find_matching_paren(inner)
                 .ok_or_else(|| format!("unclosed parenthesis in term: {s:?}"))?;
@@ -975,6 +1295,19 @@ fn validate_identifier(s: &str, kind: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Check a sort or operation name: an identifier, or `Q.n` for identifiers
+/// `Q` and `n`, which names the symbol `n` of the import whose theory or
+/// alias is `Q`.
+fn validate_symbol(s: &str, kind: &str) -> Result<(), String> {
+    match s.split_once('.') {
+        Some((qualifier, name)) => {
+            validate_identifier(qualifier, kind)?;
+            validate_identifier(name, kind)
+        }
+        None => validate_identifier(s, kind),
+    }
+}
+
 /// Find the position of the closing `)` that matches the opening `(`.
 /// The input starts immediately after the opening `(`.
 fn find_matching_paren(s: &str) -> Option<usize> {
@@ -995,7 +1328,14 @@ fn find_matching_paren(s: &str) -> Option<usize> {
 }
 
 /// Split a string by commas at the top level (not inside parentheses).
+///
+/// Blank text has no parts. Otherwise every part is kept, an empty one
+/// included, so that `f(x,)` and `f(,x)` reach the term parser's refusal
+/// of an empty term instead of reading as `f(x)`.
 fn split_top_level_commas(s: &str) -> Vec<&str> {
+    if s.trim().is_empty() {
+        return Vec::new();
+    }
     let mut parts = Vec::new();
     let mut depth = 0u32;
     let mut start = 0;
@@ -1010,10 +1350,7 @@ fn split_top_level_commas(s: &str) -> Vec<&str> {
             _ => {}
         }
     }
-    let tail = s[start..].trim();
-    if !tail.is_empty() {
-        parts.push(tail);
-    }
+    parts.push(s[start..].trim());
     parts
 }
 
@@ -1056,16 +1393,6 @@ mod tests {
         let term = parse_term("case s of C(x) => x end")?;
         assert!(matches!(term, panproto_gat::Term::Case { .. }));
         Ok(())
-    }
-
-    #[test]
-    fn test_rewrite_sort_string_preserves_non_ascii() {
-        let mut rewrite = std::collections::HashMap::new();
-        rewrite.insert("Foo.Bar".to_owned(), "Foo_Bar".to_owned());
-        assert_eq!(
-            rewrite_sort_string("Foo.Bar(\u{e9}\u{1f600})", &rewrite),
-            "Foo_Bar(\u{e9}\u{1f600})"
-        );
     }
 
     #[test]

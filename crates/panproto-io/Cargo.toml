@@ -9,6 +9,8 @@ homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 description = "Instance parsing and emission for panproto protocols"
+# The vendored conformance corpora are test data with their own licences.
+exclude = ["tests/fixtures/conformance"]
 
 [lints]
 workspace = true
@@ -18,6 +20,7 @@ workspace = true
 panproto-gat = { workspace = true }
 panproto-schema = { workspace = true }
 panproto-inst = { workspace = true }
+panproto-expr = { workspace = true }
 panproto-protocols = { workspace = true }
 panproto-lens = { workspace = true }
 
@@ -49,7 +52,7 @@ tree-sitter = { workspace = true, optional = true }
 
 [features]
 default = []
-tree-sitter = ["dep:panproto-parse", "dep:panproto-grammars", "dep:tree-sitter", "panproto-parse/group-data", "panproto-parse/lang-tsv", "panproto-grammars/lang-tsv"]
+tree-sitter = ["dep:panproto-parse", "dep:panproto-grammars", "dep:tree-sitter", "panproto-parse/group-data", "panproto-parse/lang-tsv", "panproto-grammars/lang-tsv", "panproto-parse/lang-turtle", "panproto-grammars/lang-turtle", "panproto-parse/lang-postgresql", "panproto-grammars/lang-postgresql"]
 
 [dev-dependencies]
 divan = { workspace = true }

@@ -640,8 +640,9 @@ pp_handle_free (
  *  `hom_search::find_best_morphism`.
  *
  *  A CBOR `null` means no total morphism exists. A search that could not be
- *  posed returns `PpStatus::Operation` instead, so a host is never told "no
- *  morphism exists" about a pair the engine could not search.
+ *  posed, or that a budget stopped before it proved an answer optimal, returns
+ *  `PpStatus::Operation` instead, so a host is never told "no morphism exists"
+ *  about a pair the engine could not search or did not finish searching.
  */
 int32_t
 pp_hom_find_best_morphism (
@@ -669,8 +670,9 @@ pp_hom_find_best_morphism (
  *  what it always got. A host that walked the list for a suboptimal
  *  alternative will not find one: there is no k-best over distinct quality
  *  levels. Empty means no total morphism exists, and only that: a search that
- *  could not be posed returns `PpStatus::Operation` with the reason, rather
- *  than an empty list under a success status.
+ *  could not be posed, or that a budget stopped before it proved an answer
+ *  optimal, returns `PpStatus::Operation` with the reason, rather than an empty
+ *  list or an unproved morphism under a success status.
  */
 int32_t
 pp_hom_find_morphisms (

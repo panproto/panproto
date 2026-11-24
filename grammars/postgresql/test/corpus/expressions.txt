@@ -1,0 +1,494 @@
+================================================================================
+Arithmetic precedence
+================================================================================
+
+SELECT 1 + 2 * 3;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (SelectStmt
+        (select_no_parens
+          (simple_select
+            (kw_select)
+            (opt_target_list
+              (target_list
+                (target_el
+                  (a_expr
+                    (a_expr
+                      (a_expr_prec
+                        (c_expr
+                          (AexprConst
+                            (Iconst
+                              (integer_literal)))))
+                      (a_expr_prec
+                        (a_expr_prec
+                          (c_expr
+                            (AexprConst
+                              (Iconst
+                                (integer_literal)))))
+                        (a_expr_prec
+                          (c_expr
+                            (AexprConst
+                              (Iconst
+                                (integer_literal)))))))))))))))))
+
+================================================================================
+Unary minus
+================================================================================
+
+SELECT -1;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (SelectStmt
+        (select_no_parens
+          (simple_select
+            (kw_select)
+            (opt_target_list
+              (target_list
+                (target_el
+                  (a_expr
+                    (a_expr
+                      (a_expr_prec
+                        (c_expr
+                          (AexprConst
+                            (Iconst
+                              (integer_literal))))))))))))))))
+
+================================================================================
+Boolean operators
+================================================================================
+
+SELECT a AND b OR c;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (SelectStmt
+        (select_no_parens
+          (simple_select
+            (kw_select)
+            (opt_target_list
+              (target_list
+                (target_el
+                  (a_expr
+                    (a_expr
+                      (a_expr
+                        (a_expr
+                          (c_expr
+                            (columnref
+                              (ColId
+                                (identifier))))))
+                      (kw_and)
+                      (a_expr
+                        (a_expr
+                          (c_expr
+                            (columnref
+                              (ColId
+                                (identifier)))))))
+                    (kw_or)
+                    (a_expr
+                      (a_expr
+                        (c_expr
+                          (columnref
+                            (ColId
+                              (identifier))))))))))))))))
+
+================================================================================
+Comparison
+================================================================================
+
+SELECT a > 1;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (SelectStmt
+        (select_no_parens
+          (simple_select
+            (kw_select)
+            (opt_target_list
+              (target_list
+                (target_el
+                  (a_expr
+                    (a_expr
+                      (a_expr_prec
+                        (c_expr
+                          (columnref
+                            (ColId
+                              (identifier)))))
+                      (a_expr_prec
+                        (c_expr
+                          (AexprConst
+                            (Iconst
+                              (integer_literal))))))))))))))))
+
+================================================================================
+Typecast
+================================================================================
+
+SELECT a::int;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (SelectStmt
+        (select_no_parens
+          (simple_select
+            (kw_select)
+            (opt_target_list
+              (target_list
+                (target_el
+                  (a_expr
+                    (a_expr
+                      (a_expr_prec
+                        (c_expr
+                          (columnref
+                            (ColId
+                              (identifier)))))
+                      (Typename
+                        (SimpleTypename
+                          (Numeric
+                            (kw_int)))))))))))))))
+
+================================================================================
+String literal
+================================================================================
+
+SELECT 'hello';
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (SelectStmt
+        (select_no_parens
+          (simple_select
+            (kw_select)
+            (opt_target_list
+              (target_list
+                (target_el
+                  (a_expr
+                    (a_expr
+                      (c_expr
+                        (AexprConst
+                          (Sconst
+                            (string_literal)))))))))))))))
+
+================================================================================
+Dollar-quoted string
+================================================================================
+
+SELECT $$hello$$;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (SelectStmt
+        (select_no_parens
+          (simple_select
+            (kw_select)
+            (opt_target_list
+              (target_list
+                (target_el
+                  (a_expr
+                    (a_expr
+                      (c_expr
+                        (AexprConst
+                          (Sconst
+                            (dollar_quoted_string)))))))))))))))
+
+================================================================================
+Tagged dollar-quoted string
+================================================================================
+
+SELECT $tag$body with $$ nested$tag$;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (SelectStmt
+        (select_no_parens
+          (simple_select
+            (kw_select)
+            (opt_target_list
+              (target_list
+                (target_el
+                  (a_expr
+                    (a_expr
+                      (c_expr
+                        (AexprConst
+                          (Sconst
+                            (dollar_quoted_string)))))))))))))))
+
+================================================================================
+Multiple dollar-quoted strings on one line
+================================================================================
+
+SELECT $a$first$a$, $b$second$b$;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (SelectStmt
+        (select_no_parens
+          (simple_select
+            (kw_select)
+            (opt_target_list
+              (target_list
+                (target_list
+                  (target_el
+                    (a_expr
+                      (a_expr
+                        (c_expr
+                          (AexprConst
+                            (Sconst
+                              (dollar_quoted_string))))))))
+                (target_el
+                  (a_expr
+                    (a_expr
+                      (c_expr
+                        (AexprConst
+                          (Sconst
+                            (dollar_quoted_string)))))))))))))))
+
+================================================================================
+Decimal float literals
+================================================================================
+
+SELECT 0.00, 0.0;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (SelectStmt
+        (select_no_parens
+          (simple_select
+            (kw_select)
+            (opt_target_list
+              (target_list
+                (target_list
+                  (target_el
+                    (a_expr
+                      (a_expr
+                        (c_expr
+                          (AexprConst
+                            (float_literal)))))))
+                (target_el
+                  (a_expr
+                    (a_expr
+                      (c_expr
+                        (AexprConst
+                          (float_literal))))))))))))))
+
+================================================================================
+AT TIME ZONE and AT LOCAL
+================================================================================
+
+SELECT ts AT TIME ZONE 'UTC', ts AT LOCAL FROM t;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (SelectStmt
+        (select_no_parens
+          (simple_select
+            (kw_select)
+            (opt_target_list
+              (target_list
+                (target_list
+                  (target_el
+                    (a_expr
+                      (a_expr
+                        (a_expr
+                          (c_expr
+                            (columnref
+                              (ColId
+                                (identifier))))))
+                      (kw_at)
+                      (kw_time)
+                      (kw_zone)
+                      (a_expr
+                        (a_expr
+                          (c_expr
+                            (AexprConst
+                              (Sconst
+                                (string_literal)))))))))
+                (target_el
+                  (a_expr
+                    (a_expr
+                      (a_expr
+                        (c_expr
+                          (columnref
+                            (ColId
+                              (identifier))))))
+                    (kw_at)
+                    (kw_local)))))
+            (from_clause
+              (kw_from)
+              (from_list
+                (table_ref
+                  (relation_expr
+                    (qualified_name
+                      (ColId
+                        (identifier)))))))))))))
+
+================================================================================
+Escape string literal
+================================================================================
+
+SELECT E'a\'b', E'(\/|\<)';
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (SelectStmt
+        (select_no_parens
+          (simple_select
+            (kw_select)
+            (opt_target_list
+              (target_list
+                (target_list
+                  (target_el
+                    (a_expr
+                      (a_expr
+                        (c_expr
+                          (AexprConst
+                            (Sconst
+                              (escape_string_literal))))))))
+                (target_el
+                  (a_expr
+                    (a_expr
+                      (c_expr
+                        (AexprConst
+                          (Sconst
+                            (escape_string_literal)))))))))))))))
+
+================================================================================
+String continuation across a line break
+================================================================================
+
+SELECT 'foo'
+'bar';
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (SelectStmt
+        (select_no_parens
+          (simple_select
+            (kw_select)
+            (opt_target_list
+              (target_list
+                (target_el
+                  (a_expr
+                    (a_expr
+                      (c_expr
+                        (AexprConst
+                          (Sconst
+                            (string_literal)))))))))))))))
+
+================================================================================
+String continuation past a line comment
+================================================================================
+
+SELECT 'foo' -- note
+'bar';
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (SelectStmt
+        (select_no_parens
+          (simple_select
+            (kw_select)
+            (opt_target_list
+              (target_list
+                (target_el
+                  (a_expr
+                    (a_expr
+                      (c_expr
+                        (AexprConst
+                          (Sconst
+                            (string_literal)))))))))))))))
+
+================================================================================
+Bit string continuation across a line break
+================================================================================
+
+SELECT B'0101'
+'1111';
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (SelectStmt
+        (select_no_parens
+          (simple_select
+            (kw_select)
+            (opt_target_list
+              (target_list
+                (target_el
+                  (a_expr
+                    (a_expr
+                      (c_expr
+                        (AexprConst
+                          (bit_string_literal))))))))))))))
+
+================================================================================
+Adjacent strings on one line are not continued
+================================================================================
+
+SELECT 'foo'      'bar';
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (SelectStmt
+        (select_no_parens
+          (simple_select
+            (kw_select)
+            (opt_target_list
+              (target_list
+                (target_el
+                  (a_expr
+                    (a_expr
+                      (c_expr
+                        (AexprConst
+                          (Sconst
+                            (string_literal))))))))))))))
+  (ERROR
+    (string_literal)))

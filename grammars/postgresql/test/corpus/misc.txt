@@ -1,0 +1,133 @@
+================================================================================
+EXPLAIN
+================================================================================
+
+EXPLAIN SELECT 1;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (ExplainStmt
+        (kw_explain)
+        (ExplainableStmt
+          (SelectStmt
+            (select_no_parens
+              (simple_select
+                (kw_select)
+                (opt_target_list
+                  (target_list
+                    (target_el
+                      (a_expr
+                        (a_expr
+                          (c_expr
+                            (AexprConst
+                              (Iconst
+                                (integer_literal)))))))))))))))))
+
+================================================================================
+Empty statements
+================================================================================
+
+;;
+
+--------------------------------------------------------------------------------
+
+(source_file)
+
+================================================================================
+Multiple statements
+================================================================================
+
+SELECT 1;
+SELECT 2;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (SelectStmt
+        (select_no_parens
+          (simple_select
+            (kw_select)
+            (opt_target_list
+              (target_list
+                (target_el
+                  (a_expr
+                    (a_expr
+                      (c_expr
+                        (AexprConst
+                          (Iconst
+                            (integer_literal))))))))))))))
+  (toplevel_stmt
+    (stmt
+      (SelectStmt
+        (select_no_parens
+          (simple_select
+            (kw_select)
+            (opt_target_list
+              (target_list
+                (target_el
+                  (a_expr
+                    (a_expr
+                      (c_expr
+                        (AexprConst
+                          (Iconst
+                            (integer_literal)))))))))))))))
+
+================================================================================
+CASE
+================================================================================
+
+SELECT CASE WHEN a > 0 THEN 1 ELSE 0 END;
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (toplevel_stmt
+    (stmt
+      (SelectStmt
+        (select_no_parens
+          (simple_select
+            (kw_select)
+            (opt_target_list
+              (target_list
+                (target_el
+                  (a_expr
+                    (a_expr
+                      (c_expr
+                        (case_expr
+                          (kw_case)
+                          (when_clause_list
+                            (when_clause
+                              (kw_when)
+                              (a_expr
+                                (a_expr
+                                  (a_expr_prec
+                                    (c_expr
+                                      (columnref
+                                        (ColId
+                                          (identifier)))))
+                                  (a_expr_prec
+                                    (c_expr
+                                      (AexprConst
+                                        (Iconst
+                                          (integer_literal)))))))
+                              (kw_then)
+                              (a_expr
+                                (a_expr
+                                  (c_expr
+                                    (AexprConst
+                                      (Iconst
+                                        (integer_literal))))))))
+                          (case_default
+                            (kw_else)
+                            (a_expr
+                              (a_expr
+                                (c_expr
+                                  (AexprConst
+                                    (Iconst
+                                      (integer_literal)))))))
+                          (kw_end))))))))))))))

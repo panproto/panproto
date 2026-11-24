@@ -28,7 +28,7 @@ let replayed = registry.emit_with_protocol("rust", &schema)?;
 
 ## Grammar selection
 
-`panproto-grammars` vendors 261 grammar feature entries. `panproto-parse` does not
+`panproto-grammars` vendors 262 grammar feature entries. `panproto-parse` does not
 enable all of them by default. Its default `group-core` feature enables Python,
 JavaScript, TypeScript, Java, C#, C++, PHP, Bash, C, Go, and Rust. Enable `group-all`,
 another group, or individual `lang-*` features to select a different set. A

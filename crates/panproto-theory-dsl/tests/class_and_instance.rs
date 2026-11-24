@@ -176,8 +176,8 @@ fn instance_binding_missing_op_rejected() -> Result<(), Box<dyn std::error::Erro
     }"#;
     let doc: panproto_theory_dsl::TheoryDocument = serde_json::from_str(source)?;
     let err = compile(&doc, &resolver).expect_err("should reject missing op binding");
-    match err {
-        TheoryDslError::MorphismCheck { ref morphism, .. } => {
+    match err.unlocated() {
+        TheoryDslError::MorphismCheck { morphism, .. } => {
             assert_eq!(morphism, "EqIntPartial");
         }
         other => panic!("expected MorphismCheck, got {other:?}"),
@@ -214,7 +214,7 @@ fn instance_against_mismatched_target_rejected() -> Result<(), Box<dyn std::erro
     let doc: panproto_theory_dsl::TheoryDocument = serde_json::from_str(source)?;
     let err = compile(&doc, &resolver).expect_err("should reject mismatched target op");
     assert!(
-        matches!(err, TheoryDslError::MorphismCheck { .. }),
+        matches!(err.unlocated(), TheoryDslError::MorphismCheck { .. }),
         "expected MorphismCheck, got {err:?}"
     );
     Ok(())
@@ -249,7 +249,7 @@ fn instance_binding_to_unknown_name_rejected() -> Result<(), Box<dyn std::error:
     }"#;
     let doc: panproto_theory_dsl::TheoryDocument = serde_json::from_str(source)?;
     let err = compile(&doc, &resolver).expect_err("should reject unknown binding key");
-    match err {
+    match err.unlocated() {
         TheoryDslError::InstanceBinding { instance, name, .. } => {
             assert_eq!(instance, "EqIntStray");
             assert_eq!(name, "stray");
@@ -264,4 +264,94 @@ fn class_body_roundtrips_through_document_enum() -> Result<(), Box<dyn std::erro
     let doc = load(&fixture_path("th_eq_class.json"))?;
     assert!(matches!(doc.body, TheoryBody::Class(_)));
     Ok(())
+}
+
+/// The path of the refusal of the JSON document `source`, compiled against
+/// the built-in theories, and the text its span points at.
+fn refusal_place(source: &str) -> (String, String) {
+    let resolver = panproto_theory_dsl::builtin_resolver();
+    let Err(error) = panproto_theory_dsl::compile_source(
+        source,
+        panproto_theory_dsl::SourceFormat::Json,
+        &resolver,
+    ) else {
+        panic!("{source} must be refused");
+    };
+    let pointed = match &error {
+        panproto_theory_dsl::TheoryDslError::Spanned { src, span, .. } => src
+            .get(span.offset()..span.offset() + span.len())
+            .unwrap_or_default()
+            .to_owned(),
+        _ => String::new(),
+    };
+    (
+        error.path().map(ToString::to_string).unwrap_or_default(),
+        pointed,
+    )
+}
+
+#[test]
+fn a_class_refusal_points_at_the_class_member_it_concerns() {
+    assert_eq!(
+        refusal_place(
+            r#"{"id":"k","description":"","class":"Eq","params":["T"],"signatures":[{"name":"eq","inputs":[{"name":"a","sort":"T"}],"output":"Bool"}]}"#
+        ),
+        ("/signatures/0/output".to_owned(), "\"Bool\"".to_owned())
+    );
+    assert_eq!(
+        refusal_place(
+            r#"{"id":"k","description":"","class":"Eq","params":["T","T"],"signatures":[]}"#
+        ),
+        ("/params/1".to_owned(), "\"T\"".to_owned())
+    );
+    assert_eq!(
+        refusal_place(
+            r#"{"id":"k","description":"","class":"Eq","params":["T"],"signatures":[{"name":"f","input":"T","output":"T"}],"axioms":[{"name":"x","lhs":"g(a)","rhs":"a"}]}"#
+        )
+        .0,
+        "/axioms/0"
+    );
+}
+
+#[test]
+fn an_instance_refuses_its_least_unknown_binding_and_locates_every_refusal() {
+    assert_eq!(
+        refusal_place(
+            r#"{"id":"i","description":"","instance":"I","class":"ThGraph","target":"ThGraph","bindings":{"zz":"Vertex","aa":"Vertex","Vertex":"Vertex"}}"#
+        ),
+        ("/bindings/aa".to_owned(), "\"Vertex\"".to_owned())
+    );
+    assert_eq!(
+        refusal_place(
+            r#"{"id":"i","description":"","instance":"I","class":"Nope","target":"ThGraph","bindings":{}}"#
+        ),
+        ("/class".to_owned(), "\"Nope\"".to_owned())
+    );
+    assert_eq!(
+        refusal_place(
+            r#"{"id":"i","description":"","instance":"I","class":"ThGraph","target":"ThGraph","bindings":{"Vertex":"Vertex"}}"#
+        )
+        .0,
+        "/bindings"
+    );
+    assert_eq!(
+        refusal_place(
+            r#"{"id":"i","description":"","instance":"I","class":"ThGraph","target":"ThGraph","bindings":{"Vertex":"Vertex","Edge":"Edge","src":"tgt","tgt":"nope"}}"#
+        )
+        .0,
+        "/bindings/tgt"
+    );
+}
+
+#[test]
+fn an_inductive_refusal_points_at_the_constructor_or_parameter_it_concerns() {
+    assert_eq!(
+        refusal_place(
+            r#"{"id":"n","description":"","inductive":"List","params":[{"name":"a","sort":"A"}],"constructors":[{"name":"nil"},{"name":"cons","inputs":[{"name":"x","sort":"B"}]}]}"#
+        ),
+        (
+            "/constructors/1/inputs/0/sort".to_owned(),
+            "\"B\"".to_owned()
+        )
+    );
 }

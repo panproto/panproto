@@ -134,7 +134,7 @@ describe('SchemaBuilder', () => {
   });
 
   it('adds hyperedges', () => {
-    const builder = new SchemaBuilder('sql', protocolHandle, wasm)
+    const builder = new SchemaBuilder('postgresql', protocolHandle, wasm)
       .vertex('users', 'table')
       .vertex('posts', 'table')
       .vertex('user_id', 'type')
