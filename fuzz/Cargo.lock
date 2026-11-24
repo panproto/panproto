@@ -98,12 +98,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bumpalo"
-version = "3.20.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
-
-[[package]]
 name = "cc"
 version = "1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -376,7 +370,6 @@ name = "panproto-inst"
 version = "0.77.1"
 dependencies = [
  "blake3",
- "bumpalo",
  "ciborium",
  "panproto-expr",
  "panproto-gat",
