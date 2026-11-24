@@ -38,6 +38,17 @@ in [book/CONTRIBUTING.md](book/CONTRIBUTING.md).
   entry says what breaks and how to migrate.
 - Versions are bumped only at release time, with `.github/scripts/bump_version.py`.
 
+## What CI verifies
+
+[`.config/verification.toml`](.config/verification.toml) declares it, and the workflows derive their jobs from it.
+
+- Every pull request runs the ordinary tests, one machine to a bucket of packages, on stable Rust. The minimum supported Rust version is compiled.
+- The law certificates of a package run when a change can affect it: when the change touches the package, a package it depends on, or a file outside every package.
+- The merge queue runs the same on the commit that will become `main`.
+- The corpus and exhaustive gates run nightly and the Kan agreement weekly. All of them run on the commit of a release, and nothing is published until they and CI have passed on it.
+
+A test that takes longer than about a minute on CI belongs in a gate. Add it to a `[[gate]]` and run `python3 .github/scripts/verification.py write`. CI checks that the tests left out of the ordinary run are exactly the gates, and that the buckets together run every test binary of the workspace.
+
 ## Mutation testing
 
 Pull requests run [cargo-mutants](https://mutants.rs) on the lines they change, and a scheduled job runs it over the
