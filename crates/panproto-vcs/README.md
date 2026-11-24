@@ -33,7 +33,7 @@ serialization. `Store` defines object, ref, HEAD, enumeration, and reflog operat
 in memory.
 
 `Object` currently represents migrations, commits, tags, datasets, migration
-complements, protocols, expressions, edit logs, theories, theory morphisms, CST
+complements, protocols, protocol environments, expressions, edit logs, theories, theory morphisms, CST
 complements, per-file schemas, schema-tree nodes, and flat migration-endpoint schemas.
 There is no standalone `Object::Schema` variant.
 
@@ -52,7 +52,9 @@ serialization are panproto-specific.
 log, cherry-pick, rebase, reset, garbage collection, and data operations. Staging
 derives a migration from HEAD and can run bounded GAT validation. Protocol equations
 are checked only when the caller has registered the corresponding theory with
-`set_protocol_theory`.
+`set_protocol_theory`. A protocol no registry defines is staged with `add_protocol`;
+each commit records what every protocol name means as a `ProtocolEnvironment`, and
+branches whose environments have no pushout do not merge.
 
 Three-way merge compares schema structure, reports typed conflicts, and returns
 migrations from both sides. A clean merge is checked with `verify_pushout` before the
@@ -67,8 +69,9 @@ realizes the full categorical model in that paper.
 
 ## Data migration
 
-`migrate_forward` must be called explicitly with a stored dataset, source and target
-schemas, and a protocol. It stores the migrated dataset and a `ComplementObject`, then
+A data set records the schema and the protocol its records lie over. `migrate_forward`
+must be called explicitly with a stored dataset and a `Fibre`, a schema and a protocol,
+for each end. It stores the migrated dataset and a `ComplementObject`, then
 returns both IDs. `migrate_backward` consumes that complement. A schema commit by
 itself does not capture dropped field values, and the APIs do not promise losslessness
 outside successful lens execution with the matching complement.
