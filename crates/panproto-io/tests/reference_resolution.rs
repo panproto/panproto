@@ -1971,7 +1971,7 @@ fn declared_get_and_put_match_tree_to_graph_production_on_the_resolution_scope()
                 .expect("reference get succeeds");
         assert_eq!(
             reference_put(&reference_schema, &reference_view, &reference_complement),
-            Ok(reference_source.clone()),
+            Ok(reference_source),
             "reference GetPut: {source:?}"
         );
 
@@ -1995,7 +1995,7 @@ fn declared_get_and_put_match_tree_to_graph_production_on_the_resolution_scope()
             .expect("production GetPut");
         assert!(same_instance(
             &restored,
-            &AnyInstance::Tree(production_source.clone())
+            &AnyInstance::Tree(production_source)
         ));
         assert_eq!(
             production_tree_targets(&production_view, &production_picked),
@@ -2379,8 +2379,7 @@ fn all_five_resolution_laws_agree_on_the_exact_resolution_scope() {
             reference_counts.exact_put_get += usize::from(reference_exact);
             production_counts.exact_put_get += usize::from(production_exact);
 
-            let raw_reference =
-                indexed_put(&candidate, &reference_next) == Ok(reference_once.clone());
+            let raw_reference = indexed_put(&candidate, &reference_next) == Ok(reference_once);
             let raw_result = resolution.put(
                 &AnyInstance::Graph(production_candidate.clone()),
                 &production_next,

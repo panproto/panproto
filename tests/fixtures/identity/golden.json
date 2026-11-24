@@ -67,7 +67,7 @@
       "name": "graphql/swapi",
       "protocol": "graphql",
       "source": "fixtures/graphql/swapi.graphql",
-      "digest": "7141720e3a5cf89eb6af6556562511a548e26e7bf1dab434d4ba31c56f44281a"
+      "digest": "9ef04cb28fe79868c1ad5393fb017f469e87083c8f699ee88e4ceb25da351125"
     },
     {
       "name": "json-schema/person",

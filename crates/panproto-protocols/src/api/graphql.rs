@@ -4,7 +4,7 @@
 //! Instance theory: `ThWType`.
 //!
 //! A GraphQL type system document (the September 2025 edition of the
-//! specification, [`EDITION`]) is text in GraphQL's own syntax, and this
+//! specification, [`EDITION`](crate::api::graphql::EDITION)) is text in GraphQL's own syntax, and this
 //! crate links no grammar for it: `panproto_io::api::graphql::read_graphql`
 //! reads it through the bundled tree-sitter GraphQL grammar
 //! (feature `tree-sitter` of `panproto-io`) into a schema of this protocol,
@@ -13,17 +13,17 @@
 //!
 //! Every vertex is a schema element whose id is its schema coordinate (the
 //! specification's section 2.14): a named type is a vertex whose kind names
-//! its kind ([`TYPE_KINDS`]) and whose id is the type's name, a field of an
-//! object or interface type a [`FIELD`] vertex `Type.field`, an argument an
-//! [`ARGUMENT`] vertex `Type.field(arg:)` or `@directive(arg:)`, an input
-//! field an [`INPUT_FIELD`] vertex `Input.field`, an enum value an
-//! [`ENUM_VALUE`] vertex `Enum.VALUE`, and a directive definition a
-//! [`DIRECTIVE`] vertex `@directive`. The schema itself is the [`SCHEMA`]
-//! vertex [`SCHEMA_VERTEX`], which no coordinate names. The edges ([`EDGES`]) join the schema to its root
+//! its kind ([`TYPE_KINDS`](crate::api::graphql::TYPE_KINDS)) and whose id is the type's name, a field of an
+//! object or interface type a [`FIELD`](crate::api::graphql::FIELD) vertex `Type.field`, an argument an
+//! [`ARGUMENT`](crate::api::graphql::ARGUMENT) vertex `Type.field(arg:)` or `@directive(arg:)`, an input
+//! field an [`INPUT_FIELD`](crate::api::graphql::INPUT_FIELD) vertex `Input.field`, an enum value an
+//! [`ENUM_VALUE`](crate::api::graphql::ENUM_VALUE) vertex `Enum.VALUE`, and a directive definition a
+//! [`DIRECTIVE`](crate::api::graphql::DIRECTIVE) vertex `@directive`. The schema itself is the [`SCHEMA`](crate::api::graphql::SCHEMA)
+//! vertex [`SCHEMA_VERTEX`](crate::api::graphql::SCHEMA_VERTEX), which no coordinate names. The edges ([`EDGES`](crate::api::graphql::EDGES)) join the schema to its root
 //! operation types, a type to its fields, values, members and the
 //! interfaces it implements, and a field, argument or input field to the
 //! named type under its wrappers. Everything else a definition states is a
-//! constraint ([`SORTS`]): its description, its type reference as written
+//! constraint ([`SORTS`](crate::api::graphql::SORTS)): its description, its type reference as written
 //! with its list and non-null wrappers, a default value, each directive
 //! applied to it, and the meaning of the built-in directives
 //! `@deprecated`, `@specifiedBy` and `@oneOf`.

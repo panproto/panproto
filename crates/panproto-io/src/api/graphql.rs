@@ -276,10 +276,10 @@ pub enum Rule {
     /// 3.9: two values with one name.
     #[error("the values of an enum must be unique (3.9)")]
     DuplicateValue,
-    /// 3.10.1: a non-null field of a OneOf Input Object.
+    /// 3.10.1: a non-null field of a `@oneOf` input object.
     #[error("every field of a OneOf Input Object must be nullable (3.10.1)")]
     OneOfNonNull,
-    /// 3.10.1: a default value on a field of a OneOf Input Object.
+    /// 3.10.1: a default value on a field of a `@oneOf` input object.
     #[error("no field of a OneOf Input Object may have a default value (3.10.1)")]
     OneOfDefault,
     /// 3.10.2: `@oneOf` on an input object extension.
@@ -519,16 +519,16 @@ enum Value {
     Bool(bool),
     Null,
     Enum(String),
-    List(Vec<Value>),
-    Object(Vec<(String, Value)>),
+    List(Vec<Self>),
+    Object(Vec<(String, Self)>),
 }
 
 /// A type reference.
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum TypeRef {
     Named(String),
-    List(Box<TypeRef>),
-    NonNull(Box<TypeRef>),
+    List(Box<Self>),
+    NonNull(Box<Self>),
 }
 
 impl TypeRef {
@@ -1144,7 +1144,7 @@ impl Syntax<'_, '_> {
 /// The specification's `BlockStringValue(rawValue)`.
 fn block_string_value(raw: &str) -> String {
     let normalized = raw.replace("\r\n", "\n").replace('\r', "\n");
-    let mut lines: Vec<&str> = normalized.split('\n').collect();
+    let lines: Vec<&str> = normalized.split('\n').collect();
     let indent_of = |line: &str| line.len() - line.trim_start_matches([' ', '\t']).len();
     let common = lines
         .iter()
@@ -1153,7 +1153,7 @@ fn block_string_value(raw: &str) -> String {
         .map(|line| indent_of(line))
         .min();
     let mut owned: Vec<String> = Vec::with_capacity(lines.len());
-    for (i, line) in lines.drain(..).enumerate() {
+    for (i, line) in lines.into_iter().enumerate() {
         match common {
             Some(n) if i > 0 => owned.push(line.get(n..).unwrap_or_default().to_owned()),
             _ => owned.push(line.to_owned()),
@@ -1771,15 +1771,15 @@ impl TypeSystem {
         if sub == sup {
             return true;
         }
-        let (Some(sub_ty), Some(sup_ty)) = (self.ty(sub), self.ty(sup)) else {
+        let (Some(lower), Some(upper)) = (self.ty(sub), self.ty(sup)) else {
             return false;
         };
-        (sub_ty.kind == OBJECT
-            && sup_ty.kind == UNION
-            && sup_ty.body.members.iter().any(|(m, _)| m == sub))
-            || (matches!(sub_ty.kind, OBJECT | INTERFACE)
-                && sup_ty.kind == INTERFACE
-                && sub_ty.body.interfaces.iter().any(|(i, _)| i == sup))
+        (lower.kind == OBJECT
+            && upper.kind == UNION
+            && upper.body.members.iter().any(|(m, _)| m == sub))
+            || (matches!(lower.kind, OBJECT | INTERFACE)
+                && upper.kind == INTERFACE
+                && lower.body.interfaces.iter().any(|(i, _)| i == sup))
     }
 
     /// An input object must not reach itself through non-null singular
@@ -2398,18 +2398,14 @@ impl Plan {
         }
         let mut edges = self.edges;
         edges.extend(self.late);
-        let mut by_source: Vec<String> = Vec::new();
-        for (src, ..) in &edges {
-            if !by_source.contains(src) {
-                by_source.push(src.clone());
-            }
-        }
-        for source in &by_source {
-            for (src, tgt, kind, name) in edges.iter().filter(|e| &e.0 == source) {
-                builder = builder
-                    .edge(src, tgt, kind, name.as_deref())
-                    .map_err(|e| e.to_string())?;
-            }
+        // A schema's identity includes the order of each vertex's in-edges, so
+        // the edges are added in the order of their sources' ids: the order
+        // the definitions are in is then no part of the schema.
+        edges.sort_by(|(left, ..), (right, ..)| left.cmp(right));
+        for (src, tgt, kind, name) in &edges {
+            builder = builder
+                .edge(src, tgt, kind, name.as_deref())
+                .map_err(|e| e.to_string())?;
         }
         builder.build().map_err(|e| e.to_string())
     }
@@ -2485,7 +2481,7 @@ pub fn write_graphql(schema: &Schema) -> Result<String, GraphQlWriteError> {
             .name
             .as_deref()
             .ok_or_else(|| GraphQlWriteError::Structure(SCHEMA_VERTEX.to_owned()))?;
-        let _ = write!(out, "  {name}: {}\n", edge.tgt);
+        let _ = writeln!(out, "  {name}: {}", edge.tgt);
     }
     out.push_str("}\n");
     let mut ids: Vec<&str> = schema
@@ -2512,6 +2508,14 @@ pub fn write_graphql(schema: &Schema) -> Result<String, GraphQlWriteError> {
         out.push_str(&w.type_definition(id)?);
     }
     Ok(out)
+}
+
+/// `value` as GraphQL text, or the refusal naming the constraint it is of.
+fn written_string(id: &str, sort: &str, value: &str) -> Result<String, GraphQlWriteError> {
+    string_text(value).ok_or_else(|| GraphQlWriteError::String {
+        vertex: id.to_owned(),
+        sort: sort.to_owned(),
+    })
 }
 
 struct Writer<'s> {
@@ -2544,17 +2548,13 @@ impl Writer<'_> {
             .collect()
     }
 
-    fn string(&self, id: &str, sort: &str, value: &str) -> Result<String, GraphQlWriteError> {
-        string_text(value).ok_or_else(|| GraphQlWriteError::String {
-            vertex: id.to_owned(),
-            sort: sort.to_owned(),
-        })
-    }
-
     /// The description of `id`, on its own line at `indent`, or nothing.
     fn description(&self, id: &str, indent: &str) -> Result<String, GraphQlWriteError> {
         Ok(match self.constraint(id, DESCRIPTION) {
-            Some(text) => format!("{indent}{}\n{indent}", self.string(id, DESCRIPTION, text)?),
+            Some(text) => format!(
+                "{indent}{}\n{indent}",
+                written_string(id, DESCRIPTION, text)?
+            ),
             None => String::new(),
         })
     }
@@ -2567,11 +2567,11 @@ impl Writer<'_> {
             out.push_str(applied);
         }
         if let Some(reason) = self.constraint(id, DEPRECATED) {
-            let text = self.string(id, DEPRECATED, reason)?;
+            let text = written_string(id, DEPRECATED, reason)?;
             let _ = write!(out, " @deprecated(reason: {text})");
         }
         if let Some(url) = self.constraint(id, SPECIFIED_BY) {
-            let text = self.string(id, SPECIFIED_BY, url)?;
+            let text = written_string(id, SPECIFIED_BY, url)?;
             let _ = write!(out, " @specifiedBy(url: {text})");
         }
         if self.constraint(id, ONE_OF).is_some() {
@@ -2625,7 +2625,7 @@ impl Writer<'_> {
         if self.constraint(id, REPEATABLE).is_some() {
             out.push_str(" repeatable");
         }
-        let _ = write!(out, " on {}\n", self.constraints(id, LOCATION).join(" | "));
+        let _ = writeln!(out, " on {}", self.constraints(id, LOCATION).join(" | "));
         Ok(out)
     }
 
@@ -2664,9 +2664,9 @@ impl Writer<'_> {
                     if self.constraint(field, DESCRIPTION).is_none() {
                         out.push_str("  ");
                     }
-                    let _ = write!(
+                    let _ = writeln!(
                         out,
-                        "{name}{}: {}{}\n",
+                        "{name}{}: {}{}",
                         self.arguments(field)?,
                         self.type_text(field)?,
                         self.directives(field)?
@@ -2698,14 +2698,14 @@ impl Writer<'_> {
                     if self.constraint(value, DESCRIPTION).is_none() {
                         out.push_str("  ");
                     }
-                    let _ = write!(out, "{name}{}\n", self.directives(value)?);
+                    let _ = writeln!(out, "{name}{}", self.directives(value)?);
                 }
                 out.push_str("}\n");
             }
             INPUT_OBJECT => {
                 out.push_str(" {\n");
                 for edge in self.edges(id, INPUT_FIELD_EDGE) {
-                    let _ = write!(out, "  {}\n", self.input_value(edge)?);
+                    let _ = writeln!(out, "  {}", self.input_value(edge)?);
                 }
                 out.push_str("}\n");
             }

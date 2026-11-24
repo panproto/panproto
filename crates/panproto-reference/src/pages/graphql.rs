@@ -439,9 +439,9 @@ fn type_text(t: &TypeDef, extend: bool) -> String {
     if !t.fields.is_empty() {
         out.push_str(" {\n");
         for f in &t.fields {
-            let _ = write!(
+            let _ = writeln!(
                 out,
-                "{}{}{}: {}{}\n",
+                "{}{}{}: {}{}",
                 desc_text(f.desc.as_ref()),
                 f.name,
                 args_text(&f.args),
@@ -454,9 +454,9 @@ fn type_text(t: &TypeDef, extend: bool) -> String {
     if !t.values.is_empty() {
         out.push_str(" {\n");
         for v in &t.values {
-            let _ = write!(
+            let _ = writeln!(
                 out,
-                "{}{}{}\n",
+                "{}{}{}",
                 desc_text(v.desc.as_ref()),
                 v.name,
                 dirs_text(&v.dirs)
@@ -484,16 +484,16 @@ pub fn render(doc: &[Def]) -> String {
         match def {
             Def::Schema { desc, dirs, roots } => {
                 out.push_str(&desc_text(desc.as_ref()));
-                let _ = write!(out, "schema{} {{\n", dirs_text(dirs));
+                let _ = writeln!(out, "schema{} {{", dirs_text(dirs));
                 for (op, ty) in roots {
-                    let _ = write!(out, "{op}: {ty}\n");
+                    let _ = writeln!(out, "{op}: {ty}");
                 }
                 out.push_str("}\n");
             }
             Def::ExtendSchema { dirs, root } => {
-                let _ = write!(
+                let _ = writeln!(
                     out,
-                    "extend schema{} {{ {}: {} }}\n",
+                    "extend schema{} {{ {}: {} }}",
                     dirs_text(dirs),
                     root.0,
                     root.1
@@ -508,9 +508,9 @@ pub fn render(doc: &[Def]) -> String {
                 repeatable,
                 locations,
             } => {
-                let _ = write!(
+                let _ = writeln!(
                     out,
-                    "{}directive @{name}{}{} on {}\n",
+                    "{}directive @{name}{}{} on {}",
                     desc_text(desc.as_ref()),
                     args_text(args),
                     if *repeatable { " repeatable" } else { "" },
@@ -1030,7 +1030,6 @@ impl System {
         Ok(())
     }
 
-
     /// Whether `start` reaches itself through non-null singular input
     /// fields, and the field closing the first cycle found.
     fn cycle(&self, start: &str) -> Option<String> {
@@ -1165,16 +1164,16 @@ impl System {
                         tys.push(named(&a.ty));
                     }
                 }
-            } else if let Some(t) = work_types.pop() {
-                if let Some(def) = self.types.get(&t) {
-                    applied.extend(&def.dirs);
-                    for v in &def.values {
-                        applied.extend(&v.dirs);
-                    }
-                    for i in &def.inputs {
-                        applied.extend(&i.dirs);
-                        tys.push(named(&i.ty));
-                    }
+            } else if let Some(t) = work_types.pop()
+                && let Some(def) = self.types.get(&t)
+            {
+                applied.extend(&def.dirs);
+                for v in &def.values {
+                    applied.extend(&v.dirs);
+                }
+                for i in &def.inputs {
+                    applied.extend(&i.dirs);
+                    tys.push(named(&i.ty));
                 }
             }
             for d in applied {
@@ -1222,7 +1221,7 @@ impl System {
                     matches!(v, Val::Int(s) if s.parse::<i64>().is_ok_and(|x| i32::try_from(x).is_ok()))
                 }
                 "Float" => {
-                    matches!(v, Val::Int(s) | Val::Float(s) if s.parse::<f64>().is_ok_and(|x| x.is_finite()))
+                    matches!(v, Val::Int(s) | Val::Float(s) if s.parse::<f64>().is_ok_and(f64::is_finite))
                 }
                 "String" => matches!(v, Val::Str(_)),
                 "Boolean" => matches!(v, Val::Bool(_)),
@@ -1383,8 +1382,11 @@ impl System {
 }
 
 /// The reading of a document's model.
+#[derive(Default)]
 struct Out {
     reading: Reading,
+    /// The built-in scalars the type references name.
+    scalars: BTreeSet<String>,
 }
 
 impl Out {
@@ -1406,6 +1408,29 @@ impl Out {
             .entry(id.to_owned())
             .or_default()
             .push((sort.to_owned(), value));
+    }
+
+    /// An edge from `id` to the named type under the wrappers of `ty`.
+    fn type_edge(&mut self, id: &str, ty: &Ty) {
+        self.edge(id, "type", named(ty), None);
+        if SCALARS.contains(&named(ty)) {
+            self.scalars.insert(named(ty).to_owned());
+        }
+    }
+
+    /// An argument or input field of `owner`, whose vertex and the edge to
+    /// it are of kind `kind`.
+    fn input(&mut self, owner: &str, kind: &str, id: &str, input: &Input) {
+        self.vertex(id, kind);
+        self.edge(owner, kind, id, Some(&input.name));
+        self.element(
+            id,
+            input.desc.as_ref(),
+            Some(&input.ty),
+            input.default.as_ref(),
+            &input.dirs,
+        );
+        self.type_edge(id, &input.ty);
     }
 
     /// Description, type, default, custom directives, deprecation.
@@ -1463,90 +1488,14 @@ pub fn read(doc: &[Def]) -> R<Reading> {
 }
 
 fn build(s: &System) -> Reading {
-    let mut out = Out {
-        reading: Reading::default(),
-    };
-    let mut scalars: BTreeSet<String> = BTreeSet::new();
-    let mut note = |t: &Ty| {
-        if SCALARS.contains(&named(t)) {
-            scalars.insert(named(t).to_owned());
-        }
-    };
+    let mut out = Out::default();
     out.vertex(SCHEMA, "schema");
     out.element(SCHEMA, s.schema_desc.as_ref(), None, None, &s.schema_dirs);
     for (op, t) in &s.roots {
         out.edge(SCHEMA, "root", t, Some(op));
     }
     for t in s.ordered() {
-        let name = t.name.as_str();
-        out.vertex(name, t.kind.vertex());
-        out.element(name, t.desc.as_ref(), None, None, &t.dirs);
-        if let Some(url) = t
-            .dirs
-            .iter()
-            .find(|d| d.name == "specifiedBy")
-            .and_then(|d| d.args.iter().find(|(k, _)| k == "url"))
-            .and_then(|(_, v)| {
-                if let Val::Str(u) = v {
-                    Some(u.clone())
-                } else {
-                    None
-                }
-            })
-        {
-            out.put(name, "specified-by", url);
-        }
-        if has(&t.dirs, "oneOf") {
-            out.put(name, "one-of", "true".to_owned());
-        }
-        for i in &t.implements {
-            out.edge(name, "implements", i, Some(i));
-        }
-        for f in &t.fields {
-            let id = format!("{name}.{}", f.name);
-            out.vertex(&id, "field");
-            out.edge(name, "field", &id, Some(&f.name));
-            out.element(&id, f.desc.as_ref(), Some(&f.ty), None, &f.dirs);
-            note(&f.ty);
-            for a in &f.args {
-                let aid = format!("{id}({}:)", a.name);
-                out.vertex(&aid, "argument");
-                out.edge(&id, "argument", &aid, Some(&a.name));
-                out.element(
-                    &aid,
-                    a.desc.as_ref(),
-                    Some(&a.ty),
-                    a.default.as_ref(),
-                    &a.dirs,
-                );
-                out.edge(&aid, "type", named(&a.ty), None);
-                note(&a.ty);
-            }
-            out.edge(&id, "type", named(&f.ty), None);
-        }
-        for m in &t.members {
-            out.edge(name, "member", m, Some(m));
-        }
-        for v in &t.values {
-            let id = format!("{name}.{}", v.name);
-            out.vertex(&id, "enum-value");
-            out.edge(name, "value", &id, Some(&v.name));
-            out.element(&id, v.desc.as_ref(), None, None, &v.dirs);
-        }
-        for i in &t.inputs {
-            let id = format!("{name}.{}", i.name);
-            out.vertex(&id, "input-field");
-            out.edge(name, "input-field", &id, Some(&i.name));
-            out.element(
-                &id,
-                i.desc.as_ref(),
-                Some(&i.ty),
-                i.default.as_ref(),
-                &i.dirs,
-            );
-            out.edge(&id, "type", named(&i.ty), None);
-            note(&i.ty);
-        }
+        build_type(&mut out, t);
     }
     for (name, desc) in &s.directive_order {
         let d = &s.directives[name];
@@ -1560,25 +1509,56 @@ fn build(s: &System) -> Reading {
             out.put(&id, "location", loc.clone());
         }
         for a in &d.args {
-            let aid = format!("{id}({}:)", a.name);
-            out.vertex(&aid, "argument");
-            out.edge(&id, "argument", &aid, Some(&a.name));
-            out.element(
-                &aid,
-                a.desc.as_ref(),
-                Some(&a.ty),
-                a.default.as_ref(),
-                &a.dirs,
-            );
-            out.edge(&aid, "type", named(&a.ty), None);
-            note(&a.ty);
+            out.input(&id, "argument", &format!("{id}({}:)", a.name), a);
         }
     }
-    for scalar in scalars {
+    for scalar in std::mem::take(&mut out.scalars) {
         out.vertex(&scalar, "scalar");
         out.put(&scalar, "built-in", "true".to_owned());
     }
     out.reading
+}
+
+fn build_type(out: &mut Out, t: &TypeDef) {
+    let name = t.name.as_str();
+    out.vertex(name, t.kind.vertex());
+    out.element(name, t.desc.as_ref(), None, None, &t.dirs);
+    let url = t
+        .dirs
+        .iter()
+        .find(|d| d.name == "specifiedBy")
+        .and_then(|d| d.args.iter().find(|(k, _)| k == "url"));
+    if let Some((_, Val::Str(url))) = url {
+        out.put(name, "specified-by", url.clone());
+    }
+    if has(&t.dirs, "oneOf") {
+        out.put(name, "one-of", "true".to_owned());
+    }
+    for i in &t.implements {
+        out.edge(name, "implements", i, Some(i));
+    }
+    for f in &t.fields {
+        let id = format!("{name}.{}", f.name);
+        out.vertex(&id, "field");
+        out.edge(name, "field", &id, Some(&f.name));
+        out.element(&id, f.desc.as_ref(), Some(&f.ty), None, &f.dirs);
+        for a in &f.args {
+            out.input(&id, "argument", &format!("{id}({}:)", a.name), a);
+        }
+        out.type_edge(&id, &f.ty);
+    }
+    for m in &t.members {
+        out.edge(name, "member", m, Some(m));
+    }
+    for v in &t.values {
+        let id = format!("{name}.{}", v.name);
+        out.vertex(&id, "enum-value");
+        out.edge(name, "value", &id, Some(&v.name));
+        out.element(&id, v.desc.as_ref(), None, None, &v.dirs);
+    }
+    for i in &t.inputs {
+        out.input(name, "input-field", &format!("{name}.{}", i.name), i);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1610,10 +1590,10 @@ fn out_edges<'r>(r: &'r Reading, id: &str, kind: &str) -> Vec<(&'r str, &'r str)
 }
 
 fn applied_of(r: &Reading, id: &str) -> String {
-    let mut out: String = sorts(r, id, "directive")
-        .iter()
-        .map(|d| format!(" {d}"))
-        .collect();
+    let mut out = String::new();
+    for directive in sorts(r, id, "directive") {
+        let _ = write!(out, " {directive}");
+    }
     if let Some(reason) = sorts(r, id, "deprecated").first() {
         let _ = write!(
             out,
@@ -1683,9 +1663,9 @@ pub fn canonical_text(doc: &[Def]) -> Option<String> {
             .unwrap_or_default()
     };
     let mut out = top(SCHEMA);
-    let _ = write!(out, "schema{} {{\n", applied_of(&r, SCHEMA));
+    let _ = writeln!(out, "schema{} {{", applied_of(&r, SCHEMA));
     for (t, op) in out_edges(&r, SCHEMA, "root") {
-        let _ = write!(out, "  {op}: {t}\n");
+        let _ = writeln!(out, "  {op}: {t}");
     }
     out.push_str("}\n");
     for (id, kind) in &r.vertices {
@@ -1698,7 +1678,7 @@ pub fn canonical_text(doc: &[Def]) -> Option<String> {
         if !sorts(&r, id, "repeatable").is_empty() {
             out.push_str(" repeatable");
         }
-        let _ = write!(out, " on {}\n", sorts(&r, id, "location").join(" | "));
+        let _ = writeln!(out, " on {}", sorts(&r, id, "location").join(" | "));
     }
     let keyword = |k: &str| match k {
         "scalar" => Some("scalar"),
@@ -1730,9 +1710,9 @@ pub fn canonical_text(doc: &[Def]) -> Option<String> {
                 out.push_str(" {\n");
                 for (f, name) in out_edges(&r, id, "field") {
                     out.push_str(&described(&r, f, "  "));
-                    let _ = write!(
+                    let _ = writeln!(
                         out,
-                        "{name}{}: {}{}\n",
+                        "{name}{}: {}{}",
                         arguments_of(&r, f),
                         sorts(&r, f, "type").first().copied().unwrap_or_default(),
                         applied_of(&r, f)
@@ -1754,14 +1734,14 @@ pub fn canonical_text(doc: &[Def]) -> Option<String> {
                 out.push_str(" {\n");
                 for (v, name) in out_edges(&r, id, "value") {
                     out.push_str(&described(&r, v, "  "));
-                    let _ = write!(out, "{name}{}\n", applied_of(&r, v));
+                    let _ = writeln!(out, "{name}{}", applied_of(&r, v));
                 }
                 out.push_str("}\n");
             }
             "input-object" => {
                 out.push_str(" {\n");
                 for (f, name) in out_edges(&r, id, "input-field") {
-                    let _ = write!(out, "  {}\n", input_of(&r, f, name));
+                    let _ = writeln!(out, "  {}", input_of(&r, f, name));
                 }
                 out.push_str("}\n");
             }

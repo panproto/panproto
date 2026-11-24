@@ -287,6 +287,7 @@ fn a_protocol_read_through_a_grammar_names_its_reader() {
                 "cloudformation",
                 "panproto_io::config::cloudformation::read_template"
             ),
+            ("graphql", "panproto_io::api::graphql::read_graphql"),
             (
                 "json-schema",
                 "panproto_io::data_schema::json_schema::read_schema"

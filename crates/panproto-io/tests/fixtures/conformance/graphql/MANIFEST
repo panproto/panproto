@@ -58,3 +58,4 @@ invalid/block-string-quote.graphql		BlockStringQuote	the grammar parses no quote
 invalid/schema-extension-directives.graphql		SchemaExtension	the grammar parses only extend schema with one operation type
 invalid/built-in-scalar-extension.graphql	Int	BuiltInScalarExtension	an extension of a built-in scalar is not read
 invalid/operation.graphql		Executable	an executable definition is not read
+upstream/kitchenSinkSDL.graphql		Syntax	the location DIRECTIVE_DEFINITION and extend directive are not in the September 2025 edition

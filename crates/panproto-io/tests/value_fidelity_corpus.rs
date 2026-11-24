@@ -846,7 +846,7 @@ fn delimited_exact_values_survive_forced_rerenders() {
             Some(&Value::Str("_".into()))
         );
 
-        let mut edited = instance.clone();
+        let mut edited = instance;
         let row = edited.table("rows").expect("rows table").ids()[0];
         let edited_row = edited.row_mut(row).expect("row");
         for (column, value) in edited_exact_values().into_iter().chain([
@@ -3551,7 +3551,7 @@ timestamp: !!timestamp 2026-09-28T12:34:56.789+05:30
             reordered.arcs.reverse();
             assert_tree_structural_refusal(&codec, &schema, &reordered, &complement, format);
 
-            let mut reparented = instance.clone();
+            let mut reparented = instance;
             reparented.arcs[1].0 = reparented.arcs[0].1;
             assert_tree_structural_refusal(&codec, &schema, &reparented, &complement, format);
         }
@@ -3655,7 +3655,7 @@ timestamp: !!timestamp 2026-09-28T12:34:56.789+05:30
                 }) if actual == format
             ));
 
-            let mut extra_column = instance.clone();
+            let mut extra_column = instance;
             extra_column
                 .row_mut(row)
                 .expect("value row")
