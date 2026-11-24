@@ -155,6 +155,15 @@ that exact schema without changing HEAD or the staged schema. The committed
 data set retains the selected ID, and malformed, missing, or non-schema object
 IDs are rejected.
 
+Records are validated under the protocol their schema names. A custom protocol
+resolves in every `Repository` handle of the process that built a schema with
+it, and `add()` stages it, so the commit records it and other processes resolve
+it too. `add_protocol(protocol)` stages a protocol by hand, and
+`set_protocol(protocol)` registers one with a single handle. A commit records
+one protocol. Data committed under any other custom protocol can still be read
+with `decoded_data_at`, checked against its schema alone; staging more of it in
+a new process takes `set_protocol` first.
+
 ## Development
 
 Build the extension and run the Python test suite from this directory:

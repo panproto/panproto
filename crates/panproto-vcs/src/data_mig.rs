@@ -433,6 +433,26 @@ pub fn commit_protocol(
     }
 }
 
+/// The protocol object a new commit whose schema names `protocol` carries
+/// over from `sources`, the commits it is made from in order of precedence:
+/// the object recorded by the first of them that records one of that name.
+///
+/// # Errors
+///
+/// The errors of [`commit_protocol`].
+pub(crate) fn carried_protocol_id(
+    store: &dyn Store,
+    protocol: &str,
+    sources: &[&CommitObject],
+) -> Result<Option<ObjectId>, VcsError> {
+    for commit in sources {
+        if commit_protocol(store, commit)?.is_some_and(|p| p.name == protocol) {
+            return Ok(commit.protocol_id);
+        }
+    }
+    Ok(None)
+}
+
 /// Lift a commit's versioned data sets through a schema change.
 ///
 /// Returns the data-set and complement object ids the replayed, merged,

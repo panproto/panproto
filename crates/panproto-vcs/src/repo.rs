@@ -554,6 +554,19 @@ impl Repository {
         let parents: Vec<ObjectId> = head_id.into_iter().collect();
         let data_ids: Vec<ObjectId> = index.staged_data.iter().map(|sd| sd.data_id).collect();
 
+        // The staged protocol object, else the one HEAD records when the
+        // committed schema still names it: a commit that stages no protocol
+        // does not change which protocol its schema is read under.
+        let protocol_id = match (index.staged_protocol, head_id) {
+            (Some(staged), _) => Some(staged),
+            (None, Some(head)) => crate::data_mig::carried_protocol_id(
+                &self.store,
+                &schema.protocol,
+                &[&self.load_commit(head)?],
+            )?,
+            (None, None) => None,
+        };
+
         let mut builder = CommitObject::builder(schema_id, schema.protocol, author, message)
             .theory_ids(theory_ids);
         if !parents.is_empty() {
@@ -562,7 +575,7 @@ impl Repository {
         if let Some(mid) = migration_id {
             builder = builder.migration_id(mid);
         }
-        if let Some(pid) = index.staged_protocol {
+        if let Some(pid) = protocol_id {
             builder = builder.protocol_id(pid);
         }
         if !data_ids.is_empty() {
@@ -765,11 +778,23 @@ impl Repository {
         let merged_schema = self.load_schema(merged_schema_id)?;
         let merge_theory_ids = self.store_schema_theory(&merged_schema)?;
 
+        let protocol_id = crate::data_mig::carried_protocol_id(
+            &self.store,
+            &merged_schema.protocol,
+            &[
+                &self.load_commit(ctx.ours_id)?,
+                &self.load_commit(ctx.theirs_id)?,
+            ],
+        )?;
+
         let mut merge_builder =
             CommitObject::builder(merged_schema_id, merged_schema.protocol, ctx.author, msg)
                 .parents(vec![ctx.ours_id, ctx.theirs_id])
                 .migration_id(migration_id)
                 .theory_ids(merge_theory_ids);
+        if let Some(pid) = protocol_id {
+            merge_builder = merge_builder.protocol_id(pid);
+        }
         if !ctx.data_ids.is_empty() {
             merge_builder = merge_builder.data_ids(ctx.data_ids);
         }
@@ -832,7 +857,7 @@ impl Repository {
         if let Some(mid) = migration_id {
             builder = builder.migration_id(mid);
         }
-        if let Some(pid) = old_commit.protocol_id {
+        if let Some(pid) = index.staged_protocol.or(old_commit.protocol_id) {
             builder = builder.protocol_id(pid);
         }
         if !old_commit.data_ids.is_empty() {
@@ -1028,7 +1053,11 @@ impl Repository {
             path,
             &schema,
             protocol.as_ref(),
-            options.skip_verify,
+            if options.skip_verify {
+                RecordCheck::Skipped
+            } else {
+                RecordCheck::Staged
+            },
         )?;
         let record_count = instances.len() as u64;
         let data = rmp_serde::to_vec(&instances)?;
@@ -1161,6 +1190,14 @@ impl Repository {
     /// by each data set, validates every decoded record, verifies the recorded
     /// count, and returns the records in source-JSON-equivalent form.
     ///
+    /// Records are validated under the protocol their schema names: the
+    /// protocol object recorded by the commit at `reference`, else the one
+    /// the name resolves to in the current state (see
+    /// [`set_protocol`](Self::set_protocol)). A schema whose protocol name
+    /// resolves to neither has its records checked against what the schema
+    /// decides by itself, so data outlives the protocol that described it;
+    /// staging new data under such a name is refused.
+    ///
     /// # Errors
     ///
     /// Returns an error if the ref, data set, or schema cannot be read, if the
@@ -1168,16 +1205,28 @@ impl Repository {
     /// committed count, or if a record does not conform to the committed
     /// schema.
     pub fn decoded_data_at(&self, reference: &str) -> Result<Vec<DecodedDataSet>, VcsError> {
+        let commit = self.load_commit(refs::resolve_ref(&self.store, reference)?)?;
+        let recorded = crate::data_mig::commit_protocol(&self.store, &commit)?;
         self.data_at(reference)?
             .into_iter()
-            .map(|dataset| self.decode_data_set(dataset))
+            .map(|dataset| self.decode_data_set(dataset, recorded.as_ref()))
             .collect()
     }
 
-    /// Decode one committed data set through the schema it names.
-    fn decode_data_set(&self, dataset: DataSetObject) -> Result<DecodedDataSet, VcsError> {
+    /// Decode one committed data set through the schema it names, under
+    /// `recorded`, the protocol object of the commit that carries it, when
+    /// the schema names it, and otherwise under the protocol the name
+    /// resolves to in the current state.
+    fn decode_data_set(
+        &self,
+        dataset: DataSetObject,
+        recorded: Option<&Protocol>,
+    ) -> Result<DecodedDataSet, VcsError> {
         let schema = self.load_schema(dataset.schema_id)?;
-        let protocol = self.resolved_protocol(&schema)?;
+        let protocol = match recorded.filter(|p| p.name == schema.protocol) {
+            Some(recorded) => Some(recorded.clone()),
+            None => self.resolved_protocol(&schema)?,
+        };
         let display = dataset
             .key
             .clone()
@@ -1193,7 +1242,7 @@ impl Repository {
                     Path::new(&display),
                     &schema,
                     protocol.as_ref(),
-                    false,
+                    RecordCheck::Committed,
                 )?
             } else {
                 rmp_serde::from_slice(&dataset.data)?
@@ -1212,7 +1261,7 @@ impl Repository {
 
         let mut records = Vec::with_capacity(instances.len());
         for (index, instance) in instances.iter().enumerate() {
-            let reasons = record_violations(&schema, protocol.as_ref(), instance);
+            let reasons = committed_violations(&schema, protocol.as_ref(), instance);
             if !reasons.is_empty() {
                 return Err(VcsError::DataValidationFailed {
                     path: display,
@@ -1426,15 +1475,44 @@ fn candidate_roots(schema: &Schema) -> Vec<&panproto_gat::Name> {
     }
 }
 
+/// What a record is held to when its schema's protocol is, or is not, one
+/// that resolves.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RecordCheck {
+    /// Nothing: the record is parsed and left unchecked.
+    Skipped,
+    /// Everything [`record_violations`] reports, as for a record being
+    /// staged.
+    Staged,
+    /// Everything [`committed_violations`] reports, as for a record read
+    /// back from a commit.
+    Committed,
+}
+
+impl RecordCheck {
+    /// What this check finds wrong with `instance`.
+    fn violations(
+        self,
+        schema: &Schema,
+        protocol: Option<&Protocol>,
+        instance: &panproto_inst::WInstance,
+    ) -> Vec<String> {
+        match self {
+            Self::Skipped => Vec::new(),
+            Self::Staged => record_violations(schema, protocol, instance),
+            Self::Committed => committed_violations(schema, protocol, instance),
+        }
+    }
+}
+
 /// Read a data file's records as W-type instances of `schema`.
 ///
 /// A top-level JSON array is a set of records; anything else is one
-/// record. Each is lifted at one of the schema's entry vertices and,
-/// unless `skip_verify`, checked against the schema's W-type shape and
-/// its attribute constraints. A record is accepted at the first entry
-/// that both reads it and validates it; a record no entry accepts is
-/// reported with what went wrong at each, since which entry was meant
-/// is exactly what is in question.
+/// record. Each is lifted at one of the schema's entry vertices and held to
+/// `check`. A record is accepted at the first entry that both reads it and
+/// passes the check; a record no entry accepts is reported with what went
+/// wrong at each, since which entry was meant is exactly what is in
+/// question.
 ///
 /// Counting bytes instead would report a file which is not JSON at all
 /// as holding one record, which is wrong under any policy: nothing would
@@ -1444,7 +1522,7 @@ fn lift_records(
     path: &Path,
     schema: &Schema,
     protocol: Option<&Protocol>,
-    skip_verify: bool,
+    check: RecordCheck,
 ) -> Result<Vec<panproto_inst::WInstance>, VcsError> {
     let display = path.display().to_string();
     let value: serde_json::Value =
@@ -1467,8 +1545,8 @@ fn lift_records(
     }
 
     // An unknown protocol classifies no vertex kind, so the parse reads
-    // every object and array as structure; validation then refuses the
-    // record for the unknown protocol unless verification is skipped.
+    // every object and array as structure; `check` decides whether that is
+    // acceptable.
     let unclassified = Protocol::default();
     let parse_protocol = protocol.unwrap_or(&unclassified);
     let mut instances = Vec::with_capacity(records.len());
@@ -1480,11 +1558,7 @@ fn lift_records(
             match panproto_inst::parse_json(schema, parse_protocol, root.as_str(), record) {
                 Err(e) => rejections.push(format!("at {root}: {e}")),
                 Ok(instance) => {
-                    let reasons = if skip_verify {
-                        Vec::new()
-                    } else {
-                        record_violations(schema, protocol, &instance)
-                    };
+                    let reasons = check.violations(schema, protocol, &instance);
                     if reasons.is_empty() {
                         accepted = Some(instance);
                         break;
@@ -1548,6 +1622,31 @@ fn record_violations(
                 .filter(|i| i.requirement == required)
                 .map(ToString::to_string),
         )
+        .collect()
+}
+
+/// Everything known to be wrong with `instance`, a record read back from a
+/// commit, as a record of `schema`.
+///
+/// [`record_violations`] when the protocol resolved. Otherwise the message
+/// of every required diagnostic of validation under a protocol that gives no
+/// vertex kind and no constraint a meaning, which reports what the schema
+/// decides by itself. A check that protocol leaves undecided is no reason:
+/// it was decided when the record was staged.
+fn committed_violations(
+    schema: &Schema,
+    protocol: Option<&Protocol>,
+    instance: &panproto_inst::WInstance,
+) -> Vec<String> {
+    if protocol.is_some() {
+        return record_violations(schema, protocol, instance);
+    }
+    let required = panproto_inst::validation::Requirement::Required;
+    panproto_inst::validate_wtype(instance, schema, &Protocol::default())
+        .diagnostics
+        .iter()
+        .filter(|d| d.requirement == required)
+        .map(ToString::to_string)
         .collect()
 }
 
@@ -2120,7 +2219,7 @@ mod tests {
         let mut dataset = repo.data_at("HEAD")?.remove(0);
         dataset.record_count = 2;
 
-        let Err(error) = repo.decode_data_set(dataset) else {
+        let Err(error) = repo.decode_data_set(dataset, None) else {
             panic!("mismatched record count should fail");
         };
 
@@ -2144,7 +2243,7 @@ mod tests {
             key: Some("broken".to_owned()),
         };
 
-        let Err(error) = repo.decode_data_set(dataset) else {
+        let Err(error) = repo.decode_data_set(dataset, None) else {
             panic!("malformed canonical data should fail");
         };
 
@@ -2279,7 +2378,7 @@ mod tests {
             Path::new("d.json"),
             &schema,
             Some(&test_protocol()),
-            false,
+            RecordCheck::Staged,
         )?;
         assert_eq!(records.len(), 3);
         Ok(())
@@ -2293,7 +2392,7 @@ mod tests {
             Path::new("d.json"),
             &schema,
             Some(&test_protocol()),
-            false,
+            RecordCheck::Staged,
         )?;
         assert_eq!(records.len(), 1);
         Ok(())
@@ -2310,7 +2409,7 @@ mod tests {
             Path::new("junk.json"),
             &schema,
             Some(&test_protocol()),
-            false,
+            RecordCheck::Staged,
         );
         let Err(VcsError::DataParseFailed { ref path, .. }) = result else {
             panic!("expected a parse failure, got {result:?}");
@@ -2330,7 +2429,7 @@ mod tests {
             Path::new("junk.json"),
             &schema,
             Some(&test_protocol()),
-            true,
+            RecordCheck::Skipped,
         );
         assert!(
             matches!(result, Err(VcsError::DataParseFailed { .. })),

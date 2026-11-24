@@ -42,7 +42,8 @@ use panproto_core::vcs::{
 use crate::convert;
 use crate::error::VcsError;
 use crate::lexicon::PyLexiconProject;
-use crate::schema::PySchema;
+use crate::protocols::{custom_protocol, protocols_built_since};
+use crate::schema::{PyProtocol, PySchema};
 
 // ---------------------------------------------------------------------------
 // MemStore-backed repository (preserved for back-compat)
@@ -253,6 +254,32 @@ fn bisect_step_to_value(step: &BisectStep) -> serde_json::Value {
 pub struct PyRepository {
     inner: Repository,
     working_dir: PathBuf,
+    /// How many changes to the table of built protocols are registered with
+    /// `inner`.
+    protocols_seen: u64,
+}
+
+impl PyRepository {
+    /// The repository, with every protocol a schema was built with in this
+    /// process registered, so a schema naming one resolves to it whichever
+    /// handle staged the schema.
+    fn resolving(&mut self) -> &mut Repository {
+        let (changes, protocols) = protocols_built_since(self.protocols_seen);
+        for protocol in protocols {
+            self.inner.set_protocol(protocol);
+        }
+        self.protocols_seen = changes;
+        &mut self.inner
+    }
+
+    /// Stage the custom protocol a staged schema naming `protocol` was built
+    /// with, so the next commit records it. `index` is the index `add` left.
+    fn stage_custom_protocol(&mut self, protocol: &str, index: Index) -> PyResult<Index> {
+        match custom_protocol(protocol) {
+            Some(custom) => self.inner.add_protocol(&custom).map_err(vcs_err),
+            None => Ok(index),
+        }
+    }
 }
 
 #[pymethods]
@@ -265,6 +292,7 @@ impl PyRepository {
         Ok(Self {
             inner,
             working_dir: p,
+            protocols_seen: 0,
         })
     }
 
@@ -276,6 +304,7 @@ impl PyRepository {
         Ok(Self {
             inner,
             working_dir: p,
+            protocols_seen: 0,
         })
     }
 
@@ -293,6 +322,12 @@ impl PyRepository {
     /// but GAT migration validation is skipped and the stage is left
     /// ``pending`` (an escape hatch for bulk historical VCS builds where
     /// each version was already validated at its own release).
+    ///
+    /// A schema built under a custom protocol also stages that protocol, so
+    /// the commit records it and the schema's data can be staged and decoded
+    /// by a process that never built the protocol. A commit records one
+    /// protocol; data committed under another custom protocol is read in
+    /// such a process after :meth:`set_protocol`.
     #[pyo3(signature = (schema, *, skip_verify=false))]
     fn add(&mut self, py: Python<'_>, schema: &PySchema, skip_verify: bool) -> PyResult<Py<PyAny>> {
         let index = if skip_verify {
@@ -305,6 +340,7 @@ impl PyRepository {
         } else {
             self.inner.add(schema.inner.as_ref()).map_err(vcs_err)?
         };
+        let index = self.stage_custom_protocol(&schema.inner.protocol, index)?;
         convert::to_python(py, &index_to_value(&index))
     }
 
@@ -347,6 +383,30 @@ impl PyRepository {
             .inner
             .add_tree_with_options(root_id, &panproto_core::vcs::AddOptions { skip_verify })
             .map_err(vcs_err)?;
+        let index = self.stage_custom_protocol(&project.protocol, index)?;
+        convert::to_python(py, &index_to_value(&index))
+    }
+
+    /// Register ``protocol`` with this handle under its name.
+    ///
+    /// A schema's protocol name resolves, in this order, to the protocol
+    /// staged for the next commit (else the one HEAD records), to the one
+    /// registered here or used to build a schema in this process, and to the
+    /// built-in protocol of that name. Committed data is first read under
+    /// the protocol its own commit records. The registration lasts as long
+    /// as the handle; use :meth:`add_protocol` to record a protocol in the
+    /// repository.
+    fn set_protocol(&mut self, protocol: &PyProtocol) {
+        self.resolving().set_protocol(protocol.inner.clone());
+    }
+
+    /// Stage ``protocol`` for the next commit, which records it.
+    ///
+    /// Returns the updated index. A later commit whose schema names the same
+    /// protocol keeps it. :meth:`add` stages the protocol of a schema built
+    /// under a custom protocol by itself.
+    fn add_protocol(&mut self, py: Python<'_>, protocol: &PyProtocol) -> PyResult<Py<PyAny>> {
+        let index = self.inner.add_protocol(&protocol.inner).map_err(vcs_err)?;
         convert::to_python(py, &index_to_value(&index))
     }
 
@@ -381,7 +441,7 @@ impl PyRepository {
     ) -> PyResult<Py<PyAny>> {
         let schema_id = schema_id.map(parse_oid).transpose()?;
         let index = self
-            .inner
+            .resolving()
             .add_data_with_options(
                 std::path::Path::new(path),
                 key,
@@ -498,8 +558,8 @@ impl PyRepository {
     /// counts and schema conformance are checked before any records are
     /// returned. ``ref`` accepts the same forms as :meth:`resolve_ref`, and
     /// the read never moves ``HEAD`` or writes an object.
-    fn decoded_data_at(&self, py: Python<'_>, r#ref: &str) -> PyResult<Py<PyAny>> {
-        let datasets = self.inner.decoded_data_at(r#ref).map_err(vcs_err)?;
+    fn decoded_data_at(&mut self, py: Python<'_>, r#ref: &str) -> PyResult<Py<PyAny>> {
+        let datasets = self.resolving().decoded_data_at(r#ref).map_err(vcs_err)?;
         let list = PyList::empty(py);
         for ds in datasets {
             let dict = PyDict::new(py);
@@ -632,21 +692,21 @@ impl PyRepository {
 
     /// Three-way merge ``branch`` into HEAD.
     fn merge(&mut self, py: Python<'_>, branch: &str, author: &str) -> PyResult<Py<PyAny>> {
-        let result = self.inner.merge(branch, author).map_err(vcs_err)?;
+        let result = self.resolving().merge(branch, author).map_err(vcs_err)?;
         convert::to_python(py, &merge_result_to_value(&result))
     }
 
     /// Apply the change introduced by ``commit_id`` on top of HEAD.
     fn cherry_pick(&mut self, commit_id: &str, author: &str) -> PyResult<String> {
         let id = parse_oid(commit_id)?;
-        let new_id = self.inner.cherry_pick(id, author).map_err(vcs_err)?;
+        let new_id = self.resolving().cherry_pick(id, author).map_err(vcs_err)?;
         Ok(new_id.to_string())
     }
 
     /// Rebase HEAD onto ``onto``.
     fn rebase(&mut self, onto: &str, author: &str) -> PyResult<String> {
         let id = parse_oid(onto)?;
-        let new_id = self.inner.rebase(id, author).map_err(vcs_err)?;
+        let new_id = self.resolving().rebase(id, author).map_err(vcs_err)?;
         Ok(new_id.to_string())
     }
 

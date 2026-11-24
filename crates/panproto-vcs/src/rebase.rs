@@ -149,6 +149,12 @@ fn replay_one<S: BuildHasher>(
         registered,
     )?;
 
+    let protocol_id = crate::data_mig::carried_protocol_id(
+        store,
+        &result.merged_schema.protocol,
+        &[&commit, &tip_commit],
+    )?;
+
     let mig_src = store.put(&Object::FlatSchema(Box::new(ours_schema)))?;
     let mig_tgt = store.put(&Object::FlatSchema(Box::new(result.merged_schema.clone())))?;
     let merged_schema_id = crate::tree::store_schema_as_tree(store, result.merged_schema)?;
@@ -166,6 +172,9 @@ fn replay_one<S: BuildHasher>(
     )
     .parents(vec![current_tip])
     .migration_id(migration_id);
+    if let Some(protocol_id) = protocol_id {
+        builder = builder.protocol_id(protocol_id);
+    }
     if !lifted_data_ids.is_empty() {
         builder = builder.data_ids(lifted_data_ids);
     }

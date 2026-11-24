@@ -52,28 +52,12 @@ pub fn cherry_pick<S: BuildHasher>(
     registered: &HashMap<String, Protocol, S>,
 ) -> Result<ObjectId, VcsError> {
     // Load the commit being cherry-picked.
-    let commit = match store.get(&commit_id)? {
-        Object::Commit(c) => c,
-        other => {
-            return Err(VcsError::WrongObjectType {
-                expected: "commit",
-                found: other.type_name(),
-            });
-        }
-    };
+    let commit = load_commit(store, commit_id)?;
 
     // Need at least one parent to compute the diff.
     let parent_id = commit.parents.first().ok_or(VcsError::NoPath)?;
 
-    let parent_commit = match store.get(parent_id)? {
-        Object::Commit(c) => c,
-        other => {
-            return Err(VcsError::WrongObjectType {
-                expected: "commit",
-                found: other.type_name(),
-            });
-        }
-    };
+    let parent_commit = load_commit(store, *parent_id)?;
 
     // Load schemas.
     let base_schema = load_schema_dyn(store, &parent_commit.schema_id)?;
@@ -83,15 +67,7 @@ pub fn cherry_pick<S: BuildHasher>(
     let head_id = store::resolve_head(store)?.ok_or_else(|| VcsError::RefNotFound {
         name: "HEAD".to_owned(),
     })?;
-    let head_commit = match store.get(&head_id)? {
-        Object::Commit(c) => c,
-        other => {
-            return Err(VcsError::WrongObjectType {
-                expected: "commit",
-                found: other.type_name(),
-            });
-        }
-    };
+    let head_commit = load_commit(store, head_id)?;
     let ours_schema = load_schema_dyn(store, &head_commit.schema_id)?;
 
     // Three-way merge.
@@ -134,6 +110,12 @@ pub fn cherry_pick<S: BuildHasher>(
         registered,
     )?;
 
+    let protocol_id = crate::data_mig::carried_protocol_id(
+        store,
+        &result.merged_schema.protocol,
+        &[&commit, &head_commit],
+    )?;
+
     // Store the merged schema.
     let mig_src = store.put(&Object::FlatSchema(Box::new(ours_schema)))?;
     let mig_tgt = store.put(&Object::FlatSchema(Box::new(result.merged_schema.clone())))?;
@@ -155,6 +137,9 @@ pub fn cherry_pick<S: BuildHasher>(
     )
     .parents(vec![head_id])
     .migration_id(migration_id);
+    if let Some(protocol_id) = protocol_id {
+        builder = builder.protocol_id(protocol_id);
+    }
     if !lifted_data_ids.is_empty() {
         builder = builder.data_ids(lifted_data_ids);
     }
@@ -191,26 +176,10 @@ pub fn cherry_pick_with_options<S: BuildHasher>(
     registered: &HashMap<String, Protocol, S>,
 ) -> Result<ObjectId, VcsError> {
     // Load the commit being cherry-picked.
-    let commit = match store.get(&commit_id)? {
-        Object::Commit(c) => c,
-        other => {
-            return Err(VcsError::WrongObjectType {
-                expected: "commit",
-                found: other.type_name(),
-            });
-        }
-    };
+    let commit = load_commit(store, commit_id)?;
 
     let parent_id = commit.parents.first().ok_or(VcsError::NoPath)?;
-    let parent_commit = match store.get(parent_id)? {
-        Object::Commit(c) => c,
-        other => {
-            return Err(VcsError::WrongObjectType {
-                expected: "commit",
-                found: other.type_name(),
-            });
-        }
-    };
+    let parent_commit = load_commit(store, *parent_id)?;
 
     let base_schema = load_schema_dyn(store, &parent_commit.schema_id)?;
     let theirs_schema = load_schema_dyn(store, &commit.schema_id)?;
@@ -218,15 +187,7 @@ pub fn cherry_pick_with_options<S: BuildHasher>(
     let head_id = store::resolve_head(store)?.ok_or_else(|| VcsError::RefNotFound {
         name: "HEAD".to_owned(),
     })?;
-    let head_commit = match store.get(&head_id)? {
-        Object::Commit(c) => c,
-        other => {
-            return Err(VcsError::WrongObjectType {
-                expected: "commit",
-                found: other.type_name(),
-            });
-        }
-    };
+    let head_commit = load_commit(store, head_id)?;
     let ours_schema = load_schema_dyn(store, &head_commit.schema_id)?;
 
     let result = merge::three_way_merge(&base_schema, &ours_schema, &theirs_schema);
@@ -276,6 +237,12 @@ pub fn cherry_pick_with_options<S: BuildHasher>(
         registered,
     )?;
 
+    let protocol_id = crate::data_mig::carried_protocol_id(
+        store,
+        &result.merged_schema.protocol,
+        &[&commit, &head_commit],
+    )?;
+
     let migration_id = store.put(&Object::Migration {
         src: mig_src,
         tgt: mig_tgt,
@@ -292,6 +259,9 @@ pub fn cherry_pick_with_options<S: BuildHasher>(
         CommitObject::builder(merged_schema_id, commit.protocol.clone(), author, message)
             .parents(vec![head_id])
             .migration_id(migration_id);
+    if let Some(protocol_id) = protocol_id {
+        builder = builder.protocol_id(protocol_id);
+    }
     if !lifted_data_ids.is_empty() {
         builder = builder.data_ids(lifted_data_ids);
     }
@@ -309,6 +279,17 @@ pub fn cherry_pick_with_options<S: BuildHasher>(
     advance_head(store, head_id, new_commit_id, author, "cherry-pick")?;
 
     Ok(new_commit_id)
+}
+
+/// The commit object `id` names.
+fn load_commit(store: &dyn Store, id: ObjectId) -> Result<CommitObject, VcsError> {
+    match store.get(&id)? {
+        Object::Commit(commit) => Ok(commit),
+        other => Err(VcsError::WrongObjectType {
+            expected: "commit",
+            found: other.type_name(),
+        }),
+    }
 }
 
 /// Advance HEAD (or the branch it points to) and append a reflog entry.
