@@ -400,13 +400,12 @@ pub fn lift_commit_data(
             continue;
         }
         let src_protocol = data_protocol(store, commit, src_schema, base.protocol_id)?;
-        let (tgt_protocol_id, tgt_protocol) = match &tgt_protocol {
-            Some(found) => found,
-            None => {
-                let protocol = target.environment.resolve(store, &target.schema.protocol)?;
-                let id = store.put(&Object::Protocol(Box::new(protocol.clone())))?;
-                tgt_protocol.insert((id, protocol))
-            }
+        let (tgt_protocol_id, tgt_protocol) = if let Some(found) = &tgt_protocol {
+            found
+        } else {
+            let protocol = target.environment.resolve(store, &target.schema.protocol)?;
+            let id = store.put(&Object::Protocol(Box::new(protocol.clone())))?;
+            tgt_protocol.insert((id, protocol))
         };
         let src = Fibre {
             schema_id: base.schema_id,

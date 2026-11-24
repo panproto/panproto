@@ -771,7 +771,7 @@ impl PySchema {
         let schema: Schema = serde_json::from_str(json).map_err(|e| {
             pyo3::exceptions::PyValueError::new_err(format!("JSON deserialization failed: {e}"))
         })?;
-        Ok(PySchema::unbound(Arc::new(schema)))
+        Ok(Self::unbound(Arc::new(schema)))
     }
 
     /// Parse an `ATProto` lexicon document into a schema.

@@ -31,9 +31,9 @@ use crate::tree::ProjectProtocol;
 /// What a merge commit carries of its parents' data.
 #[derive(Default)]
 struct MergedCommitData {
-    data_ids: Vec<ObjectId>,
-    complement_ids: Vec<ObjectId>,
-    cst_complement_ids: Vec<ObjectId>,
+    data: Vec<ObjectId>,
+    complements: Vec<ObjectId>,
+    cst_complements: Vec<ObjectId>,
 }
 
 /// The context needed to record a clean three-way merge commit.
@@ -715,9 +715,9 @@ impl Repository {
         .migration_id(migration_id)
         .theory_ids(merge_theory_ids)
         .environment_id(environment_id)
-        .data_ids(ctx.data.data_ids)
-        .complement_ids(ctx.data.complement_ids)
-        .cst_complement_ids(ctx.data.cst_complement_ids);
+        .data_ids(ctx.data.data)
+        .complement_ids(ctx.data.complements)
+        .cst_complement_ids(ctx.data.cst_complements);
         let merge_commit = merge_builder.build();
         let merge_id = self.store.put(&Object::Commit(merge_commit))?;
         advance_head(
@@ -1339,10 +1339,10 @@ impl Repository {
             let lifted =
                 crate::data_mig::lift_commit_data(&mut self.store, commit, schema, target)?;
             crate::square::verify_lifted_squares(&mut self.store, commit, &lifted, schema, target)?;
-            union(&mut merged.data_ids, lifted.data_ids);
-            union(&mut merged.complement_ids, lifted.complement_ids);
+            union(&mut merged.data, lifted.data_ids);
+            union(&mut merged.complements, lifted.complement_ids);
             union(
-                &mut merged.cst_complement_ids,
+                &mut merged.cst_complements,
                 commit.cst_complement_ids.iter().copied(),
             );
         }

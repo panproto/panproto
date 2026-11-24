@@ -15,7 +15,7 @@ use crate::error::VcsError;
 
 /// What a record is held to as it is read.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Check {
+pub enum Check {
     /// Nothing: the record is parsed and left unchecked.
     Skipped,
     /// That it is a record of its schema under its protocol.
@@ -27,7 +27,7 @@ pub(crate) enum Check {
 
 impl Check {
     /// What this check finds wrong with `instance`.
-    pub(crate) fn violations(
+    pub fn violations(
         self,
         schema: &Schema,
         protocol: &Protocol,
@@ -48,11 +48,7 @@ impl Check {
 /// message of every required diagnostic, in report order, then one per
 /// required check left undecided. Advisory entries never decide the status
 /// and give no reason.
-pub(crate) fn violations(
-    schema: &Schema,
-    protocol: &Protocol,
-    instance: &WInstance,
-) -> Vec<String> {
+pub fn violations(schema: &Schema, protocol: &Protocol, instance: &WInstance) -> Vec<String> {
     let report = panproto_inst::validate_wtype(instance, schema, protocol);
     if report.status == panproto_gat::CheckStatus::Passed {
         return Vec::new();
@@ -128,7 +124,7 @@ fn candidate_roots(schema: &Schema) -> Vec<&panproto_gat::Name> {
 /// Counting bytes instead would report a file which is not JSON at all
 /// as holding one record, which is wrong under any policy: nothing would
 /// have read the bytes.
-pub(crate) fn lift_records(
+pub fn lift_records(
     data: &[u8],
     path: &Path,
     schema: &Schema,
