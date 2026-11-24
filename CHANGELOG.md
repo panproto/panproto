@@ -14,7 +14,7 @@ All notable changes to panproto will be documented in this file.
 
 - **Commits keep their protocol** (`panproto-vcs`): a commit that stages no protocol, a merge, a cherry-pick and a rebase carry the protocol object their schema names over from the commits they are made from instead of dropping it, and `amend` records a newly staged one.
 
-- **Committed data is read under its own protocol** (`panproto-vcs`): `decoded_data_at` validates records under the protocol object of the commit it reads rather than that of `HEAD`. Data whose protocol name resolves to nothing, such as custom-protocol data committed before 0.77.0, is checked against what its schema decides by itself instead of being unreadable. Staging new data under such a name is still refused.
+- **Committed data is read under its own protocol** (`panproto-vcs`): `decoded_data_at` validates records under the protocol object of the commit it reads rather than that of `HEAD`. Data whose protocol name resolves to nothing, such as custom-protocol data committed before 0.77.0, is checked against what its schema decides by itself instead of being unreadable, and an attribute the schema does not declare, which staging has refused since 0.77.0, is returned from data committed earlier. Staging is as strict as before in both respects.
 
 ## [0.77.0] - 2026-11-11
 

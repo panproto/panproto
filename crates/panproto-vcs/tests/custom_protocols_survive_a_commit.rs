@@ -189,6 +189,33 @@ fn committed_data_is_checked_against_the_schema_without_a_protocol() {
     ));
 }
 
+/// Staging refuses an undeclared attribute; a record that has one already
+/// reads back with it.
+#[test]
+fn a_committed_undeclared_attribute_is_read_back() {
+    let (dir, mut repo, _) = repository();
+    let path = write(dir.path(), r#"{"a": "abc", "extra": 1}"#);
+    assert!(matches!(
+        repo.add_data(&path, None),
+        Err(VcsError::DataValidationFailed { .. })
+    ));
+    repo.add_data_with_options(
+        &path,
+        None,
+        &AddDataOptions {
+            skip_verify: true,
+            ..AddDataOptions::default()
+        },
+    )
+    .unwrap();
+    repo.commit_with_options("data", "alice", &CommitOptions { skip_verify: true })
+        .unwrap();
+    assert_eq!(
+        repo.decoded_data_at("HEAD").unwrap()[0].records,
+        [serde_json::json!({"a": "abc", "extra": 1})]
+    );
+}
+
 /// Two branches from a commit recording the protocol, each adding one
 /// property; HEAD is on `main`. Returns the tips of `main` and `side`.
 fn diverged() -> (tempfile::TempDir, Repository, ObjectId, ObjectId) {

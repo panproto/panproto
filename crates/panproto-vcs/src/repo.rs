@@ -1195,8 +1195,9 @@ impl Repository {
     /// the name resolves to in the current state (see
     /// [`set_protocol`](Self::set_protocol)). A schema whose protocol name
     /// resolves to neither has its records checked against what the schema
-    /// decides by itself, so data outlives the protocol that described it;
-    /// staging new data under such a name is refused.
+    /// decides by itself, so data outlives the protocol that described it.
+    /// An attribute the schema does not declare is returned rather than
+    /// refused. Staging is stricter in both respects.
     ///
     /// # Errors
     ///
@@ -1628,26 +1629,42 @@ fn record_violations(
 /// Everything known to be wrong with `instance`, a record read back from a
 /// commit, as a record of `schema`.
 ///
-/// [`record_violations`] when the protocol resolved. Otherwise the message
-/// of every required diagnostic of validation under a protocol that gives no
-/// vertex kind and no constraint a meaning, which reports what the schema
-/// decides by itself. A check that protocol leaves undecided is no reason:
-/// it was decided when the record was staged.
+/// What [`record_violations`] reports, with two things left out. An
+/// attribute the schema does not declare is no reason, because a commit may
+/// hold records staged before staging refused one. And when the protocol
+/// did not resolve, the record is validated under a protocol that gives no
+/// vertex kind and no constraint a meaning, whose undecided checks are no
+/// reason either, because they were decided when the record was staged.
 fn committed_violations(
     schema: &Schema,
     protocol: Option<&Protocol>,
     instance: &panproto_inst::WInstance,
 ) -> Vec<String> {
-    if protocol.is_some() {
-        return record_violations(schema, protocol, instance);
-    }
     let required = panproto_inst::validation::Requirement::Required;
-    panproto_inst::validate_wtype(instance, schema, &Protocol::default())
+    let unclassified = Protocol::default();
+    let report = panproto_inst::validate_wtype(instance, schema, protocol.unwrap_or(&unclassified));
+    let mut reasons: Vec<String> = report
         .diagnostics
         .iter()
-        .filter(|d| d.requirement == required)
+        .filter(|d| {
+            d.requirement == required
+                && !matches!(
+                    d.violation,
+                    panproto_inst::validation::Violation::UndeclaredAttribute { .. }
+                )
+        })
         .map(ToString::to_string)
-        .collect()
+        .collect();
+    if protocol.is_some() {
+        reasons.extend(
+            report
+                .incomplete
+                .iter()
+                .filter(|i| i.requirement == required)
+                .map(ToString::to_string),
+        );
+    }
+    reasons
 }
 
 #[cfg(test)]
