@@ -1,0 +1,2 @@
+type Query { q: Int }
+interface I implements I { a: Int }

@@ -6,6 +6,7 @@ use panproto_core::{
     gat::Name,
     inst,
     mig::{self, Migration},
+    protocols::config::ansible::FileClass,
     schema::Schema,
     vcs::{self, Store as _},
 };
@@ -20,13 +21,19 @@ use crate::format;
 const WTYPE_RESTRICT_ERROR: &str = "filtered source-to-target W-type lift failed";
 const FUNCTOR_RESTRICT_ERROR: &str = "filtered source-to-target functor lift failed";
 
-pub fn cmd_validate(protocol_name: &str, schema_path: &Path, verbose: bool) -> Result<()> {
-    let schema: Schema = load_json(schema_path)?;
+pub fn cmd_validate(
+    protocol_name: &str,
+    schema_path: &Path,
+    file_class: Option<FileClass>,
+    verbose: bool,
+) -> Result<()> {
+    let schema = load::load_protocol_schema(schema_path, protocol_name, file_class, verbose)?;
     let protocol = resolve_protocol(protocol_name)?;
 
     if verbose {
         eprintln!(
-            "Validating schema ({} vertices, {} edges) against protocol '{}'",
+            "Validating schema {} ({} vertices, {} edges) against protocol '{}'",
+            inst::identity::schema_digest(&schema).to_hex(),
             schema.vertex_count(),
             schema.edge_count(),
             protocol_name
@@ -631,9 +638,10 @@ pub fn cmd_scaffold(
     depth: usize,
     max_terms: usize,
     json: bool,
+    file_class: Option<FileClass>,
     verbose: bool,
 ) -> Result<()> {
-    let schema: Schema = load_json(schema_path)?;
+    let schema = load::load_protocol_schema(schema_path, protocol_name, file_class, verbose)?;
     let theory_registry = build_theory_registry(protocol_name)?;
 
     if verbose {
@@ -734,9 +742,10 @@ pub fn cmd_normalize(
     schema_path: &Path,
     identifications: &[String],
     json: bool,
+    file_class: Option<FileClass>,
     verbose: bool,
 ) -> Result<()> {
-    let schema: Schema = load_json(schema_path)?;
+    let schema = load::load_protocol_schema(schema_path, protocol_name, file_class, verbose)?;
     let theory_registry = build_theory_registry(protocol_name)?;
 
     if verbose {
@@ -986,12 +995,13 @@ pub fn cmd_verify(
     max_assignments: usize,
     format: &str,
     allow_incomplete: bool,
+    file_class: Option<FileClass>,
     verbose: bool,
 ) -> Result<()> {
     if format != "text" && format != "json" {
         miette::bail!("unknown --format {format:?}; expected 'text' or 'json'");
     }
-    let schema: Schema = load_json(schema_path)?;
+    let schema = load::load_protocol_schema(schema_path, protocol_name, file_class, verbose)?;
     let theory_registry = build_theory_registry(protocol_name)?;
 
     if verbose {
@@ -1141,6 +1151,7 @@ pub fn cmd_diff(
 
     let options = load::LoadOptions {
         protocol: None,
+        file_class: None,
         verbose,
     };
     let old_schema = load::load_schema(old_path, &options)?.schema;
@@ -1207,6 +1218,7 @@ pub fn cmd_compat(
     new_path: &Path,
     protocol_name: &str,
     format: &str,
+    file_class: Option<FileClass>,
     verbose: bool,
 ) -> ! {
     use panproto_core::check;
@@ -1215,6 +1227,7 @@ pub fn cmd_compat(
     // breaking-change code, so `?` (which surfaces as exit 1) is avoided.
     let options = load::LoadOptions {
         protocol: Some(protocol_name),
+        file_class,
         verbose,
     };
     let old = match load::load_schema(old_path, &options) {

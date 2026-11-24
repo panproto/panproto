@@ -138,7 +138,7 @@ fn prod_schema(schema: &panproto_reference::schema::Schema) -> Schema {
             .entry(edge.tgt.clone())
             .or_default()
             .push(edge.clone());
-        edges.insert(edge.clone(), edge.kind.clone());
+        edges.insert(edge.clone(), edge.kind);
     }
     let mut out = Schema {
         protocol: "test".into(),
@@ -3382,13 +3382,13 @@ fn graph_kan_composites_agree(
                         }
                         .compose(&encode::GraphKanHom {
                             node_map: second.rows.clone(),
-                            null_map: second.nulls.clone(),
+                            null_map: second.nulls,
                         })
                         .unwrap();
                         assert!(ref_graph_hom(&ours).same_as(
                             &rel::Hom {
                                 rows: theirs.node_map.clone(),
-                                nulls: theirs.null_map.clone(),
+                                nulls: theirs.null_map,
                             },
                             g_table
                         ));

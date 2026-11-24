@@ -185,6 +185,16 @@ pub enum WasmError {
         /// Description of the refinement error.
         reason: String,
     },
+
+    /// A protocol is read through a tree-sitter grammar this build does
+    /// not include. The published module leaves the grammars out; a build
+    /// with the `format-preserving` feature includes them.
+    GrammarNotBuilt {
+        /// The protocol's canonical name.
+        protocol: &'static str,
+        /// The path of the reader the protocol registry names.
+        reader: &'static str,
+    },
 }
 
 impl fmt::Display for WasmError {
@@ -228,6 +238,27 @@ impl fmt::Display for WasmError {
             Self::CoverageFailed { reason } => write!(f, "coverage error: {reason}"),
             Self::ClassificationFailed { reason } => write!(f, "classification error: {reason}"),
             Self::RefinementFailed { reason } => write!(f, "refinement error: {reason}"),
+            Self::GrammarNotBuilt { protocol, reader } => write!(
+                f,
+                "protocol {protocol:?} is read through its tree-sitter grammar by {reader}, \
+                 which this WASM build does not include; build panproto-wasm with its \
+                 format-preserving feature, or read the document with the Rust crates, the \
+                 Python package or the schema CLI and pass the schema as panproto schema JSON"
+            ),
+        }
+    }
+}
+
+impl From<panproto_core::io::schema_documents::SchemaReadError> for WasmError {
+    fn from(err: panproto_core::io::schema_documents::SchemaReadError) -> Self {
+        use panproto_core::io::schema_documents::SchemaReadError;
+        match err {
+            SchemaReadError::GrammarNotBuilt { protocol, reader } => {
+                Self::GrammarNotBuilt { protocol, reader }
+            }
+            other => Self::SchemaBuildFailed {
+                reason: other.to_string(),
+            },
         }
     }
 }

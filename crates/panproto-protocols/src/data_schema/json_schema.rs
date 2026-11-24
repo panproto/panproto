@@ -116,6 +116,35 @@ pub const APPLICATOR_EDGES: &[(&str, &str)] = &[
     ("contentSchema", "content-schema"),
 ];
 
+/// The draft-07 keyword `definitions` and its edge kind.
+///
+/// It holds an object of subschemas where 2020-12 has `$defs`; a host
+/// format that reads its Schema Objects as draft-07 reaches each of them
+/// by this edge.
+pub const DRAFT_07_DEFINITIONS: (&str, &str) = ("definitions", "definition");
+
+/// The 2020-12 keywords that draft-07 does not define. A Schema Object
+/// read as draft-07 that uses one is refused rather than read as 2020-12
+/// would read it, since in draft-07 it is an unknown keyword.
+pub const NOT_IN_DRAFT_07: &[&str] = &[
+    "$anchor",
+    "$dynamicAnchor",
+    "$dynamicRef",
+    "$vocabulary",
+    "$defs",
+    "$recursiveRef",
+    "$recursiveAnchor",
+    "prefixItems",
+    "dependentSchemas",
+    "dependentRequired",
+    "unevaluatedItems",
+    "unevaluatedProperties",
+    "maxContains",
+    "minContains",
+    "contentSchema",
+    "deprecated",
+];
+
 /// The vertex kinds of a subschema.
 pub const KINDS: &[&str] = &[
     "null", "boolean", "object", "array", "number", "string", "integer", "union", "any", "true",

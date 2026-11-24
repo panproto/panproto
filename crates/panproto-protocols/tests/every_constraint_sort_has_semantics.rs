@@ -33,13 +33,13 @@ use panproto_schema::{ConstraintSemantics, LengthUnit, Schema};
 /// fixture.
 const SCHEMA_DIRS: &[(&str, &str, bool)] = &[
     ("atproto/lexicons", "atproto", true),
-    ("graphql", "graphql", false),
     ("protobuf", "protobuf", false),
 ];
 
-/// The files and directories of `fixtures/` that hold no schema: instance
-/// records, and the fixtures' documentation.
-const NOT_SCHEMAS: &[&str] = &["FIXTURES.md", "atproto/records"];
+/// The files and directories of `fixtures/` that hold no schema this crate
+/// reads: instance records, the fixtures' documentation, and the GraphQL
+/// schemas, which `panproto-io` reads through its grammar.
+const NOT_SCHEMAS: &[&str] = &["FIXTURES.md", "atproto/records", "graphql"];
 
 /// One schema fixture: its protocol, whether the protocol reads a JSON
 /// document, and its path relative to the fixture root.
@@ -615,13 +615,13 @@ fn external_column_rows_have_an_instance_per_row() {
 }
 
 /// The schema fixtures are found by walking `fixtures/`: the repository's
-/// tree yields its twelve schemas, and a file added under a schema
+/// tree yields its eleven schemas, and a file added under a schema
 /// directory is read under that directory's protocol, while a file in a
 /// directory the walk does not classify is an error rather than skipped.
 #[test]
 fn schema_fixtures_are_every_file_under_a_schema_directory() {
     let found = fixtures();
-    assert_eq!(found.len(), 12, "{found:#?}");
+    assert_eq!(found.len(), 11, "{found:#?}");
     for (dir, protocol, _) in SCHEMA_DIRS {
         assert!(
             found
@@ -641,6 +641,7 @@ fn schema_fixtures_are_every_file_under_a_schema_directory() {
     write("FIXTURES.md");
     write("atproto/records/post.json");
     write("graphql/added.graphql");
+    write("protobuf/added.proto");
     write("atproto/lexicons/nested/added.json");
     let classified = schema_fixtures(&root);
     write("avro/added.avsc");
@@ -654,7 +655,7 @@ fn schema_fixtures_are_every_file_under_a_schema_directory() {
                 true,
                 "atproto/lexicons/nested/added.json".to_owned()
             ),
-            ("graphql", false, "graphql/added.graphql".to_owned()),
+            ("protobuf", false, "protobuf/added.proto".to_owned()),
         ])
     );
     assert_eq!(unclassified, Err(vec!["avro/added.avsc".to_owned()]));
@@ -687,19 +688,23 @@ fn constraint_semantics_rows_are_kept_one_file_per_family() {
 #[test]
 fn hidden_files_beside_the_fixtures_are_not_fixtures() {
     let root = std::env::temp_dir().join(format!("panproto-fixture-walk-{}", std::process::id()));
-    let graphql = root.join("graphql");
-    std::fs::create_dir_all(&graphql).unwrap();
+    let protobuf = root.join("protobuf");
+    std::fs::create_dir_all(&protobuf).unwrap();
     std::fs::create_dir_all(root.join(".hidden_dir")).unwrap();
-    std::fs::write(graphql.join("users.graphql"), "type User { id: ID! }").unwrap();
+    std::fs::write(
+        protobuf.join("users.proto"),
+        "message User { string id = 1; }",
+    )
+    .unwrap();
     std::fs::write(root.join(".DS_Store"), b"\0").unwrap();
-    std::fs::write(graphql.join("._users.graphql"), b"\0").unwrap();
+    std::fs::write(protobuf.join("._users.proto"), b"\0").unwrap();
     std::fs::write(root.join(".hidden_dir").join("stray.txt"), "stray").unwrap();
     std::fs::write(root.join("FIXTURES.md"), "docs").unwrap();
     let found = schema_fixtures(&root);
     std::fs::remove_dir_all(&root).unwrap();
     assert_eq!(
         found,
-        Ok(vec![("graphql", false, "graphql/users.graphql".to_owned())]),
+        Ok(vec![("protobuf", false, "protobuf/users.proto".to_owned())]),
         "hidden entries must not be classified as fixtures"
     );
 }

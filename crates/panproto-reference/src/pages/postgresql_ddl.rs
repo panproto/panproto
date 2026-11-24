@@ -428,9 +428,9 @@ pub fn read_script(script: &Script) -> Result<Vec<TableReading>, (usize, ScriptR
         }
         match table.foreign_key {
             TableForeignKey::None => {}
-            TableForeignKey::Implicit(j) => foreign.push((pair.clone(), j, None)),
+            TableForeignKey::Implicit(j) => foreign.push((pair, j, None)),
             TableForeignKey::Swapped(j) => {
-                foreign.push((vec!["b".into(), "a".into()], j, Some(pair.clone())));
+                foreign.push((vec!["b".into(), "a".into()], j, Some(pair)));
             }
         }
         for (columns, j, listed) in foreign {

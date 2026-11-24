@@ -1,0 +1,3 @@
+type Query { q: Int }
+schema { query: Query }
+schema { query: Query }

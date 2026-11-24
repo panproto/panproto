@@ -27,7 +27,7 @@ Payloads are CBOR (`ciborium`) except where the file name says `.json`.
 | `protocol-ansible.cbor` | `Raw.registryGetBuiltin(name:)` | 4015 | name `ansible` |
 | `protocol-arrow.cbor` | `Raw.registryGetBuiltin(name:)` | 1980 | name `arrow` |
 | `protocol-asn1.cbor` | `Raw.registryGetBuiltin(name:)` | 1889 | name `asn1` |
-| `protocol-asyncapi.cbor` | `Raw.registryGetBuiltin(name:)` | 1637 | name `asyncapi` |
+| `protocol-asyncapi.cbor` | `Raw.registryGetBuiltin(name:)` | 9710 | name `asyncapi` |
 | `protocol-atproto.cbor` | `Raw.registryGetBuiltin(name:)` | 2473 | name `atproto` |
 | `protocol-avro.cbor` | `Raw.registryGetBuiltin(name:)` | 1382 | name `avro` |
 | `protocol-bead.cbor` | `Raw.registryGetBuiltin(name:)` | 2936 | name `bead` |

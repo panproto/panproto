@@ -1,0 +1,2 @@
+# AsyncAPI corpus cases the reader does not pass: case, then the limit.
+upstream/examples/adeo-kafka-request-reply-asyncapi.yml	its message payloads are Avro 1.9.0 schemas (schemaFormat application/vnd.apache.avro), a format the reader refuses

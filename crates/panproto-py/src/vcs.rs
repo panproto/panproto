@@ -258,6 +258,9 @@ pub struct PyRepository {
 #[pymethods]
 impl PyRepository {
     /// Initialise a new repository at ``path``.
+    ///
+    /// Raises ``VcsError`` when ``path`` already holds a repository, which
+    /// is left as it was.
     #[staticmethod]
     fn init(path: &str) -> PyResult<Self> {
         let p = PathBuf::from(path);
@@ -269,6 +272,10 @@ impl PyRepository {
     }
 
     /// Open an existing repository at ``path``.
+    ///
+    /// Raises ``VcsError`` when the repository records a format this build
+    /// does not read. A repository written before the format was recorded is
+    /// read as format 1.
     #[staticmethod]
     fn open(path: &str) -> PyResult<Self> {
         let p = PathBuf::from(path);

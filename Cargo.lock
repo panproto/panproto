@@ -1834,8 +1834,6 @@ dependencies = [
  "insta",
  "memchr",
  "panproto-gat",
- "panproto-lens",
- "panproto-mig",
  "panproto-protocols",
  "panproto-reference",
  "panproto-schema",
@@ -2103,7 +2101,6 @@ name = "panproto-inst"
 version = "0.78.0"
 dependencies = [
  "blake3",
- "bumpalo",
  "ciborium",
  "divan",
  "panproto-expr",
@@ -2187,6 +2184,7 @@ dependencies = [
  "panproto-gat",
  "panproto-inst",
  "panproto-mig",
+ "panproto-protocols",
  "panproto-reference",
  "panproto-schema",
  "proptest",

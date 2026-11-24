@@ -176,9 +176,18 @@ export class Panproto implements Disposable {
    * genuinely external.
    *
    * Cross-document resolution is implemented for `'atproto'` and
-   * `'avro'`. An OpenAPI description split over several documents is read
-   * in Rust, through `panproto_io::api::openapi::read_openapi_bundle`,
-   * since it may be YAML and is read through a tree-sitter grammar.
+   * `'avro'`, and for `'openapi'`, `'asyncapi'` and `'json-schema'` by
+   * their tree-sitter grammar readers, as the next paragraph describes.
+   *
+   * The protocols read through a tree-sitter grammar (`openapi`,
+   * `asyncapi`, `json-schema`, `k8s-crd`, `cloudformation`, `ansible`,
+   * `postgresql`, `graphql`) are read by their `panproto-io` readers in a WASM build
+   * with the `format-preserving` feature. The published module leaves the
+   * grammars out, so there they are refused with an error that names the
+   * reader and that feature; read such a document with the Rust crates,
+   * the Python package or the `schema` CLI and pass the schema here as
+   * panproto schema JSON. `ansible` needs the file's class, which this
+   * method does not take, so it is refused in every build.
    *
    * @param protocol - The protocol the documents are written in
    * @param docs - The schema documents (objects or strings)
@@ -221,8 +230,18 @@ export class Panproto implements Disposable {
    * source is a JSON document (ATProto lexicons, Avro `.avsc`, and the
    * rest) can be turned into a {@link BuiltSchema}
    * usable as a lens or migration endpoint. Protocols whose source is a
-   * language rather than a JSON document (GraphQL, Protobuf, CDDL,
+   * language rather than a JSON document (Protobuf, CDDL,
    * …) are parsed with {@link parseSchemaSource}.
+   *
+   * The protocols read through a tree-sitter grammar (`openapi`,
+   * `asyncapi`, `json-schema`, `k8s-crd`, `cloudformation`, `ansible`,
+   * `postgresql`, `graphql`) are read by their `panproto-io` readers in a WASM build
+   * with the `format-preserving` feature. The published module leaves the
+   * grammars out, so there they are refused with an error that names the
+   * reader and that feature; read such a document with the Rust crates,
+   * the Python package or the `schema` CLI and pass the schema here as
+   * panproto schema JSON. `ansible` needs the file's class, which this
+   * method does not take, so it is refused in every build.
    *
    * Both the canonical hyphenated protocol name and its underscore
    * compatibility spelling resolve.
@@ -264,11 +283,21 @@ export class Panproto implements Disposable {
    * dispatching on protocol name.
    *
    * The text counterpart to {@link parseSchemaDocument}, for protocols
-   * whose source is a language rather than a JSON document: GraphQL SDL, Protocol Buffers `.proto`, CDDL, Cassandra CQL, Cypher,
+   * whose source is a language rather than a JSON document: Protocol Buffers `.proto`, CDDL, Cassandra CQL, Cypher,
    * ASN.1, Bond, FlatBuffers, and CoNLL-U.
    *
+   * The protocols read through a tree-sitter grammar (`openapi`,
+   * `asyncapi`, `json-schema`, `k8s-crd`, `cloudformation`, `ansible`,
+   * `postgresql`, `graphql`) are read by their `panproto-io` readers in a WASM build
+   * with the `format-preserving` feature. The published module leaves the
+   * grammars out, so there they are refused with an error that names the
+   * reader and that feature; read such a document with the Rust crates,
+   * the Python package or the `schema` CLI and pass the schema here as
+   * panproto schema JSON. `ansible` needs the file's class, which this
+   * method does not take, so it is refused in every build.
+   *
    * @param protocol - The protocol the source is written in (e.g.
-   *   `'graphql'`, `'protobuf'`)
+   *   `'protobuf'`)
    * @param source - The schema source text
    * @returns A built schema
    * @throws {@link PanprotoError} if no source parser is registered for
@@ -277,8 +306,8 @@ export class Panproto implements Disposable {
    * @example
    * ```typescript
    * const schema = panproto.parseSchemaSource(
-   *   'graphql',
-   *   'type User { id: ID!, name: String }',
+   *   'protobuf',
+   *   'message User { string id = 1; string name = 2; }',
    * );
    * ```
    */

@@ -1,0 +1,3 @@
+type Query { q: Int }
+directive @d(x: Int) on OBJECT
+type A @d(x: $v) { a: Int }

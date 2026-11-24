@@ -28,7 +28,7 @@ use arbitrary::Unstructured;
 use libfuzzer_sys::fuzz_target;
 use panproto_mig::{SearchOptions, check_migration_morphism, find_span};
 use panproto_protocols::{
-    api, data_science, database, parse_schema_document, parse_schema_source, serialization,
+    data_science, database, parse_schema_document, parse_schema_source, serialization,
     web_document,
 };
 use panproto_schema::{Protocol, Schema, canonical_digest, validate};
@@ -71,7 +71,6 @@ const DOCUMENT_PROTOCOLS: &[DocEntry] = &[
 ];
 
 const SOURCE_PROTOCOLS: &[SourceEntry] = &[
-    ("graphql", api::graphql::parse_sdl, api::graphql::protocol),
     (
         "protobuf",
         serialization::protobuf::parse_proto,

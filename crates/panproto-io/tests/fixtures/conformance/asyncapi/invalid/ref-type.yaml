@@ -1,0 +1,9 @@
+asyncapi: 3.1.0
+info:
+  title: T
+  version: 1.0.0
+channels:
+  c:
+    messages:
+      m:
+        $ref: 5

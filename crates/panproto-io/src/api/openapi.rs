@@ -39,8 +39,8 @@ use panproto_schema::{Schema, SchemaBuilder};
 
 use crate::config::tree::{Node, json_string, read_json, read_yaml};
 use crate::data_schema::json_schema::{
-    Dialect, Embedded, Host, JsonSchemaErrorKind, JsonSchemaWriteError, Vocabulary, build_embedded,
-    pointer_token, write_vertex,
+    Dialect, Draft, Embedded, Host, JsonSchemaErrorKind, JsonSchemaWriteError, Vocabulary,
+    build_embedded, pointer_token, write_vertex,
 };
 use crate::resolution::{resolve_uri_against, resolve_uri_reference};
 
@@ -693,6 +693,8 @@ impl<'n> Reader<'n> {
                 document: self.document,
                 pointer: String::new(),
                 node: tree,
+                vocabulary: Some(OAS_VOCABULARY),
+                draft: Draft::Current,
             });
             let id = self.id("");
             self.roots.push(id);
@@ -1043,6 +1045,8 @@ impl<'n> Reader<'n> {
             document: self.document,
             pointer: at.to_owned(),
             node,
+            vocabulary: self.vocabularies[self.document],
+            draft: Draft::Current,
         });
         self.schema_edges.push(SchemaEdge {
             source: id.to_owned(),
@@ -1577,12 +1581,8 @@ impl<'n> Reader<'n> {
     /// to them.
     fn read_schemas(&mut self) -> R<()> {
         let host = Host {
-            documents: self
-                .uris
-                .iter()
-                .map(Option::as_deref)
-                .zip(self.vocabularies.iter().copied())
-                .collect(),
+            documents: self.uris.iter().map(Option::as_deref).collect(),
+            fragments: vec![None; self.uris.len()],
             schemas: std::mem::take(&mut self.schemas),
             dialects: DIALECTS,
         };

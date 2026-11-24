@@ -138,12 +138,14 @@ fn the_bundle_listings_are_exactly_the_bundle_parsers() {
 
 /// A protocol that resolves cross-document references must be readable
 /// one document at a time as well, or the bundle flag names a
-/// capability with no parser behind it.
+/// capability with no parser behind it. A grammar protocol's single and
+/// bundle readers are both in `panproto-io`, whose dispatch test checks
+/// the bundle flag against them.
 #[test]
 fn every_bundle_parser_is_also_a_document_parser() {
     for d in descriptors().iter().filter(|d| d.bundle) {
         assert!(
-            matches!(d.parser, Parser::Document(_)),
+            matches!(d.parser, Parser::Document(_) | Parser::Grammar { .. }),
             "{} claims bundle support but is not read as a document",
             d.name,
         );
@@ -280,6 +282,7 @@ fn a_protocol_read_through_a_grammar_names_its_reader() {
         grammar_read,
         [
             ("ansible", "panproto_io::config::ansible::read_ansible"),
+            ("asyncapi", "panproto_io::api::asyncapi::read_asyncapi"),
             (
                 "cloudformation",
                 "panproto_io::config::cloudformation::read_template"

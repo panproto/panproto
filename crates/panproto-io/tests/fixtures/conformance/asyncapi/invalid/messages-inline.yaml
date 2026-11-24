@@ -1,0 +1,14 @@
+asyncapi: 3.1.0
+info:
+  title: T
+  version: 1.0.0
+channels:
+  c: {}
+operations:
+  o:
+    action: send
+    channel:
+      $ref: "#/channels/c"
+    messages:
+      - payload:
+          type: string

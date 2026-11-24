@@ -62,7 +62,7 @@ pub use elim::{
 pub use hbfs::{BoundObservation, HbfsOutcome, HbfsParameters, solve_hbfs};
 pub use mcsplit::{
     ArcDescriptor, HallOutcome, IsoError, TargetId, ValueIndex, arc_descriptor, epic_satisfied,
-    propagate_all_different, solve_iso,
+    propagate_all_different, solve_iso, solve_iso_total,
 };
 pub use order::{
     EliminationCost, Graph, bucket_costs, choose_order, elimination_cost, fits_budget,

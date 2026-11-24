@@ -1,0 +1,3 @@
+type Query { q: Int }
+interface I { a(x: Int): Int }
+type A implements I { a(x: Int!): Int }

@@ -1,0 +1,8 @@
+asyncapi: 3.1.0
+info:
+  title: T
+  version: 1.0.0
+components:
+  messages:
+    m:
+      payload: 5

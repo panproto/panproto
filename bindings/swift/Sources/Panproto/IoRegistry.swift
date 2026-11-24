@@ -68,7 +68,8 @@ extension IoRegistryHandle {
     /// as a wire type; reach for
     /// ``parseInstancePayload(_:protocolName:schema:)`` there. The
     /// functor-native codecs in the default build are the line-oriented
-    /// ones: `redis`, `swift_mt`, `edi_x12`, and `conllu`.
+    /// ones: `amr`, `conllu`, `edi-x12`, `redis`, and `swift-mt`; a build
+    /// with format preservation adds `csv`, `tsv`, and `postgresql`.
     ///
     /// - Parameters:
     ///   - input: the raw bytes in the protocol's own format.

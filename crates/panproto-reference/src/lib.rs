@@ -121,6 +121,8 @@
 //! | Protolens operations | [`lens::protolens_schema`], [`lens::protolens_instance`], [`lens::get`], [`lens::put`] | `lenses.md` |
 //! | Elementary protolens kinds | [`lens::ElementaryProtolens::target_and_migration`], [`lens::relabel`], [`lens::restrict`], [`lens::extend`] | `lenses.md` |
 //! | Fused chains and scoped protolenses | [`lens::ProtolensTerm::at`], [`lens::ProtolensTerm::target`], [`lens::ProtolensTerm::transform`], [`lens::ProtolensTerm::surviving_vertices`], [`lens::ProtolensTerm::edge_images`], [`lens::structural_migration`] | `lenses.md` |
+//! | Sort coercions | [`lens::SortCoercion::target_and_migration`] | `lenses.md` |
+//! | Value-level steps | [`lens::FieldProgram::output_fields`] | `lenses.md` |
 //! | Sequential protolens composites | [`lens::CompositeLens::instantiate`], [`lens::CompositeLens::get`], [`lens::CompositeLens::put`], [`lens::CompositeLens::check_put_domain`] | `lenses.md` |
 //! | Tree view alignment | [`lens::align_tree_view`] | `lenses.md` |
 //! | Graph and table observable squares | [`lens::graph_square`], [`lens::graph_put_square`], [`lens::table_square`], [`lens::table_put_square`], [`lens::relational_table_get`], [`lens::relational_table_put`] | `lenses.md` |
@@ -154,6 +156,8 @@
 //! | Ansible playbook, task-file and variables-file reading and canonical writing | [`pages::ansible::read`], [`pages::ansible::render_yaml`], [`pages::ansible::canonical_text`] | `ansible.md` |
 //! | JSON Schema 2020-12 reading, reference resolution and canonical writing | [`pages::json_schema::read`], [`pages::json_schema::render`], [`pages::json_schema::resolve`], [`pages::json_schema::canonical_text`] | `json-schema.md` |
 //! | `OpenAPI` 3.1 reading, reference resolution and canonical writing | [`pages::openapi::read`], [`pages::json_schema::read_embedded`], [`pages::openapi::canonical_text`] | `openapi.md` |
+//! | `AsyncAPI` 3 reading, reference resolution, draft-07 Schema Objects and canonical writing | [`pages::asyncapi::read`], [`pages::json_schema::read_draft07`], [`pages::asyncapi::canonical_text`] | `asyncapi.md` |
+//! | GraphQL type system reading (September 2025), validation and canonical writing | [`pages::graphql::read`], [`pages::graphql::render`], [`pages::graphql::canonical_text`] | `graphql.md` |
 //! | BSON 1.1 decoding, canonical binary writing, the BSON tree encoding and Extended JSON reading and writing | [`pages::bson::decode`], [`pages::bson::encode`], [`pages::bson::tree`], [`pages::bson::canonical_text`], [`pages::bson::relaxed_text`], [`pages::bson::read_text`] | `bson.md` |
 //! | Optimal total morphisms and spans, the morphism checker, the search cost, the isomorphism edge pairing and the answer digest | [`pages::migration_search::optimal_total`], [`pages::migration_search::optimal_span`], [`pages::migration_search::check_total`], [`pages::migration_search::check_span`], [`pages::migration_search::cost`], [`pages::migration_search::paired_edge_images`], [`pages::migration_search::digest`] | `migration-search.md` |
 //! | The per-element three-way schema merge, well-formedness, the merge rendering and conflict order, the selected migration's surviving identity and the repository format marker | [`pages::schema_merge::merge`], [`pages::schema_merge::Schema::well_formed`], [`pages::schema_merge::render`], [`pages::schema_merge::Conflict::order_key`], [`pages::schema_merge::Conflict::swapped`], [`pages::schema_merge::surviving_identity`], [`pages::schema_merge::may_rename`], [`pages::schema_merge::repository_format`] | `schema-merge.md` |

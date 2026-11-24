@@ -2844,7 +2844,7 @@ mod tests {
                 });
                 assert_eq!(out, leaving, "out-edges of row {row}, table {bits:#010b}");
                 assert_eq!(inn, entering, "in-edges of row {row}, table {bits:#010b}");
-                let expected: BTreeSet<ViewRef> = std::iter::once(at.clone())
+                let expected: BTreeSet<ViewRef> = std::iter::once(at)
                     .chain(leaving.iter().cloned())
                     .chain(entering.iter().cloned())
                     .collect();

@@ -49,7 +49,7 @@ use crate::solve::build::{NoEvidence, build_cfn};
 use crate::solve::cost::{CostWeights, DEFAULT_WEIGHTS};
 use crate::solve::{
     Assignment, Cfn, CfnBuilder, Cost, LimitKind, SearchBudget, SolveOutcome, all_optima_traced,
-    dispatch_plan, eliminate, solve, solve_epic, solve_iso, solve_monic,
+    dispatch_plan, eliminate, solve, solve_epic, solve_iso_total, solve_monic,
 };
 use crate::span::{
     DEFAULT_OPTIMA_CAP, SchemaSpan, SpanSearch, bijective_edge_map, greedy_edge_map, image_map,
@@ -806,13 +806,12 @@ fn morphism_of(
 
 /// The isomorphisms between two schemas, of which there is at most one here.
 ///
-/// The iso path computes a maximum common induced sub-schema, so it returns an
-/// isomorphism exactly when that sub-schema is the whole of both sides. Its
-/// network needs `⊥` feasible, since every reward is measured against the cost
-/// of dropping everything, so totality is checked on the answer rather than
-/// forbidden in the network. That is sound: no cost function charges more for
-/// mapping a vertex than for dropping it, so an extension of a feasible
-/// assignment never costs more, and if an isomorphism exists the optimum is one.
+/// The iso path searches the total mappings within the label classes of the
+/// maximum common induced sub-schema search, so it returns the least-cost
+/// isomorphism when one exists. Its network needs `⊥` feasible, since every
+/// reward is measured against the cost of dropping everything, so totality is
+/// a rule of the search ([`solve_iso_total`]) rather than of the network, and
+/// it is checked again on the answer.
 fn isomorphisms(
     cfn: &Cfn,
     src: &Schema,
@@ -820,7 +819,7 @@ fn isomorphisms(
     budget: &SearchBudget,
 ) -> Result<Vec<FoundMorphism>, SpanError> {
     // A refused network is reported, not spelled "the two are not isomorphic".
-    let outcome = solve_iso(cfn, src, tgt, budget)?;
+    let outcome = solve_iso_total(cfn, src, tgt, budget)?;
     let found = outcome.best.as_ref().and_then(|assignment| {
         let vertex_map = image_map(cfn, assignment);
         if vertex_map.len() != src.vertices.len()

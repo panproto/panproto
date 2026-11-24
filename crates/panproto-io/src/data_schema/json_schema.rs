@@ -89,6 +89,12 @@ pub enum JsonSchemaErrorKind {
     /// A keyword of an earlier draft that 2020-12 replaced.
     #[error("{0} is a keyword of an earlier draft that 2020-12 replaced")]
     Superseded(&'static str),
+    /// In a Schema Object read as draft-07 by a host that resolves `$ref`
+    /// as a JSON Reference: a keyword the reader does not read (`$schema`,
+    /// `$id`, `dependencies`, `additionalItems`, a 2020-12 keyword draft-07
+    /// does not define), `items` as an array, or a member beside `$ref`.
+    #[error("{0} is not read in a Schema Object read as draft-07")]
+    Draft07(&'static str),
     /// A `$dynamicRef` whose target depends on the dynamic scope of an
     /// evaluation: its static target holds a `$dynamicAnchor` of the name it
     /// gives, and more than one resource of the bundle declares that name.
@@ -162,6 +168,24 @@ const TYPES: &[&str] = &[
     "null", "boolean", "object", "array", "number", "string", "integer",
 ];
 
+/// The keywords of draft-07 that a Schema Object read as draft-07 by a
+/// JSON Reference host may not use: `$schema` and `$id`, since a reference
+/// resolves against the document and not against a resource, and the two
+/// keywords whose meaning 2020-12 split into others.
+const DRAFT_07_UNREAD: &[&str] = &["$schema", "$id", "dependencies", "additionalItems"];
+
+/// Which JSON Schema a subschema is read as.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Draft {
+    /// 2020-12.
+    Current,
+    /// Draft-07, held by a host that resolves `$ref` as a JSON Reference
+    /// against its documents (`AsyncAPI`): `definitions` holds subschemas,
+    /// a `$ref` stands alone, and the keywords of [`DRAFT_07_UNREAD`] and
+    /// [`protocol::NOT_IN_DRAFT_07`] are refused.
+    Draft07,
+}
+
 /// How an applicator keyword holds its subschemas.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Holds {
@@ -196,6 +220,11 @@ const APPLICATORS: &[(&str, Holds, &str)] = &[
     ("unevaluatedItems", Holds::One, "unevaluated-items"),
     ("unevaluatedProperties", Holds::One, "unevaluated-props"),
     ("contentSchema", Holds::One, "content-schema"),
+    (
+        protocol::DRAFT_07_DEFINITIONS.0,
+        Holds::Map,
+        protocol::DRAFT_07_DEFINITIONS.1,
+    ),
 ];
 
 fn applicator(key: &str) -> Option<(Holds, &'static str)> {
@@ -328,6 +357,7 @@ struct Scope {
     resource: String,
     base: Option<String>,
     vocabulary: Option<Vocabulary>,
+    draft: Draft,
 }
 
 /// What the first pass learns of the bundle.
@@ -409,6 +439,7 @@ pub fn read_trees(
             index: &mut index,
             dialects: PLAIN,
             registers_documents: true,
+            draft_07_refs: Vec::new(),
         };
         let prefix = indexer.visit(root, "", &scope, true)?;
         index
@@ -421,6 +452,7 @@ pub fn read_trees(
         schema: Some(SchemaBuilder::new(&proto)),
         refs: Vec::new(),
         document: 0,
+        built: HashSet::new(),
     };
     let mut roots = Vec::with_capacity(documents.len());
     for (i, (_, root)) in documents.iter().enumerate() {
@@ -435,6 +467,7 @@ pub fn read_trees(
 
 /// A Schema Object held by a document of a host format, at a JSON pointer
 /// of that document.
+#[derive(Clone)]
 pub(crate) struct Embedded<'n> {
     /// The index of the host document.
     pub(crate) document: usize,
@@ -443,14 +476,22 @@ pub(crate) struct Embedded<'n> {
     pub(crate) pointer: String,
     /// The Schema Object.
     pub(crate) node: &'n Node,
+    /// The vocabulary the Schema Object starts with.
+    pub(crate) vocabulary: Option<Vocabulary>,
+    /// Which JSON Schema the Schema Object is read as.
+    pub(crate) draft: Draft,
 }
 
 /// The documents of a host format and the Schema Objects they hold.
 pub(crate) struct Host<'a> {
     /// Each document's retrieval URI (absolute, with no fragment, and
-    /// distinct, which the host has checked) and the vocabulary its Schema
-    /// Objects start with.
-    pub(crate) documents: Vec<(Option<&'a str>, Option<Vocabulary>)>,
+    /// distinct, which the host has checked).
+    pub(crate) documents: Vec<Option<&'a str>>,
+    /// The tree of each fragment document, `None` for any other: a `$ref`
+    /// of a draft-07 Schema Object that names a place of a fragment
+    /// document no Schema Object holds reads the node there as a Schema
+    /// Object, with the vocabulary of the subschema that refers to it.
+    pub(crate) fragments: Vec<Option<&'a Node>>,
     /// The Schema Objects, in the order their vertices are built.
     pub(crate) schemas: Vec<Embedded<'a>>,
     /// The dialects `$schema` may name.
@@ -465,31 +506,39 @@ pub(crate) struct Host<'a> {
 /// empty key for the one without), so a `$ref` whose JSON pointer names a
 /// Schema Object anywhere in a host document resolves to it, and one that
 /// names any other place of the document is refused as naming no
-/// subschema. Vertex ids are the document's URI (or nothing), `#` and the
-/// JSON pointer, as [`read_bundle`] names them.
+/// subschema. The Schema Objects are visited in order, and after each one
+/// every `$ref` of its draft-07 subschemas that names a place of a fragment
+/// document ([`Host::fragments`]) no Schema Object yet holds adds the node
+/// there as a further Schema Object, visited and built after those before
+/// it. Vertex ids are the document's URI (or nothing), `#` and the JSON
+/// pointer, as [`read_bundle`] names them.
 pub(crate) fn build_embedded(
     host: &Host<'_>,
     builder: SchemaBuilder,
 ) -> Result<(SchemaBuilder, Vec<String>), JsonSchemaError> {
     let mut index = Index::default();
-    for (i, (uri, _)) in host.documents.iter().enumerate() {
+    for (i, uri) in host.documents.iter().enumerate() {
         let key = uri.map_or_else(String::new, |u| strip_empty_fragment(u).to_owned());
         index.resources.insert(key.clone(), (i, String::new()));
         index.prefixes.push(key);
     }
-    for schema in &host.schemas {
-        let (uri, vocabulary) = host.documents[schema.document];
-        let base = uri.map(|u| strip_empty_fragment(u).to_owned());
+    let mut schemas: Vec<Embedded<'_>> = host.schemas.clone();
+    let mut next = 0;
+    while let Some(schema) = schemas.get(next).cloned() {
+        next += 1;
+        let base = host.documents[schema.document].map(|u| strip_empty_fragment(u).to_owned());
         let scope = Scope {
             resource: base.clone().unwrap_or_default(),
             base,
-            vocabulary,
+            vocabulary: schema.vocabulary,
+            draft: schema.draft,
         };
         let mut indexer = Indexer {
             document: schema.document,
             index: &mut index,
             dialects: host.dialects,
             registers_documents: false,
+            draft_07_refs: Vec::new(),
         };
         indexer.visit(
             schema.node,
@@ -497,15 +546,45 @@ pub(crate) fn build_embedded(
             &scope,
             schema.pointer.is_empty(),
         )?;
+        for (document, base, reference, vocabulary) in indexer.draft_07_refs {
+            let Some((target, pointer)) =
+                fragment_place(&index, document, base.as_deref(), &reference)
+            else {
+                continue;
+            };
+            let queued = schemas
+                .iter()
+                .any(|s| s.document == target && s.pointer == pointer);
+            if queued || index.scopes.contains_key(&(target, pointer.clone())) {
+                continue;
+            }
+            let Some(node) = host
+                .fragments
+                .get(target)
+                .copied()
+                .flatten()
+                .and_then(|tree| navigate(tree, &pointer))
+            else {
+                continue;
+            };
+            schemas.push(Embedded {
+                document: target,
+                pointer,
+                node,
+                vocabulary,
+                draft: Draft::Draft07,
+            });
+        }
     }
     let mut built = Builder {
         index: &index,
         schema: Some(builder),
         refs: Vec::new(),
         document: 0,
+        built: HashSet::new(),
     };
-    let mut ids = Vec::with_capacity(host.schemas.len());
-    for schema in &host.schemas {
+    let mut ids = Vec::with_capacity(schemas.len());
+    for schema in &schemas {
         built.document = schema.document;
         ids.push(built.build(schema.node, &schema.pointer)?);
     }
@@ -521,6 +600,53 @@ pub(crate) fn build_embedded(
     Ok((builder, ids))
 }
 
+/// The document and JSON pointer a draft-07 `$ref` made in `document`,
+/// with the base `base`, names, when it names a JSON pointer of a document
+/// of the bundle.
+fn fragment_place(
+    index: &Index,
+    document: usize,
+    base: Option<&str>,
+    reference: &str,
+) -> Option<(usize, String)> {
+    let (target, fragment) = if let Some(fragment) = reference.strip_prefix('#') {
+        (document, fragment.to_owned())
+    } else {
+        let resolved = resolve(base, reference)?;
+        let (uri, fragment) = resolved.split_once('#').unwrap_or((&resolved, ""));
+        (index.resources.get(uri)?.0, fragment.to_owned())
+    };
+    if !fragment.starts_with('/') {
+        return None;
+    }
+    Some((target, percent_decode(&fragment)?))
+}
+
+/// The node a JSON pointer names in `tree`, if any: each token, with `~1`
+/// read as `/` and `~0` as `~`, is a key of a mapping or the decimal index,
+/// with no leading zero, of an item of a sequence.
+pub(crate) fn navigate<'n>(tree: &'n Node, pointer: &str) -> Option<&'n Node> {
+    if pointer.is_empty() {
+        return Some(tree);
+    }
+    let mut node = tree;
+    for token in pointer.strip_prefix('/')?.split('/') {
+        let key = token.replace("~1", "/").replace("~0", "~");
+        node = match &node.content {
+            Content::Mapping(entries) => entries.iter().find(|(k, _)| *k == key).map(|(_, v)| v)?,
+            Content::Sequence(items) => {
+                let canonical = key == "0" || (!key.starts_with('0') && !key.is_empty());
+                if !canonical || !key.bytes().all(|b| b.is_ascii_digit()) {
+                    return None;
+                }
+                items.get(key.parse::<usize>().ok()?)?
+            }
+            Content::Scalar(_) => return None,
+        };
+    }
+    Some(node)
+}
+
 /// `uri` without an empty fragment.
 fn strip_empty_fragment(uri: &str) -> &str {
     uri.strip_suffix('#').unwrap_or(uri)
@@ -534,6 +660,7 @@ fn document_scope(document: usize, uri: Option<&str>, root: &Node, index: &mut I
             resource: String::new(),
             base: None,
             vocabulary: None,
+            draft: Draft::Current,
         });
     };
     let base = strip_empty_fragment(uri);
@@ -560,6 +687,7 @@ fn document_scope(document: usize, uri: Option<&str>, root: &Node, index: &mut I
         resource: base.to_owned(),
         base: Some(base.to_owned()),
         vocabulary: None,
+        draft: Draft::Current,
     })
 }
 
@@ -572,11 +700,53 @@ struct Indexer<'i> {
     /// Whether the root of a document without a URI registers the
     /// document's resource (a host format registers its documents itself).
     registers_documents: bool,
+    /// Each `$ref` of a draft-07 subschema visited, in order: its
+    /// document, the base in scope, the reference and the vocabulary in
+    /// effect.
+    draft_07_refs: Vec<(usize, Option<String>, String, Option<Vocabulary>)>,
 }
 
 impl Indexer<'_> {
     const fn fail<T>(&self, path: String, node: &Node, kind: JsonSchemaErrorKind) -> R<T> {
         Err(error(self.document, path, node.offset, kind))
+    }
+
+    /// Check each member of a schema object in order and, for a draft-07
+    /// subschema, record its `$ref` and refuse a member beside it.
+    fn check_members(
+        &mut self,
+        entries: &[(String, Node)],
+        pointer: &str,
+        parent: &Scope,
+    ) -> R<()> {
+        let own = parent.vocabulary.map_or(&[][..], |v| v.keywords);
+        for (key, value) in entries {
+            if parent.draft == Draft::Draft07 {
+                self.check_draft_07(key, value, &child(pointer, key), own)?;
+            }
+            self.check_keyword(key, value, &child(pointer, key), parent.draft)?;
+        }
+        if parent.draft == Draft::Draft07
+            && let Some(reference) = get(entries, "$ref").and_then(Node::string)
+        {
+            self.draft_07_refs.push((
+                self.document,
+                parent.base.clone(),
+                reference.to_owned(),
+                parent.vocabulary,
+            ));
+        }
+        if parent.draft == Draft::Draft07
+            && get(entries, "$ref").is_some()
+            && let Some((key, value)) = entries.iter().find(|(k, _)| k != "$ref")
+        {
+            return self.fail(
+                child(pointer, key),
+                value,
+                JsonSchemaErrorKind::Draft07("a member beside $ref"),
+            );
+        }
+        Ok(())
     }
 
     /// Check and index the subschema `node` at `pointer`, returning the key
@@ -600,9 +770,7 @@ impl Indexer<'_> {
                 );
             }
         };
-        for (key, value) in entries {
-            self.check_keyword(key, value, &child(pointer, key))?;
-        }
+        self.check_members(entries, pointer, parent)?;
         let id = get(entries, "$id");
         let vocabulary = if let Some(dialect) = get(entries, "$schema") {
             let at = child(pointer, "$schema");
@@ -716,6 +884,7 @@ impl Indexer<'_> {
                 resource: resolved.clone(),
                 base: Some(resolved),
                 vocabulary: parent.vocabulary,
+                draft: parent.draft,
             });
         }
         if root && parent.base.is_none() && self.registers_documents {
@@ -754,9 +923,35 @@ impl Indexer<'_> {
         Ok(())
     }
 
-    /// Check one keyword's value against the 2020-12 meta-schema.
-    fn check_keyword(&self, key: &str, value: &Node, at: &str) -> R<()> {
-        if let Some(superseded) = SUPERSEDED.iter().find(|s| **s == key) {
+    /// Refuse a keyword a Schema Object read as draft-07 may not use, and
+    /// `items` as an array. A keyword of the vocabulary `own` in effect is
+    /// the vocabulary's, not 2020-12's.
+    fn check_draft_07(&self, key: &str, value: &Node, at: &str, own: &[&str]) -> R<()> {
+        let unread = DRAFT_07_UNREAD
+            .iter()
+            .chain(protocol::NOT_IN_DRAFT_07)
+            .find(|k| **k == key && !own.contains(k));
+        if let Some(keyword) = unread {
+            return self.fail(at.to_owned(), value, JsonSchemaErrorKind::Draft07(keyword));
+        }
+        if key == "items" && value.sequence().is_some() {
+            return self.fail(
+                at.to_owned(),
+                value,
+                JsonSchemaErrorKind::Draft07("items as an array"),
+            );
+        }
+        Ok(())
+    }
+
+    /// Check one keyword's value against the 2020-12 meta-schema, or, for
+    /// a Schema Object read as draft-07, the draft-07 one, which differs
+    /// from it only in `definitions`.
+    fn check_keyword(&self, key: &str, value: &Node, at: &str, draft: Draft) -> R<()> {
+        if let Some(superseded) = SUPERSEDED
+            .iter()
+            .find(|s| **s == key && draft == Draft::Current)
+        {
             return self.fail(
                 at.to_owned(),
                 value,
@@ -988,6 +1183,9 @@ struct Builder<'i> {
     /// vertex exists.
     refs: Vec<(String, String, &'static str, String)>,
     document: usize,
+    /// The places built, each once: a Schema Object a host reads from a
+    /// fragment document may also lie inside another one it reads.
+    built: HashSet<(usize, String)>,
 }
 
 impl Builder<'_> {
@@ -1024,6 +1222,9 @@ impl Builder<'_> {
     /// constraints and its subschemas, returning its id.
     fn build(&mut self, node: &Node, pointer: &str) -> R<String> {
         let id = self.vertex_id(pointer);
+        if !self.built.insert((self.document, pointer.to_owned())) {
+            return Ok(id);
+        }
         let entries = match &node.content {
             Content::Scalar(Value::Bool(flag)) => {
                 let kind = if *flag { "true" } else { "false" };
@@ -1118,7 +1319,7 @@ impl Builder<'_> {
         };
         for (sub_pointer, name, sub) in children {
             let target = self.build(sub, &sub_pointer)?;
-            if key == "$defs" {
+            if key == "$defs" || key == protocol::DRAFT_07_DEFINITIONS.0 {
                 self.with(|b| b.entry(&target));
             }
             self.try_with(&sub_pointer, sub.offset, |b| {

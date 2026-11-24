@@ -1,0 +1,3 @@
+type Query { q: Int }
+interface I { a: Int }
+union U = I

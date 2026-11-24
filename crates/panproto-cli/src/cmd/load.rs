@@ -4,9 +4,11 @@
 //! same four input shapes:
 //!
 //! 1. a JSON file holding panproto's own serialized [`Schema`];
-//! 2. a single schema document written in a protocol's own surface
-//!    syntax, or any source file the tree-sitter parser registry
-//!    recognizes;
+//! 2. a single schema document in a protocol the caller or a manifest
+//!    names, read by that protocol's reader (a JSON document, or text in
+//!    the protocol's own syntax, such as an `OpenAPI` description in YAML
+//!    or a `PostgreSQL` script), or any source file the tree-sitter parser
+//!    registry recognizes;
 //! 3. a directory backed by a `panproto.toml` manifest, parsed as one
 //!    bundle so that references across documents resolve to the real
 //!    target vertex rather than an opaque placeholder;
@@ -29,7 +31,12 @@ use std::path::{Path, PathBuf};
 
 use miette::{Context, IntoDiagnostic, Result};
 use panproto_core::{
-    protocols,
+    io::schema_documents::{self, ReadOptions},
+    protocols::{
+        self,
+        config::ansible::FileClass,
+        registry::{self, Parser},
+    },
     schema::{Edge, Schema},
     vcs,
 };
@@ -78,8 +85,21 @@ pub struct LoadOptions<'a> {
     /// authoritative and a disagreeing name is an error rather than a
     /// silent override.
     pub protocol: Option<&'a str>,
+    /// The class of an Ansible file, which the `ansible` reader needs
+    /// and the file does not state.
+    pub file_class: Option<FileClass>,
     /// Report each parsing decision on stderr.
     pub verbose: bool,
+}
+
+impl LoadOptions<'_> {
+    /// What the protocol readers need beyond the document.
+    fn read_options(&self) -> ReadOptions {
+        ReadOptions {
+            file_class: self.file_class,
+            ..ReadOptions::default()
+        }
+    }
 }
 
 /// A multi-file project, kept per file so a caller can store one schema
@@ -249,6 +269,28 @@ pub fn load_schema(path: &Path, options: &LoadOptions<'_>) -> Result<LoadedSchem
     load(path, options)?.into_schema()
 }
 
+/// Load the schema at `path` for a command that works in `protocol`: a
+/// panproto schema JSON file, or a schema document read by `protocol`'s
+/// reader.
+///
+/// # Errors
+///
+/// Returns an error if the path cannot be loaded as [`load_schema`]
+/// describes.
+pub fn load_protocol_schema(
+    path: &Path,
+    protocol: &str,
+    file_class: Option<FileClass>,
+    verbose: bool,
+) -> Result<Schema> {
+    let options = LoadOptions {
+        protocol: Some(protocol),
+        file_class,
+        verbose,
+    };
+    Ok(load_schema(path, &options)?.schema)
+}
+
 /// Load `path` in whichever shape it denotes.
 ///
 /// # Errors
@@ -347,6 +389,12 @@ fn load_source_tree(dir: &Path, verbose: bool) -> Result<LoadedInput> {
 /// in a named or manifest-declared protocol, or a source file.
 fn load_file(path: &Path, options: &LoadOptions<'_>) -> Result<LoadedInput> {
     if path.extension().is_none_or(|ext| ext != "json") {
+        if let Some(protocol) = options.protocol.map(normalize_protocol)
+            && reads_text(&protocol)
+        {
+            let schema = read_text_document(path, &protocol, options)?;
+            return Ok(flat(schema, InputKind::ProtocolDocument, Some(protocol)));
+        }
         return Ok(flat(
             parse_source_file(path, options.verbose)?,
             InputKind::SourceFile,
@@ -380,13 +428,40 @@ fn load_file(path: &Path, options: &LoadOptions<'_>) -> Result<LoadedInput> {
         ));
     };
 
+    if reads_text(&protocol) {
+        let schema = read_text_document(path, &protocol, options)?;
+        return Ok(flat(schema, InputKind::ProtocolDocument, Some(protocol)));
+    }
     if options.verbose {
         eprintln!("Parsing {} as one {protocol} document", path.display());
     }
-    let schema = protocols::parse_schema_document(&protocol, &value)
-        .into_diagnostic()
-        .wrap_err_with(|| format!("failed to parse {} as {protocol}", path.display()))?;
+    let schema =
+        schema_documents::parse_schema_document(&protocol, &value, &options.read_options())
+            .into_diagnostic()
+            .wrap_err_with(|| format!("failed to parse {} as {protocol}", path.display()))?;
     Ok(flat(schema, InputKind::ProtocolDocument, Some(protocol)))
+}
+
+/// Whether `protocol` reads its documents as text: text in its own
+/// syntax, or, for a protocol read through a tree-sitter grammar, JSON or
+/// YAML text, read as written so that the reader sees the document's own
+/// key order and duplicate keys.
+fn reads_text(protocol: &str) -> bool {
+    registry::descriptor(protocol)
+        .is_some_and(|d| matches!(d.parser, Parser::Source(_) | Parser::Grammar { .. }))
+}
+
+/// Read the document at `path` as text with `protocol`'s reader.
+fn read_text_document(path: &Path, protocol: &str, options: &LoadOptions<'_>) -> Result<Schema> {
+    let text = std::fs::read_to_string(path)
+        .into_diagnostic()
+        .wrap_err_with(|| format!("failed to read {}", path.display()))?;
+    if options.verbose {
+        eprintln!("Reading {} as one {protocol} document", path.display());
+    }
+    schema_documents::parse_schema_source(protocol, &text, &options.read_options())
+        .into_diagnostic()
+        .wrap_err_with(|| format!("failed to read {} as {protocol}", path.display()))
 }
 
 /// Wrap a flat schema as a [`LoadedInput`].

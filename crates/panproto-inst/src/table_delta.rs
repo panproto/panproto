@@ -1070,7 +1070,7 @@ fn delete_use(deleter: &TableDelta, user: &TableDelta, out: &mut BTreeSet<EditCo
         }
         if user.tables.contains_key(id) {
             out.insert(EditConflict::DeleteUse {
-                deleted: gone.clone(),
+                deleted: gone,
                 user: ElemRef::Attr(AttrKey::Table { row: *id }),
             });
         }

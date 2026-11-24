@@ -78,6 +78,10 @@ pub enum Kind {
     UnknownAnchor,
     /// A retrieval URI given twice, or two documents without one.
     DuplicateDocument,
+    /// In a draft-07 Schema Object: `$schema`, `$id`, `dependencies`,
+    /// `additionalItems`, a 2020-12 keyword draft-07 lacks, `items` as an
+    /// array, or a member beside `$ref`.
+    Draft07,
 }
 
 /// A refusal: the document, the JSON pointer of the value at fault, and
@@ -121,6 +125,36 @@ pub const OAS_DIALECT: &str = "https://spec.openapis.org/oas/3.1/dialect/base";
 
 /// The keywords the `OpenAPI` vocabulary adds, kept under its dialect.
 pub const OAS_KEYWORDS: [&str; 4] = ["discriminator", "xml", "externalDocs", "example"];
+
+/// The keywords the `AsyncAPI` vocabulary adds to draft-07, kept under the
+/// `AsyncAPI` Schema Object format.
+pub const ASYNCAPI_KEYWORDS: [&str; 3] = ["discriminator", "externalDocs", "deprecated"];
+
+/// The keywords a draft-07 Schema Object of an `AsyncAPI` description may
+/// not use: `$schema` and `$id`, the two draft-07 keywords 2020-12 split,
+/// and the 2020-12 keywords draft-07 lacks.
+const NOT_DRAFT_07: [&str; 20] = [
+    "$schema",
+    "$id",
+    "dependencies",
+    "additionalItems",
+    "$anchor",
+    "$dynamicAnchor",
+    "$dynamicRef",
+    "$vocabulary",
+    "$defs",
+    "$recursiveRef",
+    "$recursiveAnchor",
+    "prefixItems",
+    "dependentSchemas",
+    "dependentRequired",
+    "unevaluatedItems",
+    "unevaluatedProperties",
+    "maxContains",
+    "minContains",
+    "contentSchema",
+    "deprecated",
+];
 
 const OLD: [&str; 5] = [
     "definitions",
@@ -183,7 +217,7 @@ enum Shape {
 
 /// The applicators (and `$defs`) in the page's canonical order, each with
 /// the shape of its value and its edge kind.
-const SUBSCHEMA_KEYWORDS: [(&str, Shape, &str); 19] = [
+const SUBSCHEMA_KEYWORDS: [(&str, Shape, &str); 20] = [
     ("$defs", Shape::Named, "def"),
     ("properties", Shape::Named, "prop"),
     ("patternProperties", Shape::Named, "pattern-prop"),
@@ -203,6 +237,7 @@ const SUBSCHEMA_KEYWORDS: [(&str, Shape, &str); 19] = [
     ("unevaluatedItems", Shape::Single, "unevaluated-items"),
     ("unevaluatedProperties", Shape::Single, "unevaluated-props"),
     ("contentSchema", Shape::Single, "content-schema"),
+    ("definitions", Shape::Named, "definition"),
 ];
 
 fn subschema_keyword(key: &str) -> Option<(Shape, &'static str)> {
@@ -442,6 +477,10 @@ struct Scope {
     base: Option<String>,
     /// Whether the `OpenAPI` vocabulary is in effect.
     oas: bool,
+    /// Whether the subschema is read as draft-07.
+    draft07: bool,
+    /// Whether the `AsyncAPI` vocabulary is in effect.
+    asyncapi: bool,
 }
 
 /// What the first pass gathers.
@@ -455,6 +494,9 @@ struct Gathered {
     /// Whether the documents are host documents holding Schema Objects,
     /// registered by the host, whose `$schema` may name the OAS dialect.
     hosted: bool,
+    /// The `$ref` of each draft-07 subschema of the Schema Object being
+    /// read, in order: document, base, reference, `AsyncAPI` vocabulary.
+    draft07_refs: Vec<(usize, Option<String>, String, bool)>,
 }
 
 fn refuse<T>(document: usize, path: &str, kind: Kind) -> R<T> {
@@ -486,6 +528,8 @@ pub fn read(documents: &[(Option<String>, Doc)]) -> Result<Reading, Refusal> {
                 resource: String::new(),
                 base: None,
                 oas: false,
+                draft07: false,
+                asyncapi: false,
             },
             Some(uri) => {
                 let base = without_empty_fragment(uri);
@@ -500,6 +544,8 @@ pub fn read(documents: &[(Option<String>, Doc)]) -> Result<Reading, Refusal> {
                     resource: base.to_owned(),
                     base: Some(base.to_owned()),
                     oas: false,
+                    draft07: false,
+                    asyncapi: false,
                 }
             }
         };
@@ -546,6 +592,75 @@ pub fn read_embedded(
     oas: &[bool],
     schemas: &[Embedded<'_>],
 ) -> Result<Reading, Refusal> {
+    let starts: Vec<Start<'_>> = schemas
+        .iter()
+        .map(|(d, path, node)| (*d, path.clone(), *node, oas[*d], false, false))
+        .collect();
+    embedded(uris, &[], starts)
+}
+
+/// A draft-07 Schema Object held by an `AsyncAPI` document: the document,
+/// the JSON pointer, the Schema Object, and whether the `AsyncAPI`
+/// vocabulary is in effect.
+pub type Draft07Embedded<'d> = (usize, String, &'d Doc, bool);
+
+/// Read the draft-07 Schema Objects of `AsyncAPI` documents, as the
+/// `AsyncAPI` page states.
+///
+/// Each document is a resource identified by its URI, and a `$ref`
+/// resolves against the document. After each Schema Object is read, every
+/// `$ref` of it that names a place of a fragment document (`fragments`,
+/// `None` for any other document) that no Schema Object holds adds the node
+/// there as a further Schema Object, read after the ones before it, with
+/// the referring subschema's vocabulary.
+///
+/// # Errors
+///
+/// The first [`Refusal`], in the page's order.
+pub fn read_draft07(
+    uris: &[Option<String>],
+    fragments: &[Option<&Doc>],
+    schemas: &[Draft07Embedded<'_>],
+) -> Result<Reading, Refusal> {
+    let starts: Vec<Start<'_>> = schemas
+        .iter()
+        .map(|(d, path, node, asyncapi)| (*d, path.clone(), *node, false, true, *asyncapi))
+        .collect();
+    embedded(uris, fragments, starts)
+}
+
+/// A Schema Object to read and how it starts: document, pointer, node,
+/// `OpenAPI` vocabulary, draft-07, `AsyncAPI` vocabulary.
+type Start<'d> = (usize, String, &'d Doc, bool, bool, bool);
+
+/// The node at a JSON pointer of `tree`.
+fn place<'d>(tree: &'d Doc, pointer: &str) -> Option<&'d Doc> {
+    if pointer.is_empty() {
+        return Some(tree);
+    }
+    let mut node = tree;
+    for token in pointer.strip_prefix('/')?.split('/') {
+        let key = token.replace("~1", "/").replace("~0", "~");
+        node = match node {
+            Doc::Map(members) => member(members, &key)?,
+            Doc::Seq(items) => {
+                let digits = !key.is_empty() && key.chars().all(|c| c.is_ascii_digit());
+                if !digits || (key.len() > 1 && key.starts_with('0')) {
+                    return None;
+                }
+                items.get(key.parse::<usize>().ok()?)?
+            }
+            _ => return None,
+        };
+    }
+    Some(node)
+}
+
+fn embedded<'d>(
+    uris: &[Option<String>],
+    fragments: &[Option<&'d Doc>],
+    mut schemas: Vec<Start<'d>>,
+) -> Result<Reading, Refusal> {
     let mut g = Gathered {
         hosted: true,
         ..Gathered::default()
@@ -555,17 +670,52 @@ pub fn read_embedded(
         g.resources.insert(key.clone(), (d, String::new()));
         g.prefixes.push(key);
     }
-    for (d, path, node) in schemas {
+    let mut next = 0;
+    while let Some((d, path, node, oas, draft07, asyncapi)) = schemas.get(next).cloned() {
+        next += 1;
         let start = Scope {
-            resource: uris[*d].clone().unwrap_or_default(),
-            base: uris[*d].clone(),
-            oas: oas[*d],
+            resource: uris[d].clone().unwrap_or_default(),
+            base: uris[d].clone(),
+            oas,
+            draft07,
+            asyncapi,
         };
-        first_pass(&mut g, *d, node, path, &start, path.is_empty())?;
+        g.draft07_refs.clear();
+        first_pass(&mut g, d, node, &path, &start, path.is_empty())?;
+        for (rd, base, reference, vocabulary) in std::mem::take(&mut g.draft07_refs) {
+            let (target, fragment) = if let Some(f) = reference.strip_prefix('#') {
+                (rd, f.to_owned())
+            } else {
+                let Some(full) = resolve(base.as_deref(), &reference) else {
+                    continue;
+                };
+                let (uri, f) = full.split_once('#').unwrap_or((&full, ""));
+                let Some((t, _)) = g.resources.get(uri) else {
+                    continue;
+                };
+                (*t, f.to_owned())
+            };
+            if !fragment.starts_with('/') {
+                continue;
+            }
+            let Some(pointer) = unescape_percent(&fragment) else {
+                continue;
+            };
+            let known = g.scopes.contains_key(&(target, pointer.clone()))
+                || schemas.iter().any(|s| s.0 == target && s.1 == pointer);
+            let found = fragments
+                .get(target)
+                .copied()
+                .flatten()
+                .and_then(|tree| place(tree, &pointer));
+            if let (false, Some(found)) = (known, found) {
+                schemas.push((target, pointer, found, false, true, vocabulary));
+            }
+        }
     }
     let mut out = Reading::default();
     let mut refs = Vec::new();
-    for (d, path, node) in schemas {
+    for (d, path, node, ..) in &schemas {
         let id = second_pass(&g, &mut out, &mut refs, *d, node, path)?;
         out.roots.push(id);
     }
@@ -640,7 +790,21 @@ fn first_pass(
         _ => return refuse(d, path, Kind::WrongType("a schema")),
     };
     for (key, value) in members {
-        check(d, key, value, &at(path, key))?;
+        if outer.draft07 {
+            check_draft07(d, key, value, &at(path, key), outer.asyncapi)?;
+        }
+        check(d, key, value, &at(path, key), outer.draft07)?;
+    }
+    if outer.draft07 {
+        if let Some(Doc::Str(reference)) = member(members, "$ref") {
+            g.draft07_refs
+                .push((d, outer.base.clone(), reference.clone(), outer.asyncapi));
+        }
+        if member(members, "$ref").is_some()
+            && let Some((key, _)) = members.iter().find(|(k, _)| k != "$ref")
+        {
+            return refuse(d, &at(path, key), Kind::Draft07);
+        }
     }
     let id = member(members, "$id");
     let mut oas = outer.oas;
@@ -662,6 +826,11 @@ fn first_pass(
     if oas {
         for (key, value) in members {
             check_oas_keyword(d, key, value, &at(path, key))?;
+        }
+    }
+    if outer.asyncapi {
+        for (key, value) in members {
+            check_asyncapi_keyword(d, key, value, &at(path, key))?;
         }
     }
     let mut scope = scope_of(g, d, path, outer, root, id)?;
@@ -750,6 +919,8 @@ fn scope_of(
             resource: resolved.clone(),
             base: Some(resolved),
             oas: outer.oas,
+            draft07: outer.draft07,
+            asyncapi: outer.asyncapi,
         });
     }
     if root && outer.base.is_none() && !g.hosted {
@@ -772,9 +943,83 @@ const fn is_count(doc: &Doc) -> bool {
     matches!(doc, Doc::Int(n) if *n >= 0)
 }
 
-/// Check one keyword's value.
-fn check(d: usize, key: &str, value: &Doc, path: &str) -> R<()> {
-    if let Some(old) = OLD.iter().find(|o| **o == key) {
+/// Refuse a keyword a draft-07 Schema Object of an `AsyncAPI` description
+/// may not use (a keyword of the `AsyncAPI` vocabulary in effect excepted),
+/// and `items` as an array.
+fn check_draft07(d: usize, key: &str, value: &Doc, path: &str, asyncapi: bool) -> R<()> {
+    let own = asyncapi && ASYNCAPI_KEYWORDS.contains(&key);
+    if (NOT_DRAFT_07.contains(&key) && !own) || (key == "items" && matches!(value, Doc::Seq(_))) {
+        return refuse(d, path, Kind::Draft07);
+    }
+    Ok(())
+}
+
+/// Check an `AsyncAPI` vocabulary keyword: `discriminator` a string;
+/// `externalDocs` an object that is no Reference Object, with `url`, of
+/// string `url` and `description` and extension members, whose `url` has a
+/// scheme.
+fn check_asyncapi_keyword(d: usize, key: &str, value: &Doc, path: &str) -> R<()> {
+    match (key, value) {
+        ("discriminator", Doc::Str(_)) => Ok(()),
+        ("externalDocs", Doc::Map(members)) => {
+            if member(members, "$ref").is_some() {
+                return refuse(d, path, Kind::Invalid);
+            }
+            let Some(url) = member(members, "url") else {
+                return refuse(d, path, Kind::Invalid);
+            };
+            for (name, v) in members {
+                let fits = match name.as_str() {
+                    "url" | "description" => matches!(v, Doc::Str(_)),
+                    other => extension(other),
+                };
+                if !fits {
+                    return refuse(d, &at(path, name), Kind::Invalid);
+                }
+            }
+            if let Doc::Str(text) = url
+                && !has_scheme(text)
+            {
+                return refuse(d, &at(path, "url"), Kind::Invalid);
+            }
+            Ok(())
+        }
+        ("discriminator" | "externalDocs", _) => refuse(d, path, Kind::Invalid),
+        _ => Ok(()),
+    }
+}
+
+/// Whether `name` is `x-` followed by one or more ASCII letters, digits,
+/// `_`, `.` or `-`.
+#[must_use]
+pub fn extension(name: &str) -> bool {
+    name.strip_prefix("x-").is_some_and(|rest| {
+        !rest.is_empty()
+            && rest
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == '-')
+    })
+}
+
+/// Whether `text` starts with an RFC 3986 scheme and a colon.
+#[must_use]
+pub fn has_scheme(text: &str) -> bool {
+    let Some(colon) = text.find(':') else {
+        return false;
+    };
+    let scheme = &text[..colon];
+    scheme
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic())
+        && scheme
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '-' || c == '.')
+}
+
+/// Check one keyword's value; `definitions` is a keyword of draft-07.
+fn check(d: usize, key: &str, value: &Doc, path: &str, draft07: bool) -> R<()> {
+    if let Some(old) = OLD.iter().find(|o| **o == key && !draft07) {
         return refuse(d, path, Kind::Superseded(old));
     }
     let bad = |kind| refuse(d, path, kind);
@@ -918,6 +1163,9 @@ fn second_pass(
     path: &str,
 ) -> R<String> {
     let id = format!("{}#{path}", g.prefixes[d]);
+    if out.vertices.contains_key(&id) {
+        return Ok(id);
+    }
     let members = match node {
         Doc::Bool(true) => {
             out.vertices.insert(id.clone(), "true".into());
@@ -943,7 +1191,9 @@ fn second_pass(
         {
             continue;
         }
-        let oas = g.scopes[&(d, path.to_owned())].oas && OAS_KEYWORDS.contains(&key.as_str());
+        let scope = &g.scopes[&(d, path.to_owned())];
+        let oas = (scope.oas && OAS_KEYWORDS.contains(&key.as_str()))
+            || (scope.asyncapi && ASYNCAPI_KEYWORDS.contains(&key.as_str()));
         let (sort, text) = if KEPT.contains(&key.as_str()) || empty_named(key, value) || oas {
             (key.clone(), json(value))
         } else {
@@ -969,7 +1219,7 @@ fn second_pass(
         };
         for (sub_path, name, sub) in named_subschemas(key, value, path) {
             let target = second_pass(g, out, refs, d, sub, &sub_path)?;
-            if key == "$defs" && !out.entries.contains(&target) {
+            if (key == "$defs" || key == "definitions") && !out.entries.contains(&target) {
                 out.entries.push(target.clone());
             }
             out.edges

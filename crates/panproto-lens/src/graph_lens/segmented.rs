@@ -50,9 +50,9 @@ use panproto_inst::{
 use panproto_schema::{CanonicalWriter, InstanceShapeKind, KeyPart, KeyRole, KeyScope, Schema};
 
 use super::{
-    PutScope, Restored, fan_violations, key_values, refusal_from_restrict, required_violations,
-    restorable_part, restore_nodes, restore_parts, stability_against, synthesized_edits,
-    uniqueness_role,
+    PutScope, Replay, Restored, fan_violations, key_values, refusal_from_restrict, refused_element,
+    required_violations, restorable_part, restore_nodes, restore_parts, stability_against,
+    synthesized_edits, uniqueness_role,
 };
 use crate::{Lens, LensError};
 
@@ -232,7 +232,6 @@ impl Part {
         let mut found = synthesized_edits(&self.local, &self.complement, plan);
         let outcome = restore_parts(lens, &self.local, &self.complement, plan, &self.scope);
         found.extend(outcome.errors.iter().cloned());
-        found.extend(outcome.trace_errors.iter().cloned());
         (found, outcome)
     }
 }
@@ -603,22 +602,14 @@ pub fn put_segmented(
         restored.push(outcome);
     }
 
-    // The clauses read on the restored source run on what restores, unless
-    // a node's transforms cannot be traced, which leaves the restored source
-    // undetermined.
-    let mut family = Vec::new();
-    if restored
-        .iter()
-        .all(|outcome| outcome.trace_errors.is_empty())
-    {
-        family = restored_family(&parts, &restored, &index)?;
-        let held = InMemory {
-            parts: &parts,
-            restored: &restored,
-            family: &family,
-        };
-        found.extend(source_clauses(lens, &plan, &held)?);
-    }
+    // The clauses read on the restored source run on what restores.
+    let family = restored_family(&parts, &restored, &index)?;
+    let held = InMemory {
+        parts: &parts,
+        restored: &restored,
+        family: &family,
+    };
+    found.extend(source_clauses(lens, &plan, &held)?);
     least(found).map_or(Ok(family), |error| Err(refused(error)))
 }
 
@@ -1001,6 +992,128 @@ impl RestoredParts for InMemory<'_> {
     }
 }
 
+/// The elements of a restored family a replay leaves out: the nodes it
+/// refused, with their incident edges, and the edges it refused.
+#[derive(Default)]
+struct Refused {
+    nodes: BTreeSet<u32>,
+    edges: BTreeSet<EdgeId>,
+}
+
+impl Refused {
+    /// `segment` without the refused elements, its boundary cut down to the
+    /// crossings that remain.
+    fn without<'s>(&self, segment: Cow<'s, GraphSegment>) -> Cow<'s, GraphSegment> {
+        if self.nodes.is_empty() && self.edges.is_empty() {
+            return segment;
+        }
+        let mut kept = segment.into_owned();
+        kept.nodes.retain(|id, _| !self.nodes.contains(id));
+        kept.edges.retain(|id, edge| {
+            !self.edges.contains(id)
+                && !self.nodes.contains(&edge.src)
+                && !self.nodes.contains(&edge.tgt)
+        });
+        kept.boundary.in_stubs.retain(|elem, stub| {
+            !matches!(elem, ViewRef::Edge(id) if self.edges.contains(id))
+                && !self.nodes.contains(&stub.src)
+                && !self.nodes.contains(&stub.tgt)
+        });
+        let reached: BTreeSet<u32> = kept.edges.values().map(|edge| edge.tgt).collect();
+        kept.boundary
+            .ghosts
+            .retain(|_, ghost| reached.contains(&ghost.node));
+        Cow::Owned(kept)
+    }
+}
+
+/// Forward stability over the restored family, as whole-state put's
+/// `forward_stability` decides it: the replay's first refusal, with every
+/// node of the family without the refused elements compared with its
+/// replay, or, when the replay refuses nowhere, the least node whose
+/// transforms cannot be traced.
+fn replay_clauses<R: RestoredParts>(
+    lens: &Lens,
+    plan: &RestrictPlan,
+    held: &R,
+    ids: &[SegmentId],
+) -> Result<Vec<PutDomainError>, R::Stop> {
+    let mut refused = Refused::default();
+    let mut refusal: Option<Vec<PutDomainError>> = None;
+    loop {
+        let mut violations = Vec::new();
+        let mut untraced: Option<(u32, Vec<PutDomainError>)> = None;
+        let outcome = graph_restrict_segmented_nodes_with(
+            plan,
+            ids,
+            &mut |segment| Ok(refused.without(held.family_segment(segment)?)),
+            &mut |segment, nodes| {
+                let stability = held.with_restored(segment, |part, outcome| {
+                    let in_view = restorable_part(&part.local, &outcome.errors);
+                    stability_against(
+                        lens,
+                        &in_view,
+                        &part.complement,
+                        &outcome.source,
+                        plan,
+                        &part.scope,
+                        &Replay {
+                            refused: &refused.nodes,
+                            node: &|id| nodes.get(&id),
+                        },
+                    )
+                })?;
+                violations.extend(stability.violations);
+                if let Some((id, refusal)) = stability.untraced
+                    && untraced.as_ref().is_none_or(|(least, _)| id < *least)
+                {
+                    untraced = Some((id, refusal));
+                }
+                Ok(())
+            },
+        );
+        let (segment, error) = match outcome {
+            Ok(()) => {
+                violations.extend(
+                    refusal
+                        .or_else(|| untraced.map(|(_, refusal)| refusal))
+                        .unwrap_or_default(),
+                );
+                return Ok(violations);
+            }
+            Err(StreamStop::Source(stop)) => return Err(stop),
+            Err(StreamStop::Refused(SegmentedRestrictError::Restrict { segment, error })) => {
+                (segment, error)
+            }
+            Err(StreamStop::Refused(SegmentedRestrictError::Segment(error))) => {
+                return Err(R::Stop::from(SegmentedPutError::Segment(error)));
+            }
+            Err(StreamStop::Refused(SegmentedRestrictError::Residual(residual))) => {
+                return Err(R::Stop::from(SegmentedPutError::Residual(residual)));
+            }
+            Err(StreamStop::Refused(other)) => {
+                return Err(R::Stop::from(SegmentedPutError::Lens(
+                    LensError::ComplementMismatch {
+                        detail: other.to_string(),
+                    },
+                )));
+            }
+        };
+        let element = refused_element(&error);
+        refusal.get_or_insert_with(|| refusal_from_restrict(error));
+        let replayed = refused.without(held.family_segment(segment)?);
+        match element {
+            Some(ViewRef::Node(id)) if replayed.nodes.contains_key(&id) => {
+                refused.nodes.insert(id);
+            }
+            Some(ViewRef::Edge(id)) if replayed.edges.contains_key(&id) => {
+                refused.edges.insert(id);
+            }
+            _ => return Ok(refusal.unwrap_or_default()),
+        }
+    }
+}
+
 /// The clauses read on the restored source: forward stability, the source
 /// schema's required cells and keys, and the fan domain.
 fn source_clauses<R: RestoredParts>(
@@ -1009,48 +1122,7 @@ fn source_clauses<R: RestoredParts>(
     held: &R,
 ) -> Result<Vec<PutDomainError>, R::Stop> {
     let ids = held.ids();
-    let mut found = Vec::new();
-    let mut stability = Vec::new();
-    let outcome = graph_restrict_segmented_nodes_with(
-        plan,
-        &ids,
-        &mut |segment| held.family_segment(segment),
-        &mut |segment, nodes| {
-            stability.extend(held.with_restored(segment, |part, outcome| {
-                let in_view = restorable_part(&part.local, &outcome.errors);
-                stability_against(
-                    lens,
-                    &in_view,
-                    &part.complement,
-                    &outcome.source,
-                    plan,
-                    &part.scope,
-                    &|id| nodes.get(&id),
-                )
-            })?);
-            Ok(())
-        },
-    );
-    match outcome {
-        Ok(()) => found.extend(stability),
-        Err(StreamStop::Source(stop)) => return Err(stop),
-        Err(StreamStop::Refused(SegmentedRestrictError::Restrict { error, .. })) => {
-            found.extend(refusal_from_restrict(error));
-        }
-        Err(StreamStop::Refused(SegmentedRestrictError::Segment(error))) => {
-            return Err(R::Stop::from(SegmentedPutError::Segment(error)));
-        }
-        Err(StreamStop::Refused(SegmentedRestrictError::Residual(residual))) => {
-            return Err(R::Stop::from(SegmentedPutError::Residual(residual)));
-        }
-        Err(StreamStop::Refused(other)) => {
-            return Err(R::Stop::from(SegmentedPutError::Lens(
-                LensError::ComplementMismatch {
-                    detail: other.to_string(),
-                },
-            )));
-        }
-    }
+    let mut found = replay_clauses(lens, plan, held, &ids)?;
     let schema = &lens.src_schema;
     let mut keys = KeyRuns::default();
     for segment in ids {
@@ -1335,7 +1407,6 @@ impl<C: SegmentSource> PhaseOperation for GraphPut<'_, C> {
         }
         let ids = cx.segments();
         let mut found: Vec<PutDomainError> = Vec::new();
-        let mut traced = true;
         let mut boundaries: Vec<Boundary> = vec![Boundary::default(); ids.len()];
         let mut crossings = Vec::new();
         let mut family_error: Option<SegmentedPutError> = None;
@@ -1343,7 +1414,6 @@ impl<C: SegmentSource> PhaseOperation for GraphPut<'_, C> {
             let part = self.part(cx, segment, &exports)?;
             let (violations, outcome) = part.restore(self.lens, self.plan);
             found.extend(violations);
-            traced &= outcome.trace_errors.is_empty();
             if family_error.is_some() {
                 continue;
             }
@@ -1357,19 +1427,17 @@ impl<C: SegmentSource> PhaseOperation for GraphPut<'_, C> {
                 Err(error) => family_error = Some(error),
             }
         }
-        if traced {
-            if let Some(error) = family_error {
-                return Err(PutStop::Failed(error));
-            }
-            add_in_stubs(&mut boundaries, crossings);
-            let rerun = Rerun {
-                put: self,
-                cx,
-                exports: &exports,
-                boundaries: &boundaries,
-            };
-            found.extend(source_clauses(self.lens, self.plan, &rerun)?);
+        if let Some(error) = family_error {
+            return Err(PutStop::Failed(error));
         }
+        add_in_stubs(&mut boundaries, crossings);
+        let rerun = Rerun {
+            put: self,
+            cx,
+            exports: &exports,
+            boundaries: &boundaries,
+        };
+        found.extend(source_clauses(self.lens, self.plan, &rerun)?);
         least(found).map_or_else(
             || Ok(boundaries_bytes(&boundaries)),
             |error| Err(PutStop::Failed(refused(error))),

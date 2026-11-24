@@ -1,0 +1,3 @@
+type Query { q: Int }
+input I { a: Int }
+type A { a: I }

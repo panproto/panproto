@@ -1,10 +1,12 @@
 //! Reference semantics partitioned by correctness page.
 
 pub mod ansible;
+pub mod asyncapi;
 pub mod bson;
 pub mod cloudformation;
 pub mod edge_lists;
 pub mod edits;
+pub mod graphql;
 pub mod instance_version_control;
 pub mod json_schema;
 pub mod kan_extensions;

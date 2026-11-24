@@ -194,7 +194,7 @@ mod tests {
             attached("redis").non_value_kinds,
             std::collections::BTreeSet::from(["index".to_owned()])
         );
-        assert!(attached("asyncapi").non_value_kinds.is_empty());
+        assert!(attached("raml").non_value_kinds.is_empty());
     }
 
     #[test]

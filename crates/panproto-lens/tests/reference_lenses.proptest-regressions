@@ -12,3 +12,4 @@ cc 2365883581d0f5ddb470c88bd83fc1cf032a3e9ddb30285b40b462d000b3286c # shrinks to
 cc 68e737944d248b3c50a825dd978f955a505f7363f8435364b48ab331548df585 # shrinks to kind = 10, schema = 1, source_seed = 203721834568674915, view_seed = 1017610671103238938
 cc c23c0eb4cef8f4a0226cf9da0364ac563acccc2bc050c379fb3d706ca9c56ef7 # shrinks to rows = [0, 0, 0, 2, 0, 0, 1], pairs = [(3, 6), (6, 3)], owners = [0, 0, 0, 0, 0, 0, 0, 0], lens_index = 2
 cc d7dee19147a383b5c57656380b196734cd2a68c382186c56c3cb9bee42ad0063 # shrinks to parents = [0, 1, 2, 1], anchors = [false, true, false, true, true, false, false], fan = false, owners = [0, 0, 0, 0, 0, 0, 0, 0], lens_index = 5
+cc 44a636f145dbad00108d426b57f5ac995118118a880cf1a7fc84d2bb2f16dd7c # shrinks to steps = [2, 15, 7], schema = 8, source_seed = 0, view_seed = 13572722055810880932

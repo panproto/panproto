@@ -35,7 +35,6 @@ const FIXTURES: &[(&str, bool, &[&str])] = &[
             "atproto/lexicons/site.standard.document.json",
         ],
     ),
-    ("graphql", false, &["graphql/swapi.graphql"]),
     (
         "protobuf",
         false,

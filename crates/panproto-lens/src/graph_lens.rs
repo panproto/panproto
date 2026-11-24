@@ -1235,22 +1235,19 @@ fn restore_with_plan(
     scope: &PutScope,
 ) -> Result<GInstance, Vec<PutDomainError>> {
     let restored = restore_parts(lens, view, complement, plan, scope);
-    let mut errors = restored.errors;
-    errors.extend(restored.trace_errors);
-    if errors.is_empty() {
+    if restored.errors.is_empty() {
         Ok(restored.source)
     } else {
-        Err(errors)
+        Err(restored.errors)
     }
 }
 
 /// A restoration with its violations: the source restored from every view
-/// element that restores, the violations of the nodes and edges that do not,
-/// and the refusals of tracing a node's transforms.
+/// element that restores, and the violations of the nodes and edges that do
+/// not.
 pub(crate) struct Restored {
     pub(crate) source: GInstance,
     pub(crate) errors: Vec<PutDomainError>,
-    pub(crate) trace_errors: Vec<PutDomainError>,
 }
 
 /// Restore `view` against `complement`, leaving out each element that does
@@ -1276,35 +1273,29 @@ pub(crate) fn restore_parts(
     );
     let baseline = source.clone();
     let mut traces = HashMap::new();
-    let mut trace_errors = Vec::new();
     let mut ids: Vec<_> = view.nodes().keys().copied().collect();
     ids.sort_unstable();
     for id in ids {
         if complement.synthesized_nodes.contains_key(&id) || scope.foreign.contains(&id) {
             continue;
         }
-        match graph_transform_trace(lens, &baseline, id) {
-            Ok(trace) => {
-                if let Some(node) = source.node_mut(id) {
-                    crate::asymmetric::restore_traced_fields(
-                        node,
-                        &view.nodes()[&id],
-                        &trace,
-                        complement.original_extra_fields.contains_key(&id)
-                            || complement.identity.is_some(),
-                    );
-                }
-                traces.insert(id, trace.operations);
+        // A node whose baseline run fails keeps its restored fields, and the
+        // replay of `forward_stability` refuses it.
+        if let Ok(trace) = graph_transform_trace(lens, &baseline, id) {
+            if let Some(node) = source.node_mut(id) {
+                crate::asymmetric::restore_traced_fields(
+                    node,
+                    &view.nodes()[&id],
+                    &trace,
+                    complement.original_extra_fields.contains_key(&id)
+                        || complement.identity.is_some(),
+                );
             }
-            Err(error) => trace_errors.extend(trace_refusal(id, error)),
+            traces.insert(id, trace.operations);
         }
     }
     invert_graph_child_scalars(view, &traces, &mut source);
-    Restored {
-        source,
-        errors,
-        trace_errors,
-    }
+    Restored { source, errors }
 }
 
 fn trace_refusal(id: u32, error: panproto_inst::RestrictError) -> Vec<PutDomainError> {
@@ -1674,6 +1665,8 @@ fn id_collisions(view: &GInstance, complement: &GraphComplement) -> Vec<PutDomai
     found
 }
 
+/// Clause 2: every synthesized node or edge the view changed, or left out
+/// while every endpoint of its chain remains in the view.
 fn synthesized_edits(
     view: &GInstance,
     complement: &GraphComplement,
@@ -1689,7 +1682,8 @@ fn synthesized_edits(
     let mut found: Vec<PutDomainError> = removed_nodes
         .iter()
         .filter(|&&id| {
-            !chain_endpoint_removed(view, complement, &complement.synthesized_nodes[&id])
+            view.node(id).is_some()
+                || !chain_endpoint_removed(view, complement, &complement.synthesized_nodes[&id])
         })
         .map(|&id| PutDomainError::SynthesizedEdited {
             elem: ViewRef::Node(id),
@@ -1697,7 +1691,7 @@ fn synthesized_edits(
         .collect();
     for (&id, key) in &complement.synthesized_edges {
         if !synth_edge_matches(view, complement, plan, id, key)
-            && !chain_endpoint_removed(view, complement, key)
+            && (view.edge(id).is_some() || !chain_endpoint_removed(view, complement, key))
         {
             found.push(PutDomainError::SynthesizedEdited {
                 elem: ViewRef::Edge(id),
@@ -1864,6 +1858,16 @@ fn chain_endpoint_removed(view: &GInstance, complement: &GraphComplement, key: &
     }
 }
 
+/// The clauses that replay get on the restored `source`.
+///
+/// The replay refuses as one get does, once: its first refusal is
+/// reported, and the replay runs again without the node or edge it refused,
+/// so that every other view node is still compared with its replay. When
+/// the replay refuses nowhere but the baseline run of some node's
+/// transforms fails, the least such node's refusal is reported instead. A
+/// view node the replay drops is `SurvivalPredicateFails`, and a node it
+/// changes is classified by the transforms that wrote the changed
+/// coordinates.
 fn forward_stability(
     lens: &Lens,
     view: &GInstance,
@@ -1871,33 +1875,101 @@ fn forward_stability(
     source: &GInstance,
     plan: &RestrictPlan,
 ) -> Vec<PutDomainError> {
-    match graph_restrict_with_plan(source, plan) {
-        Ok((regenerated, _)) => stability_against(
-            lens,
-            view,
-            complement,
-            source,
-            plan,
-            &PutScope::default(),
-            &|id| regenerated.node(id),
-        ),
-        Err(error) => refusal_from_restrict(error),
+    let mut replayed = source.clone();
+    let mut refusal = None;
+    let mut refused = BTreeSet::new();
+    let regenerated = loop {
+        match graph_restrict_with_plan(&replayed, plan) {
+            Ok((regenerated, _)) => break regenerated,
+            Err(error) => {
+                let element = refused_element(&error);
+                refusal.get_or_insert_with(|| refusal_from_restrict(error));
+                match element {
+                    Some(ViewRef::Node(id)) if replayed.node(id).is_some() => {
+                        let incident: Vec<EdgeId> = replayed
+                            .out_edges(id)
+                            .iter()
+                            .chain(replayed.in_edges(id))
+                            .copied()
+                            .collect();
+                        for edge in incident {
+                            let _ = replayed.remove_edge(edge);
+                        }
+                        let _ = replayed.remove_node(id);
+                        refused.insert(id);
+                    }
+                    Some(ViewRef::Edge(id)) if replayed.edge(id).is_some() => {
+                        let _ = replayed.remove_edge(id);
+                    }
+                    _ => return refusal.unwrap_or_default(),
+                }
+            }
+        }
+    };
+    let stability = stability_against(
+        lens,
+        view,
+        complement,
+        source,
+        plan,
+        &PutScope::default(),
+        &Replay {
+            refused: &refused,
+            node: &|id| regenerated.node(id),
+        },
+    );
+    let mut found = stability.violations;
+    found.extend(
+        refusal
+            .or_else(|| stability.untraced.map(|(_, refusal)| refusal))
+            .unwrap_or_default(),
+    );
+    found
+}
+
+/// The element a replay refusal is about, which the replay leaves out when
+/// it runs again: a node at stage 0 and an edge at stage 1.
+pub(crate) const fn refused_element(error: &panproto_inst::RestrictError) -> Option<ViewRef> {
+    match error {
+        panproto_inst::RestrictError::At { key, .. } if key.stage == 0 => {
+            Some(ViewRef::Node(key.id))
+        }
+        panproto_inst::RestrictError::At { key, .. } if key.stage == 1 => {
+            Some(ViewRef::Edge(EdgeId(key.id)))
+        }
+        _ => None,
     }
 }
 
-/// The forward-stability violations of the view nodes `scope` does not
-/// hold as placeholders, against `regenerated`, the view nodes get gives
-/// the restored `source`.
-pub(crate) fn stability_against<'r>(
+/// What comparing view nodes with their replays finds: the violations of
+/// the nodes whose replay differs, and the least node whose transforms
+/// cannot be traced, with the refusal.
+#[derive(Default)]
+pub(crate) struct Stability {
+    pub(crate) violations: Vec<PutDomainError>,
+    pub(crate) untraced: Option<(u32, Vec<PutDomainError>)>,
+}
+
+/// A replay of get on a restored source without the nodes and edges the
+/// replay refused: the refused nodes, and the nodes it gives.
+pub(crate) struct Replay<'a, 'r> {
+    pub(crate) refused: &'a BTreeSet<u32>,
+    pub(crate) node: &'a dyn Fn(u32) -> Option<&'r panproto_inst::Node>,
+}
+
+/// Compare the view nodes that `scope` does not hold as placeholders with
+/// `replay`, the replay of the restored `source`, leaving out the nodes it
+/// refused.
+pub(crate) fn stability_against(
     lens: &Lens,
     view: &GInstance,
     complement: &GraphComplement,
     source: &GInstance,
     plan: &RestrictPlan,
     scope: &PutScope,
-    regenerated: &dyn Fn(u32) -> Option<&'r panproto_inst::Node>,
-) -> Vec<PutDomainError> {
-    let mut found = Vec::new();
+    replay: &Replay<'_, '_>,
+) -> Stability {
+    let mut found = Stability::default();
     let (mut baseline, mut baseline_errors) = restore_nodes(lens, view, complement, scope);
     restore_edges(
         lens,
@@ -1908,32 +1980,52 @@ pub(crate) fn stability_against<'r>(
         &mut baseline,
         &mut baseline_errors,
     );
-    for (&id, node) in view.nodes() {
-        if complement.synthesized_nodes.contains_key(&id) || scope.foreign.contains(&id) {
+    let mut ids: Vec<u32> = view.nodes().keys().copied().collect();
+    ids.sort_unstable();
+    for id in ids {
+        if complement.synthesized_nodes.contains_key(&id)
+            || scope.foreign.contains(&id)
+            || replay.refused.contains(&id)
+        {
             continue;
         }
-        let Some(actual) = regenerated(id) else {
-            found.push(PutDomainError::SurvivalPredicateFails {
-                elem: ViewRef::Node(id),
-            });
+        let before = match graph_transform_trace(lens, &baseline, id) {
+            Ok(trace) => trace.operations,
+            Err(error) => {
+                found
+                    .untraced
+                    .get_or_insert_with(|| (id, trace_refusal(id, error)));
+                continue;
+            }
+        };
+        let node = &view.nodes()[&id];
+        let Some(actual) = (replay.node)(id) else {
+            found
+                .violations
+                .push(PutDomainError::SurvivalPredicateFails {
+                    elem: ViewRef::Node(id),
+                });
             continue;
         };
         if !node_equiv(node, actual) {
-            let mut transforms = match graph_transform_trace(lens, &baseline, id) {
-                Ok(trace) => trace.operations,
-                Err(error) => {
-                    found.extend(trace_refusal(id, error));
-                    continue;
-                }
-            };
+            let mut transforms = before;
             match graph_transform_trace(lens, source, id) {
                 Ok(trace) => transforms.extend(trace.operations),
                 Err(error) => {
-                    found.extend(trace_refusal(id, error));
+                    found
+                        .untraced
+                        .get_or_insert_with(|| (id, trace_refusal(id, error)));
                     continue;
                 }
             }
-            classify_transform_differences(view, id, &transforms, node, actual, &mut found);
+            classify_transform_differences(
+                view,
+                id,
+                &transforms,
+                node,
+                actual,
+                &mut found.violations,
+            );
         }
     }
     found
