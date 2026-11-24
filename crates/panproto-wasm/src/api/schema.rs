@@ -152,10 +152,8 @@ pub fn parse_atproto_lexicon(json_bytes: &[u8]) -> Result<u32, JsError> {
 /// support without changing this signature. Query the supported set with
 /// [`list_bundle_parser_protocols`].
 ///
-/// A protocol read through a tree-sitter grammar (`openapi`, `asyncapi`,
-/// `json-schema`, `k8s-crd`, `cloudformation`, `ansible`, `postgresql`)
-/// is read by its `panproto-io` reader in a build with the
-/// `format-preserving` feature. The published module leaves the grammars
+/// A protocol read through a tree-sitter grammar is read by its
+/// `panproto-io` reader in a build with the `format-preserving` feature. The published module leaves the grammars
 /// out, so there it is refused with an error that names the reader and
 /// that feature. The `ansible` reader needs the file's class, which this
 /// entry point does not take, so `ansible` is refused in every build.
@@ -220,10 +218,8 @@ pub fn list_bundle_parser_protocols() -> Result<Vec<u8>, JsError> {
 /// document are parsed with [`parse_schema_source`]. Query the supported
 /// set with [`list_document_parser_protocols`].
 ///
-/// A protocol read through a tree-sitter grammar (`openapi`, `asyncapi`,
-/// `json-schema`, `k8s-crd`, `cloudformation`, `ansible`, `postgresql`)
-/// is read by its `panproto-io` reader in a build with the
-/// `format-preserving` feature. The published module leaves the grammars
+/// A protocol read through a tree-sitter grammar is read by its
+/// `panproto-io` reader in a build with the `format-preserving` feature. The published module leaves the grammars
 /// out, so there it is refused with an error that names the reader and
 /// that feature. The `ansible` reader needs the file's class, which this
 /// entry point does not take, so `ansible` is refused in every build.
@@ -253,10 +249,8 @@ pub fn parse_schema_document(protocol: &str, doc_bytes: &[u8]) -> Result<u32, Js
 /// lives in the protocol layer, so this signature names no protocol.
 /// Query the supported set with [`list_source_parser_protocols`].
 ///
-/// A protocol read through a tree-sitter grammar (`openapi`, `asyncapi`,
-/// `json-schema`, `k8s-crd`, `cloudformation`, `ansible`, `postgresql`)
-/// is read by its `panproto-io` reader in a build with the
-/// `format-preserving` feature. The published module leaves the grammars
+/// A protocol read through a tree-sitter grammar is read by its
+/// `panproto-io` reader in a build with the `format-preserving` feature. The published module leaves the grammars
 /// out, so there it is refused with an error that names the reader and
 /// that feature. The `ansible` reader needs the file's class, which this
 /// entry point does not take, so `ansible` is refused in every build.

@@ -197,10 +197,9 @@ pub fn parse_atproto_lexicon(doc: &Bound<'_, PyAny>) -> PyResult<PySchema> {
 /// A protocol-dispatching entry point over every JSON-document schema
 /// reader, forwarding the protocol string to the reader layer so no
 /// protocol name is hard-coded here. The protocols read through a
-/// tree-sitter grammar whose documents are JSON (``openapi``,
-/// ``asyncapi``, ``json-schema``, ``k8s-crd``, ``cloudformation``,
-/// ``ansible``) are read here too. Protocols whose source is text rather
-/// than a JSON document are parsed with :func:`parse_schema_source`.
+/// tree-sitter grammar whose documents are JSON are read here too.
+/// Protocols whose source is text rather than a JSON document are parsed
+/// with :func:`parse_schema_source`.
 ///
 /// Parameters
 /// ----------
@@ -253,10 +252,8 @@ pub fn parse_schema_document(
 /// The text counterpart to :func:`parse_schema_document`, for protocols
 /// whose source is a language rather than a JSON document, and for the
 /// protocols read through a tree-sitter grammar, which read their text as
-/// written: an ``openapi``, ``asyncapi``, ``k8s-crd``, ``cloudformation``
-/// or ``ansible`` document in YAML or JSON, a ``json-schema`` document,
-/// or a ``postgresql`` script. Dispatch lives in the reader layer, so no
-/// protocol name is hard-coded here.
+/// written. Dispatch lives in the reader layer, so no protocol name is
+/// hard-coded here.
 ///
 /// Parameters
 /// ----------
@@ -306,10 +303,10 @@ pub fn parse_schema_source(
 /// reference whose target is in no document of the bundle stays a
 /// placeholder, which is what marks it as genuinely external.
 ///
-/// The ``openapi``, ``asyncapi`` and ``json-schema`` bundles are read by
-/// their tree-sitter grammar readers, the first document the entry. A
-/// reference between their documents resolves against a document's
-/// retrieval URI, or against the ``$id`` it declares.
+/// A protocol whose reader is a tree-sitter grammar reads the first
+/// document as the entry of the bundle. A reference between its documents
+/// resolves against a document's retrieval URI, or against the ``$id`` it
+/// declares.
 ///
 /// Parameters
 /// ----------

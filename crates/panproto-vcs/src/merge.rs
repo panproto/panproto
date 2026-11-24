@@ -2951,8 +2951,8 @@ fn merge_usage_modes(
                 } else {
                     conflicts.push(MergeConflict::BothModifiedUsageMode {
                         edge: edge.clone(),
-                        ours_mode: ours_mode.clone().unwrap_or_default(),
-                        theirs_mode: theirs_mode.clone().unwrap_or_default(),
+                        ours_mode: ours_mode.unwrap_or_default(),
+                        theirs_mode: theirs_mode.unwrap_or_default(),
                     });
                     base_mode
                 }

@@ -973,7 +973,7 @@ mod tests {
             };
             for e in fan_out() {
                 compiled.surviving_verts.insert(e.src.clone());
-                compiled.surviving_verts.insert(e.tgt.clone());
+                compiled.surviving_verts.insert(e.tgt);
             }
             canonical_bytes(&build_minimal_schema(&compiled))
         };

@@ -6,8 +6,7 @@
 //! 1. a JSON file holding panproto's own serialized [`Schema`];
 //! 2. a single schema document in a protocol the caller or a manifest
 //!    names, read by that protocol's reader (a JSON document, or text in
-//!    the protocol's own syntax, such as an `OpenAPI` description in YAML
-//!    or a `PostgreSQL` script), or any source file the tree-sitter parser
+//!    the protocol's own syntax), or any source file the tree-sitter parser
 //!    registry recognizes;
 //! 3. a directory backed by a `panproto.toml` manifest, parsed as one
 //!    bundle so that references across documents resolve to the real
