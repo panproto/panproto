@@ -58,9 +58,7 @@ pub fn mark_reachable(
                 for parent in commit.parents {
                     queue.push(parent);
                 }
-                if let Some(protocol_id) = commit.protocol_id {
-                    queue.push(protocol_id);
-                }
+                queue.extend(commit.environment_id);
                 for data_id in commit.data_ids {
                     queue.push(data_id);
                 }
@@ -80,6 +78,9 @@ pub fn mark_reachable(
             Object::Migration { src, tgt, .. } => {
                 queue.push(src);
                 queue.push(tgt);
+            }
+            Object::ProtocolEnvironment(environment) => {
+                queue.extend(environment.iter().map(|(_, id)| id));
             }
             Object::Protocol(_)
             | Object::Expr(_)
@@ -109,6 +110,7 @@ pub fn mark_reachable(
             }
             Object::DataSet(dataset) => {
                 queue.push(dataset.schema_id);
+                queue.extend(dataset.protocol_id);
             }
             Object::Complement(complement) => {
                 queue.push(complement.migration_id);
@@ -390,6 +392,7 @@ mod tests {
             data: vec![1, 2, 3],
             record_count: 1,
             key: None,
+            protocol_id: None,
         };
         let data_id = store.put(&Object::DataSet(dataset))?;
 
@@ -402,9 +405,13 @@ mod tests {
         let complement_id = store.put(&Object::Complement(complement))?;
 
         // Create commit referencing all three.
+        let mut environment = crate::ProtocolEnvironment::new();
+        environment.define("test", protocol_id);
+        let environment_id = crate::environment::store_environment(&mut store, environment)?;
+
         let c0 = CommitObject::builder(schema_id, "test", "test", "initial")
             .timestamp(100)
-            .protocol_id(protocol_id)
+            .environment_id(environment_id)
             .data_ids(vec![data_id])
             .complement_ids(vec![complement_id])
             .build();

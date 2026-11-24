@@ -42,7 +42,7 @@ use panproto_core::vcs::{
 use crate::convert;
 use crate::error::VcsError;
 use crate::lexicon::PyLexiconProject;
-use crate::schema::PySchema;
+use crate::schema::{PyProtocol, PySchema};
 
 // ---------------------------------------------------------------------------
 // MemStore-backed repository (preserved for back-compat)
@@ -202,7 +202,11 @@ fn index_to_value(idx: &Index) -> serde_json::Value {
     serde_json::json!({
         "staged": staged,
         "staged_data": staged_data,
-        "staged_protocol": idx.staged_protocol.map(|i| i.to_string()),
+        "staged_protocols": idx
+            .staged_protocols
+            .iter()
+            .map(|(name, id)| (name.to_owned(), id.to_string()))
+            .collect::<std::collections::BTreeMap<_, _>>(),
         "has_staged": idx.has_staged(),
     })
 }
@@ -293,18 +297,32 @@ impl PyRepository {
     /// but GAT migration validation is skipped and the stage is left
     /// ``pending`` (an escape hatch for bulk historical VCS builds where
     /// each version was already validated at its own release).
+    ///
+    /// The protocol a schema was built under is staged with it unless its
+    /// name already means that protocol, and stays staged when the schema
+    /// turns out to be unchanged.
     #[pyo3(signature = (schema, *, skip_verify=false))]
     fn add(&mut self, py: Python<'_>, schema: &PySchema, skip_verify: bool) -> PyResult<Py<PyAny>> {
-        let index = if skip_verify {
-            self.inner
-                .add_with_options(
-                    schema.inner.as_ref(),
-                    &panproto_core::vcs::AddOptions { skip_verify: true },
-                )
-                .map_err(vcs_err)?
-        } else {
-            self.inner.add(schema.inner.as_ref()).map_err(vcs_err)?
-        };
+        if let Some(protocol) = &schema.protocol {
+            let meant = self
+                .inner
+                .environment()
+                .and_then(|environment| environment.resolve(self.inner.store(), &protocol.name));
+            match meant {
+                Ok(meant) if meant == **protocol => {}
+                Ok(_) | Err(panproto_core::vcs::VcsError::UnknownProtocol { .. }) => {
+                    self.inner.add_protocol(protocol).map_err(vcs_err)?;
+                }
+                Err(error) => return Err(vcs_err(error)),
+            }
+        }
+        let index = self
+            .inner
+            .add_with_options(
+                schema.inner.as_ref(),
+                &panproto_core::vcs::AddOptions { skip_verify },
+            )
+            .map_err(vcs_err)?;
         convert::to_python(py, &index_to_value(&index))
     }
 
@@ -347,6 +365,18 @@ impl PyRepository {
             .inner
             .add_tree_with_options(root_id, &panproto_core::vcs::AddOptions { skip_verify })
             .map_err(vcs_err)?;
+        convert::to_python(py, &index_to_value(&index))
+    }
+
+    /// Stage ``protocol`` for the next commit, which records it.
+    ///
+    /// Returns the updated index. A schema's protocol name means, to data
+    /// staged against it, the protocol staged under it, else the one recorded
+    /// at HEAD, else the built-in protocol of that name. Each data set records
+    /// the protocol it was staged under, so a later definition of the name
+    /// changes nothing that is already staged or committed.
+    fn add_protocol(&mut self, py: Python<'_>, protocol: &PyProtocol) -> PyResult<Py<PyAny>> {
+        let index = self.inner.add_protocol(&protocol.inner).map_err(vcs_err)?;
         convert::to_python(py, &index_to_value(&index))
     }
 
@@ -411,7 +441,11 @@ impl PyRepository {
         Ok(id.to_string())
     }
 
-    /// Amend the most recent commit with a new message.
+    /// Replace the most recent commit with one that has a new message and
+    /// also records what is staged.
+    ///
+    /// Staged data follows the commit's own. Raises ``VcsError`` for a stage
+    /// that :meth:`commit` refuses.
     fn amend(&mut self, message: &str, author: &str) -> PyResult<String> {
         let id = self.inner.amend(message, author).map_err(vcs_err)?;
         Ok(id.to_string())
@@ -464,16 +498,15 @@ impl PyRepository {
             }
         };
         let schema = resolve_commit_schema_dyn(self.inner.store(), &commit).map_err(vcs_err)?;
-        Ok(PySchema {
-            inner: Arc::new(schema),
-        })
+        Ok(PySchema::unbound(Arc::new(schema)))
     }
 
     /// Read the data sets committed at ``ref`` without moving HEAD.
     ///
     /// Resolves ``ref`` (branch, tag, or commit-id prefix) and returns
-    /// one dict per recorded data set, each with ``schema_id`` (hex object
-    /// id), ``data`` (the committed data bytes), ``record_count``, and
+    /// one dict per recorded data set, each with ``schema_id`` and
+    /// ``protocol_id`` (hex object ids, the latter ``None`` for data committed
+    /// before 0.78.0), ``data`` (the committed data bytes), ``record_count``, and
     /// ``key`` (the caller key from :meth:`add_data`, or ``None``). This
     /// is the data counterpart to :meth:`schema_at`: it never moves HEAD,
     /// the index, or the working tree, unlike :meth:`checkout_with_data`.
@@ -483,6 +516,7 @@ impl PyRepository {
         for ds in datasets {
             let dict = PyDict::new(py);
             dict.set_item("schema_id", ds.schema_id.to_string())?;
+            dict.set_item("protocol_id", ds.protocol_id.map(|id| id.to_string()))?;
             dict.set_item("data", PyBytes::new(py, &ds.data))?;
             dict.set_item("record_count", ds.record_count)?;
             dict.set_item("key", ds.key)?;

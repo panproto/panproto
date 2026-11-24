@@ -201,7 +201,7 @@ pub fn parse_json_schema_bundle(docs: &[serde_json::Value]) -> Result<Schema, Pr
                     }
                     // From anywhere: `<$id>#/$defs/Name`.
                     if let Some(id) = declared {
-                        defs_map.insert(format!("{id}#/{defs_key}/{def_name}"), def_id.clone());
+                        defs_map.insert(format!("{id}#/{defs_key}/{def_name}"), def_id);
                     }
                 }
             }

@@ -18,77 +18,60 @@
 //! arrow that loses data cannot sit in a commuting square. Agreement here is
 //! not a proof that the square commutes.
 
-use std::collections::HashMap;
-use std::hash::BuildHasher;
-
 use panproto_inst::WInstance;
-use panproto_schema::{Protocol, Schema};
+use panproto_schema::Schema;
 
-use crate::data_mig::migrate_backward;
+use crate::data_mig::{
+    Fibre, LiftTarget, LiftedData, TransportedData, data_protocol, load_data_set, migrate_backward,
+};
 use crate::error::VcsError;
 use crate::hash::ObjectId;
-use crate::object::{CommitObject, Object};
+use crate::object::CommitObject;
 use crate::store::Store;
 
-/// Run the round-trip check on every data set a replay or cherry-pick lifts
-/// from `commit` through the schema change `src_schema -> tgt_schema`.
-///
-/// See the module documentation for what the check does and does not
-/// establish about the square it guards.
-///
-/// A real migration appends one backward-migration complement per lifted data
-/// set, aligned after the commit's existing complements. The identity lift
-/// appends none and commutes trivially, so is skipped.
+/// Verify the square of every data set `lifted` transported.
 ///
 /// # Errors
 ///
 /// Returns [`VcsError::SquareNonCommuting`] for the first data set whose
-/// round-trip diverges, [`VcsError::UnknownProtocol`] when the source
-/// schema's protocol name resolves neither through the commit's protocol
-/// object, nor `registered`, nor the protocol registry; propagates
-/// migration or store errors.
-pub fn verify_lifted_squares<S: BuildHasher>(
+/// round-trip diverges, and propagates migration or store errors.
+pub fn verify_lifted_squares(
     store: &mut dyn Store,
     commit: &CommitObject,
-    lifted_data_ids: &[ObjectId],
-    lifted_complement_ids: &[ObjectId],
+    lifted: &LiftedData,
     src_schema: &Schema,
-    tgt_schema: &Schema,
-    registered: &HashMap<String, Protocol, S>,
+    target: LiftTarget<'_>,
 ) -> Result<(), VcsError> {
-    let existing = commit.complement_ids.len();
-    if lifted_data_ids.is_empty() || lifted_complement_ids.len() != existing + lifted_data_ids.len()
-    {
-        return Ok(());
-    }
-    let stored = crate::data_mig::commit_protocol(store, commit)?;
-    let protocol = crate::data_mig::protocol_for_schema(
-        src_schema,
-        crate::data_mig::ProtocolSources {
-            stored: stored.as_ref(),
-            registered,
-        },
-    )?;
-    for (i, (&base_id, &replayed_id)) in commit.data_ids.iter().zip(lifted_data_ids).enumerate() {
+    for transported in &lifted.transported {
+        let base = load_data_set(store, transported.base)?;
+        let image = load_data_set(store, transported.image)?;
+        let src_protocol = data_protocol(store, commit, src_schema, base.protocol_id)?;
+        let tgt_protocol = data_protocol(store, commit, target.schema, image.protocol_id)?;
         verify_square(
             store,
-            base_id,
-            replayed_id,
-            lifted_complement_ids[existing + i],
-            src_schema,
-            tgt_schema,
-            &protocol,
+            *transported,
+            Fibre {
+                schema_id: base.schema_id,
+                schema: src_schema,
+                protocol_id: base.protocol_id,
+                protocol: &src_protocol,
+            },
+            Fibre {
+                schema_id: image.schema_id,
+                schema: target.schema,
+                protocol_id: image.protocol_id,
+                protocol: &tgt_protocol,
+            },
         )?;
     }
     Ok(())
 }
 
-/// Verify that migrating `replayed` back through `complement` reconstructs
-/// `base`, the round-trip law the vertical arrow of a replayed square owes.
+/// Verify that migrating the image of `transported` back through its
+/// complement reconstructs its base, the round-trip law the vertical arrow of
+/// a replayed square owes.
 ///
-/// `base` is the data set before the migration, `replayed` its forward image,
-/// and `complement` the complement the forward migration produced. `src_schema`
-/// and `tgt_schema` are the forward migration's endpoints (the same order as
+/// `src` and `tgt` are the forward migration's endpoints (the same order as
 /// [`migrate_backward`]).
 ///
 /// A failure means the migration loses data the complement did not record, so
@@ -103,16 +86,16 @@ pub fn verify_lifted_squares<S: BuildHasher>(
 /// store error.
 pub fn verify_square(
     store: &mut dyn Store,
-    base: ObjectId,
-    replayed: ObjectId,
-    complement: ObjectId,
-    src_schema: &Schema,
-    tgt_schema: &Schema,
-    protocol: &Protocol,
+    transported: TransportedData,
+    src: Fibre<'_>,
+    tgt: Fibre<'_>,
 ) -> Result<(), VcsError> {
-    let roundtrip = migrate_backward(
-        store, replayed, complement, src_schema, tgt_schema, protocol,
-    )?;
+    let TransportedData {
+        base,
+        image,
+        complement,
+    } = transported;
+    let roundtrip = migrate_backward(store, image, complement, src, tgt)?;
 
     let base_instances = load_instances(store, base)?;
     let roundtrip_instances = load_instances(store, roundtrip)?;
@@ -140,15 +123,9 @@ pub fn verify_square(
 
 /// Load a data set object's W-type instances.
 fn load_instances(store: &dyn Store, id: ObjectId) -> Result<Vec<WInstance>, VcsError> {
-    match store.get(&id)? {
-        Object::DataSet(ds) => {
-            rmp_serde::from_slice(&ds.data).map_err(|e| VcsError::DataMigrationFailed {
-                reason: format!("deserialize data set: {e}"),
-            })
+    rmp_serde::from_slice(&load_data_set(store, id)?.data).map_err(|e| {
+        VcsError::DataMigrationFailed {
+            reason: format!("deserialize data set: {e}"),
         }
-        other => Err(VcsError::TypeMismatch {
-            expected: "DataSet".into(),
-            got: other.type_name().into(),
-        }),
-    }
+    })
 }

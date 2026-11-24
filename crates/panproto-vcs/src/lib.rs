@@ -31,6 +31,7 @@ pub mod cherry_pick;
 pub mod dag;
 pub mod data_mig;
 pub mod edit_mig;
+pub mod environment;
 pub mod error;
 pub mod expr;
 pub mod fs_store;
@@ -42,8 +43,10 @@ pub mod mem_store;
 pub mod merge;
 pub mod object;
 pub mod rebase;
+pub(crate) mod records;
 pub mod refs;
 pub mod rename_detect;
+pub mod replay;
 pub mod repo;
 pub mod reset;
 pub mod square;
@@ -54,9 +57,11 @@ pub mod tree;
 
 // Re-exports for convenience.
 pub use data_mig::{
-    StaleData, detect_staleness, lift_commit_data, migrate_backward, migrate_forward,
+    Fibre, LiftTarget, LiftedData, StaleData, TransportedData, detect_staleness, lift_commit_data,
+    migrate_backward, migrate_forward,
 };
 pub use edit_mig::{decode_edit_log, encode_edit_log, incremental_migrate};
+pub use environment::ProtocolEnvironment;
 pub use error::VcsError;
 pub use expr::{load_expr, store_expr};
 pub use fs_store::FsStore;

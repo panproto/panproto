@@ -558,7 +558,7 @@ proptest! {
         for case in cases {
             let mut target = case.state.clone();
             let applied = case.delta.apply(&mut target);
-            prop_assert_eq!(case.delta.check(&case.state), applied.clone());
+            prop_assert_eq!(&case.delta.check(&case.state), &applied);
             match (applied, &case.expect) {
                 (Err(_), _) => prop_assert!(GInstance::identical(&target, &case.state)),
                 (Ok(()), Expect::Applies(result)) => {
@@ -872,7 +872,7 @@ fn the_fan_differ_generator_covers_both_outcomes() -> Result<(), TestCaseError> 
     let strategy = (arb_fan_graph(), arb_fan_ops());
     let (mut inside, mut outside) = (0, 0);
     for _ in 0..512 {
-        let (a, ops) = strategy.new_tree(&mut runner).map_err(fail)?.current();
+        let (mut a, ops) = strategy.new_tree(&mut runner).map_err(fail)?.current();
         let b = mutate(&a, &ops);
         let reserved = b
             .edges_sorted()
@@ -881,7 +881,7 @@ fn the_fan_differ_generator_covers_both_outcomes() -> Result<(), TestCaseError> 
         if d.is_identity() || !reserved {
             continue;
         }
-        match d.apply(&mut a.clone()) {
+        match d.apply(&mut a) {
             Ok(()) => inside += 1,
             Err(EditError::MalformedFan { .. }) => outside += 1,
             Err(e) => return Err(fail(e)),
@@ -957,7 +957,7 @@ fn the_fan_independence_generator_covers_fan_conflicts() -> Result<(), TestCaseE
         {
             fan_only += 1;
         }
-        let mut ab = s.clone();
+        let mut ab = s;
         if a.apply(&mut ab).is_ok()
             && matches!(b.apply(&mut ab), Err(EditError::MalformedFan { .. }))
         {

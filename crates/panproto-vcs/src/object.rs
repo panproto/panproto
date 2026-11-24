@@ -22,6 +22,7 @@ use panproto_schema::Schema;
 use serde::{Deserialize, Serialize};
 
 use crate::ObjectId;
+use crate::environment::ProtocolEnvironment;
 
 /// A content-addressed object in the store.
 ///
@@ -104,6 +105,10 @@ pub enum Object {
     /// model: sibling entries are sorted lexicographically so the
     /// resulting [`ObjectId`] is deterministic.
     SchemaTree(Box<SchemaTreeObject>),
+
+    /// The protocol environment a commit records
+    /// ([`CommitObject::environment_id`]).
+    ProtocolEnvironment(ProtocolEnvironment),
 }
 
 impl Object {
@@ -125,6 +130,7 @@ impl Object {
             Self::FileSchema(_) => "file_schema",
             Self::SchemaTree(_) => "schema_tree",
             Self::FlatSchema(_) => "flat_schema",
+            Self::ProtocolEnvironment(_) => "protocol_environment",
         }
     }
 }
@@ -264,8 +270,10 @@ pub struct CommitObject {
     /// Renames detected or declared for this commit's migration.
     pub renames: Vec<SiteRename>,
 
-    /// Object ID of the protocol definition at this commit.
-    pub protocol_id: Option<ObjectId>,
+    /// Object ID of the [`Object::ProtocolEnvironment`] at this commit, the
+    /// protocol each name means to data staged on top of it. `None` when it
+    /// defines no name.
+    pub environment_id: Option<ObjectId>,
 
     /// Object IDs of data sets tracked at this commit.
     pub data_ids: Vec<ObjectId>,
@@ -327,7 +335,7 @@ impl CommitObject {
                 .as_secs(),
             message: message.into(),
             renames: Vec::new(),
-            protocol_id: None,
+            environment_id: None,
             data_ids: Vec::new(),
             complement_ids: Vec::new(),
             edit_log_ids: Vec::new(),
@@ -348,7 +356,7 @@ pub struct CommitObjectBuilder {
     timestamp: u64,
     message: String,
     renames: Vec<SiteRename>,
-    protocol_id: Option<ObjectId>,
+    environment_id: Option<ObjectId>,
     data_ids: Vec<ObjectId>,
     complement_ids: Vec<ObjectId>,
     edit_log_ids: Vec<ObjectId>,
@@ -388,8 +396,8 @@ impl CommitObjectBuilder {
 
     /// Set the protocol definition object ID.
     #[must_use]
-    pub const fn protocol_id(mut self, id: ObjectId) -> Self {
-        self.protocol_id = Some(id);
+    pub const fn environment_id(mut self, id: Option<ObjectId>) -> Self {
+        self.environment_id = id;
         self
     }
 
@@ -433,7 +441,7 @@ impl CommitObjectBuilder {
             timestamp: self.timestamp,
             message: self.message,
             renames: self.renames,
-            protocol_id: self.protocol_id,
+            environment_id: self.environment_id,
             data_ids: self.data_ids,
             complement_ids: self.complement_ids,
             edit_log_ids: self.edit_log_ids,
@@ -473,6 +481,15 @@ pub struct DataSetObject {
     /// when no key was recorded. Carried forward across data migration.
     #[serde(default)]
     pub key: Option<String>,
+    /// Which protocol this data conforms to its schema under.
+    ///
+    /// A schema says which protocol by name, and a name can mean different
+    /// protocols at different commits; this is the protocol itself, so what
+    /// the data means does not depend on the commit it is read at. `None`
+    /// for data committed before 0.78.0, whose protocol was not recorded,
+    /// and for data staged unverified under a name that means none.
+    #[serde(default)]
+    pub protocol_id: Option<ObjectId>,
 }
 
 /// A complement from data migration, enabling backward migration.
@@ -550,6 +567,7 @@ mod tests {
             data: vec![1, 2, 3, 4],
             record_count: 42,
             key: Some("at://did:plc:abc/app.bsky.feed.post/1".to_owned()),
+            protocol_id: None,
         };
         let bytes = rmp_serde::to_vec(&ds)?;
         let ds2: DataSetObject = rmp_serde::from_slice(&bytes)?;

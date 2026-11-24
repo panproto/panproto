@@ -54,6 +54,36 @@ The schema merge identifies same-name additions, exactly as the GAT construction
 
 The separate [`panproto_schema::schema_pushout`](https://docs.rs/panproto-schema/latest/panproto_schema/fn.schema_pushout.html) function accepts explicit vertex and edge pairs. It closes their endpoint identifications to an equivalence relation, builds a quotient schema, and returns morphisms from both inputs. It rejects overlap pairs that name absent elements. `SchemaSpan::pushout` calls this function only after rejecting a right leg that contracts vertices. Neither constructor invokes the VCS verifier or an on-demand universal-property checker.
 
+## Committed data
+
+A record is a record of a schema under a protocol. Write $\mathrm{Rec}(S, P)$ for the instances of $S$ whose validation report under $P$ has passed. This is a family of sets indexed by pairs of a schema and a protocol, and a committed data set is an element of its total space,
+
+$$\textstyle\sum_{(S, P)} \mathrm{Rec}(S, P)^*,$$
+
+the objects of its Grothendieck construction: a schema, a protocol, and a list of records in the fibre over the pair. [`DataSetObject`](https://docs.rs/panproto-vcs/latest/panproto_vcs/object/struct.DataSetObject.html) accordingly holds the content addresses of the schema and of the protocol beside the records.
+
+A schema names its protocol, and a name is not a protocol: two commits may give one name two meanings. If a data set held its schema alone, reading it would need a meaning for the name, and the meaning would come from the commit it is read at. Since the pair is stored, reading is a function of the data set, and it commutes with every operation that only moves references to data sets: committing, amending, merging without a schema change, and collecting garbage. No later definition of a name changes what committed data means or whether it can be read.
+
+A migration of $S$ to $S'$ transports the data in the fibre over $S$, by a lens whose complement takes it back. It does not act on the data sets a commit holds over other schemas, which are carried as they are. The image must lie in $\mathrm{Rec}(S', P')$, where $P'$ is what the name of $S'$ means at the new commit, or the operation is refused. Every data set a commit holds is thus in the fibre it records, unless it was staged with verification skipped.
+
+Data committed before 0.78 records no protocol. It is read against its schema alone, under the checks that hold whatever the protocol is.
+
+## Protocol environments
+
+What protocol each name means, for data staged on top of a commit, is the commit's *protocol environment*: a finite partial function from names to protocols ([`ProtocolEnvironment`](https://docs.rs/panproto-vcs/latest/panproto_vcs/environment/struct.ProtocolEnvironment.html)). Reading committed data does not consult it.
+
+Fix a base environment $b$. An *edit* of $b$ is a finite partial function $e$ from names to protocols with $e(n) \neq b(n)$ wherever $e(n)$ is defined. Applying it overrides $b$, and an environment that defines at least the names of $b$ is $b$ with exactly one edit applied. Edits ordered by inclusion form a poset whose least element is the empty edit, and a poset is a category with at most one morphism between two objects.
+
+The merge of two environments over $b$ is the pushout, in this category, of their edits $o$ and $t$ along the empty edit.
+
+1. If $o$ and $t$ differ at a name they both define, an edit that contains both would take two values there. No edit does, so the span has no cocone and no pushout.
+2. Otherwise $o \cup t$ is a partial function, and it is an edit of $b$, since each of its values is a value of $o$ or of $t$. It contains both.
+3. An edit that contains both contains their union. So $o \cup t$ is their join, and in a poset the join of two elements is their pushout over the least one.
+
+A merge therefore reports a conflict at exactly the names that obstruct the pushout, and a merge without a conflict is the pushout. As a union it is commutative, associative and idempotent, with the empty edit its unit. Cherry-pick and rebase take the same pushout with the replayed commit's parent as the base. A commit and an amendment compose edits instead of merging them: what is staged overrides.
+
+Protocols are compared by identity. Two different protocols under one name are not combined into a third, under which no record was ever checked, and a conflict is resolved by staging the protocol one branch means on the other.
+
 ## Limits
 
 The pushout construction does not choose a resolution for incompatible edits. Repository histories are not themselves proved to present the base-to-branch span assumed above. The implementation also publishes no asymptotic or wall-clock bound for the complete merge procedure.

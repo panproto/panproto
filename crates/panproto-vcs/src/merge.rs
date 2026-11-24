@@ -2895,8 +2895,8 @@ fn merge_usage_modes(
                 } else {
                     conflicts.push(MergeConflict::BothModifiedUsageMode {
                         edge: edge.clone(),
-                        ours_mode: ours_mode.clone().unwrap_or_default(),
-                        theirs_mode: theirs_mode.clone().unwrap_or_default(),
+                        ours_mode: ours_mode.unwrap_or_default(),
+                        theirs_mode: theirs_mode.unwrap_or_default(),
                     });
                     base_mode
                 }
@@ -3183,10 +3183,9 @@ fn merge_nsids(
 ///
 /// `protocol` is what the discovered overlap is validated against. Overlap
 /// discovery induces a sub-schema, and a schema is only well formed relative
-/// to a protocol, so it re-validates rather than assuming. Callers with a
-/// stored protocol should pass it;
-/// [`protocol_for_schema`](crate::data_mig::protocol_for_schema) builds a
-/// minimal one from a schema's protocol name otherwise.
+/// to a protocol, so it re-validates rather than assuming.
+/// [`ProtocolEnvironment::resolve`](crate::ProtocolEnvironment::resolve) is
+/// the protocol a schema's protocol name means at a commit.
 ///
 /// Returns the integrated schema together with morphisms embedding each
 /// input into the result.

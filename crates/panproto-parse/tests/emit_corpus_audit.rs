@@ -219,7 +219,7 @@ fn corpus_source_faithful_report() {
             total += 1;
             let Ok(e1) = reg.emit_pretty_with_protocol(proto, &s1) else {
                 if firstbad.is_none() {
-                    firstbad = Some((name.clone(), "EMIT-ERR".to_string()));
+                    firstbad = Some((name, "EMIT-ERR".to_string()));
                 }
                 continue;
             };
@@ -235,7 +235,7 @@ fn corpus_source_faithful_report() {
                 faithful += 1;
             } else if firstbad.is_none() {
                 let s: String = String::from_utf8_lossy(&e1).chars().take(80).collect();
-                firstbad = Some((name.clone(), format!("emit={s:?}")));
+                firstbad = Some((name, format!("emit={s:?}")));
             }
         }
         let verdict = if total > 0 && faithful == total {
@@ -1252,7 +1252,7 @@ fn corpus_degeneracy_report() {
                     let schema = if strip_mode {
                         s1.forget_layout()
                     } else {
-                        s1.clone()
+                        s1
                     };
                     let Ok(e1) = reg.emit_pretty_with_protocol(proto, &schema) else {
                         continue;
@@ -1267,7 +1267,7 @@ fn corpus_degeneracy_report() {
                             let src_sample: String = src.chars().take(120).collect();
                             let out_sample: String =
                                 String::from_utf8_lossy(&e1).chars().take(120).collect();
-                            first_divergence = Some((name.clone(), src_sample, out_sample));
+                            first_divergence = Some((name, src_sample, out_sample));
                         }
                     }
                 }

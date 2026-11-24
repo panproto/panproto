@@ -613,11 +613,7 @@ pub fn instances_equivalent(a: &WInstance, b: &WInstance) -> bool {
     let mut fans_b: Vec<_> = b.fans.clone();
     fans_a.sort_by(|x, y| (&x.hyper_edge_id, x.parent).cmp(&(&y.hyper_edge_id, y.parent)));
     fans_b.sort_by(|x, y| (&x.hyper_edge_id, x.parent).cmp(&(&y.hyper_edge_id, y.parent)));
-    if fans_a != fans_b {
-        return false;
-    }
-
-    true
+    fans_a == fans_b
 }
 
 /// The ordered child list of every parent, keyed by parent id.
@@ -9299,8 +9295,7 @@ mod tests {
             let (tree_view, tree_complement) = get(&lens, &tree_source)?;
             let mut nodes = tree_view.nodes.clone();
             nodes.insert(2, node_for_anchor(2, &lens.tgt_schema, &"a".into()));
-            let unguarded_tree =
-                rebuild_tree(&tree_view, nodes, vec![(0, 2, target_label.clone())]);
+            let unguarded_tree = rebuild_tree(&tree_view, nodes, vec![(0, 2, target_label)]);
             assert_eq!(
                 TreeShape::check_put_domain(&lens, &unguarded_tree, &tree_complement, &()),
                 Err(vec![

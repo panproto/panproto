@@ -1,16 +1,10 @@
 //! Rebase: replay commits onto a new base.
 
-use std::collections::HashMap;
-use std::hash::BuildHasher;
-
-use panproto_schema::Protocol;
-
 use crate::ObjectId;
 use crate::cherry_pick::advance_head;
 use crate::dag;
 use crate::error::VcsError;
-use crate::merge;
-use crate::object::{CommitObject, Object};
+use crate::replay::replay;
 use crate::store::{self, Store};
 
 /// Rebase the current branch onto `onto`.
@@ -26,21 +20,14 @@ use crate::store::{self, Store};
 /// 4. For each commit in order: three-way merge (base = parent's schema,
 ///    ours = current tip, theirs = commit's schema). Create new commit.
 ///
-/// Each replayed commit's data is lifted under the protocol its schema
-/// names, resolved through the commit's protocol object, then
-/// `registered`, then the protocol registry
-/// ([`resolve_protocol`](crate::data_mig::resolve_protocol)).
+/// Each replayed commit's protocol environment is merged and its data
+/// transported the same way; see [`replay`].
 ///
 /// # Errors
 ///
 /// Returns an error if any step produces conflicts, or if no merge base
 /// is found.
-pub fn rebase<S: BuildHasher>(
-    store: &mut dyn Store,
-    onto: ObjectId,
-    author: &str,
-    registered: &HashMap<String, Protocol, S>,
-) -> Result<ObjectId, VcsError> {
+pub fn rebase(store: &mut dyn Store, onto: ObjectId, author: &str) -> Result<ObjectId, VcsError> {
     let head_id = store::resolve_head(store)?.ok_or_else(|| VcsError::RefNotFound {
         name: "HEAD".to_owned(),
     })?;
@@ -75,7 +62,7 @@ pub fn rebase<S: BuildHasher>(
 
     // Replay each commit.
     for commit_id in &commits_to_replay {
-        current_tip = replay_one(store, *commit_id, current_tip, author, registered)?;
+        current_tip = replay_one(store, *commit_id, current_tip, author)?;
     }
 
     // Append reflog.
@@ -91,94 +78,15 @@ pub fn rebase<S: BuildHasher>(
 }
 
 /// Replay a single commit on top of `current_tip`, returning the new commit ID.
-fn replay_one<S: BuildHasher>(
+fn replay_one(
     store: &mut dyn Store,
     commit_id: ObjectId,
     current_tip: ObjectId,
     author: &str,
-    registered: &HashMap<String, Protocol, S>,
 ) -> Result<ObjectId, VcsError> {
-    let commit = load_commit(store, commit_id)?;
-    let parent_id = commit.parents.first().ok_or(VcsError::NoPath)?;
-    let parent_commit = load_commit(store, *parent_id)?;
-
-    let base_schema = load_schema(store, parent_commit.schema_id)?;
-    let theirs_schema = load_schema(store, commit.schema_id)?;
-    let tip_commit = load_commit(store, current_tip)?;
-    let ours_schema = load_schema(store, tip_commit.schema_id)?;
-
-    let result = merge::three_way_merge(&base_schema, &ours_schema, &theirs_schema);
-    if !result.conflicts.is_empty() {
-        return Err(VcsError::MergeConflicts {
-            count: result.conflicts.len(),
-        });
-    }
-
-    // Verify the replay pushout cocone conditions before rebuilding the
-    // commit: both migrations must be total and the base-to-merged paths
-    // must commute. A violation aborts the rebase rather than replaying a
-    // mathematically invalid schema.
-    let resolved = merge::ResolvedMerge {
-        schema: result.merged_schema.clone(),
-        migration_from_ours: result.migration_from_ours.clone(),
-        migration_from_theirs: result.migration_from_theirs.clone(),
-    };
-    merge::verify_pushout(&base_schema, &ours_schema, &theirs_schema, &resolved)
-        .map_err(VcsError::PushoutVerification)?;
-
-    // Lift the replayed commit's versioned data through the replay schema
-    // change (its own schema -> the merged schema) so rebase carries data
-    // forward instead of silently dropping it.
-    let (lifted_data_ids, lifted_complement_ids) = crate::data_mig::lift_commit_data(
-        store,
-        &commit,
-        &theirs_schema,
-        &result.merged_schema,
-        registered,
-    )?;
-
-    // Square coherence: each lifted data set must migrate back through its
-    // complement to reconstruct the original, so the replay square commutes.
-    crate::square::verify_lifted_squares(
-        store,
-        &commit,
-        &lifted_data_ids,
-        &lifted_complement_ids,
-        &theirs_schema,
-        &result.merged_schema,
-        registered,
-    )?;
-
-    let mig_src = store.put(&Object::FlatSchema(Box::new(ours_schema)))?;
-    let mig_tgt = store.put(&Object::FlatSchema(Box::new(result.merged_schema.clone())))?;
-    let merged_schema_id = crate::tree::store_schema_as_tree(store, result.merged_schema)?;
-    let migration_id = store.put(&Object::Migration {
-        src: mig_src,
-        tgt: mig_tgt,
-        mapping: result.migration_from_ours,
-    })?;
-
-    let mut builder = CommitObject::builder(
-        merged_schema_id,
-        commit.protocol.clone(),
-        author,
-        commit.message.clone(),
-    )
-    .parents(vec![current_tip])
-    .migration_id(migration_id);
-    if !lifted_data_ids.is_empty() {
-        builder = builder.data_ids(lifted_data_ids);
-    }
-    if !lifted_complement_ids.is_empty() {
-        builder = builder.complement_ids(lifted_complement_ids);
-    }
-    // CST complements are keyed by content, not schema, so they carry
-    // through the replay unchanged.
-    if !commit.cst_complement_ids.is_empty() {
-        builder = builder.cst_complement_ids(commit.cst_complement_ids.clone());
-    }
-    let new_commit = builder.build();
-    let new_commit_id = store.put(&Object::Commit(new_commit))?;
+    let replay = replay(store, commit_id, current_tip)?;
+    let message = replay.commit.message.clone();
+    let new_commit_id = replay.into_commit(store, author, message)?;
 
     // Update branch ref.
     match store.get_head()? {
@@ -194,46 +102,31 @@ fn replay_one<S: BuildHasher>(
     Ok(new_commit_id)
 }
 
-fn load_commit(store: &dyn Store, id: ObjectId) -> Result<CommitObject, VcsError> {
-    match store.get(&id)? {
-        Object::Commit(c) => Ok(c),
-        other => Err(VcsError::WrongObjectType {
-            expected: "commit",
-            found: other.type_name(),
-        }),
-    }
-}
-
-fn load_schema(
-    store: &dyn Store,
-    schema_id: ObjectId,
-) -> Result<panproto_schema::Schema, VcsError> {
-    let proto = crate::tree::project_coproduct_protocol();
-    crate::tree::assemble_schema_dyn(store, &schema_id, &proto)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::MemStore;
     use crate::error::VcsError;
+    use crate::object::{CommitObject, Object};
+    use crate::replay::load_commit;
     use panproto_gat::Name;
     use panproto_schema::{Schema, Vertex};
     use std::collections::HashMap;
 
-    /// The protocol the tests' schemas name, registered by name: no
-    /// registry declares "test".
-    fn registered() -> HashMap<String, panproto_schema::Protocol> {
-        HashMap::from([(
-            "test".to_owned(),
-            panproto_schema::Protocol {
-                name: "test".into(),
-                schema_theory: "ThGraph".into(),
-                instance_theory: "ThWType".into(),
-                obj_kinds: vec!["object".into(), "string".into(), "record".into()],
-                ..Default::default()
-            },
-        )])
+    /// Store the environment that defines "test", the protocol the tests'
+    /// schemas name and no registry declares.
+    fn environment(store: &mut MemStore) -> Result<Option<ObjectId>, VcsError> {
+        let protocol = panproto_schema::Protocol {
+            name: "test".into(),
+            schema_theory: "ThGraph".into(),
+            instance_theory: "ThWType".into(),
+            obj_kinds: vec!["object".into(), "string".into(), "record".into()],
+            ..Default::default()
+        };
+        let mut environment = crate::ProtocolEnvironment::new();
+        let id = store.put(&Object::Protocol(Box::new(protocol)))?;
+        environment.define("test", id);
+        crate::environment::store_environment(store, environment)
     }
 
     fn make_schema(vertices: &[(&str, &str)]) -> Schema {
@@ -282,6 +175,7 @@ mod tests {
         let s0 = make_schema(&[("a", "object")]);
         let s0_id = crate::tree::store_schema_as_tree(&mut store, s0)?;
         let c0 = CommitObject::builder(s0_id, "test", "alice", "initial")
+            .environment_id(environment(&mut store)?)
             .timestamp(100)
             .build();
         let c0_id = store.put(&Object::Commit(c0))?;
@@ -290,6 +184,7 @@ mod tests {
         let s1 = make_schema(&[("a", "object"), ("b", "string")]);
         let s1_id = crate::tree::store_schema_as_tree(&mut store, s1)?;
         let c1 = CommitObject::builder(s1_id, "test", "alice", "add b")
+            .environment_id(environment(&mut store)?)
             .parents(vec![c0_id])
             .timestamp(200)
             .build();
@@ -299,6 +194,7 @@ mod tests {
         let s2 = make_schema(&[("a", "object"), ("c", "integer")]);
         let s2_id = crate::tree::store_schema_as_tree(&mut store, s2)?;
         let c2 = CommitObject::builder(s2_id, "test", "bob", "add c")
+            .environment_id(environment(&mut store)?)
             .parents(vec![c0_id])
             .timestamp(300)
             .build();
@@ -308,7 +204,7 @@ mod tests {
         store.set_ref("refs/heads/main", c2_id)?;
 
         // Rebase feature onto c1.
-        let new_tip = rebase(&mut store, c1_id, "bob", &registered())?;
+        let new_tip = rebase(&mut store, c1_id, "bob")?;
 
         // Verify the rebased commit has both b and c.
         let new_commit = match store.get(&new_tip)? {
@@ -345,6 +241,7 @@ mod tests {
             data: rmp_serde::to_vec(&vec![inst])?,
             record_count: 1,
             key: Some(key.to_owned()),
+            protocol_id: None,
         };
         store.put(&Object::DataSet(ds))
     }
@@ -357,6 +254,7 @@ mod tests {
         let s0 = make_schema(&[("a", "object")]);
         let s0_id = crate::tree::store_schema_as_tree(&mut store, s0)?;
         let c0 = CommitObject::builder(s0_id, "test", "alice", "initial")
+            .environment_id(environment(&mut store)?)
             .timestamp(100)
             .build();
         let c0_id = store.put(&Object::Commit(c0))?;
@@ -365,6 +263,7 @@ mod tests {
         let s1 = make_schema(&[("a", "object"), ("mainf", "string")]);
         let s1_id = crate::tree::store_schema_as_tree(&mut store, s1)?;
         let c1 = CommitObject::builder(s1_id, "test", "alice", "add mainf")
+            .environment_id(environment(&mut store)?)
             .parents(vec![c0_id])
             .timestamp(200)
             .build();
@@ -375,6 +274,7 @@ mod tests {
         let ds_id = single_record_dataset(&mut store, &s2, "rec-key")?;
         let s2_id = crate::tree::store_schema_as_tree(&mut store, s2)?;
         let c2 = CommitObject::builder(s2_id, "test", "bob", "add featf + data")
+            .environment_id(environment(&mut store)?)
             .parents(vec![c0_id])
             .timestamp(300)
             .data_ids(vec![ds_id])
@@ -386,7 +286,7 @@ mod tests {
         // Rebase feature onto c1: the feature schema ({a, featf}) is lifted
         // to the merged schema ({a, mainf, featf}), so the data must be
         // lifted too rather than dropped.
-        let new_tip = rebase(&mut store, c1_id, "bob", &registered())?;
+        let new_tip = rebase(&mut store, c1_id, "bob")?;
 
         let new_commit = load_commit(&store, new_tip)?;
         assert_eq!(new_commit.parents[0], c1_id);
@@ -427,14 +327,25 @@ mod tests {
         let src = make_schema(&[("a", "object")]);
         let tgt = make_schema(&[("a", "object"), ("b", "string")]);
         let base = single_record_dataset(&mut store, &src, "rec")?;
-        let protocol = registered()["test"].clone();
-        let (replayed, complement) =
-            crate::data_mig::migrate_forward(&mut store, base, &src, &tgt, &protocol)?;
+        let protocol = environment(&mut store)
+            .and_then(|id| crate::environment::load_environment(&store, id))?
+            .resolve(&store, "test")?;
+        let fibre = |schema| crate::Fibre {
+            schema_id: ObjectId::ZERO,
+            schema,
+            protocol_id: None,
+            protocol: &protocol,
+        };
+        let (image, complement) =
+            crate::data_mig::migrate_forward(&mut store, base, fibre(&src), fibre(&tgt))?;
+        let transported = crate::TransportedData {
+            base,
+            image,
+            complement,
+        };
 
         // The well-behaved migration reconstructs the base under round-trip.
-        crate::square::verify_square(
-            &mut store, base, replayed, complement, &src, &tgt, &protocol,
-        )?;
+        crate::square::verify_square(&mut store, transported, fibre(&src), fibre(&tgt))?;
 
         // Comparing the reconstruction against a different data set (two nodes
         // rather than one) diverges, so the square does not commute.
@@ -447,9 +358,16 @@ mod tests {
             data: rmp_serde::to_vec(&vec![inst])?,
             record_count: 1,
             key: None,
+            protocol_id: None,
         }))?;
         let err = crate::square::verify_square(
-            &mut store, other, replayed, complement, &src, &tgt, &protocol,
+            &mut store,
+            crate::TransportedData {
+                base: other,
+                ..transported
+            },
+            fibre(&src),
+            fibre(&tgt),
         );
         assert!(
             matches!(err, Err(VcsError::SquareNonCommuting { .. })),
@@ -468,12 +386,14 @@ mod tests {
         let s0_id = crate::tree::store_schema_as_tree(&mut store, s0.clone())?;
 
         let c0 = CommitObject::builder(s0_id, "test", "alice", "initial")
+            .environment_id(environment(&mut store)?)
             .timestamp(100)
             .build();
         let c0_id = store.put(&Object::Commit(c0))?;
 
         // main advances with a commit that keeps the same schema.
         let c1 = CommitObject::builder(s0_id, "test", "alice", "no schema change")
+            .environment_id(environment(&mut store)?)
             .parents(vec![c0_id])
             .timestamp(200)
             .build();
@@ -482,6 +402,7 @@ mod tests {
         // feature (off c0) keeps the same schema and carries data.
         let ds_id = single_record_dataset(&mut store, &s0, "verbatim-key")?;
         let c2 = CommitObject::builder(s0_id, "test", "bob", "data only")
+            .environment_id(environment(&mut store)?)
             .parents(vec![c0_id])
             .timestamp(300)
             .data_ids(vec![ds_id])
@@ -490,7 +411,7 @@ mod tests {
 
         store.set_ref("refs/heads/main", c2_id)?;
 
-        let new_tip = rebase(&mut store, c1_id, "bob", &registered())?;
+        let new_tip = rebase(&mut store, c1_id, "bob")?;
         let new_commit = load_commit(&store, new_tip)?;
 
         // The replayed schema equals the tip schema, so the original data id

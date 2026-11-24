@@ -2,6 +2,58 @@
 
 All notable changes to panproto will be documented in this file.
 
+## [0.78.0] - 2026-11-24
+
+Breaking changes are described with their replacements in [Upgrade from 0.77 to 0.78](https://panproto.dev/book/how-to/upgrade-0.78.html).
+
+### Added
+
+- **Committed data records its protocol** (`panproto-vcs`): `DataSetObject::protocol_id` is the protocol a data set's records are records under, so what it means and whether it can be read do not depend on the commit it is read at. ([#389](https://github.com/panproto/panproto/issues/389))
+
+- **Protocol environments** (`panproto-vcs`): a commit records what each protocol name means as an `Object::ProtocolEnvironment`, and keeps the names of the commits it is made from. `ProtocolEnvironment::merge` is the pushout of two environments' edits of a base, and `Repository::environment` is what the names mean to data staged now. ([#394](https://github.com/panproto/panproto/issues/394))
+
+- **One replay for cherry-pick and rebase** (`panproto-vcs`): `panproto_vcs::replay` merges a commit's changes of its parent's schema and environment into a tip and transports its data.
+
+- **Custom protocols in the Python `Repository`** (`panproto-py`): `Repository.add_protocol(protocol)` stages a protocol, and `Protocol.from_theories` takes `constraint_semantics`, the meaning of each constraint sort.
+
+### Changed
+
+- **Protocols are staged, not registered** (`panproto-vcs`): `Repository::set_protocol`, `ProtocolSources`, `resolve_protocol`, `data_mig::protocol_for_schema` and every `registered` parameter are removed. Stage a protocol with `Repository::add_protocol`.
+
+- **The repository format changes** (`panproto-vcs`): earlier releases cannot read the data in a repository 0.78 has written to, and a commit they make in it records no environment. 0.78 reads theirs, with the object IDs unchanged.
+
+- **Branches that give a protocol name different protocols do not merge** (`panproto-vcs`): `merge`, `cherry_pick` and `rebase` return `VcsError::ProtocolConflicts`. They kept one side's protocol before and could discard or revert the other's.
+
+- **Transported data must be valid where it lands** (`panproto-vcs`): a merge, cherry-pick or rebase is refused when a migrated record is not a record of the target schema under its protocol, and a merge checks that its data migrates back.
+
+- **`amend` refuses what `commit` refuses** (`panproto-vcs`): an unverified or invalid stage is no longer recorded.
+
+- **An unknown protocol name is `VcsError::UnknownProtocol`** (`panproto-vcs`) when data is staged, rather than a reason in `DataValidationFailed`.
+
+- **Data transport takes fibres** (`panproto-vcs`): `migrate_forward`, `migrate_backward` and `verify_square` take a `Fibre`, a schema and a protocol with their IDs, for each end; `lift_commit_data` takes a `LiftTarget` and returns `LiftedData`. `CommitObject::protocol_id` is `environment_id`, `Index::staged_protocol` is `staged_protocols`, and `Index::has_staged` is not `const`.
+
+- **An empty object at a list vertex is refused** (`panproto-inst`): `parse_json` returns `ParseError::ExpectedArray`; it was written back as an empty array.
+
+- **Python repositories report staged protocols** (`panproto-py`): `index()` has `staged_protocols`, a mapping, in place of `staged_protocol`, and `data_at` reports each data set's `protocol_id`.
+
+### Fixed
+
+- **Python repositories stage data under custom protocols** (`panproto-py`): `Repository.add` stages the protocol a schema was built under, where 0.77 refused the schema's records with `unknown protocol`. ([#389](https://github.com/panproto/panproto/issues/389))
+
+- **Data read back from 0.76 and earlier** (`panproto-vcs`): data that records no protocol is checked against its schema alone, and an attribute the schema does not declare is returned, where 0.77 refused both.
+
+- **Data moved to another schema can be read** (`panproto-vcs`): `decoded_data_at` failed with `found flat_schema` after a merge, cherry-pick or rebase changed the schema of committed data.
+
+- **Only data over a commit's own schema is migrated** (`panproto-vcs`): a commit's data over other schemas was put through a lens that did not apply to it.
+
+- **`parse_json` loses nothing it reads** (`panproto-inst`): the elements of an array at a vertex with no item edge, and a `$type` that is not a string, were dropped without an error. ([#391](https://github.com/panproto/panproto/issues/391))
+
+- **`amend` records everything staged** (`panproto-vcs`): staged data was lost, the commit kept the old schema's protocol name, and the migration started from the commit being replaced. ([#392](https://github.com/panproto/panproto/issues/392))
+
+### Security
+
+- **Vulnerable dependencies** (workspace): `libz-sys` 1.1.33 (RUSTSEC-2026-0544) and `url` 2.5.9 (RUSTSEC-2026-0592).
+
 ## [0.77.0] - 2026-11-11
 
 ### Added

@@ -1618,6 +1618,12 @@ pub fn cmd_show(target: &str, fmt: Option<&str>, stat: bool) -> Result<()> {
             println!("Instance theory: {}", proto.instance_theory);
             println!("Object kinds: {}", proto.obj_kinds.len());
         }
+        vcs::Object::ProtocolEnvironment(environment) => {
+            println!("protocol_environment {id}");
+            for (name, protocol) in environment.iter() {
+                println!("{name}: {protocol}");
+            }
+        }
         vcs::Object::Expr(expr) => {
             println!("expr {id}");
             println!("{expr:?}");

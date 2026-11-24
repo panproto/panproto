@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
+import sys
 import warnings
 from typing import TYPE_CHECKING, ClassVar
 
@@ -2509,6 +2511,237 @@ class TestRepositoryDataAccess:
             repo.add_data(str(data), schema_id=head)
 
         assert repo.index()["staged_data"] == []
+
+
+class TestRepositoryCustomProtocols:
+    """A repository stages the protocol a schema was built with."""
+
+    @staticmethod
+    def _protocol(
+        name: str,
+        constraint_sorts: list[str] | None = None,
+        constraint_semantics: dict[str, JsonValue] | None = None,
+    ) -> panproto.Protocol:
+        theory = panproto.create_theory(
+            {
+                "name": f"{name}Theory",
+                "extends": [],
+                "sorts": [],
+                "ops": [],
+                "eqs": [],
+                "directed_eqs": [],
+                "policies": [],
+            }
+        )
+        return panproto.Protocol.from_theories(
+            name,
+            theory,
+            obj_kinds=["object", "field"],
+            edge_rules=[{"edge_kind": "prop", "src_kinds": ["object"], "tgt_kinds": ["field"]}],
+            constraint_sorts=constraint_sorts,
+            constraint_semantics=constraint_semantics,
+        )
+
+    @staticmethod
+    def _schema(
+        protocol: panproto.Protocol, constraints: dict[str, str] | None = None
+    ) -> panproto.Schema:
+        builder = protocol.schema()
+        builder.vertex("r", "object")
+        builder.vertex("r.a", "field")
+        builder.edge("r", "r.a", "prop", "a")
+        for sort, value in (constraints or {}).items():
+            builder.constraint("r.a", sort, value)
+        return builder.build()
+
+    @staticmethod
+    def _record(tmp_path: Path, text: str = '{"a": "abc"}') -> str:
+        path = tmp_path / "record.json"
+        path.write_text(text)
+        return str(path)
+
+    @staticmethod
+    def _fresh_process(code: str, *args: str) -> str:
+        done = subprocess.run(
+            [sys.executable, "-c", f"import sys, panproto\n{code}", *args],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert done.returncode == 0, done.stderr
+        return done.stdout.strip()
+
+    def test_add_stages_the_protocol_the_schema_was_built_with(self, tmp_path: Path) -> None:
+        repo = panproto.Repository.init(str(tmp_path / "repo"))
+        index = repo.add(self._schema(self._protocol("PyCustomAdd")))
+        assert list(obj(index["staged_protocols"])) == ["PyCustomAdd"]
+        repo.add_data(self._record(tmp_path), "k")
+        repo.commit("data", "a")
+        assert repo.decoded_data_at("HEAD")[0]["records"] == [{"a": "abc"}]
+        assert (
+            repo.data_at("HEAD")[0]["protocol_id"] == obj(index["staged_protocols"])["PyCustomAdd"]
+        )
+
+    def test_a_protocol_its_name_already_means_is_not_staged(self, tmp_path: Path) -> None:
+        repo = panproto.Repository.init(str(tmp_path / "repo"))
+        builder = panproto.get_builtin_protocol("json-schema").schema()
+        builder.vertex("r", "object")
+        assert repo.add(builder.build())["staged_protocols"] == {}
+        repo.clear_index()
+        protocol = self._protocol("PyCustomOnce")
+        repo.add(self._schema(protocol))
+        repo.commit("schema", "a")
+        assert repo.add(self._schema(protocol, {"note": "x"}))["staged_protocols"] == {}
+
+    def test_an_unchanged_schema_still_stages_its_protocol(self, tmp_path: Path) -> None:
+        repo = panproto.Repository.init(str(tmp_path / "repo"))
+        repo.add(self._schema(self._protocol("PyCustomChange")))
+        repo.commit("schema", "a")
+        changed = self._protocol("PyCustomChange", constraint_sorts=["note"])
+        with pytest.raises(panproto.VcsError, match="no changes detected"):
+            repo.add(self._schema(changed))
+        assert list(obj(repo.index()["staged_protocols"])) == ["PyCustomChange"]
+
+    def test_two_protocols_of_one_name_are_told_apart(self, tmp_path: Path) -> None:
+        # The schema stages the protocol it was built under, not the latest
+        # one of that name in the process.
+        repo = panproto.Repository.init(str(tmp_path / "repo"))
+        first = self._schema(
+            self._protocol("PyCustomTwin", ["note"], {"note": "annotation"}), {"note": "x"}
+        )
+        self._schema(self._protocol("PyCustomTwin", ["note"]), {"note": "x"})
+        repo.add(first)
+        repo.add_data(self._record(tmp_path), "k")
+
+    def test_a_second_handle_stages_and_reads(self, tmp_path: Path) -> None:
+        path = str(tmp_path / "repo")
+        repo = panproto.Repository.init(path)
+        other = panproto.Repository.open(path)
+        repo.add(self._schema(self._protocol("PyCustomHandle")))
+        other.add_data(self._record(tmp_path), "k")
+        other.commit("data", "a")
+        assert repo.decoded_data_at("HEAD")[0]["records"] == [{"a": "abc"}]
+
+    def test_a_fresh_process_stages_and_reads(self, tmp_path: Path) -> None:
+        path = str(tmp_path / "repo")
+        repo = panproto.Repository.init(path)
+        repo.add(self._schema(self._protocol("PyCustomFresh")))
+        record = self._record(tmp_path)
+        repo.add_data(record, "first")
+        repo.commit("first", "a")
+        out = self._fresh_process(
+            "r = panproto.Repository.open(sys.argv[1])\n"
+            "r.add_data(sys.argv[2], 'second')\n"
+            "r.commit('second', 'a')\n"
+            "r.add_data(sys.argv[2], 'third')\n"
+            "r.commit('third', 'a')\n"
+            "print(r.decoded_data_at('HEAD')[0]['records'])",
+            path,
+            record,
+        )
+        assert out == "[{'a': 'abc'}]"
+
+    def test_a_fresh_process_reads_data_of_several_protocols(self, tmp_path: Path) -> None:
+        path = str(tmp_path / "repo")
+        repo = panproto.Repository.init(path)
+        record = self._record(tmp_path)
+        for name in ("PyCustomOne", "PyCustomTwo"):
+            repo.add(self._schema(self._protocol(name), {}))
+            repo.add_data(record, name)
+        repo.commit("both", "a")
+        out = self._fresh_process(
+            "r = panproto.Repository.open(sys.argv[1])\n"
+            "print([d['records'] for d in r.decoded_data_at('HEAD')])",
+            path,
+        )
+        assert out == "[[{'a': 'abc'}], [{'a': 'abc'}]]"
+
+    def test_a_fresh_process_stages_under_each_protocol_of_a_commit(self, tmp_path: Path) -> None:
+        path = str(tmp_path / "repo")
+        repo = panproto.Repository.init(path)
+        record = self._record(tmp_path)
+        schema_ids: list[str] = []
+        for name in ("PyCustomFirst", "PyCustomSecond"):
+            index = repo.add(self._schema(self._protocol(name)))
+            schema_ids.append(str(obj(index["staged"])["schema_id"]))
+            repo.add_data(record, name)
+        repo.commit("both", "a")
+        self._fresh_process(
+            "r = panproto.Repository.open(sys.argv[1])\n"
+            "[r.add_data(sys.argv[2], i, schema_id=i) for i in sys.argv[3:]]",
+            path,
+            record,
+            *schema_ids,
+        )
+
+    def test_an_array_with_no_item_edge_is_kept(self, tmp_path: Path) -> None:
+        repo = panproto.Repository.init(str(tmp_path / "repo"))
+        repo.add(self._schema(self._protocol("PyCustomArray")))
+        repo.add_data(self._record(tmp_path, '{"a": ["one", {"b": [2]}]}'), "k")
+        repo.commit("data", "a")
+        assert repo.decoded_data_at("HEAD")[0]["records"] == [{"a": ["one", {"b": [2]}]}]
+
+    def test_amend_records_staged_data(self, tmp_path: Path) -> None:
+        repo = panproto.Repository.init(str(tmp_path / "repo"))
+        repo.add(self._schema(self._protocol("PyCustomAmend")))
+        repo.commit("schema", "a")
+        repo.add_data(self._record(tmp_path), "k")
+        repo.amend("schema and data", "a")
+        assert [d["key"] for d in repo.decoded_data_at("HEAD")] == ["k"]
+
+    def test_redefining_a_protocol_changes_no_committed_data(self, tmp_path: Path) -> None:
+        repo = panproto.Repository.init(str(tmp_path / "repo"))
+        lenient = self._protocol("PyCustomRedefined", ["note"], {"note": "annotation"})
+        repo.add(self._schema(lenient, {"note": "x"}))
+        record = self._record(tmp_path)
+        repo.add_data(record, "k")
+        first = repo.commit("data", "a")
+        repo.add_protocol(self._protocol("PyCustomRedefined", ["note"]))
+        repo.commit("redefined", "a")
+        with pytest.raises(panproto.VcsError, match="no supported meaning"):
+            repo.add_data(record, "k")
+        assert repo.decoded_data_at(first)[0]["records"] == [{"a": "abc"}]
+
+    def test_a_schema_without_its_protocol_needs_one_staged(self, tmp_path: Path) -> None:
+        repo = panproto.Repository.init(str(tmp_path / "repo"))
+        protocol = self._protocol("PyCustomBare")
+        repo.add(panproto.Schema.from_json(self._schema(protocol).to_json()))
+        record = self._record(tmp_path)
+        with pytest.raises(panproto.VcsError, match=r"unknown protocol.*PyCustomBare"):
+            repo.add_data(record, "k")
+        repo.add_protocol(protocol)
+        repo.add_data(record, "k")
+
+    def test_add_protocol_is_recorded(self, tmp_path: Path) -> None:
+        path = str(tmp_path / "repo")
+        repo = panproto.Repository.init(path)
+        document = json.loads(self._schema(self._protocol("PyCustomSource")).to_json())
+        document["protocol"] = "PyCustomStage"
+        repo.add(panproto.Schema.from_json(json.dumps(document)))
+        index = repo.add_protocol(self._protocol("PyCustomStage"))
+        assert list(obj(index["staged_protocols"])) == ["PyCustomStage"]
+        repo.commit("schema", "a")
+        self._fresh_process(
+            "panproto.Repository.open(sys.argv[1]).add_data(sys.argv[2], 'k')",
+            path,
+            self._record(tmp_path),
+        )
+
+    def test_constraint_semantics_reach_validation(self, tmp_path: Path) -> None:
+        repo = panproto.Repository.init(str(tmp_path / "repo"))
+        record = self._record(tmp_path)
+        unread = self._protocol("PyCustomUnread", constraint_sorts=["note"])
+        repo.add(self._schema(unread, {"note": "x"}))
+        with pytest.raises(panproto.VcsError, match="no supported meaning"):
+            repo.add_data(record, "k")
+        repo.clear_index()
+        read = self._protocol(
+            "PyCustomRead",
+            constraint_sorts=["note"],
+            constraint_semantics={"note": "annotation"},
+        )
+        repo.add(self._schema(read, {"note": "x"}))
+        repo.add_data(record, "k")
 
 
 # ---------------------------------------------------------------------------

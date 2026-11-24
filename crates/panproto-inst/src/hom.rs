@@ -202,7 +202,7 @@ fn add_backward_vertices(
             .or_default()
             .push(bf_edge.clone());
         between
-            .entry((choice_id.clone(), backward_id.clone()))
+            .entry((choice_id.clone(), backward_id))
             .or_default()
             .push(bf_edge.clone());
         edges.insert(bf_edge, Name::from("backward_for"));
@@ -256,7 +256,7 @@ pub fn eval_hom(
                     .get(&child)
                     .ok_or(InstError::NodeNotFound(child))?;
                 surviving_verts.insert(target_node.anchor.clone());
-                vertex_remap.insert(source_vertex.clone(), target_node.anchor.clone());
+                vertex_remap.insert(source_vertex, target_node.anchor.clone());
                 break;
             }
         }
@@ -444,7 +444,7 @@ pub fn curry_migration(
                         src: choice_anchor.clone(),
                         tgt: backward_anchor.clone(),
                         kind: Name::from("backward_for"),
-                        name: Some(backward_anchor.clone()),
+                        name: Some(backward_anchor),
                     },
                 ));
             }

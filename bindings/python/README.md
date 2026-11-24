@@ -155,6 +155,12 @@ that exact schema without changing HEAD or the staged schema. The committed
 data set retains the selected ID, and malformed, missing, or non-schema object
 IDs are rejected.
 
+A data set records the protocol its records were validated under, so a later
+definition of the protocol's name changes nothing already staged or committed.
+`add()` stages the protocol a schema was built under, `add_protocol(protocol)`
+stages one by hand, and every commit keeps the protocols of the commits it is
+made from. Branches that give a name different protocols do not merge.
+
 ## Development
 
 Build the extension and run the Python test suite from this directory:

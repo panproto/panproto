@@ -16,9 +16,7 @@ use panproto_lens::instances_equivalent;
 use panproto_schema::{EdgeRule, Protocol, Schema, SchemaBuilder};
 use panproto_vcs::MemStore;
 use panproto_vcs::ObjectId;
-use panproto_vcs::data_mig::{
-    ProtocolSources, migrate_backward, migrate_forward, protocol_for_schema,
-};
+use panproto_vcs::data_mig::{Fibre, TransportedData, migrate_backward, migrate_forward};
 use panproto_vcs::hash::hash_schema;
 use panproto_vcs::object::{DataSetObject, Object};
 use panproto_vcs::square::verify_square;
@@ -41,18 +39,29 @@ fn proto() -> Protocol {
     }
 }
 
-/// The protocol `schema` names, resolved through the protocol object the
-/// schemas were built under.
-fn resolved(schema: &Schema) -> Protocol {
-    let stored = proto();
-    protocol_for_schema(
+/// The fibre over `schema` under `protocol`.
+fn fibre<'a>(schema: &'a Schema, protocol: &'a Protocol) -> Fibre<'a> {
+    Fibre {
+        schema_id: hash_schema(schema).unwrap(),
         schema,
-        ProtocolSources {
-            stored: Some(&stored),
-            registered: &HashMap::new(),
-        },
-    )
-    .unwrap()
+        protocol_id: None,
+        protocol,
+    }
+}
+
+/// Transport `base` from `src` to `tgt`.
+fn transport(
+    store: &mut MemStore,
+    base: ObjectId,
+    src: Fibre<'_>,
+    tgt: Fibre<'_>,
+) -> TransportedData {
+    let (image, complement) = migrate_forward(store, base, src, tgt).unwrap();
+    TransportedData {
+        base,
+        image,
+        complement,
+    }
 }
 
 /// A `Root` object with one string field per name in `fields`.
@@ -81,6 +90,7 @@ fn root_dataset(store: &mut MemStore, schema: &Schema) -> ObjectId {
         data: rmp_serde::to_vec(&vec![inst]).unwrap(),
         record_count: 1,
         key: Some("rec".to_owned()),
+        protocol_id: None,
     };
     store.put(&Object::DataSet(ds)).unwrap()
 }
@@ -111,12 +121,10 @@ proptest! {
 
         let mut store = MemStore::new();
         let data = root_dataset(&mut store, &src);
-        let protocol = resolved(&src);
-        let (replayed, complement) =
-            migrate_forward(&mut store, data, &src, &tgt, &protocol).unwrap();
-        prop_assert!(
-            verify_square(&mut store, data, replayed, complement, &src, &tgt, &protocol).is_ok()
-        );
+        let protocol = proto();
+        let (src, tgt) = (fibre(&src, &protocol), fibre(&tgt, &protocol));
+        let transported = transport(&mut store, data, src, tgt);
+        prop_assert!(verify_square(&mut store, transported, src, tgt).is_ok());
     }
 
     /// Replay preserves data: migrating a data set forward and back through the
@@ -133,11 +141,12 @@ proptest! {
 
         let mut store = MemStore::new();
         let data = root_dataset(&mut store, &src);
-        let protocol = resolved(&src);
-        let (replayed, complement) =
-            migrate_forward(&mut store, data, &src, &tgt, &protocol).unwrap();
-        let restored =
-            migrate_backward(&mut store, replayed, complement, &src, &tgt, &protocol).unwrap();
+        let protocol = proto();
+        let (src, tgt) = (fibre(&src, &protocol), fibre(&tgt, &protocol));
+        let TransportedData {
+            image, complement, ..
+        } = transport(&mut store, data, src, tgt);
+        let restored = migrate_backward(&mut store, image, complement, src, tgt).unwrap();
 
         let before = load_instances(&store, data);
         let after = load_instances(&store, restored);
@@ -161,21 +170,19 @@ proptest! {
 
         let mut store = MemStore::new();
         let d0 = root_dataset(&mut store, &s0);
-        let p0 = resolved(&s0);
+        let protocol = proto();
+        let [f0, f1, f2] = [&s0, &s1, &s2].map(|schema| fibre(schema, &protocol));
 
         // First square: s0 -> s1.
-        let (d1, c1) = migrate_forward(&mut store, d0, &s0, &s1, &p0).unwrap();
-        prop_assert!(verify_square(&mut store, d0, d1, c1, &s0, &s1, &p0).is_ok());
+        let first = transport(&mut store, d0, f0, f1);
+        prop_assert!(verify_square(&mut store, first, f0, f1).is_ok());
 
         // Second square: s1 -> s2.
-        let p1 = resolved(&s1);
-        let (d2, c2) = migrate_forward(&mut store, d1, &s1, &s2, &p1).unwrap();
-        prop_assert!(verify_square(&mut store, d1, d2, c2, &s1, &s2, &p1).is_ok());
+        let second = transport(&mut store, first.image, f1, f2);
+        prop_assert!(verify_square(&mut store, second, f1, f2).is_ok());
 
         // Pasted square: s0 -> s2 directly commutes as well.
-        let (d2_direct, c_direct) = migrate_forward(&mut store, d0, &s0, &s2, &p0).unwrap();
-        prop_assert!(
-            verify_square(&mut store, d0, d2_direct, c_direct, &s0, &s2, &p0).is_ok()
-        );
+        let pasted = transport(&mut store, d0, f0, f2);
+        prop_assert!(verify_square(&mut store, pasted, f0, f2).is_ok());
     }
 }

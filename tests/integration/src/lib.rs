@@ -1227,7 +1227,7 @@ fn evidence_table(src: &Schema, tgt: &Schema, draw: &[Option<f64>]) -> HashMap<(
     for source in sorted_ids(src) {
         for target in sorted_ids(tgt) {
             if let Some(Some(value)) = draw.get(index) {
-                table.insert((source.clone(), target.clone()), *value);
+                table.insert((source.clone(), target), *value);
             }
             index += 1;
         }

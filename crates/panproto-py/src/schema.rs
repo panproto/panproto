@@ -289,6 +289,11 @@ impl PyProtocol {
     ///     keys recognised by ``define_protocol``.
     /// constraint_sorts : list[str], optional
     ///     Recognised constraint sorts (e.g. ``"maxLength"``).
+    /// constraint_semantics : dict[str, JsonValue], optional
+    ///     The meaning of each constraint sort, in the form
+    ///     ``define_protocol`` reads: ``"annotation"`` for a sort that
+    ///     constrains no value, for instance. A record of a schema with a
+    ///     constraint whose sort has no meaning here cannot be validated.
     /// has_order, has_coproducts, has_recursion, has_causal,
     /// nominal_identity, has_defaults, has_coercions, has_mergers,
     /// has_policies : bool, optional
@@ -331,6 +336,7 @@ impl PyProtocol {
         has_coercions = false,
         has_mergers = false,
         has_policies = false,
+        constraint_semantics = None,
     ))]
     fn from_theories(
         _cls: &Bound<'_, PyType>,
@@ -349,6 +355,7 @@ impl PyProtocol {
         has_coercions: bool,
         has_mergers: bool,
         has_policies: bool,
+        constraint_semantics: Option<Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
         let schema_theory_name = extract_theory_name(&schema_theory)?;
         let instance_theory_name = match instance_theory {
@@ -359,6 +366,10 @@ impl PyProtocol {
             Some(rules) => convert::from_python(&rules)?,
             None => Vec::new(),
         };
+        let constraint_semantics = match constraint_semantics {
+            Some(semantics) => convert::from_python(&semantics)?,
+            None => std::collections::BTreeMap::new(),
+        };
         let inner = Protocol {
             name,
             schema_theory: schema_theory_name,
@@ -368,6 +379,7 @@ impl PyProtocol {
             edge_rules: edge_rules_vec,
             obj_kinds: obj_kinds.unwrap_or_default(),
             constraint_sorts: constraint_sorts.unwrap_or_default(),
+            constraint_semantics,
             has_order,
             has_coproducts,
             has_recursion,
@@ -580,6 +592,7 @@ impl PySchemaBuilder {
         crate::protocols::record_built_protocol(&self.protocol);
         Ok(PySchema {
             inner: Arc::new(schema),
+            protocol: Some(Arc::new(self.protocol.clone())),
         })
     }
 }
@@ -603,6 +616,19 @@ impl PySchemaBuilder {
 #[derive(Clone)]
 pub struct PySchema {
     pub(crate) inner: Arc<Schema>,
+    /// The protocol the schema was built under, when it was built in this
+    /// process; a schema alone has only the protocol's name.
+    pub(crate) protocol: Option<Arc<Protocol>>,
+}
+
+impl PySchema {
+    /// A schema that was not built under a protocol here.
+    pub(crate) fn unbound(schema: impl Into<Arc<Schema>>) -> Self {
+        Self {
+            inner: schema.into(),
+            protocol: None,
+        }
+    }
 }
 
 #[pymethods]
@@ -717,6 +743,7 @@ impl PySchema {
         let normalized = schema::normalize(&self.inner);
         Self {
             inner: Arc::new(normalized),
+            protocol: self.protocol.clone(),
         }
     }
 
@@ -744,9 +771,7 @@ impl PySchema {
         let schema: Schema = serde_json::from_str(json).map_err(|e| {
             pyo3::exceptions::PyValueError::new_err(format!("JSON deserialization failed: {e}"))
         })?;
-        Ok(Self {
-            inner: Arc::new(schema),
-        })
+        Ok(Self::unbound(Arc::new(schema)))
     }
 
     /// Parse an `ATProto` lexicon document into a schema.

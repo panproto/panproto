@@ -682,7 +682,7 @@ fn minimal_schemas_for_migration(
             between
                 .entry((e.src.clone(), e.tgt.clone()))
                 .or_default()
-                .push(e.clone());
+                .push(e);
         }
 
         Schema {

@@ -32,8 +32,8 @@
 //!
 //! CI invokes the same command after `cargo build`.
 
-use std::collections::BTreeMap;
 use std::collections::HashSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::fs;
 use std::io::Read;
@@ -104,7 +104,7 @@ fn main() {
         std::process::exit(1);
     }
 
-    let externs = collect_externs(&json_out);
+    let (externs, artifact_dirs) = collect_externs(&json_out);
     // Verify every allowed crate produced an artifact. Missing ones
     // would silently turn into 'cannot find crate' rustdoc errors
     // later, with much worse diagnostics.
@@ -136,7 +136,7 @@ fn main() {
             continue;
         }
         total += 1;
-        match run_block(&repo_root, block, &externs) {
+        match run_block(&repo_root, block, &externs, &artifact_dirs) {
             Ok(()) => {
                 println!("ok    {}", block.label());
             }
@@ -258,8 +258,13 @@ fn walk_md<F: FnMut(&Path)>(dir: &Path, f: &mut F) {
 
 /// Parsed `cargo build --message-format=json` output: crate name ->
 /// rmeta path, picking the artifact most appropriate for downstream
-/// linking (lib crate-type, most recent if duplicates).
-fn collect_externs(json: &str) -> BTreeMap<String, PathBuf> {
+/// linking (lib crate-type, first if duplicates), and every directory
+/// any compiler artifact was written to.
+///
+/// Cargo keeps each unit's artifacts in a directory of its own, so the
+/// transitive dependencies of an extern crate are found only through a
+/// search path for each of those directories.
+fn collect_externs(json: &str) -> (BTreeMap<String, PathBuf>, BTreeSet<PathBuf>) {
     #[derive(Deserialize)]
     struct Artifact {
         reason: String,
@@ -278,6 +283,7 @@ fn collect_externs(json: &str) -> BTreeMap<String, PathBuf> {
 
     let mut out: BTreeMap<String, PathBuf> = BTreeMap::new();
     let mut seen_for_name: HashSet<String> = HashSet::new();
+    let mut dirs: BTreeSet<PathBuf> = BTreeSet::new();
     for line in json.lines() {
         let Ok(a) = serde_json::from_str::<Artifact>(line) else {
             continue;
@@ -285,6 +291,12 @@ fn collect_externs(json: &str) -> BTreeMap<String, PathBuf> {
         if a.reason != "compiler-artifact" {
             continue;
         }
+        dirs.extend(
+            a.filenames
+                .iter()
+                .filter_map(|p| p.parent())
+                .map(Path::to_path_buf),
+        );
         // We only want library artifacts (not bin, proc-macro for
         // build scripts, etc.). The lib crate-type covers normal
         // rlibs; proc-macro is needed for serde-derive-like macros
@@ -314,7 +326,7 @@ fn collect_externs(json: &str) -> BTreeMap<String, PathBuf> {
             out.insert(name, rmeta.clone());
         }
     }
-    out
+    (out, dirs)
 }
 
 /// Invoke `rustdoc --test` on one Rust block.
@@ -327,6 +339,7 @@ fn run_block(
     repo_root: &Path,
     block: &Block,
     externs: &BTreeMap<String, PathBuf>,
+    artifact_dirs: &BTreeSet<PathBuf>,
 ) -> Result<(), String> {
     // Write a markdown file containing only this Rust block; rustdoc
     // accepts markdown and handles hidden-line (`# `) semantics.
@@ -364,17 +377,21 @@ fn run_block(
         spec.push(path);
         cmd.arg("--extern").arg(spec);
     }
-    // The deps directory is on the library search path so transitive
-    // deps resolve. Derive it from Cargo's artifacts rather than assuming
-    // the default `target/`; CI and local validation may set CARGO_TARGET_DIR.
-    // Multi-candidate ambiguity is avoided because we pass --extern for every
-    // name our examples actually use.
-    let deps_dir = externs
-        .values()
-        .find_map(|path| path.parent())
-        .ok_or_else(|| "no dependency artifact directory found".to_owned())?;
-    cmd.arg("-L");
-    cmd.arg(deps_dir);
+    // Every directory Cargo wrote an artifact to is a dependency search
+    // path, so the transitive dependencies of the extern crates resolve.
+    // They come from Cargo's artifact messages, not from an assumed
+    // `target/` layout: Cargo keeps each unit in its own directory, and CI
+    // and local validation may set CARGO_TARGET_DIR. Multi-candidate
+    // ambiguity is avoided because we pass --extern for every name our
+    // examples actually use.
+    if artifact_dirs.is_empty() {
+        return Err("no dependency artifact directory found".to_owned());
+    }
+    for dir in artifact_dirs {
+        let mut path: OsString = "dependency=".into();
+        path.push(dir);
+        cmd.arg("-L").arg(path);
+    }
     cmd.arg(&tmp);
 
     let output = cmd.output().map_err(|e| format!("spawn rustdoc: {e}"))?;

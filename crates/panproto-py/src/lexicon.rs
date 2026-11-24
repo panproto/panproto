@@ -53,9 +53,7 @@ fn parse_atproto_value(value: &serde_json::Value) -> PyResult<PySchema> {
     let schema = atproto::parse_lexicon(value).map_err(|e| {
         SchemaValidationError::new_err(format!("ATProto lexicon parse failed: {e}"))
     })?;
-    Ok(PySchema {
-        inner: Arc::new(schema),
-    })
+    Ok(PySchema::unbound(Arc::new(schema)))
 }
 
 /// Map a vertex kind name to a primitive [`ValueKind`], if it names one.
@@ -171,9 +169,7 @@ pub fn parse_schema_document(protocol: &str, doc: &Bound<'_, PyAny>) -> PyResult
     let value = json_from_py(doc)?;
     let schema = panproto_core::protocols::parse_schema_document(protocol, &value)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-    Ok(PySchema {
-        inner: Arc::new(schema),
-    })
+    Ok(PySchema::unbound(Arc::new(schema)))
 }
 
 /// Parse a schema-defining *text/source* (an IDL or DDL string) under
@@ -204,9 +200,7 @@ pub fn parse_schema_document(protocol: &str, doc: &Bound<'_, PyAny>) -> PyResult
 pub fn parse_schema_source(protocol: &str, source: &str) -> PyResult<PySchema> {
     let schema = panproto_core::protocols::parse_schema_source(protocol, source)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-    Ok(PySchema {
-        inner: Arc::new(schema),
-    })
+    Ok(PySchema::unbound(Arc::new(schema)))
 }
 
 /// Parse a bundle of schema documents into one schema, resolving
@@ -249,9 +243,7 @@ pub fn parse_schema_bundle(protocol: &str, docs: &Bound<'_, PyAny>) -> PyResult<
     let schema = panproto_core::protocols::parse_schema_bundle(protocol, &values)
         .map_err(|e| SchemaValidationError::new_err(format!("bundle parse failed: {e}")))?;
 
-    Ok(PySchema {
-        inner: Arc::new(schema),
-    })
+    Ok(PySchema::unbound(Arc::new(schema)))
 }
 
 /// The protocols :func:`parse_schema_bundle` accepts.
@@ -293,7 +285,7 @@ impl PyLexiconProject {
     fn files(&self) -> Vec<(String, PySchema)> {
         self.files
             .iter()
-            .map(|(p, s)| (p.clone(), PySchema { inner: s.clone() }))
+            .map(|(p, s)| (p.clone(), PySchema::unbound(s.clone())))
             .collect()
     }
 

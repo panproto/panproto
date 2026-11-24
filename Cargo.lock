@@ -248,7 +248,7 @@ dependencies = [
 
 [[package]]
 name = "book-doctest-stub"
-version = "0.77.0"
+version = "0.78.0"
 dependencies = [
  "anyhow",
  "miette",
@@ -694,9 +694,9 @@ checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
 name = "form_urlencoded"
-version = "1.2.2"
+version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
+checksum = "afa489199eaffb1211795df1c6236ce1ad0d41a6fa45250add73e3b02420f06e"
 dependencies = [
  "percent-encoding",
 ]
@@ -1369,9 +1369,9 @@ checksum = "2e126dda6f34391ab7b444f9922055facc83c07a910da3eb16f1e4d9c45dc777"
 
 [[package]]
 name = "libz-sys"
-version = "1.1.31"
+version = "1.1.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff20308ecabd635a2dc1dd5834a86c462cca20efba1d5d3ddab1f8aea3455cb2"
+checksum = "fee3f59f4321dab0c78d828942e7aa09d0bd8ad6e78a501977e6bf3d02938045"
 dependencies = [
  "cc",
  "libc",
@@ -1812,7 +1812,7 @@ checksum = "d211803b9b6b570f68772237e415a029d5a50c65d382910b879fb19d3271f94d"
 
 [[package]]
 name = "panproto-c"
-version = "0.77.0"
+version = "0.78.0"
 dependencies = [
  "ciborium",
  "git2",
@@ -1828,14 +1828,12 @@ dependencies = [
 
 [[package]]
 name = "panproto-check"
-version = "0.77.0"
+version = "0.78.0"
 dependencies = [
  "divan",
  "insta",
  "memchr",
  "panproto-gat",
- "panproto-lens",
- "panproto-mig",
  "panproto-protocols",
  "panproto-reference",
  "panproto-schema",
@@ -1849,7 +1847,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-cli"
-version = "0.77.0"
+version = "0.78.0"
 dependencies = [
  "assert_cmd",
  "blake3",
@@ -1876,7 +1874,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-core"
-version = "0.77.0"
+version = "0.78.0"
 dependencies = [
  "divan",
  "panproto-check",
@@ -1900,7 +1898,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-dsl-eval"
-version = "0.77.0"
+version = "0.78.0"
 dependencies = [
  "nickel-lang",
  "serde",
@@ -1912,7 +1910,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-expr"
-version = "0.77.0"
+version = "0.78.0"
 dependencies = [
  "divan",
  "panproto-reference",
@@ -1926,7 +1924,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-expr-parser"
-version = "0.77.0"
+version = "0.78.0"
 dependencies = [
  "chumsky",
  "divan",
@@ -1937,7 +1935,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-gat"
-version = "0.77.0"
+version = "0.78.0"
 dependencies = [
  "divan",
  "miette",
@@ -1952,7 +1950,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-gat-macros"
-version = "0.77.0"
+version = "0.78.0"
 dependencies = [
  "panproto-gat",
  "proc-macro2",
@@ -1963,7 +1961,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-git"
-version = "0.77.0"
+version = "0.78.0"
 dependencies = [
  "divan",
  "git2",
@@ -1982,7 +1980,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-git-remote"
-version = "0.77.0"
+version = "0.78.0"
 dependencies = [
  "git2",
  "miette",
@@ -1998,7 +1996,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-grammars"
-version = "0.77.0"
+version = "0.78.0"
 dependencies = [
  "cc",
  "divan",
@@ -2010,7 +2008,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-grammars-all"
-version = "0.77.0"
+version = "0.78.0"
 dependencies = [
  "panproto-grammars",
  "pyo3",
@@ -2019,7 +2017,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-grammars-data"
-version = "0.77.0"
+version = "0.78.0"
 dependencies = [
  "panproto-grammars",
  "pyo3",
@@ -2028,7 +2026,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-grammars-devops"
-version = "0.77.0"
+version = "0.78.0"
 dependencies = [
  "panproto-grammars",
  "pyo3",
@@ -2037,7 +2035,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-grammars-functional"
-version = "0.77.0"
+version = "0.78.0"
 dependencies = [
  "panproto-grammars",
  "pyo3",
@@ -2046,7 +2044,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-grammars-jvm"
-version = "0.77.0"
+version = "0.78.0"
 dependencies = [
  "panproto-grammars",
  "pyo3",
@@ -2055,7 +2053,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-grammars-mobile"
-version = "0.77.0"
+version = "0.78.0"
 dependencies = [
  "panproto-grammars",
  "pyo3",
@@ -2064,7 +2062,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-grammars-music"
-version = "0.77.0"
+version = "0.78.0"
 dependencies = [
  "panproto-grammars",
  "pyo3",
@@ -2073,7 +2071,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-grammars-scripting"
-version = "0.77.0"
+version = "0.78.0"
 dependencies = [
  "panproto-grammars",
  "pyo3",
@@ -2082,7 +2080,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-grammars-systems"
-version = "0.77.0"
+version = "0.78.0"
 dependencies = [
  "panproto-grammars",
  "pyo3",
@@ -2091,7 +2089,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-grammars-web"
-version = "0.77.0"
+version = "0.78.0"
 dependencies = [
  "panproto-grammars",
  "pyo3",
@@ -2100,10 +2098,9 @@ dependencies = [
 
 [[package]]
 name = "panproto-inst"
-version = "0.77.0"
+version = "0.78.0"
 dependencies = [
  "blake3",
- "bumpalo",
  "ciborium",
  "divan",
  "panproto-expr",
@@ -2123,7 +2120,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-integration-tests"
-version = "0.77.0"
+version = "0.78.0"
 dependencies = [
  "ciborium",
  "panproto-check",
@@ -2149,7 +2146,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-io"
-version = "0.77.0"
+version = "0.78.0"
 dependencies = [
  "bumpalo",
  "divan",
@@ -2177,7 +2174,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-lens"
-version = "0.77.0"
+version = "0.78.0"
 dependencies = [
  "divan",
  "insta",
@@ -2197,7 +2194,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-lens-dsl"
-version = "0.77.0"
+version = "0.78.0"
 dependencies = [
  "divan",
  "miette",
@@ -2216,7 +2213,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-mig"
-version = "0.77.0"
+version = "0.78.0"
 dependencies = [
  "blake3",
  "divan",
@@ -2236,7 +2233,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-parse"
-version = "0.77.0"
+version = "0.78.0"
 dependencies = [
  "divan",
  "memchr",
@@ -2258,7 +2255,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-project"
-version = "0.77.0"
+version = "0.78.0"
 dependencies = [
  "blake3",
  "divan",
@@ -2280,7 +2277,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-protocols"
-version = "0.77.0"
+version = "0.78.0"
 dependencies = [
  "blake3",
  "ciborium",
@@ -2302,7 +2299,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-py"
-version = "0.77.0"
+version = "0.78.0"
 dependencies = [
  "git2",
  "panproto-core",
@@ -2321,14 +2318,14 @@ dependencies = [
 
 [[package]]
 name = "panproto-reference"
-version = "0.77.0"
+version = "0.78.0"
 dependencies = [
  "proptest",
 ]
 
 [[package]]
 name = "panproto-schema"
-version = "0.77.0"
+version = "0.78.0"
 dependencies = [
  "blake3",
  "panproto-expr",
@@ -2345,7 +2342,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-theory-dsl"
-version = "0.77.0"
+version = "0.78.0"
 dependencies = [
  "divan",
  "miette",
@@ -2365,7 +2362,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-vcs"
-version = "0.77.0"
+version = "0.78.0"
 dependencies = [
  "blake3",
  "divan",
@@ -2389,7 +2386,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-wasm"
-version = "0.77.0"
+version = "0.78.0"
 dependencies = [
  "divan",
  "panproto-core",
@@ -2403,7 +2400,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-xrpc"
-version = "0.77.0"
+version = "0.78.0"
 dependencies = [
  "divan",
  "hex",
@@ -3976,9 +3973,9 @@ checksum = "0976c77def3f1f75c4ef892a292c31c0bbe9e3d0702c63044d7c76db298171a3"
 
 [[package]]
 name = "url"
-version = "2.5.8"
+version = "2.5.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff67a8a4397373c3ef660812acab3268222035010ab8680ec4215f38ba3d0eed"
+checksum = "f00cd2407bb42c0ef17be88d4cf020f5cceffd121665bac9b8b9493a369b3b1a"
 dependencies = [
  "form_urlencoded",
  "idna",

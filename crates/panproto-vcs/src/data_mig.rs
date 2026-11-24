@@ -4,13 +4,11 @@
 //! infrastructure. Complements are stored as VCS objects so backward
 //! migration never loses data.
 
-use std::collections::HashMap;
-use std::hash::BuildHasher;
-
 use panproto_inst::WInstance;
 use panproto_inst::identity::{AnyComplement, ComplementShape, Encoding, decode_complements};
 use panproto_schema::{Protocol, Schema};
 
+use crate::environment::{ProtocolEnvironment, load_environment, load_protocol};
 use crate::error::VcsError;
 use crate::hash::ObjectId;
 use crate::object::{CommitObject, ComplementObject, CstComplementObject, DataSetObject, Object};
@@ -27,97 +25,81 @@ pub struct StaleData {
     pub head_schema_id: ObjectId,
 }
 
-/// Migrate a data set forward through a schema change.
+/// A point data lies over: a schema, and the protocol its records are records
+/// under.
+#[derive(Clone, Copy, Debug)]
+pub struct Fibre<'a> {
+    /// The object ID of the schema.
+    pub schema_id: ObjectId,
+    /// The schema.
+    pub schema: &'a Schema,
+    /// The object ID of the protocol, when it is recorded.
+    pub protocol_id: Option<ObjectId>,
+    /// The protocol.
+    pub protocol: &'a Protocol,
+}
+
+/// Transport a data set from the fibre over `src` to the fibre over `tgt`.
 ///
-/// Produces a new `DataSetObject` at the target schema and a
-/// `ComplementObject` for backward migration. Both are stored in
-/// the object store.
+/// Produces a new `DataSetObject` over `tgt` and a `ComplementObject` for
+/// the way back. Both are stored in the object store.
 ///
 /// Returns `(new_data_id, complement_id)`.
 ///
 /// # Errors
 ///
 /// Returns `VcsError::DataMigrationFailed` if lens generation,
-/// deserialization, or migration fails.
+/// deserialization, or migration fails, or if a migrated record is not a
+/// record of `tgt.schema` under `tgt.protocol`.
 /// Returns `VcsError::TypeMismatch` if the object is not a `DataSet`.
 pub fn migrate_forward(
     store: &mut dyn Store,
     data_id: ObjectId,
-    src_schema: &Schema,
-    tgt_schema: &Schema,
-    protocol: &Protocol,
+    src: Fibre<'_>,
+    tgt: Fibre<'_>,
 ) -> Result<(ObjectId, ObjectId), VcsError> {
-    // 1. Load the data set
-    let data_obj = match store.get(&data_id)? {
-        Object::DataSet(ds) => ds,
-        other => {
-            return Err(VcsError::TypeMismatch {
-                expected: "DataSet".into(),
-                got: other.type_name().into(),
+    let data_obj = load_data_set(store, data_id)?;
+    let instances: Vec<WInstance> = decode_instances(&data_obj.data)?;
+    let lens = lens_between(src, tgt)?;
+
+    let mut migrated_instances = Vec::with_capacity(instances.len());
+    let mut all_complements = Vec::with_capacity(instances.len());
+    for (index, instance) in instances.iter().enumerate() {
+        let (view, complement) =
+            panproto_lens::get(&lens, instance).map_err(|e| migration_failed("lens get", e))?;
+        let reasons = crate::records::violations(tgt.schema, tgt.protocol, &view);
+        if !reasons.is_empty() {
+            return Err(VcsError::DataMigrationFailed {
+                reason: format!(
+                    "record {index} is not a record of the target schema: {}",
+                    reasons.join("; ")
+                ),
             });
         }
-    };
-
-    // 2. Deserialize the instances
-    let instances: Vec<WInstance> =
-        rmp_serde::from_slice(&data_obj.data).map_err(|e| VcsError::DataMigrationFailed {
-            reason: format!("deserialize: {e}"),
-        })?;
-
-    // 3. Generate lens between schemas
-    let config = panproto_lens::AutoLensConfig::default();
-    let result =
-        panproto_lens::auto_generate(src_schema, tgt_schema, protocol, &config).map_err(|e| {
-            VcsError::DataMigrationFailed {
-                reason: format!("lens generation: {e}"),
-            }
-        })?;
-
-    // 4. Apply get to each instance, collecting views and complements
-    let mut migrated_instances = Vec::new();
-    let mut all_complements = Vec::new();
-    for instance in &instances {
-        let (view, complement) = panproto_lens::get(&result.lens, instance).map_err(|e| {
-            VcsError::DataMigrationFailed {
-                reason: format!("lens get: {e}"),
-            }
-        })?;
         migrated_instances.push(view);
         all_complements.push(complement);
     }
 
-    // 5. Store new DataSetObject
-    let tgt_schema_id = crate::hash::hash_schema(tgt_schema)?;
-    let new_data = DataSetObject {
-        schema_id: tgt_schema_id,
-        data: rmp_serde::to_vec(&migrated_instances).map_err(|e| {
-            VcsError::DataMigrationFailed {
-                reason: format!("serialize: {e}"),
-            }
-        })?,
+    let new_data_id = store.put(&Object::DataSet(DataSetObject {
+        schema_id: tgt.schema_id,
+        data: encode(&migrated_instances)?,
         record_count: migrated_instances.len() as u64,
         // The key identifies the record, not its schema version, so it
         // survives migration unchanged.
         key: data_obj.key,
-    };
-    let new_data_id = store.put(&Object::DataSet(new_data))?;
-
-    // 6. Store ComplementObject
-    let comp = ComplementObject {
+        protocol_id: tgt.protocol_id,
+    }))?;
+    let complement_id = store.put(&Object::Complement(ComplementObject {
         migration_id: data_id,
         data_id,
-        complement: rmp_serde::to_vec(&all_complements).map_err(|e| {
-            VcsError::DataMigrationFailed {
-                reason: format!("serialize complement: {e}"),
-            }
-        })?,
-    };
-    let complement_id = store.put(&Object::Complement(comp))?;
+        complement: encode(&all_complements)?,
+    }))?;
 
     Ok((new_data_id, complement_id))
 }
 
-/// Migrate a data set backward using a stored complement.
+/// Carry a data set over `tgt` back to the fibre over `src`, using the
+/// complement its transport produced.
 ///
 /// # Errors
 ///
@@ -128,20 +110,10 @@ pub fn migrate_backward(
     store: &mut dyn Store,
     data_id: ObjectId,
     complement_id: ObjectId,
-    src_schema: &Schema,
-    tgt_schema: &Schema,
-    protocol: &Protocol,
+    src: Fibre<'_>,
+    tgt: Fibre<'_>,
 ) -> Result<ObjectId, VcsError> {
-    // 1. Load data and complement
-    let data_obj = match store.get(&data_id)? {
-        Object::DataSet(ds) => ds,
-        other => {
-            return Err(VcsError::TypeMismatch {
-                expected: "DataSet".into(),
-                got: other.type_name().into(),
-            });
-        }
-    };
+    let data_obj = load_data_set(store, data_id)?;
     let comp_obj = match store.get(&complement_id)? {
         Object::Complement(c) => c,
         other => {
@@ -152,19 +124,13 @@ pub fn migrate_backward(
         }
     };
 
-    // 2. Deserialize
-    let instances: Vec<WInstance> =
-        rmp_serde::from_slice(&data_obj.data).map_err(|e| VcsError::DataMigrationFailed {
-            reason: format!("deserialize data: {e}"),
-        })?;
+    let instances: Vec<WInstance> = decode_instances(&data_obj.data)?;
     let complements: Vec<panproto_lens::Complement> = decode_complements(
         &comp_obj.complement,
         Encoding::MsgpackPositional,
         ComplementShape::WType,
     )
-    .map_err(|e| VcsError::DataMigrationFailed {
-        reason: format!("deserialize complement: {e}"),
-    })?
+    .map_err(|e| migration_failed("deserialize complement", e))?
     .into_iter()
     .map(|decoded| match decoded {
         AnyComplement::WType(complement) => Ok(*complement),
@@ -178,39 +144,57 @@ pub fn migrate_backward(
     })
     .collect::<Result<Vec<_>, _>>()?;
 
-    // 3. Generate lens (same direction as forward -- we use put for backward)
-    let config = panproto_lens::AutoLensConfig::default();
-    let result =
-        panproto_lens::auto_generate(src_schema, tgt_schema, protocol, &config).map_err(|e| {
-            VcsError::DataMigrationFailed {
-                reason: format!("lens generation: {e}"),
-            }
-        })?;
-
-    // 4. Apply put to each instance with its complement
-    let mut restored = Vec::new();
-    for (inst, comp) in instances.iter().zip(complements.iter()) {
-        let r = panproto_lens::put(&result.lens, inst, comp).map_err(|e| {
-            VcsError::DataMigrationFailed {
-                reason: format!("lens put: {e}"),
-            }
-        })?;
-        restored.push(r);
+    // The lens of the way forward, whose put is the way back.
+    let lens = lens_between(src, tgt)?;
+    let mut restored = Vec::with_capacity(instances.len());
+    for (instance, complement) in instances.iter().zip(complements.iter()) {
+        restored.push(
+            panproto_lens::put(&lens, instance, complement)
+                .map_err(|e| migration_failed("lens put", e))?,
+        );
     }
 
-    // 5. Store restored DataSetObject
-    let src_schema_id = crate::hash::hash_schema(src_schema)?;
-    let restored_data = DataSetObject {
-        schema_id: src_schema_id,
-        data: rmp_serde::to_vec(&restored).map_err(|e| VcsError::DataMigrationFailed {
-            reason: format!("serialize: {e}"),
-        })?,
+    store.put(&Object::DataSet(DataSetObject {
+        schema_id: src.schema_id,
+        data: encode(&restored)?,
         record_count: restored.len() as u64,
         key: data_obj.key,
-    };
-    let restored_id = store.put(&Object::DataSet(restored_data))?;
+        protocol_id: src.protocol_id,
+    }))
+}
 
-    Ok(restored_id)
+/// The lens that transports records from `src` to `tgt`, generated under the
+/// protocol the records are read under.
+fn lens_between(src: Fibre<'_>, tgt: Fibre<'_>) -> Result<panproto_lens::Lens, VcsError> {
+    let config = panproto_lens::AutoLensConfig::default();
+    panproto_lens::auto_generate(src.schema, tgt.schema, src.protocol, &config)
+        .map(|result| result.lens)
+        .map_err(|e| migration_failed("lens generation", e))
+}
+
+/// The data set object at `id`.
+pub(crate) fn load_data_set(store: &dyn Store, id: ObjectId) -> Result<DataSetObject, VcsError> {
+    match store.get(&id)? {
+        Object::DataSet(data_set) => Ok(data_set),
+        other => Err(VcsError::TypeMismatch {
+            expected: "DataSet".into(),
+            got: other.type_name().into(),
+        }),
+    }
+}
+
+fn decode_instances(data: &[u8]) -> Result<Vec<WInstance>, VcsError> {
+    rmp_serde::from_slice(data).map_err(|e| migration_failed("deserialize data", e))
+}
+
+fn encode<T: serde::Serialize>(value: &T) -> Result<Vec<u8>, VcsError> {
+    rmp_serde::to_vec(value).map_err(|e| migration_failed("serialize", e))
+}
+
+fn migration_failed(step: &str, error: impl std::fmt::Display) -> VcsError {
+    VcsError::DataMigrationFailed {
+        reason: format!("{step}: {error}"),
+    }
 }
 
 /// Check which data sets in a commit are stale relative to its schema.
@@ -254,17 +238,10 @@ pub fn detect_staleness(
 pub fn migrate_data_directory(
     store: &mut dyn Store,
     data_dir: &std::path::Path,
-    src_schema: &Schema,
-    tgt_schema: &Schema,
-    protocol: &Protocol,
+    src: Fibre<'_>,
+    tgt: Fibre<'_>,
 ) -> Result<(), VcsError> {
-    let config = panproto_lens::AutoLensConfig::default();
-    let result =
-        panproto_lens::auto_generate(src_schema, tgt_schema, protocol, &config).map_err(|e| {
-            VcsError::DataMigrationFailed {
-                reason: format!("lens: {e}"),
-            }
-        })?;
+    let lens = lens_between(src, tgt)?;
 
     for entry in std::fs::read_dir(data_dir).map_err(|e| VcsError::IoError(e.to_string()))? {
         let entry = entry.map_err(|e| VcsError::IoError(e.to_string()))?;
@@ -281,39 +258,36 @@ pub fn migrate_data_directory(
         })?;
 
         // Parse, migrate, write back
-        let root = infer_root(src_schema);
+        let root = infer_root(src.schema);
         let instance =
-            panproto_inst::parse_json(src_schema, protocol, &root, &data).map_err(|e| {
+            panproto_inst::parse_json(src.schema, src.protocol, &root, &data).map_err(|e| {
                 VcsError::DataMigrationFailed {
                     reason: format!("parse instance: {e}"),
                 }
             })?;
 
-        let (view, _complement) = panproto_lens::get(&result.lens, &instance).map_err(|e| {
-            VcsError::DataMigrationFailed {
+        let (view, _complement) =
+            panproto_lens::get(&lens, &instance).map_err(|e| VcsError::DataMigrationFailed {
                 reason: format!("lens get: {e}"),
-            }
-        })?;
+            })?;
 
-        let output = panproto_inst::to_json(tgt_schema, &view).map_err(|e| {
+        let output = panproto_inst::to_json(tgt.schema, &view).map_err(|e| {
             VcsError::DataMigrationFailed {
                 reason: format!("serialize view: {e}"),
             }
         })?;
 
         // Store migrated data as a DataSetObject for complement tracking
-        let tgt_schema_id = crate::hash::hash_schema(tgt_schema)?;
         let migrated_data = DataSetObject {
-            schema_id: tgt_schema_id,
-            data: rmp_serde::to_vec(&vec![view.clone()]).map_err(|e| {
-                VcsError::DataMigrationFailed {
-                    reason: format!("serialize: {e}"),
-                }
+            schema_id: tgt.schema_id,
+            data: rmp_serde::to_vec(&vec![view]).map_err(|e| VcsError::DataMigrationFailed {
+                reason: format!("serialize: {e}"),
             })?,
             record_count: 1,
             // The source file path is this set's natural key, matching
             // how `Repository::add_data` keys a staged file by default.
             key: Some(path.to_string_lossy().into_owned()),
+            protocol_id: tgt.protocol_id,
         };
         store.put(&Object::DataSet(migrated_data))?;
 
@@ -349,103 +323,49 @@ fn infer_root(schema: &Schema) -> String {
         .map_or_else(|| "root".to_owned(), std::string::ToString::to_string)
 }
 
-/// The places a protocol name is resolved in, read in this order by
-/// [`resolve_protocol`].
-#[derive(Debug)]
-pub struct ProtocolSources<'a, S> {
-    /// The protocol object of the repository state at hand: the one staged
-    /// for the next commit, else the one the commit records
-    /// ([`CommitObject::protocol_id`]).
-    pub stored: Option<&'a Protocol>,
-    /// The protocols a caller registered, by name
-    /// ([`Repository::set_protocol`](crate::Repository::set_protocol)).
-    pub registered: &'a HashMap<String, Protocol, S>,
+/// A data set transported between fibres, with what takes it back.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TransportedData {
+    /// The data set over the source.
+    pub base: ObjectId,
+    /// Its image over the target.
+    pub image: ObjectId,
+    /// The complement of the transport.
+    pub complement: ObjectId,
 }
 
-impl<S> Clone for ProtocolSources<'_, S> {
-    fn clone(&self) -> Self {
-        *self
-    }
+/// What a commit's data becomes under a change of its schema.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LiftedData {
+    /// Every data set of the commit, in order, each one that lay over the
+    /// source schema replaced by its image.
+    pub data_ids: Vec<ObjectId>,
+    /// The commit's complements, then one for each transported data set.
+    pub complement_ids: Vec<ObjectId>,
+    /// The data sets that were transported, in order.
+    pub transported: Vec<TransportedData>,
 }
 
-impl<S> Copy for ProtocolSources<'_, S> {}
-
-/// Resolve the protocol named by `name`.
-///
-/// Resolution first checks the stored protocol object, then the protocol
-/// registered under `name`, then the `panproto-protocols` registry by
-/// canonical name or alias.
-///
-/// # Errors
-///
-/// [`VcsError::UnknownProtocol`] when none of the three resolves `name`.
-pub fn resolve_protocol<S: BuildHasher>(
-    name: &str,
-    sources: ProtocolSources<'_, S>,
-) -> Result<Protocol, VcsError> {
-    if let Some(stored) = sources.stored.filter(|p| p.name == name) {
-        return Ok(stored.clone());
-    }
-    if let Some(registered) = sources.registered.get(name) {
-        return Ok(registered.clone());
-    }
-    if let Some(descriptor) = panproto_protocols::registry::descriptor(name) {
-        return Ok((descriptor.protocol)());
-    }
-    Err(VcsError::UnknownProtocol {
-        name: name.to_owned(),
-    })
+/// The schema a commit's data is transported to, and the environment its
+/// protocol name is read in.
+#[derive(Clone, Copy, Debug)]
+pub struct LiftTarget<'a> {
+    /// The object ID of the schema.
+    pub schema_id: ObjectId,
+    /// The schema.
+    pub schema: &'a Schema,
+    /// The protocol environment of the commit that will hold the data.
+    pub environment: &'a ProtocolEnvironment,
 }
 
-/// The protocol of `schema`: its protocol name resolved by
-/// [`resolve_protocol`], so that data validation and data migration read
-/// one protocol.
+/// Transport a commit's data through a change of its schema.
 ///
-/// # Errors
-///
-/// [`VcsError::UnknownProtocol`] when the name does not resolve.
-pub fn protocol_for_schema<S: BuildHasher>(
-    schema: &Schema,
-    sources: ProtocolSources<'_, S>,
-) -> Result<Protocol, VcsError> {
-    resolve_protocol(&schema.protocol, sources)
-}
-
-/// The protocol object `commit` records, if it records one.
-///
-/// # Errors
-///
-/// A store error, or [`VcsError::WrongObjectType`] when the recorded
-/// object is not a protocol.
-pub fn commit_protocol(
-    store: &dyn Store,
-    commit: &CommitObject,
-) -> Result<Option<Protocol>, VcsError> {
-    let Some(id) = commit.protocol_id else {
-        return Ok(None);
-    };
-    match store.get(&id)? {
-        Object::Protocol(protocol) => Ok(Some(*protocol)),
-        other => Err(VcsError::WrongObjectType {
-            expected: "protocol",
-            found: other.type_name(),
-        }),
-    }
-}
-
-/// Lift a commit's versioned data sets through a schema change.
-///
-/// Returns the data-set and complement object ids the replayed, merged,
-/// or cherry-picked commit should carry. When `src_schema` and
-/// `tgt_schema` are the same schema, `commit.data_ids` and
-/// `commit.complement_ids` are returned verbatim, so a replay or merge
-/// that does not change the schema preserves the exact object
-/// references. Otherwise each [`DataSetObject`] in `commit.data_ids` is
-/// lifted forward through the schema change via [`migrate_forward`]
-/// (using [`protocol_for_schema`] over the protocol `commit` records and
-/// `registered` for the lens protocol), and the
-/// returned complement ids are the commit's original complements
-/// extended with the fresh complement produced for each lifted data set.
+/// A data set is transported when it lies over `src_schema`, the schema of
+/// `commit`, and `src_schema` is not the target already. Any other data set
+/// of the commit lies over a schema the change does not act on, and is
+/// carried as it is. The transport starts from the protocol the data set
+/// records, or, for data that records none, from the one the schema names in
+/// the commit's own environment.
 ///
 /// `cst_complement_ids` are deliberately not returned here: CST
 /// complements capture formatting keyed by content, not schema, so
@@ -453,44 +373,76 @@ pub fn commit_protocol(
 ///
 /// # Errors
 ///
-/// Returns [`VcsError::DataMigrationFailed`], or [`VcsError::TypeMismatch`]
-/// if a referenced object is not a `DataSet`, when lifting a data set
-/// fails, so the caller aborts loudly rather than dropping data, and
-/// [`VcsError::UnknownProtocol`] when the source schema's protocol name
-/// does not resolve.
-pub fn lift_commit_data<S: BuildHasher>(
+/// The errors of [`migrate_forward`], so the caller aborts loudly rather
+/// than dropping data, and [`VcsError::UnknownProtocol`] when a protocol
+/// name that has to be read means nothing.
+pub fn lift_commit_data(
     store: &mut dyn Store,
     commit: &CommitObject,
     src_schema: &Schema,
-    tgt_schema: &Schema,
-    registered: &HashMap<String, Protocol, S>,
-) -> Result<(Vec<ObjectId>, Vec<ObjectId>), VcsError> {
-    // Content-addressed identity check: an unchanged schema lifts data
-    // to itself, so keep the exact object references intact.
-    // A commit with no data needs no protocol; only data is lifted.
-    if commit.data_ids.is_empty()
-        || crate::hash::hash_schema(src_schema)? == crate::hash::hash_schema(tgt_schema)?
-    {
-        return Ok((commit.data_ids.clone(), commit.complement_ids.clone()));
+    target: LiftTarget<'_>,
+) -> Result<LiftedData, VcsError> {
+    let mut lifted = LiftedData {
+        data_ids: commit.data_ids.clone(),
+        complement_ids: commit.complement_ids.clone(),
+        transported: Vec::new(),
+    };
+    let src_identity = crate::hash::hash_schema(src_schema)?;
+    if commit.data_ids.is_empty() || src_identity == crate::hash::hash_schema(target.schema)? {
+        return Ok(lifted);
     }
 
-    let stored = commit_protocol(store, commit)?;
-    let protocol = protocol_for_schema(
-        src_schema,
-        ProtocolSources {
-            stored: stored.as_ref(),
-            registered,
-        },
-    )?;
-    let mut new_data_ids = Vec::with_capacity(commit.data_ids.len());
-    let mut new_complement_ids = commit.complement_ids.clone();
-    for data_id in &commit.data_ids {
-        let (lifted_data_id, complement_id) =
-            migrate_forward(store, *data_id, src_schema, tgt_schema, &protocol)?;
-        new_data_ids.push(lifted_data_id);
-        new_complement_ids.push(complement_id);
+    let mut tgt_protocol = None;
+    for slot in &mut lifted.data_ids {
+        let base = load_data_set(store, *slot)?;
+        // A schema is stored as a tree or, as a migration endpoint, flat.
+        if base.schema_id != commit.schema_id && base.schema_id != src_identity {
+            continue;
+        }
+        let src_protocol = data_protocol(store, commit, src_schema, base.protocol_id)?;
+        let (tgt_protocol_id, tgt_protocol) = if let Some(found) = &tgt_protocol {
+            found
+        } else {
+            let protocol = target.environment.resolve(store, &target.schema.protocol)?;
+            let id = store.put(&Object::Protocol(Box::new(protocol.clone())))?;
+            tgt_protocol.insert((id, protocol))
+        };
+        let src = Fibre {
+            schema_id: base.schema_id,
+            schema: src_schema,
+            protocol_id: base.protocol_id,
+            protocol: &src_protocol,
+        };
+        let tgt = Fibre {
+            schema_id: target.schema_id,
+            schema: target.schema,
+            protocol_id: Some(*tgt_protocol_id),
+            protocol: tgt_protocol,
+        };
+        let (image, complement) = migrate_forward(store, *slot, src, tgt)?;
+        lifted.transported.push(TransportedData {
+            base: *slot,
+            image,
+            complement,
+        });
+        lifted.complement_ids.push(complement);
+        *slot = image;
     }
-    Ok((new_data_ids, new_complement_ids))
+    Ok(lifted)
+}
+
+/// The protocol data of `commit` over `schema` is read under: the one it
+/// records, else the one the schema names in the commit's environment.
+pub(crate) fn data_protocol(
+    store: &dyn Store,
+    commit: &CommitObject,
+    schema: &Schema,
+    recorded: Option<ObjectId>,
+) -> Result<Protocol, VcsError> {
+    match recorded {
+        Some(id) => load_protocol(store, id),
+        None => load_environment(store, commit.environment_id)?.resolve(store, &schema.protocol),
+    }
 }
 
 // ── CST complement pass-through ───────────────────────────────────────
@@ -609,9 +561,42 @@ mod tests {
         }
     }
 
-    /// The registered protocols the tests resolve "test" through.
-    fn registered() -> HashMap<String, Protocol> {
-        HashMap::from([("test".to_owned(), test_protocol())])
+    /// A fibre over `schema` under the test protocol.
+    fn fibre<'a>(schema: &'a Schema, protocol: &'a Protocol) -> Result<Fibre<'a>, VcsError> {
+        Ok(Fibre {
+            schema_id: crate::hash::hash_schema(schema)?,
+            schema,
+            protocol_id: None,
+            protocol,
+        })
+    }
+
+    /// The environment in which "test" means the test protocol.
+    fn environment(store: &mut MemStore) -> Result<ProtocolEnvironment, VcsError> {
+        let mut environment = ProtocolEnvironment::new();
+        let id = store.put(&Object::Protocol(Box::new(test_protocol())))?;
+        environment.define("test", id);
+        Ok(environment)
+    }
+
+    /// Lift `commit`'s data from `src` to `tgt` in `environment`.
+    fn lift(
+        store: &mut MemStore,
+        commit: &CommitObject,
+        src: &Schema,
+        tgt: &Schema,
+        environment: &ProtocolEnvironment,
+    ) -> Result<LiftedData, VcsError> {
+        lift_commit_data(
+            store,
+            commit,
+            src,
+            LiftTarget {
+                schema_id: crate::hash::hash_schema(tgt)?,
+                schema: tgt,
+                environment,
+            },
+        )
     }
 
     fn make_commit(schema_id: ObjectId, data_ids: Vec<ObjectId>) -> CommitObject {
@@ -637,6 +622,7 @@ mod tests {
             data: vec![],
             record_count: 0,
             key: None,
+            protocol_id: None,
         };
         let data_id = store.put(&Object::DataSet(ds))?;
 
@@ -663,6 +649,7 @@ mod tests {
             data: vec![],
             record_count: 0,
             key: None,
+            protocol_id: None,
         };
         let data_id = store.put(&Object::DataSet(ds))?;
 
@@ -692,7 +679,8 @@ mod tests {
         let schema_id = crate::tree::store_schema_as_tree(&mut store, schema.clone())?;
 
         let protocol = test_protocol();
-        let result = migrate_forward(&mut store, schema_id, &schema, &schema, &protocol);
+        let over = fibre(&schema, &protocol)?;
+        let result = migrate_forward(&mut store, schema_id, over, over);
 
         assert!(result.is_err());
         if let Err(VcsError::TypeMismatch { expected, got }) = result {
@@ -728,50 +716,25 @@ mod tests {
     }
 
     #[test]
-    fn a_protocol_name_resolves_in_order() -> Result<(), VcsError> {
-        let schema = make_schema(&[("a", "object")]);
-        let none = HashMap::new();
-        let stored = Protocol {
-            obj_kinds: vec!["stored".into()],
-            ..test_protocol()
-        };
-        // A stored protocol of that name comes first.
-        let found = protocol_for_schema(
-            &schema,
-            ProtocolSources {
-                stored: Some(&stored),
-                registered: &registered(),
-            },
-        )?;
-        assert_eq!(found, stored);
-        // A stored protocol of another name is passed over for the
-        // registered one.
-        let other = Protocol {
-            name: "other".into(),
-            ..test_protocol()
-        };
-        let found = protocol_for_schema(
-            &schema,
-            ProtocolSources {
-                stored: Some(&other),
-                registered: &registered(),
-            },
-        )?;
-        assert_eq!(found, test_protocol());
-        // A name only the registry declares resolves to its protocol.
-        let atproto = resolve_protocol(
-            "atproto",
-            ProtocolSources {
-                stored: None,
-                registered: &none,
-            },
-        )?;
+    fn a_protocol_name_resolves_in_the_environment_then_the_registry() -> Result<(), VcsError> {
+        let mut store = MemStore::new();
+        let environment = environment(&mut store)?;
+        assert_eq!(environment.resolve(&store, "test")?, test_protocol());
+        let atproto =
+            panproto_protocols::registry::descriptor("atproto").ok_or(VcsError::NothingStaged)?;
         assert_eq!(
-            atproto,
-            (panproto_protocols::registry::descriptor("atproto")
-                .ok_or(VcsError::NothingStaged)?
-                .protocol)()
+            environment.resolve(&store, "atproto")?,
+            (atproto.protocol)()
         );
+        // A definition takes the place of the built-in protocol of its name.
+        let mut shadowing = environment;
+        let own = Protocol {
+            name: "atproto".into(),
+            ..test_protocol()
+        };
+        let id = store.put(&Object::Protocol(Box::new(own.clone())))?;
+        shadowing.define("atproto", id);
+        assert_eq!(shadowing.resolve(&store, "atproto")?, own);
         Ok(())
     }
 
@@ -790,9 +753,10 @@ mod tests {
             data: rmp_serde::to_vec(&vec![inst])?,
             record_count: 1,
             key: None,
+            protocol_id: None,
         }))?;
         let commit = make_commit(crate::hash::hash_schema(&src)?, vec![ds_id]);
-        match lift_commit_data(&mut store, &commit, &src, &tgt, &HashMap::new()) {
+        match lift(&mut store, &commit, &src, &tgt, &ProtocolEnvironment::new()) {
             Err(VcsError::UnknownProtocol { name }) => assert_eq!(name, "test"),
             other => panic!("an unknown protocol name was accepted: {other:?}"),
         }
@@ -814,25 +778,68 @@ mod tests {
             data: rmp_serde::to_vec(&vec![inst])?,
             record_count: 1,
             key: None,
+            protocol_id: None,
         }))?;
-        // The commit records the protocol object, so it resolves the name
-        // with nothing registered.
-        let protocol_id = store.put(&Object::Protocol(Box::new(test_protocol())))?;
+        // The data records no protocol, so its name is read in the commit's
+        // environment.
+        let environment = environment(&mut store)?;
+        let environment_id =
+            crate::environment::store_environment(&mut store, environment.clone())?;
         let commit = CommitObject::builder(crate::hash::hash_schema(&src)?, "test", "test", "c")
             .timestamp(0)
             .data_ids(vec![ds_id])
-            .protocol_id(protocol_id)
+            .environment_id(environment_id)
             .build();
-        let (data_ids, complement_ids) =
-            lift_commit_data(&mut store, &commit, &src, &tgt, &HashMap::new())?;
-        assert_eq!(data_ids.len(), 1);
-        assert_eq!(complement_ids.len(), 1);
-        // The lift is the migration under that protocol.
+        let lifted = lift(&mut store, &commit, &src, &tgt, &environment)?;
+        assert_eq!(lifted.complement_ids.len(), 1);
+        // The lift is the migration under that protocol, which it records.
+        let protocol = test_protocol();
         let mut expected = MemStore::new();
         let expected_ds = expected.put(&store.get(&ds_id)?)?;
+        let target = Fibre {
+            protocol_id: environment.get("test"),
+            ..fibre(&tgt, &protocol)?
+        };
         let (expected_view, _) =
-            migrate_forward(&mut expected, expected_ds, &src, &tgt, &test_protocol())?;
-        assert_eq!(data_ids[0], expected_view);
+            migrate_forward(&mut expected, expected_ds, fibre(&src, &protocol)?, target)?;
+        assert_eq!(lifted.data_ids, [expected_view]);
+        Ok(())
+    }
+
+    /// A commit can hold data over schemas other than its own, which a change
+    /// of its schema does not act on.
+    #[test]
+    fn data_over_another_schema_is_carried_as_it_is() -> Result<(), Box<dyn std::error::Error>> {
+        let mut store = MemStore::new();
+        let environment = environment(&mut store)?;
+        let src = make_schema(&[("a", "object")]);
+        let tgt = make_schema(&[("a", "object"), ("b", "string")]);
+        let other = make_schema(&[("z", "object")]);
+        let mut ids = Vec::new();
+        for (schema, anchor) in [(&src, "a"), (&other, "z")] {
+            let node = panproto_inst::Node::new(0, anchor);
+            let instance = WInstance::new(
+                HashMap::from([(0_u32, node)]),
+                vec![],
+                vec![],
+                0,
+                Name::from(anchor),
+            );
+            ids.push(store.put(&Object::DataSet(DataSetObject {
+                schema_id: crate::hash::hash_schema(schema)?,
+                data: rmp_serde::to_vec(&vec![instance])?,
+                record_count: 1,
+                key: None,
+                protocol_id: environment.get("test"),
+            }))?);
+        }
+        let commit = make_commit(crate::hash::hash_schema(&src)?, ids.clone());
+        let lifted = lift(&mut store, &commit, &src, &tgt, &environment)?;
+        assert_eq!(lifted.data_ids.len(), 2);
+        assert_ne!(lifted.data_ids[0], ids[0]);
+        assert_eq!(lifted.data_ids[1], ids[1]);
+        assert_eq!(lifted.transported.len(), 1);
+        assert_eq!(lifted.transported[0].base, ids[0]);
         Ok(())
     }
 
@@ -853,12 +860,20 @@ mod tests {
             data: rmp_serde::to_vec(&vec![inst])?,
             record_count: 1,
             key: Some("rec-key".to_owned()),
+            protocol_id: None,
         };
         let ds_id = store.put(&Object::DataSet(ds))?;
-        let commit = make_commit(crate::hash::hash_schema(&src)?, vec![ds_id]);
+        let environment = environment(&mut store)?;
+        let commit = CommitObject {
+            environment_id: crate::environment::store_environment(&mut store, environment.clone())?,
+            ..make_commit(crate::hash::hash_schema(&src)?, vec![ds_id])
+        };
 
-        let (data_ids, complement_ids) =
-            lift_commit_data(&mut store, &commit, &src, &tgt, &registered())?;
+        let LiftedData {
+            data_ids,
+            complement_ids,
+            ..
+        } = lift(&mut store, &commit, &src, &tgt, &environment)?;
         assert_eq!(data_ids.len(), 1);
         assert_eq!(complement_ids.len(), 1);
         assert_ne!(data_ids[0], ds_id, "data set lifted to a fresh object");
@@ -891,10 +906,22 @@ mod tests {
             data: rmp_serde::to_vec(&vec![inst])?,
             record_count: 1,
             key: None,
+            protocol_id: None,
         }))?;
 
-        let (view_id, comp_id) = migrate_forward(&mut store, ds_id, &src, &tgt, &protocol)?;
-        migrate_backward(&mut store, view_id, comp_id, &src, &tgt, &protocol)?;
+        let (view_id, comp_id) = migrate_forward(
+            &mut store,
+            ds_id,
+            fibre(&src, &protocol)?,
+            fibre(&tgt, &protocol)?,
+        )?;
+        migrate_backward(
+            &mut store,
+            view_id,
+            comp_id,
+            fibre(&src, &protocol)?,
+            fibre(&tgt, &protocol)?,
+        )?;
 
         // The same complement with a byte left over after it.
         let Object::Complement(mut comp) = store.get(&comp_id)? else {
@@ -902,7 +929,13 @@ mod tests {
         };
         comp.complement.push(0);
         let padded_id = store.put(&Object::Complement(comp))?;
-        match migrate_backward(&mut store, view_id, padded_id, &src, &tgt, &protocol) {
+        match migrate_backward(
+            &mut store,
+            view_id,
+            padded_id,
+            fibre(&src, &protocol)?,
+            fibre(&tgt, &protocol)?,
+        ) {
             Err(VcsError::DataMigrationFailed { reason }) => {
                 assert!(reason.contains("trailing byte"), "{reason}");
             }
@@ -921,15 +954,16 @@ mod tests {
             data: vec![],
             record_count: 0,
             key: None,
+            protocol_id: None,
         };
         let ds_id = store.put(&Object::DataSet(ds))?;
         let commit = make_commit(crate::hash::hash_schema(&src)?, vec![ds_id]);
 
         // Equal src and tgt: ids returned verbatim with no new objects.
-        let (data_ids, complement_ids) =
-            lift_commit_data(&mut store, &commit, &src, &src, &HashMap::new())?;
-        assert_eq!(data_ids, vec![ds_id]);
-        assert_eq!(complement_ids, []);
+        let lifted = lift(&mut store, &commit, &src, &src, &ProtocolEnvironment::new())?;
+        assert_eq!(lifted.data_ids, [ds_id]);
+        assert_eq!(lifted.complement_ids, []);
+        assert_eq!(lifted.transported, []);
         Ok(())
     }
 }

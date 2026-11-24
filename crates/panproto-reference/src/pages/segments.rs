@@ -2318,12 +2318,7 @@ pub mod segment {
                 Some(_) => {}
             }
             match p.owner_of_node(edge.tgt) {
-                None => out.push((
-                    edge.key.clone(),
-                    SegmentError::Unowned {
-                        elem: edge.key.clone(),
-                    },
-                )),
+                None => out.push((edge.key.clone(), SegmentError::Unowned { elem: edge.key })),
                 Some(owner) if owner == me && !held.contains_key(&edge.tgt) => out.push((
                     edge.key.clone(),
                     SegmentError::DanglingEndpoint {

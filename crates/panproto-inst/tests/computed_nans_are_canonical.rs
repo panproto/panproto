@@ -471,7 +471,7 @@ fn computed_and_passed_nans_follow_the_rule_on_the_stated_scope() {
                 arms: vec![(panproto_expr::Pattern::Wildcard, v.clone())],
             },
             Expr::Field(
-                Box::new(Expr::Record(vec![(Arc::from("f"), v.clone())])),
+                Box::new(Expr::Record(vec![(Arc::from("f"), v)])),
                 Arc::from("f"),
             ),
         ];

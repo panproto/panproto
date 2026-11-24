@@ -145,7 +145,7 @@ fn every_legacy_complement_decodes_as_legacy_at_its_width_and_puts() {
                     other => panic!("{label} under Strict: {other:?}"),
                 }
 
-                let mut upgraded = legacy.clone();
+                let mut upgraded = legacy;
                 upgraded
                     .upgrade_identity(&lens)
                     .expect("a matching legacy complement upgrades");

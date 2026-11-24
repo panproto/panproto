@@ -239,6 +239,12 @@ fn parse_object(
     // fields materialize here rather than falling through to
     // `extra_fields`.
     let anchor = resolve_transparent_indirection(schema, vertex_id);
+    // A list vertex writes a node without members as an empty array.
+    if map.is_empty() && is_list_vertex(schema, anchor) {
+        return Err(ParseError::ExpectedArray {
+            path: path.to_owned(),
+        });
+    }
     let mut node = Node::new(node_id, anchor);
 
     // Check for discriminator ($type field)
@@ -274,7 +280,8 @@ fn parse_object(
 
     // Preserve unhandled fields as extra_fields
     for (key, val) in map {
-        if key == "$type" || handled_fields.contains(key.as_str()) {
+        if handled_fields.contains(key.as_str()) || (key == "$type" && node.discriminator.is_some())
+        {
             continue;
         }
         node.extra_fields
@@ -294,6 +301,10 @@ fn parse_object(
 /// parse/serialize is a round-trip on list vertices regardless of which
 /// string the protocol uses to name the edge kind ("items", "line-of",
 /// "element", etc.).
+///
+/// A vertex with no item edge gives the items nowhere to go as nodes, so a
+/// nonempty array there is the node's value, whole, and `to_json` writes it
+/// back.
 fn parse_array(
     schema: &Schema,
     protocol: &Protocol,
@@ -303,17 +314,26 @@ fn parse_array(
     state: &mut ParseState,
     path: &str,
 ) -> Result<(), ParseError> {
-    // A JSON array is a list node, as the JSON codec reads it, so the
-    // shape survives an empty or one-item array.
-    let node = Node::new(node_id, vertex_id).with_shape(crate::metadata::NodeShape::List);
-    state.nodes.insert(node_id, node);
-
     let outgoing: Vec<Edge> = schema.outgoing_edges(vertex_id).to_vec();
     // Prefer the first anonymous outgoing edge. In a well-formed list
     // vertex there is exactly one, but if the schema happens to carry
     // additional named edges we still pick the anonymous one as the
     // item slot (named edges would be field projections, not items).
     let item_edge = outgoing.iter().find(|e| e.name.is_none());
+
+    if item_edge.is_none() && !arr.is_empty() {
+        let items = Value::List(arr.iter().map(json_value_to_value).collect());
+        state.nodes.insert(
+            node_id,
+            Node::new(node_id, vertex_id).with_value(FieldPresence::Present(items)),
+        );
+        return Ok(());
+    }
+
+    // A JSON array is a list node, as the JSON codec reads it, so the
+    // shape survives an empty or one-item array.
+    let node = Node::new(node_id, vertex_id).with_shape(crate::metadata::NodeShape::List);
+    state.nodes.insert(node_id, node);
 
     if let Some(edge) = item_edge {
         for (i, item) in arr.iter().enumerate() {
@@ -1114,5 +1134,117 @@ mod tests {
             output["tick"], 480,
             "extra_fields content must round-trip through to_json"
         );
+    }
+
+    /// An object `r` whose property `x` has the given kind and, when it is a
+    /// list, an item edge to a string.
+    fn schema_with_property(kind: &str, list: bool) -> Schema {
+        let protocol = Protocol {
+            name: "lists".into(),
+            obj_kinds: vec!["object".into(), "array".into(), "string".into()],
+            ..Protocol::default()
+        };
+        let mut builder = panproto_schema::SchemaBuilder::new(&protocol)
+            .vertex("r", "object", None)
+            .unwrap()
+            .vertex("r.x", kind, None)
+            .unwrap()
+            .edge("r", "r.x", "prop", Some("x"))
+            .unwrap();
+        if list {
+            builder = builder
+                .vertex("r.x.item", "string", None)
+                .unwrap()
+                .edge("r.x", "r.x.item", "items", None)
+                .unwrap();
+        }
+        builder.build().unwrap()
+    }
+
+    /// No element of an array is dropped where the schema declares no item
+    /// edge, whatever the kind of the vertex and the shape of the elements.
+    #[test]
+    fn an_array_with_no_item_edge_reads_back_whole() {
+        for kind in ["string", "array", "object"] {
+            let schema = schema_with_property(kind, false);
+            for items in [
+                json!([]),
+                json!(["one", "two"]),
+                json!([null]),
+                json!([["a"], []]),
+                json!([{"a": [1, {"b": true}]}]),
+            ] {
+                let record = json!({ "x": items });
+                let instance = parse_json(&schema, &Protocol::default(), "r", &record).unwrap();
+                assert_eq!(to_json(&schema, &instance).unwrap(), record, "{kind}");
+            }
+        }
+    }
+
+    #[test]
+    fn an_array_with_an_item_edge_is_a_list_of_nodes() {
+        let schema = schema_with_property("array", true);
+        let record = json!({"x": ["one", "two"]});
+        let instance = parse_json(&schema, &Protocol::default(), "r", &record).unwrap();
+        assert_eq!(instance.nodes.len(), 4);
+        assert_eq!(to_json(&schema, &instance).unwrap(), record);
+    }
+
+    /// Every JSON value of depth at most two over a few atoms, lists of at
+    /// most two elements and objects of at most one member.
+    fn small_values() -> Vec<serde_json::Value> {
+        let mut level = vec![
+            json!(null),
+            json!(true),
+            json!(0),
+            json!(1.5),
+            json!(""),
+            json!("s"),
+            json!([]),
+            json!({}),
+        ];
+        for _ in 0..2 {
+            let inner = level.clone();
+            level.extend(inner.iter().map(|a| json!([a])));
+            level.extend(
+                inner
+                    .iter()
+                    .flat_map(|a| inner.iter().map(move |b| json!([a, b]))),
+            );
+            for key in ["f", "g", "$type"] {
+                level.extend(inner.iter().map(|a| json!({ key: a })));
+            }
+        }
+        level.sort_by_key(ToString::to_string);
+        level.dedup();
+        level
+    }
+
+    /// Reading a record either is refused or loses nothing: `to_json` is a
+    /// left inverse of `parse_json` wherever it is defined. The one refusal
+    /// is an empty object where the schema declares a list.
+    #[test]
+    fn a_record_that_is_read_is_written_back() {
+        let values = small_values();
+        for (kind, list) in [
+            ("string", false),
+            ("array", false),
+            ("object", false),
+            ("array", true),
+        ] {
+            let schema = schema_with_property(kind, list);
+            for value in &values {
+                let record = json!({ "x": value });
+                match parse_json(&schema, &Protocol::default(), "r", &record) {
+                    Ok(instance) => {
+                        assert_eq!(to_json(&schema, &instance).unwrap(), record, "{kind}");
+                    }
+                    Err(ParseError::ExpectedArray { .. }) => {
+                        assert!(list && *value == json!({}), "{kind} {value}");
+                    }
+                    Err(other) => panic!("{kind} {value}: {other}"),
+                }
+            }
+        }
     }
 }
