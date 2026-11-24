@@ -183,10 +183,12 @@ def check_names(declared: dict) -> list[str]:
         if not source.exists():
             problems.append(f"no test binary {gate['package']}::{gate['binary']}")
             continue
+        # A test may be in a module of the binary, in a file of its own.
+        sources = "\n".join(file.read_text() for file in directory.rglob("*.rs"))
         problems += [
             f"no test {gate['package']}::{gate['binary']} {test}"
             for test in gate["tests"]
-            if not re.search(rf"\bfn {re.escape(test)}\b", source.read_text())
+            if not re.search(rf"\bfn {re.escape(test.rsplit('::', 1)[-1])}\b", sources)
         ]
     return problems
 
