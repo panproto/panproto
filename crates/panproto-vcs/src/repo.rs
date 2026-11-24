@@ -165,8 +165,8 @@ impl Repository {
     /// name exists.
     ///
     /// A schema's protocol name resolves, in this order, to the staged
-    /// protocol object (else the one HEAD records) when its name is that
-    /// name, to a protocol registered here, and to the protocol the
+    /// protocol object of that name (else the one HEAD records), to a
+    /// protocol registered here, and to the protocol the
     /// `panproto-protocols` registry declares. Data is validated and
     /// migrated under the protocol it resolves to; a name none of the three
     /// resolves is a recorded violation of every record staged under it.
@@ -174,21 +174,19 @@ impl Repository {
         self.protocols.insert(protocol.name.clone(), protocol);
     }
 
-    /// The protocol object of the current state: the staged one, else the
-    /// one HEAD records.
-    fn stored_protocol(&self) -> Result<Option<Protocol>, VcsError> {
-        let index = self.read_index()?;
-        if let Some(id) = index.staged_protocol {
-            return match self.store.get(&id)? {
-                Object::Protocol(protocol) => Ok(Some(*protocol)),
-                other => Err(VcsError::WrongObjectType {
-                    expected: "protocol",
-                    found: other.type_name(),
-                }),
-            };
+    /// The protocol of `name` the current state records: among those staged,
+    /// else among those HEAD records.
+    fn stored_protocol(&self, name: &str) -> Result<Option<Protocol>, VcsError> {
+        let staged = self.read_index()?.staged_protocol;
+        if let Some(protocol) = crate::data_mig::recorded_protocol(&self.store, staged, name)? {
+            return Ok(Some(protocol));
         }
         match store::resolve_head(&self.store)? {
-            Some(head) => crate::data_mig::commit_protocol(&self.store, &self.load_commit(head)?),
+            Some(head) => crate::data_mig::recorded_protocol(
+                &self.store,
+                self.load_commit(head)?.protocol_id,
+                name,
+            ),
             None => Ok(None),
         }
     }
@@ -197,7 +195,7 @@ impl Repository {
     /// [`set_protocol`](Self::set_protocol) states, or `None` when the name
     /// does not resolve.
     fn resolved_protocol(&self, schema: &Schema) -> Result<Option<Protocol>, VcsError> {
-        let stored = self.stored_protocol()?;
+        let stored = self.stored_protocol(&schema.protocol)?;
         match crate::data_mig::protocol_for_schema(
             schema,
             crate::data_mig::ProtocolSources {
@@ -214,7 +212,7 @@ impl Repository {
     /// The protocol `schema` names, resolved in the order
     /// [`set_protocol`](Self::set_protocol) states.
     fn protocol_for(&self, schema: &Schema) -> Result<Protocol, VcsError> {
-        let stored = self.stored_protocol()?;
+        let stored = self.stored_protocol(&schema.protocol)?;
         crate::data_mig::protocol_for_schema(
             schema,
             crate::data_mig::ProtocolSources {
@@ -492,52 +490,9 @@ impl Repository {
         // type, which has no migration). This keeps `commit` in agreement
         // with `Index::has_staged`: a data-only stage now commits instead
         // of failing with `NothingStaged`.
-        // What a default commit requires is a completed, passing
-        // verification, not merely the absence of a failed one. An
-        // object staged with `add --skip-verify` is left pending, and
-        // reading pending as acceptable is what let unverified material
-        // into an ordinary commit: "not checked" and "checked and
-        // passed" are different states and only the second is a pass.
-        let mut unverified: Vec<String> = Vec::new();
-        for staged_data in &index.staged_data {
-            if matches!(staged_data.validation, ValidationStatus::Pending) {
-                if !options.skip_verify {
-                    return Err(VcsError::ValidationPending {
-                        what: format!("data {}", staged_data.source_path.display()),
-                        detail: "staged with verification skipped".to_owned(),
-                    });
-                }
-                unverified.push(format!("data {}", staged_data.source_path.display()));
-            }
-        }
+        let unverified = unverified_stages(&index, options)?;
 
         let (schema_id, migration_id) = if let Some(ref staged) = index.staged {
-            // Check staged validation unless skip_verify is set.
-            if options.skip_verify {
-                if matches!(staged.validation, ValidationStatus::Pending) {
-                    unverified.push("schema".to_owned());
-                }
-            } else {
-                if let ValidationStatus::Invalid(reasons) = &staged.validation {
-                    return Err(VcsError::ValidationFailed {
-                        reasons: reasons.clone(),
-                    });
-                }
-                if matches!(staged.validation, ValidationStatus::Pending) {
-                    return Err(VcsError::ValidationPending {
-                        what: "schema".to_owned(),
-                        detail: "staged with verification skipped".to_owned(),
-                    });
-                }
-                // Covers type errors and equation violations.
-                if let Some(ref diag) = staged.gat_diagnostics
-                    && diag.has_errors()
-                {
-                    return Err(VcsError::ValidationFailed {
-                        reasons: diag.all_errors(),
-                    });
-                }
-            }
             (staged.schema_id, staged.migration_id)
         } else {
             // Data/protocol-only commit: carry HEAD's schema forward.
@@ -554,18 +509,16 @@ impl Repository {
         let parents: Vec<ObjectId> = head_id.into_iter().collect();
         let data_ids: Vec<ObjectId> = index.staged_data.iter().map(|sd| sd.data_id).collect();
 
-        // The staged protocol object, else the one HEAD records when the
-        // committed schema still names it: a commit that stages no protocol
-        // does not change which protocol its schema is read under.
-        let protocol_id = match (index.staged_protocol, head_id) {
-            (Some(staged), _) => Some(staged),
-            (None, Some(head)) => crate::data_mig::carried_protocol_id(
-                &self.store,
-                &schema.protocol,
-                &[&self.load_commit(head)?],
-            )?,
-            (None, None) => None,
+        // The staged protocols and those HEAD records: a commit that stages
+        // no protocol of a name does not change which one the name means.
+        let head_protocols = match head_id {
+            Some(head) => self.load_commit(head)?.protocol_id,
+            None => None,
         };
+        let protocol_id = crate::data_mig::record_protocols(
+            &mut self.store,
+            &[index.staged_protocol, head_protocols],
+        )?;
 
         let mut builder = CommitObject::builder(schema_id, schema.protocol, author, message)
             .theory_ids(theory_ids);
@@ -778,14 +731,11 @@ impl Repository {
         let merged_schema = self.load_schema(merged_schema_id)?;
         let merge_theory_ids = self.store_schema_theory(&merged_schema)?;
 
-        let protocol_id = crate::data_mig::carried_protocol_id(
-            &self.store,
-            &merged_schema.protocol,
-            &[
-                &self.load_commit(ctx.ours_id)?,
-                &self.load_commit(ctx.theirs_id)?,
-            ],
-        )?;
+        let parent_protocols = [
+            self.load_commit(ctx.ours_id)?.protocol_id,
+            self.load_commit(ctx.theirs_id)?.protocol_id,
+        ];
+        let protocol_id = crate::data_mig::record_protocols(&mut self.store, &parent_protocols)?;
 
         let mut merge_builder =
             CommitObject::builder(merged_schema_id, merged_schema.protocol, ctx.author, msg)
@@ -831,43 +781,58 @@ impl Repository {
 
     /// Amend the most recent commit.
     ///
-    /// Replaces HEAD commit with a new commit that has the same parents
-    /// but the currently staged schema (or the same schema if nothing
-    /// is staged) and the given message.
+    /// Replaces HEAD with a commit of the same parents that records what is
+    /// staged on top of what HEAD records: the staged schema, else HEAD's;
+    /// HEAD's data sets followed by the staged ones; and the staged protocols
+    /// with HEAD's. A staged schema's migration is derived anew from the
+    /// first parent's schema, since the commit it was derived from is the one
+    /// replaced.
     ///
     /// # Errors
     ///
-    /// Returns [`VcsError::NothingToAmend`] if there are no commits.
+    /// Returns [`VcsError::NothingToAmend`] if there are no commits, and
+    /// refuses a stage that [`commit`](Self::commit) refuses.
     pub fn amend(&mut self, message: &str, author: &str) -> Result<ObjectId, VcsError> {
         let head_id = store::resolve_head(&self.store)?.ok_or(VcsError::NothingToAmend)?;
         let old_commit = self.load_commit(head_id)?;
-
-        // Use staged schema if available, otherwise keep the old one.
         let index = self.read_index()?;
-        let (schema_id, migration_id) = if let Some(staged) = index.staged {
-            (staged.schema_id, staged.migration_id)
-        } else {
-            (old_commit.schema_id, old_commit.migration_id)
+        unverified_stages(&index, &CommitOptions::default())?;
+
+        let (schema_id, migration_id) = match &index.staged {
+            Some(staged) => (
+                staged.schema_id,
+                self.migration_from_parent(&old_commit, staged.schema_id)?,
+            ),
+            None => (old_commit.schema_id, old_commit.migration_id),
+        };
+        let schema = self.load_schema(schema_id)?;
+        let theory_ids = self.store_schema_theory(&schema)?;
+        let protocol_id = crate::data_mig::record_protocols(
+            &mut self.store,
+            &[index.staged_protocol, old_commit.protocol_id],
+        )?;
+        let mut data_ids = old_commit.data_ids;
+        data_ids.extend(index.staged_data.iter().map(|staged| staged.data_id));
+
+        let renames = match index.staged {
+            Some(_) => Vec::new(),
+            None => old_commit.renames,
         };
 
-        let mut builder = CommitObject::builder(schema_id, old_commit.protocol, author, message);
-        if !old_commit.parents.is_empty() {
-            builder = builder.parents(old_commit.parents);
-        }
+        let mut builder = CommitObject::builder(schema_id, schema.protocol, author, message)
+            .parents(old_commit.parents)
+            .renames(renames)
+            .theory_ids(theory_ids)
+            .data_ids(data_ids)
+            .complement_ids(old_commit.complement_ids)
+            .edit_log_ids(old_commit.edit_log_ids)
+            .cst_complement_ids(old_commit.cst_complement_ids)
+            .unverified(old_commit.unverified);
         if let Some(mid) = migration_id {
             builder = builder.migration_id(mid);
         }
-        if let Some(pid) = index.staged_protocol.or(old_commit.protocol_id) {
+        if let Some(pid) = protocol_id {
             builder = builder.protocol_id(pid);
-        }
-        if !old_commit.data_ids.is_empty() {
-            builder = builder.data_ids(old_commit.data_ids);
-        }
-        if !old_commit.complement_ids.is_empty() {
-            builder = builder.complement_ids(old_commit.complement_ids);
-        }
-        if !old_commit.edit_log_ids.is_empty() {
-            builder = builder.edit_log_ids(old_commit.edit_log_ids);
         }
         let new_commit = builder.build();
         let new_id = self.store.put(&Object::Commit(new_commit))?;
@@ -885,6 +850,37 @@ impl Repository {
         self.write_index(&Index::default())?;
 
         Ok(new_id)
+    }
+
+    /// Store the migration from the schema of `commit`'s first parent to the
+    /// schema at `schema_id`; `None` when `commit` has no parent or the two
+    /// schemas are the same.
+    fn migration_from_parent(
+        &mut self,
+        commit: &CommitObject,
+        schema_id: ObjectId,
+    ) -> Result<Option<ObjectId>, VcsError> {
+        let Some(parent) = commit.parents.first() else {
+            return Ok(None);
+        };
+        let source = self.load_schema(self.load_commit(*parent)?.schema_id)?;
+        let target = self.load_schema(schema_id)?;
+        let schema_diff = diff::diff(&source, &target);
+        if schema_diff.is_empty() {
+            return Ok(None);
+        }
+        let migration = auto_mig::derive_migration(&source, &target, &schema_diff);
+        let src = self.store.put(&Object::FlatSchema(Box::new(source)))?;
+        let tgt = self.store.put(&Object::FlatSchema(Box::new(target)))?;
+        let mapping = migration.with_endpoints(
+            Some(panproto_gat::Name::from(src.to_string())),
+            Some(panproto_gat::Name::from(tgt.to_string())),
+        );
+        Ok(Some(self.store.put(&Object::Migration {
+            src,
+            tgt,
+            mapping,
+        })?))
     }
 
     /// Walk the commit log from HEAD.
@@ -1092,7 +1088,8 @@ impl Repository {
     /// Stage a protocol definition for the next commit.
     ///
     /// Stores the protocol as a `Protocol` object and records it in the
-    /// index for inclusion in the next commit.
+    /// index for inclusion in the next commit, beside any staged protocols
+    /// of other names. A staged protocol of the same name is replaced.
     ///
     /// # Errors
     ///
@@ -1105,7 +1102,10 @@ impl Repository {
             .store
             .put(&Object::Protocol(Box::new(protocol.clone())))?;
         let mut index = self.read_index()?;
-        index.staged_protocol = Some(protocol_id);
+        index.staged_protocol = crate::data_mig::record_protocols(
+            &mut self.store,
+            &[Some(protocol_id), index.staged_protocol],
+        )?;
         self.write_index(&index)?;
         Ok(index)
     }
@@ -1207,25 +1207,25 @@ impl Repository {
     /// schema.
     pub fn decoded_data_at(&self, reference: &str) -> Result<Vec<DecodedDataSet>, VcsError> {
         let commit = self.load_commit(refs::resolve_ref(&self.store, reference)?)?;
-        let recorded = crate::data_mig::commit_protocol(&self.store, &commit)?;
         self.data_at(reference)?
             .into_iter()
-            .map(|dataset| self.decode_data_set(dataset, recorded.as_ref()))
+            .map(|dataset| self.decode_data_set(dataset, commit.protocol_id))
             .collect()
     }
 
-    /// Decode one committed data set through the schema it names, under
-    /// `recorded`, the protocol object of the commit that carries it, when
-    /// the schema names it, and otherwise under the protocol the name
-    /// resolves to in the current state.
+    /// Decode one committed data set through the schema it names, under the
+    /// protocol of that name recorded at `recorded` by the commit that
+    /// carries it, else under the one the name resolves to in the current
+    /// state.
     fn decode_data_set(
         &self,
         dataset: DataSetObject,
-        recorded: Option<&Protocol>,
+        recorded: Option<ObjectId>,
     ) -> Result<DecodedDataSet, VcsError> {
         let schema = self.load_schema(dataset.schema_id)?;
-        let protocol = match recorded.filter(|p| p.name == schema.protocol) {
-            Some(recorded) => Some(recorded.clone()),
+        let recorded = crate::data_mig::recorded_protocol(&self.store, recorded, &schema.protocol)?;
+        let protocol = match recorded {
+            Some(recorded) => Some(recorded),
             None => self.resolved_protocol(&schema)?,
         };
         let display = dataset
@@ -1474,6 +1474,58 @@ fn candidate_roots(schema: &Schema) -> Vec<&panproto_gat::Name> {
     } else {
         declared.iter().collect()
     }
+}
+
+/// What `index` stages without a passing verification, for a commit made
+/// under `options` to record.
+///
+/// What a default commit requires is a completed, passing verification, not
+/// merely the absence of a failed one: "not checked" and "checked and passed"
+/// are different states and only the second is a pass. A stage left pending
+/// by `add --skip-verify` is refused unless `options.skip_verify`, and so is
+/// a schema that failed its checks.
+fn unverified_stages(index: &Index, options: &CommitOptions) -> Result<Vec<String>, VcsError> {
+    let mut unverified: Vec<String> = Vec::new();
+    for staged_data in &index.staged_data {
+        if matches!(staged_data.validation, ValidationStatus::Pending) {
+            if !options.skip_verify {
+                return Err(VcsError::ValidationPending {
+                    what: format!("data {}", staged_data.source_path.display()),
+                    detail: "staged with verification skipped".to_owned(),
+                });
+            }
+            unverified.push(format!("data {}", staged_data.source_path.display()));
+        }
+    }
+    let Some(staged) = &index.staged else {
+        return Ok(unverified);
+    };
+    if options.skip_verify {
+        if matches!(staged.validation, ValidationStatus::Pending) {
+            unverified.push("schema".to_owned());
+        }
+        return Ok(unverified);
+    }
+    if let ValidationStatus::Invalid(reasons) = &staged.validation {
+        return Err(VcsError::ValidationFailed {
+            reasons: reasons.clone(),
+        });
+    }
+    if matches!(staged.validation, ValidationStatus::Pending) {
+        return Err(VcsError::ValidationPending {
+            what: "schema".to_owned(),
+            detail: "staged with verification skipped".to_owned(),
+        });
+    }
+    // Covers type errors and equation violations.
+    if let Some(diag) = &staged.gat_diagnostics
+        && diag.has_errors()
+    {
+        return Err(VcsError::ValidationFailed {
+            reasons: diag.all_errors(),
+        });
+    }
+    Ok(unverified)
 }
 
 /// What a record is held to when its schema's protocol is, or is not, one

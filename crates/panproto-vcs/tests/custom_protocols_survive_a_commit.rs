@@ -7,7 +7,10 @@
 use std::path::Path;
 
 use panproto_schema::{ConstraintSemantics, LengthUnit, Protocol, Schema, SchemaBuilder};
-use panproto_vcs::{AddDataOptions, CommitObject, CommitOptions, ObjectId, Repository, VcsError};
+use panproto_vcs::{
+    AddDataOptions, AddOptions, CommitObject, CommitOptions, Object, ObjectId, Repository, Store,
+    VcsError,
+};
 
 /// The protocol "local", giving `maxLength` the meaning `semantics`.
 fn protocol(semantics: ConstraintSemantics) -> Protocol {
@@ -95,14 +98,94 @@ fn a_data_only_commit_keeps_the_protocol() {
     ));
 }
 
+/// `schema(properties)` under the protocol "elsewhere".
+fn elsewhere(properties: &[&str]) -> Schema {
+    Schema {
+        protocol: "elsewhere".into(),
+        ..schema(properties)
+    }
+}
+
+/// The protocol "elsewhere", whose `maxLength` constrains nothing.
+fn elsewhere_protocol() -> Protocol {
+    Protocol {
+        name: "elsewhere".into(),
+        ..protocol(ConstraintSemantics::Annotation)
+    }
+}
+
 #[test]
-fn a_schema_under_another_protocol_drops_it() {
-    let (_dir, mut repo, _) = repository();
-    let mut other = schema(&["a", "b"]);
-    other.protocol = "elsewhere".into();
-    repo.add(&other).unwrap();
+fn a_commit_records_every_protocol_staged_into_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut repo = Repository::init(dir.path()).unwrap();
+    let path = write(dir.path(), r#"{"a": "abc"}"#);
+    let mut schema_ids = Vec::new();
+    for (schema, protocol) in [
+        (schema(&["a"]), protocol(max_length())),
+        (elsewhere(&["a"]), elsewhere_protocol()),
+    ] {
+        schema_ids.push(repo.add(&schema).unwrap().staged.unwrap().schema_id);
+        repo.add_protocol(&protocol).unwrap();
+        repo.add_data(&path, None).unwrap();
+    }
+    let both = repo.commit("both", "alice").unwrap();
+    assert!(matches!(
+        repo.store()
+            .get(&commit_at(&repo, both).protocol_id.unwrap())
+            .unwrap(),
+        Object::ProtocolSet(protocols)
+            if protocols.keys().eq(["elsewhere", "local"])
+    ));
+
+    // A handle that registers nothing reads and stages under each, and each
+    // keeps its own meaning of the constraint.
+    let mut reopened = Repository::open(dir.path()).unwrap();
+    assert_eq!(reopened.decoded_data_at("HEAD").unwrap().len(), 2);
+    let long = write(dir.path(), r#"{"a": "abcdef"}"#);
+    let under = |schema_id| AddDataOptions {
+        schema_id: Some(schema_id),
+        ..AddDataOptions::default()
+    };
+    assert!(matches!(
+        reopened.add_data_with_options(&long, None, &under(schema_ids[0])),
+        Err(VcsError::DataValidationFailed { .. })
+    ));
+    reopened
+        .add_data_with_options(&long, None, &under(schema_ids[1]))
+        .unwrap();
+
+    // The set and its protocols outlive a collection and the next commit.
+    let next = reopened.commit("next", "alice").unwrap();
+    reopened.gc().unwrap();
+    assert_eq!(
+        commit_at(&reopened, next).protocol_id,
+        commit_at(&reopened, both).protocol_id
+    );
+    assert_eq!(reopened.decoded_data_at("HEAD").unwrap().len(), 1);
+}
+
+#[test]
+fn staging_a_protocol_again_replaces_the_one_of_its_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut repo = Repository::init(dir.path()).unwrap();
+    repo.add(&schema(&["a"])).unwrap();
+    repo.add_protocol(&protocol(max_length())).unwrap();
+    repo.add_protocol(&elsewhere_protocol()).unwrap();
+    repo.add_protocol(&protocol(ConstraintSemantics::Annotation))
+        .unwrap();
+    let long = write(dir.path(), r#"{"a": "abcdef"}"#);
+    repo.add_data(&long, None).unwrap();
+}
+
+#[test]
+fn a_schema_under_another_protocol_keeps_the_recorded_one() {
+    let (_dir, mut repo, first) = repository();
+    repo.add(&elsewhere(&["a", "b"])).unwrap();
     let id = repo.commit("other", "alice").unwrap();
-    assert_eq!(commit_at(&repo, id).protocol_id, None);
+    assert_eq!(
+        commit_at(&repo, id).protocol_id,
+        commit_at(&repo, first).protocol_id
+    );
 }
 
 #[test]
@@ -283,4 +366,92 @@ fn amending_records_a_newly_staged_protocol() {
     let after = commit_at(&repo, amended).protocol_id;
     assert!(after.is_some());
     assert_ne!(after, before);
+}
+
+#[test]
+fn amending_records_staged_data_after_the_commits_own() {
+    let (dir, mut repo, _) = repository();
+    repo.add_data(&write(dir.path(), r#"{"a": "one"}"#), Some("1"))
+        .unwrap();
+    repo.commit("data", "alice").unwrap();
+    repo.add_data(&write(dir.path(), r#"{"a": "two"}"#), Some("2"))
+        .unwrap();
+    repo.amend("data", "alice").unwrap();
+    let records: Vec<_> = repo
+        .decoded_data_at("HEAD")
+        .unwrap()
+        .into_iter()
+        .flat_map(|set| set.records)
+        .collect();
+    assert_eq!(
+        records,
+        [
+            serde_json::json!({"a": "one"}),
+            serde_json::json!({"a": "two"})
+        ]
+    );
+    assert!(!repo.read_index().unwrap().has_staged());
+}
+
+#[test]
+fn amending_names_the_staged_schemas_protocol() {
+    let (_dir, mut repo, _) = repository();
+    repo.add(&elsewhere(&["a", "b"])).unwrap();
+    let amended = repo.amend("schema", "alice").unwrap();
+    assert_eq!(commit_at(&repo, amended).protocol, "elsewhere");
+}
+
+#[test]
+fn amending_migrates_from_the_parent() {
+    let (_dir, mut repo, first) = repository();
+    repo.add(&schema(&["a", "b"])).unwrap();
+    repo.commit("b", "alice").unwrap();
+    repo.add(&schema(&["a", "c"])).unwrap();
+    let amended = repo.amend("c", "alice").unwrap();
+    let commit = commit_at(&repo, amended);
+    assert_eq!(commit.parents, [first]);
+    let Object::Migration { src, tgt, .. } =
+        repo.store().get(&commit.migration_id.unwrap()).unwrap()
+    else {
+        panic!("the migration id names something else");
+    };
+    let flat = |id| match repo.store().get(id).unwrap() {
+        Object::FlatSchema(schema) => schema,
+        other => panic!("expected a flat schema, got {}", other.type_name()),
+    };
+    assert!(flat(&src).has_vertex("r.a") && !flat(&src).has_vertex("r.b"));
+    assert!(flat(&tgt).has_vertex("r.c") && !flat(&tgt).has_vertex("r.b"));
+}
+
+#[test]
+fn amending_refuses_what_a_commit_refuses() {
+    let (dir, mut repo, first) = repository();
+    let long = write(dir.path(), r#"{"a": "abcdef"}"#);
+    repo.add_data_with_options(
+        &long,
+        None,
+        &AddDataOptions {
+            skip_verify: true,
+            ..AddDataOptions::default()
+        },
+    )
+    .unwrap();
+    assert!(matches!(
+        repo.amend("data", "alice"),
+        Err(VcsError::ValidationPending { .. })
+    ));
+    repo.clear_index().unwrap();
+    repo.add_with_options(&schema(&["a", "b"]), &AddOptions { skip_verify: true })
+        .unwrap();
+    assert!(matches!(
+        repo.amend("schema", "alice"),
+        Err(VcsError::ValidationPending { .. })
+    ));
+    // Nothing moved and the stage is kept.
+    assert_eq!(repo.log(None).unwrap().len(), 1);
+    assert_eq!(
+        commit_at(&repo, first).protocol_id,
+        repo.log(None).unwrap()[0].protocol_id
+    );
+    assert!(repo.read_index().unwrap().has_staged());
 }

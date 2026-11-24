@@ -104,6 +104,13 @@ pub enum Object {
     /// model: sibling entries are sorted lexicographically so the
     /// resulting [`ObjectId`] is deterministic.
     SchemaTree(Box<SchemaTreeObject>),
+
+    /// The protocols a commit records when there are several, by name.
+    ///
+    /// Each value is the ID of an [`Object::Protocol`] of that name. A
+    /// commit with one protocol records the [`Object::Protocol`] itself;
+    /// see [`CommitObject::protocol_id`].
+    ProtocolSet(BTreeMap<String, ObjectId>),
 }
 
 impl Object {
@@ -125,6 +132,7 @@ impl Object {
             Self::FileSchema(_) => "file_schema",
             Self::SchemaTree(_) => "schema_tree",
             Self::FlatSchema(_) => "flat_schema",
+            Self::ProtocolSet(_) => "protocol_set",
         }
     }
 }
@@ -264,7 +272,9 @@ pub struct CommitObject {
     /// Renames detected or declared for this commit's migration.
     pub renames: Vec<SiteRename>,
 
-    /// Object ID of the protocol definition at this commit.
+    /// Object ID of the protocol definitions at this commit: an
+    /// [`Object::Protocol`] when there is one, and an
+    /// [`Object::ProtocolSet`] when there are several.
     pub protocol_id: Option<ObjectId>,
 
     /// Object IDs of data sets tracked at this commit.

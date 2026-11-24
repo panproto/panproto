@@ -61,7 +61,8 @@ pub fn verify_lifted_squares<S: BuildHasher>(
     {
         return Ok(());
     }
-    let stored = crate::data_mig::commit_protocol(store, commit)?;
+    let stored =
+        crate::data_mig::recorded_protocol(store, commit.protocol_id, &src_schema.protocol)?;
     let protocol = crate::data_mig::protocol_for_schema(
         src_schema,
         crate::data_mig::ProtocolSources {

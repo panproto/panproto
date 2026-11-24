@@ -110,11 +110,8 @@ pub fn cherry_pick<S: BuildHasher>(
         registered,
     )?;
 
-    let protocol_id = crate::data_mig::carried_protocol_id(
-        store,
-        &result.merged_schema.protocol,
-        &[&commit, &head_commit],
-    )?;
+    let protocol_id =
+        crate::data_mig::record_protocols(store, &[commit.protocol_id, head_commit.protocol_id])?;
 
     // Store the merged schema.
     let mig_src = store.put(&Object::FlatSchema(Box::new(ours_schema)))?;
@@ -237,11 +234,8 @@ pub fn cherry_pick_with_options<S: BuildHasher>(
         registered,
     )?;
 
-    let protocol_id = crate::data_mig::carried_protocol_id(
-        store,
-        &result.merged_schema.protocol,
-        &[&commit, &head_commit],
-    )?;
+    let protocol_id =
+        crate::data_mig::record_protocols(store, &[commit.protocol_id, head_commit.protocol_id])?;
 
     let migration_id = store.put(&Object::Migration {
         src: mig_src,

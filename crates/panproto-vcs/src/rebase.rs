@@ -149,11 +149,8 @@ fn replay_one<S: BuildHasher>(
         registered,
     )?;
 
-    let protocol_id = crate::data_mig::carried_protocol_id(
-        store,
-        &result.merged_schema.protocol,
-        &[&commit, &tip_commit],
-    )?;
+    let protocol_id =
+        crate::data_mig::record_protocols(store, &[commit.protocol_id, tip_commit.protocol_id])?;
 
     let mig_src = store.put(&Object::FlatSchema(Box::new(ours_schema)))?;
     let mig_tgt = store.put(&Object::FlatSchema(Box::new(result.merged_schema.clone())))?;

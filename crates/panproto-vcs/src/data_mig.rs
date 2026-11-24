@@ -4,7 +4,7 @@
 //! infrastructure. Complements are stored as VCS objects so backward
 //! migration never loses data.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::hash::BuildHasher;
 
 use panproto_inst::WInstance;
@@ -409,12 +409,16 @@ pub fn protocol_for_schema<S: BuildHasher>(
     resolve_protocol(&schema.protocol, sources)
 }
 
-/// The protocol object `commit` records, if it records one.
+/// The protocol `commit` records under the name of its schema's protocol,
+/// if it records one.
+///
+/// A commit that records a single protocol object yields that one, whatever
+/// its name.
 ///
 /// # Errors
 ///
-/// A store error, or [`VcsError::WrongObjectType`] when the recorded
-/// object is not a protocol.
+/// A store error, or [`VcsError::WrongObjectType`] when a recorded object
+/// is not a protocol.
 pub fn commit_protocol(
     store: &dyn Store,
     commit: &CommitObject,
@@ -423,32 +427,86 @@ pub fn commit_protocol(
         return Ok(None);
     };
     match store.get(&id)? {
+        Object::ProtocolSet(protocols) => protocols
+            .get(&commit.protocol)
+            .map(|id| load_protocol(store, *id))
+            .transpose(),
         Object::Protocol(protocol) => Ok(Some(*protocol)),
-        other => Err(VcsError::WrongObjectType {
-            expected: "protocol",
-            found: other.type_name(),
-        }),
+        other => Err(not_a_protocol(&other)),
     }
 }
 
-/// The protocol object a new commit whose schema names `protocol` carries
-/// over from `sources`, the commits it is made from in order of precedence:
-/// the object recorded by the first of them that records one of that name.
+/// The protocol of `name` among those recorded at `id`, the ID of a protocol
+/// object or of a set of them.
 ///
 /// # Errors
 ///
-/// The errors of [`commit_protocol`].
-pub(crate) fn carried_protocol_id(
+/// A store error, or [`VcsError::WrongObjectType`] when a recorded object
+/// is neither.
+pub(crate) fn recorded_protocol(
     store: &dyn Store,
-    protocol: &str,
-    sources: &[&CommitObject],
-) -> Result<Option<ObjectId>, VcsError> {
-    for commit in sources {
-        if commit_protocol(store, commit)?.is_some_and(|p| p.name == protocol) {
-            return Ok(commit.protocol_id);
-        }
+    id: Option<ObjectId>,
+    name: &str,
+) -> Result<Option<Protocol>, VcsError> {
+    recorded_protocol_ids(store, id)?
+        .get(name)
+        .map(|id| load_protocol(store, *id))
+        .transpose()
+}
+
+/// The protocol objects recorded at `id`, the ID of a protocol object or of
+/// a set of them, by name.
+fn recorded_protocol_ids(
+    store: &dyn Store,
+    id: Option<ObjectId>,
+) -> Result<BTreeMap<String, ObjectId>, VcsError> {
+    let Some(id) = id else {
+        return Ok(BTreeMap::new());
+    };
+    match store.get(&id)? {
+        Object::Protocol(protocol) => Ok(BTreeMap::from([(protocol.name, id)])),
+        Object::ProtocolSet(protocols) => Ok(protocols),
+        other => Err(not_a_protocol(&other)),
     }
-    Ok(None)
+}
+
+/// Record together the protocols recorded at each of `ids`, the earlier of
+/// them taking precedence on a name several record.
+///
+/// Returns the ID of the one protocol object when the result is one, the ID
+/// of the stored set when it is several, and `None` when it is empty.
+///
+/// # Errors
+///
+/// The errors of [`recorded_protocol`], and a store error.
+pub(crate) fn record_protocols(
+    store: &mut dyn Store,
+    ids: &[Option<ObjectId>],
+) -> Result<Option<ObjectId>, VcsError> {
+    let mut protocols = BTreeMap::new();
+    for id in ids.iter().rev() {
+        protocols.extend(recorded_protocol_ids(store, *id)?);
+    }
+    match protocols.len() {
+        0 => Ok(None),
+        1 => Ok(protocols.into_values().next()),
+        _ => Ok(Some(store.put(&Object::ProtocolSet(protocols))?)),
+    }
+}
+
+/// The protocol object at `id`.
+fn load_protocol(store: &dyn Store, id: ObjectId) -> Result<Protocol, VcsError> {
+    match store.get(&id)? {
+        Object::Protocol(protocol) => Ok(*protocol),
+        other => Err(not_a_protocol(&other)),
+    }
+}
+
+fn not_a_protocol(object: &Object) -> VcsError {
+    VcsError::WrongObjectType {
+        expected: "protocol",
+        found: object.type_name(),
+    }
 }
 
 /// Lift a commit's versioned data sets through a schema change.
@@ -492,7 +550,7 @@ pub fn lift_commit_data<S: BuildHasher>(
         return Ok((commit.data_ids.clone(), commit.complement_ids.clone()));
     }
 
-    let stored = commit_protocol(store, commit)?;
+    let stored = recorded_protocol(store, commit.protocol_id, &src_schema.protocol)?;
     let protocol = protocol_for_schema(
         src_schema,
         ProtocolSources {

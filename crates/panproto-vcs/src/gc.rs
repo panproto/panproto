@@ -81,6 +81,7 @@ pub fn mark_reachable(
                 queue.push(src);
                 queue.push(tgt);
             }
+            Object::ProtocolSet(protocols) => queue.extend(protocols.into_values()),
             Object::Protocol(_)
             | Object::Expr(_)
             | Object::Theory(_)

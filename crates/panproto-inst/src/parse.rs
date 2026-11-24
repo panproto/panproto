@@ -294,6 +294,10 @@ fn parse_object(
 /// parse/serialize is a round-trip on list vertices regardless of which
 /// string the protocol uses to name the edge kind ("items", "line-of",
 /// "element", etc.).
+///
+/// A vertex with no item edge gives the items nowhere to go as nodes, so a
+/// nonempty array there is the node's value, whole, and `to_json` writes it
+/// back.
 fn parse_array(
     schema: &Schema,
     protocol: &Protocol,
@@ -303,17 +307,26 @@ fn parse_array(
     state: &mut ParseState,
     path: &str,
 ) -> Result<(), ParseError> {
-    // A JSON array is a list node, as the JSON codec reads it, so the
-    // shape survives an empty or one-item array.
-    let node = Node::new(node_id, vertex_id).with_shape(crate::metadata::NodeShape::List);
-    state.nodes.insert(node_id, node);
-
     let outgoing: Vec<Edge> = schema.outgoing_edges(vertex_id).to_vec();
     // Prefer the first anonymous outgoing edge. In a well-formed list
     // vertex there is exactly one, but if the schema happens to carry
     // additional named edges we still pick the anonymous one as the
     // item slot (named edges would be field projections, not items).
     let item_edge = outgoing.iter().find(|e| e.name.is_none());
+
+    if item_edge.is_none() && !arr.is_empty() {
+        let items = Value::List(arr.iter().map(json_value_to_value).collect());
+        state.nodes.insert(
+            node_id,
+            Node::new(node_id, vertex_id).with_value(FieldPresence::Present(items)),
+        );
+        return Ok(());
+    }
+
+    // A JSON array is a list node, as the JSON codec reads it, so the
+    // shape survives an empty or one-item array.
+    let node = Node::new(node_id, vertex_id).with_shape(crate::metadata::NodeShape::List);
+    state.nodes.insert(node_id, node);
 
     if let Some(edge) = item_edge {
         for (i, item) in arr.iter().enumerate() {
@@ -1114,5 +1127,59 @@ mod tests {
             output["tick"], 480,
             "extra_fields content must round-trip through to_json"
         );
+    }
+
+    /// An object `r` whose property `x` has the given kind and, when it is a
+    /// list, an item edge to a string.
+    fn schema_with_property(kind: &str, list: bool) -> Schema {
+        let protocol = Protocol {
+            name: "lists".into(),
+            obj_kinds: vec!["object".into(), "array".into(), "string".into()],
+            ..Protocol::default()
+        };
+        let mut builder = panproto_schema::SchemaBuilder::new(&protocol)
+            .vertex("r", "object", None)
+            .unwrap()
+            .vertex("r.x", kind, None)
+            .unwrap()
+            .edge("r", "r.x", "prop", Some("x"))
+            .unwrap();
+        if list {
+            builder = builder
+                .vertex("r.x.item", "string", None)
+                .unwrap()
+                .edge("r.x", "r.x.item", "items", None)
+                .unwrap();
+        }
+        builder.build().unwrap()
+    }
+
+    /// No element of an array is dropped where the schema declares no item
+    /// edge, whatever the kind of the vertex and the shape of the elements.
+    #[test]
+    fn an_array_with_no_item_edge_reads_back_whole() {
+        for kind in ["string", "array", "object"] {
+            let schema = schema_with_property(kind, false);
+            for items in [
+                json!([]),
+                json!(["one", "two"]),
+                json!([null]),
+                json!([["a"], []]),
+                json!([{"a": [1, {"b": true}]}]),
+            ] {
+                let record = json!({ "x": items });
+                let instance = parse_json(&schema, &Protocol::default(), "r", &record).unwrap();
+                assert_eq!(to_json(&schema, &instance).unwrap(), record, "{kind}");
+            }
+        }
+    }
+
+    #[test]
+    fn an_array_with_an_item_edge_is_a_list_of_nodes() {
+        let schema = schema_with_property("array", true);
+        let record = json!({"x": ["one", "two"]});
+        let instance = parse_json(&schema, &Protocol::default(), "r", &record).unwrap();
+        assert_eq!(instance.nodes.len(), 4);
+        assert_eq!(to_json(&schema, &instance).unwrap(), record);
     }
 }

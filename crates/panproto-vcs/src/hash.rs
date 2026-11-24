@@ -557,6 +557,19 @@ pub fn hash_protocol(protocol: &panproto_schema::Protocol) -> Result<ObjectId, V
     Ok(ObjectId(blake3::hash(&bytes).into()))
 }
 
+/// Compute the content-addressed ID of a set of protocols, which is ordered
+/// by name.
+///
+/// # Errors
+///
+/// Returns an error if serialization fails.
+pub fn hash_protocol_set(
+    protocols: &std::collections::BTreeMap<String, ObjectId>,
+) -> Result<ObjectId, VcsError> {
+    let bytes = rmp_serde::to_vec(&("protocol_set", protocols))?;
+    Ok(ObjectId(blake3::hash(&bytes).into()))
+}
+
 /// Compute the content-addressed ID of a GAT theory.
 ///
 /// Theory's custom `Serialize` implementation only emits `Vec`-based
@@ -757,6 +770,7 @@ pub fn object_id(object: &crate::object::Object) -> Result<ObjectId, VcsError> {
         Object::FileSchema(file) => hash_file_schema(file),
         Object::SchemaTree(tree) => hash_schema_tree(tree),
         Object::FlatSchema(schema) => hash_schema(schema),
+        Object::ProtocolSet(protocols) => hash_protocol_set(protocols),
     }
 }
 
