@@ -392,6 +392,7 @@ mod tests {
             data: vec![1, 2, 3],
             record_count: 1,
             key: None,
+            protocol_id: None,
         };
         let data_id = store.put(&Object::DataSet(dataset))?;
 
@@ -404,9 +405,13 @@ mod tests {
         let complement_id = store.put(&Object::Complement(complement))?;
 
         // Create commit referencing all three.
+        let mut environment = crate::ProtocolEnvironment::new();
+        environment.define("test", protocol_id);
+        let environment_id = crate::environment::store_environment(&mut store, environment)?;
+
         let c0 = CommitObject::builder(schema_id, "test", "test", "initial")
             .timestamp(100)
-            .protocol_id(protocol_id)
+            .environment_id(environment_id)
             .data_ids(vec![data_id])
             .complement_ids(vec![complement_id])
             .build();

@@ -14,9 +14,7 @@ use crate::auto_mig;
 use crate::cherry_pick::{self, advance_head};
 use crate::dag;
 use crate::data_mig::{Fibre, LiftTarget};
-use crate::environment::{
-    ProtocolEnvironment, load_environment, load_protocol, store_environment,
-};
+use crate::environment::{ProtocolEnvironment, load_environment, load_protocol, store_environment};
 use crate::error::VcsError;
 use crate::fs_store::FsStore;
 use crate::gat_validate;
@@ -543,8 +541,8 @@ impl Repository {
 
     /// Merge a branch into the current branch with options.
     ///
-    /// Performs a three-way merge using the merge base as the common
-    /// ancestor. Behavior is controlled by [`merge::MergeOptions`].
+    /// Performs a three-way merge of schemas, and of protocol environments,
+    /// using the merge base as the common ancestor. Behavior is controlled by [`merge::MergeOptions`].
     ///
     /// # Errors
     ///
@@ -602,21 +600,13 @@ impl Repository {
         let ours_schema = self.load_schema(ours_commit.schema_id)?;
         let theirs_schema = self.load_schema(theirs_commit.schema_id)?;
 
-        let mut result = merge::three_way_merge(&base_schema, &ours_schema, &theirs_schema);
+        let result = merge::three_way_merge(&base_schema, &ours_schema, &theirs_schema);
 
-        // The merge is a pushout of protocol environments too, and a name whose
-        // pushout does not exist is a conflict like any other.
-        let environment = match ProtocolEnvironment::merge(
+        let environment = ProtocolEnvironment::merge(
             &self.environment_at(&base_commit)?,
             &self.environment_at(&ours_commit)?,
             &self.environment_at(&theirs_commit)?,
-        ) {
-            Ok(environment) => environment,
-            Err(conflicts) => {
-                result.conflicts.extend(conflicts);
-                return Ok(result);
-            }
-        };
+        )?;
 
         if result.conflicts.is_empty() && !options.no_commit && !options.squash {
             // Verify the merge pushout cocone conditions before committing:
@@ -653,17 +643,18 @@ impl Repository {
             // results, rather than set-unioning stale parent data: the merge
             // commit references the merged schema, so the data it carries must
             // lie over it.
-            let merged_schema_id = crate::tree::store_schema_as_tree(
-                &mut self.store,
-                result.merged_schema.clone(),
-            )?;
+            let merged_schema_id =
+                crate::tree::store_schema_as_tree(&mut self.store, result.merged_schema.clone())?;
             let target = LiftTarget {
                 schema_id: merged_schema_id,
                 schema: &result.merged_schema,
                 environment: &environment,
             };
             let data = self.lift_and_union_parent_data(
-                [(&ours_commit, &ours_schema), (&theirs_commit, &theirs_schema)],
+                [
+                    (&ours_commit, &ours_schema),
+                    (&theirs_commit, &theirs_schema),
+                ],
                 target,
             )?;
 
@@ -714,15 +705,19 @@ impl Repository {
 
         let environment_id = store_environment(&mut self.store, ctx.environment)?;
 
-        let merge_builder =
-            CommitObject::builder(ctx.merged_schema_id, merged_schema.protocol, ctx.author, msg)
-                .parents(vec![ctx.ours_id, ctx.theirs_id])
-                .migration_id(migration_id)
-                .theory_ids(merge_theory_ids)
-                .environment_id(environment_id)
-                .data_ids(ctx.data.data_ids)
-                .complement_ids(ctx.data.complement_ids)
-                .cst_complement_ids(ctx.data.cst_complement_ids);
+        let merge_builder = CommitObject::builder(
+            ctx.merged_schema_id,
+            merged_schema.protocol,
+            ctx.author,
+            msg,
+        )
+        .parents(vec![ctx.ours_id, ctx.theirs_id])
+        .migration_id(migration_id)
+        .theory_ids(merge_theory_ids)
+        .environment_id(environment_id)
+        .data_ids(ctx.data.data_ids)
+        .complement_ids(ctx.data.complement_ids)
+        .cst_complement_ids(ctx.data.cst_complement_ids);
         let merge_commit = merge_builder.build();
         let merge_id = self.store.put(&Object::Commit(merge_commit))?;
         advance_head(
@@ -1343,13 +1338,7 @@ impl Repository {
         for (commit, schema) in parents {
             let lifted =
                 crate::data_mig::lift_commit_data(&mut self.store, commit, schema, target)?;
-            crate::square::verify_lifted_squares(
-                &mut self.store,
-                commit,
-                &lifted,
-                schema,
-                target,
-            )?;
+            crate::square::verify_lifted_squares(&mut self.store, commit, &lifted, schema, target)?;
             union(&mut merged.data_ids, lifted.data_ids);
             union(&mut merged.complement_ids, lifted.complement_ids);
             union(
@@ -1553,7 +1542,7 @@ mod tests {
     fn init_add_commit() -> Result<(), Box<dyn std::error::Error>> {
         let dir = tempfile::tempdir()?;
         let mut repo = Repository::init(dir.path())?;
-        repo.set_protocol(test_protocol());
+        repo.add_protocol(&test_protocol())?;
 
         let s = make_schema(&[("a", "object"), ("b", "string")]);
         repo.add(&s)?;
@@ -1576,7 +1565,7 @@ mod tests {
     {
         let dir = tempfile::tempdir()?;
         let mut repo = Repository::init(dir.path())?;
-        repo.set_protocol(test_protocol());
+        repo.add_protocol(&test_protocol())?;
         let root_id = crate::tree::build_schema_tree(
             repo.store_mut(),
             vec![
@@ -1627,7 +1616,7 @@ mod tests {
     fn add_commit_second_schema() -> Result<(), Box<dyn std::error::Error>> {
         let dir = tempfile::tempdir()?;
         let mut repo = Repository::init(dir.path())?;
-        repo.set_protocol(test_protocol());
+        repo.add_protocol(&test_protocol())?;
 
         let s1 = make_schema(&[("a", "object")]);
         repo.add(&s1)?;
@@ -1651,7 +1640,7 @@ mod tests {
 
         let dir = tempfile::tempdir()?;
         let mut repo = Repository::init(dir.path())?;
-        repo.set_protocol(test_protocol());
+        repo.add_protocol(&test_protocol())?;
 
         let s1 = make_schema(&[("a", "object")]);
         repo.add(&s1)?;
@@ -1717,7 +1706,7 @@ mod tests {
     fn merge_fast_forward() -> Result<(), Box<dyn std::error::Error>> {
         let dir = tempfile::tempdir()?;
         let mut repo = Repository::init(dir.path())?;
-        repo.set_protocol(test_protocol());
+        repo.add_protocol(&test_protocol())?;
 
         let s1 = make_schema(&[("a", "object")]);
         repo.add(&s1)?;
@@ -1748,7 +1737,7 @@ mod tests {
     fn nothing_staged_errors() -> Result<(), Box<dyn std::error::Error>> {
         let dir = tempfile::tempdir()?;
         let mut repo = Repository::init(dir.path())?;
-        repo.set_protocol(test_protocol());
+        repo.add_protocol(&test_protocol())?;
         assert!(matches!(
             repo.commit("empty", "alice"),
             Err(VcsError::NothingStaged)
@@ -1763,7 +1752,7 @@ mod tests {
 
         let dir = tempfile::tempdir()?;
         let mut repo = Repository::init(dir.path())?;
-        repo.set_protocol(test_protocol());
+        repo.add_protocol(&test_protocol())?;
 
         // Stage a valid first schema so we have an object in the store.
         let s = make_schema(&[("a", "object")]);
@@ -1791,7 +1780,7 @@ mod tests {
                 gat_diagnostics: Some(diag),
             }),
             staged_data: vec![],
-            staged_protocol: None,
+            staged_protocols: ProtocolEnvironment::new(),
         };
         repo.write_index(&index)?;
 
@@ -1820,7 +1809,7 @@ mod tests {
 
         let dir = tempfile::tempdir()?;
         let mut repo = Repository::init(dir.path())?;
-        repo.set_protocol(test_protocol());
+        repo.add_protocol(&test_protocol())?;
 
         // First commit.
         let s = make_schema(&[("a", "object")]);
@@ -1847,7 +1836,7 @@ mod tests {
                 gat_diagnostics: Some(diag),
             }),
             staged_data: vec![],
-            staged_protocol: None,
+            staged_protocols: ProtocolEnvironment::new(),
         };
         repo.write_index(&index)?;
 
@@ -1871,7 +1860,7 @@ mod tests {
     fn add_data_and_commit() -> Result<(), Box<dyn std::error::Error>> {
         let dir = tempfile::tempdir()?;
         let mut repo = Repository::init(dir.path())?;
-        repo.set_protocol(test_protocol());
+        repo.add_protocol(&test_protocol())?;
 
         // First commit: a schema.
         let s = make_record_schema(&[("a", "object"), ("b", "string")])?;
@@ -1915,7 +1904,7 @@ mod tests {
     {
         let dir = tempfile::tempdir()?;
         let mut repo = Repository::init(dir.path())?;
-        repo.set_protocol(test_protocol());
+        repo.add_protocol(&test_protocol())?;
 
         // First commit: a schema, no data.
         let s = make_record_schema(&[("a", "object"), ("b", "string")])?;
@@ -1973,7 +1962,7 @@ mod tests {
     fn decoded_data_at_reads_current_canonical_data() -> Result<(), Box<dyn std::error::Error>> {
         let dir = tempfile::tempdir()?;
         let mut repo = Repository::init(dir.path())?;
-        repo.set_protocol(test_protocol());
+        repo.add_protocol(&test_protocol())?;
         let schema = make_record_schema(&[("a", "object"), ("b", "string")])?;
         repo.add(&schema)?;
         repo.commit("schema", "alice")?;
@@ -2004,7 +1993,7 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let dir = tempfile::tempdir()?;
         let mut repo = Repository::init(dir.path())?;
-        repo.set_protocol(test_protocol());
+        repo.add_protocol(&test_protocol())?;
         let schema = make_record_schema(&[("a", "object"), ("b", "string")])?;
         let schema_id = crate::tree::store_schema_as_tree(repo.store_mut(), schema)?;
         let dataset = DataSetObject {
@@ -2012,6 +2001,7 @@ mod tests {
             data: br#"[{"a": 1}]"#.to_vec(),
             record_count: 1,
             key: Some("legacy-key".to_owned()),
+            protocol_id: None,
         };
         let dataset_id = repo.store_mut().put(&Object::DataSet(dataset))?;
         let commit = CommitObject::builder(schema_id, "test", "alice", "legacy")
@@ -2033,7 +2023,7 @@ mod tests {
     fn decoded_data_at_rejects_record_count_mismatch() -> Result<(), Box<dyn std::error::Error>> {
         let dir = tempfile::tempdir()?;
         let mut repo = Repository::init(dir.path())?;
-        repo.set_protocol(test_protocol());
+        repo.add_protocol(&test_protocol())?;
         let schema = make_record_schema(&[("a", "object")])?;
         repo.add(&schema)?;
         repo.commit("schema", "alice")?;
@@ -2044,7 +2034,7 @@ mod tests {
         let mut dataset = repo.data_at("HEAD")?.remove(0);
         dataset.record_count = 2;
 
-        let Err(error) = repo.decode_data_set(dataset, None) else {
+        let Err(error) = repo.decode_data_set(dataset) else {
             panic!("mismatched record count should fail");
         };
 
@@ -2058,7 +2048,7 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let dir = tempfile::tempdir()?;
         let mut repo = Repository::init(dir.path())?;
-        repo.set_protocol(test_protocol());
+        repo.add_protocol(&test_protocol())?;
         let schema = make_record_schema(&[("a", "object")])?;
         let schema_id = crate::tree::store_schema_as_tree(repo.store_mut(), schema)?;
         let dataset = DataSetObject {
@@ -2066,9 +2056,10 @@ mod tests {
             data: vec![0x91],
             record_count: 1,
             key: Some("broken".to_owned()),
+            protocol_id: None,
         };
 
-        let Err(error) = repo.decode_data_set(dataset, None) else {
+        let Err(error) = repo.decode_data_set(dataset) else {
             panic!("malformed canonical data should fail");
         };
 
@@ -2080,7 +2071,7 @@ mod tests {
     fn data_only_commit_carries_schema_forward() -> Result<(), Box<dyn std::error::Error>> {
         let dir = tempfile::tempdir()?;
         let mut repo = Repository::init(dir.path())?;
-        repo.set_protocol(test_protocol());
+        repo.add_protocol(&test_protocol())?;
 
         // First commit: a schema, no data.
         let s = make_record_schema(&[("a", "object"), ("b", "string")])?;
@@ -2131,7 +2122,7 @@ mod tests {
     fn add_data_defaults_key_to_source_path() -> Result<(), Box<dyn std::error::Error>> {
         let dir = tempfile::tempdir()?;
         let mut repo = Repository::init(dir.path())?;
-        repo.set_protocol(test_protocol());
+        repo.add_protocol(&test_protocol())?;
         let s = make_record_schema(&[("a", "object")])?;
         repo.add(&s)?;
         repo.commit("schema", "alice")?;
@@ -2154,7 +2145,7 @@ mod tests {
     fn add_protocol_and_commit() -> Result<(), Box<dyn std::error::Error>> {
         let dir = tempfile::tempdir()?;
         let mut repo = Repository::init(dir.path())?;
-        repo.set_protocol(test_protocol());
+        repo.add_protocol(&test_protocol())?;
 
         // First commit.
         let s = make_schema(&[("a", "object")]);
@@ -2169,20 +2160,18 @@ mod tests {
             ..Default::default()
         };
         let index = repo.add_protocol(&protocol)?;
-        assert!(index.staged_protocol.is_some());
+        assert!(index.staged_protocols.get(&protocol.name).is_some());
 
         // Evolve schema and commit.
         let s2 = make_schema(&[("a", "object"), ("b", "string")]);
         repo.add(&s2)?;
         let commit_id = repo.commit("add protocol", "alice")?;
 
-        // Verify commit has protocol_id.
+        // Verify the commit records the protocol.
         let log = repo.log(None)?;
         assert_eq!(log[0].message, "add protocol");
-        assert!(log[0].protocol_id.is_some());
-
-        // Verify the protocol object exists in the store.
-        let protocol_id = log[0].protocol_id.ok_or("missing protocol_id")?;
+        let environment = load_environment(repo.store(), log[0].environment_id)?;
+        let protocol_id = environment.get(&protocol.name).ok_or("missing protocol")?;
         let proto_obj = repo.store().get(&protocol_id)?;
         match proto_obj {
             Object::Protocol(p) => {
@@ -2202,8 +2191,8 @@ mod tests {
             b"[{}, {}, {}]",
             Path::new("d.json"),
             &schema,
-            Some(&test_protocol()),
-            RecordCheck::Staged,
+            &test_protocol(),
+            Check::Complete,
         )?;
         assert_eq!(records.len(), 3);
         Ok(())
@@ -2216,8 +2205,8 @@ mod tests {
             b"{}",
             Path::new("d.json"),
             &schema,
-            Some(&test_protocol()),
-            RecordCheck::Staged,
+            &test_protocol(),
+            Check::Complete,
         )?;
         assert_eq!(records.len(), 1);
         Ok(())
@@ -2233,8 +2222,8 @@ mod tests {
             b"NOT JSON AT ALL",
             Path::new("junk.json"),
             &schema,
-            Some(&test_protocol()),
-            RecordCheck::Staged,
+            &test_protocol(),
+            Check::Complete,
         );
         let Err(VcsError::DataParseFailed { ref path, .. }) = result else {
             panic!("expected a parse failure, got {result:?}");
@@ -2253,8 +2242,8 @@ mod tests {
             b"NOT JSON AT ALL",
             Path::new("junk.json"),
             &schema,
-            Some(&test_protocol()),
-            RecordCheck::Skipped,
+            &test_protocol(),
+            Check::Skipped,
         );
         assert!(
             matches!(result, Err(VcsError::DataParseFailed { .. })),
@@ -2278,6 +2267,7 @@ mod tests {
             data: rmp_serde::to_vec(&vec![inst])?,
             record_count: 1,
             key: Some(key.to_owned()),
+            protocol_id: None,
         };
         store.put(&Object::DataSet(ds))
     }
@@ -2286,7 +2276,7 @@ mod tests {
     fn merge_lifts_data_instead_of_unioning() -> Result<(), Box<dyn std::error::Error>> {
         let dir = tempfile::tempdir()?;
         let mut repo = Repository::init(dir.path())?;
-        repo.set_protocol(test_protocol());
+        repo.add_protocol(&test_protocol())?;
 
         // Base {a}.
         let s0 = make_schema(&[("a", "object")]);
@@ -2369,7 +2359,7 @@ mod tests {
     {
         let dir = tempfile::tempdir()?;
         let mut repo = Repository::init(dir.path())?;
-        repo.set_protocol(test_protocol());
+        repo.add_protocol(&test_protocol())?;
 
         // A single shared schema tree: neither parent changes the schema.
         let s0 = make_schema(&[("a", "object")]);
@@ -2454,7 +2444,7 @@ mod tests {
 
         let dir = tempfile::tempdir()?;
         let mut repo = Repository::init(dir.path())?;
-        repo.set_protocol(test_protocol());
+        repo.add_protocol(&test_protocol())?;
         let s = make_schema(&[("a", "object")]);
         repo.add(&s)?;
         repo.commit("initial", "alice")?;
@@ -2480,7 +2470,7 @@ mod tests {
                 gat_diagnostics: Some(diag),
             }),
             staged_data: vec![],
-            staged_protocol: None,
+            staged_protocols: ProtocolEnvironment::new(),
         };
         repo.write_index(&index)?;
 
@@ -2499,7 +2489,7 @@ mod tests {
     fn commit_blocks_on_protocol_equation_violation() -> Result<(), Box<dyn std::error::Error>> {
         let dir = tempfile::tempdir()?;
         let mut repo = Repository::init(dir.path())?;
-        repo.set_protocol(test_protocol());
+        repo.add_protocol(&test_protocol())?;
         repo.set_protocol_theory("p", f_identity_theory());
 
         // Schema whose `f` edge is not the identity, violating f(x) = x.
@@ -2530,7 +2520,7 @@ mod tests {
     {
         let dir = tempfile::tempdir()?;
         let mut repo = Repository::init(dir.path())?;
-        repo.set_protocol(test_protocol());
+        repo.add_protocol(&test_protocol())?;
         // No theory registered for protocol "test".
         let s = make_schema(&[("a", "object")]);
         let index = repo.add(&s)?;
@@ -2678,7 +2668,7 @@ mod tests {
     fn homogeneous_project_is_equation_checked() -> Result<(), Box<dyn std::error::Error>> {
         let dir = tempfile::tempdir()?;
         let mut repo = Repository::init(dir.path())?;
-        repo.set_protocol(test_protocol());
+        repo.add_protocol(&test_protocol())?;
         repo.set_protocol_theory("proj_test", prop_identity_theory());
 
         // Two files in one protocol, the second carrying a `prop` edge
@@ -2730,7 +2720,7 @@ mod tests {
     {
         let dir = tempfile::tempdir()?;
         let mut repo = Repository::init(dir.path())?;
-        repo.set_protocol(test_protocol());
+        repo.add_protocol(&test_protocol())?;
         repo.set_protocol_theory("proj_test", prop_identity_theory());
 
         let a = schema_with_edges("proj_test", &[("root", "Node"), ("a", "Node")], &[]);
@@ -2758,7 +2748,7 @@ mod tests {
     fn heterogeneous_project_reports_mixed_protocols() -> Result<(), Box<dyn std::error::Error>> {
         let dir = tempfile::tempdir()?;
         let mut repo = Repository::init(dir.path())?;
-        repo.set_protocol(test_protocol());
+        repo.add_protocol(&test_protocol())?;
 
         let a = schema_with_edges("alpha", &[("root", "Node")], &[]);
         let b = schema_with_edges("beta", &[("other", "Node")], &[]);
@@ -2795,7 +2785,7 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let dir = tempfile::tempdir()?;
         let mut repo = Repository::init(dir.path())?;
-        repo.set_protocol(test_protocol());
+        repo.add_protocol(&test_protocol())?;
         // "zeta" is homogeneous but has no registered theory.
         let a = schema_with_edges("zeta", &[("root", "Node")], &[]);
         let b = schema_with_edges("zeta", &[("other", "Node")], &[]);
@@ -2877,7 +2867,7 @@ mod tests {
 
         let dir = tempfile::tempdir()?;
         let mut repo = Repository::init(dir.path())?;
-        repo.set_protocol(test_protocol());
+        repo.add_protocol(&test_protocol())?;
         let leaves = vec![
             (
                 PathBuf::from(defs_path),
@@ -2993,81 +2983,37 @@ mod tests {
     }
 
     #[test]
-    fn an_unknown_protocol_name_is_a_recorded_violation() -> Result<(), Box<dyn std::error::Error>>
-    {
+    fn data_under_an_unknown_protocol_name_is_refused() -> Result<(), Box<dyn std::error::Error>> {
         let dir = tempfile::tempdir()?;
         let mut repo = Repository::init(dir.path())?;
         let mut schema = make_schema(&[("a", "string")]);
         schema.protocol = "nonesuch".into();
         repo.add(&schema)?;
         repo.commit("initial", "alice")?;
-        let reasons = refusal(stage(&mut repo, dir.path(), r#""x""#));
-        assert_eq!(reasons.len(), 1, "{reasons:?}");
-        assert!(
-            reasons[0].ends_with(r#"unknown protocol "nonesuch""#),
-            "{reasons:?}"
-        );
-        // The bare reason, as record_violations gives it.
-        assert_eq!(
-            record_violations(&schema, None, &text_record("x")),
-            vec![r#"unknown protocol "nonesuch""#.to_owned()]
-        );
+        match stage(&mut repo, dir.path(), r#""x""#) {
+            Err(VcsError::UnknownProtocol { name }) => assert_eq!(name, "nonesuch"),
+            other => panic!("expected UnknownProtocol, got {other:?}"),
+        }
         Ok(())
     }
 
     #[test]
-    fn a_caller_registered_protocol_resolves() -> Result<(), Box<dyn std::error::Error>> {
-        let dir = tempfile::tempdir()?;
-        let mut repo = Repository::init(dir.path())?;
-        let schema = constrained_schema("custom", "maxLength", "3");
-        repo.add(&schema)?;
-        repo.commit("initial", "alice")?;
-        // Unregistered, the name resolves to nothing.
-        assert!(stage(&mut repo, dir.path(), r#""ab""#).is_err());
-        repo.set_protocol(protocol_with("custom", "maxLength", max_length()));
-        stage(&mut repo, dir.path(), r#""ab""#)?;
-        Ok(())
-    }
-
-    #[test]
-    fn record_violations_uses_the_registered_protocol() -> Result<(), Box<dyn std::error::Error>> {
-        let dir = tempfile::tempdir()?;
-        let mut repo = Repository::init(dir.path())?;
-        let schema = constrained_schema("custom", "maxLength", "3");
-        repo.add(&schema)?;
-        repo.commit("initial", "alice")?;
-        // Under a protocol that gives the sort no check, a long value passes.
-        repo.set_protocol(protocol_with(
-            "custom",
-            "maxLength",
-            panproto_schema::ConstraintSemantics::Annotation,
-        ));
-        stage(&mut repo, dir.path(), r#""abcdef""#)?;
-        // Registering the checking protocol under the name replaces it.
-        repo.set_protocol(protocol_with("custom", "maxLength", max_length()));
-        let reasons = refusal(stage(&mut repo, dir.path(), r#""abcdef""#));
-        assert_eq!(reasons.len(), 1, "{reasons:?}");
-        assert!(reasons[0].contains("value_constraint"), "{reasons:?}");
-        Ok(())
-    }
-
-    #[test]
-    fn record_violations_uses_a_committed_protocol_object() -> Result<(), Box<dyn std::error::Error>>
+    fn staged_data_is_checked_under_the_staged_protocol() -> Result<(), Box<dyn std::error::Error>>
     {
         let dir = tempfile::tempdir()?;
         let mut repo = Repository::init(dir.path())?;
-        let schema = constrained_schema("custom", "maxLength", "3");
-        repo.add(&schema)?;
-        // The committed protocol object checks the sort; the registered one
-        // of the same name does not, and the committed one comes first.
-        repo.add_protocol(&protocol_with("custom", "maxLength", max_length()))?;
-        repo.commit("initial", "alice")?;
-        repo.set_protocol(protocol_with(
+        repo.add(&constrained_schema("custom", "maxLength", "3"))?;
+        // Under a protocol that gives the sort no check, a long value passes.
+        repo.add_protocol(&protocol_with(
             "custom",
             "maxLength",
             panproto_schema::ConstraintSemantics::Annotation,
-        ));
+        ))?;
+        stage(&mut repo, dir.path(), r#""abcdef""#)?;
+        // Staging the checking protocol under the name takes its place.
+        repo.add_protocol(&protocol_with("custom", "maxLength", max_length()))?;
         let reasons = refusal(stage(&mut repo, dir.path(), r#""abcdef""#));
+        assert_eq!(reasons.len(), 1, "{reasons:?}");
         assert!(reasons[0].contains("value_constraint"), "{reasons:?}");
         stage(&mut repo, dir.path(), r#""abc""#)?;
         Ok(())
@@ -3083,11 +3029,11 @@ mod tests {
         let expected: Vec<String> = report.diagnostics.iter().map(ToString::to_string).collect();
         assert_ne!(expected, Vec::<String>::new());
         assert_eq!(
-            record_violations(&schema, Some(&protocol), &record),
+            crate::records::violations(&schema, &protocol, &record),
             expected
         );
         assert_eq!(
-            record_violations(&schema, Some(&protocol), &text_record("abc")),
+            crate::records::violations(&schema, &protocol, &text_record("abc")),
             Vec::<String>::new()
         );
     }
@@ -3108,7 +3054,7 @@ mod tests {
         assert_eq!(expected.len(), 1, "{expected:?}");
         assert!(expected[0].contains("not decided"), "{expected:?}");
         assert_eq!(
-            record_violations(&schema, Some(&protocol), &record),
+            crate::records::violations(&schema, &protocol, &record),
             expected
         );
     }
@@ -3222,7 +3168,7 @@ mod tests {
             "{report:?}"
         );
         assert_eq!(
-            record_violations(&schema, Some(&protocol), &record),
+            crate::records::violations(&schema, &protocol, &record),
             Vec::<String>::new()
         );
     }

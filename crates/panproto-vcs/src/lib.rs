@@ -60,8 +60,8 @@ pub use data_mig::{
     Fibre, LiftTarget, LiftedData, StaleData, TransportedData, detect_staleness, lift_commit_data,
     migrate_backward, migrate_forward,
 };
-pub use environment::ProtocolEnvironment;
 pub use edit_mig::{decode_edit_log, encode_edit_log, incremental_migrate};
+pub use environment::ProtocolEnvironment;
 pub use error::VcsError;
 pub use expr::{load_expr, store_expr};
 pub use fs_store::FsStore;

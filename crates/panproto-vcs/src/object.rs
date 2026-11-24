@@ -567,6 +567,7 @@ mod tests {
             data: vec![1, 2, 3, 4],
             record_count: 42,
             key: Some("at://did:plc:abc/app.bsky.feed.post/1".to_owned()),
+            protocol_id: None,
         };
         let bytes = rmp_serde::to_vec(&ds)?;
         let ds2: DataSetObject = rmp_serde::from_slice(&bytes)?;

@@ -295,6 +295,16 @@ pub enum VcsError {
     #[error("{0}")]
     Other(String),
 
+    /// Branches gave protocol names different protocols, so their protocol
+    /// environments have no merge. Stage the protocol one of them means on the
+    /// other ([`Repository::add_protocol`](crate::Repository::add_protocol))
+    /// and merge again.
+    #[error("{}", .conflicts.iter().map(ToString::to_string).collect::<Vec<_>>().join("; "))]
+    ProtocolConflicts {
+        /// Every such name, in order.
+        conflicts: Vec<crate::environment::ProtocolConflict>,
+    },
+
     /// A schema names a protocol that neither the protocol environment
     /// ([`Repository::add_protocol`](crate::Repository::add_protocol)) nor
     /// the `panproto-protocols` registry defines.

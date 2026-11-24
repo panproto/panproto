@@ -33,9 +33,10 @@ pub struct Replay {
 ///
 /// # Errors
 ///
-/// [`VcsError::NoPath`] for a root commit, [`VcsError::MergeConflicts`] when
-/// either pushout does not exist, and [`VcsError::PushoutVerification`] when
-/// the schema merge is not one.
+/// [`VcsError::NoPath`] for a root commit, [`VcsError::MergeConflicts`] or
+/// [`VcsError::ProtocolConflicts`] when the pushout of schemas or of
+/// environments does not exist, and [`VcsError::PushoutVerification`] when the
+/// schema merge is not one.
 pub fn replay(
     store: &mut dyn Store,
     commit_id: ObjectId,
@@ -54,15 +55,12 @@ pub fn replay(
         &load_environment(store, parent.environment_id)?,
         &load_environment(store, tip.environment_id)?,
         &load_environment(store, commit.environment_id)?,
-    );
-    let environment = match environment {
-        Ok(environment) if result.conflicts.is_empty() => environment,
-        environment => {
-            return Err(VcsError::MergeConflicts {
-                count: result.conflicts.len() + environment.err().map_or(0, |found| found.len()),
-            });
-        }
-    };
+    )?;
+    if !result.conflicts.is_empty() {
+        return Err(VcsError::MergeConflicts {
+            count: result.conflicts.len(),
+        });
+    }
 
     // Verify the pushout cocone conditions before rebuilding the commit:
     // both migrations must be total and the base-to-merged paths must

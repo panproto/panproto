@@ -571,6 +571,7 @@ mod tests {
             data: vec![1],
             record_count: 0,
             key: None,
+            protocol_id: None,
         }))?;
         let prefix = &id.to_string()[..12];
 

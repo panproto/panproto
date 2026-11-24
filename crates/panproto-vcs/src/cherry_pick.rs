@@ -116,23 +116,25 @@ mod tests {
     use super::*;
     use crate::MemStore;
     use crate::error::VcsError;
+    use crate::object::{CommitObject, Object};
     use panproto_gat::Name;
     use panproto_schema::{Schema, Vertex};
     use std::collections::HashMap;
 
-    /// The protocol the tests' schemas name, registered by name: no
-    /// registry declares "test".
-    fn registered() -> HashMap<String, panproto_schema::Protocol> {
-        HashMap::from([(
-            "test".to_owned(),
-            panproto_schema::Protocol {
-                name: "test".into(),
-                schema_theory: "ThGraph".into(),
-                instance_theory: "ThWType".into(),
-                obj_kinds: vec!["object".into(), "string".into(), "record".into()],
-                ..Default::default()
-            },
-        )])
+    /// Store the environment that defines "test", the protocol the tests'
+    /// schemas name and no registry declares.
+    fn environment(store: &mut MemStore) -> Result<Option<ObjectId>, VcsError> {
+        let protocol = panproto_schema::Protocol {
+            name: "test".into(),
+            schema_theory: "ThGraph".into(),
+            instance_theory: "ThWType".into(),
+            obj_kinds: vec!["object".into(), "string".into(), "record".into()],
+            ..Default::default()
+        };
+        let mut environment = crate::ProtocolEnvironment::new();
+        let id = store.put(&Object::Protocol(Box::new(protocol)))?;
+        environment.define("test", id);
+        crate::environment::store_environment(store, environment)
     }
 
     fn make_schema(vertices: &[(&str, &str)]) -> Schema {
@@ -181,6 +183,7 @@ mod tests {
         let s0 = make_schema(&[("a", "object")]);
         let s0_id = crate::tree::store_schema_as_tree(&mut store, s0)?;
         let c0 = CommitObject::builder(s0_id, "test", "alice", "initial")
+            .environment_id(environment(&mut store)?)
             .timestamp(100)
             .build();
         let c0_id = store.put(&Object::Commit(c0))?;
@@ -189,6 +192,7 @@ mod tests {
         let s1 = make_schema(&[("a", "object"), ("b", "string")]);
         let s1_id = crate::tree::store_schema_as_tree(&mut store, s1)?;
         let c1 = CommitObject::builder(s1_id, "test", "bob", "add b")
+            .environment_id(environment(&mut store)?)
             .parents(vec![c0_id])
             .timestamp(200)
             .build();
@@ -198,7 +202,7 @@ mod tests {
         store.set_ref("refs/heads/main", c0_id)?;
 
         // Cherry-pick c1 onto HEAD.
-        let new_id = cherry_pick(&mut store, c1_id, "alice", &registered())?;
+        let new_id = cherry_pick(&mut store, c1_id, "alice")?;
 
         // Verify the new commit has vertex b.
         let new_commit = match store.get(&new_id)? {
@@ -233,6 +237,7 @@ mod tests {
             data: rmp_serde::to_vec(&vec![inst])?,
             record_count: 1,
             key: Some(key.to_owned()),
+            protocol_id: None,
         };
         store.put(&Object::DataSet(ds))
     }
@@ -245,6 +250,7 @@ mod tests {
         let s0 = make_schema(&[("a", "object")]);
         let s0_id = crate::tree::store_schema_as_tree(store, s0)?;
         let c0 = CommitObject::builder(s0_id, "test", "alice", "initial")
+            .environment_id(environment(store)?)
             .timestamp(100)
             .build();
         let c0_id = store.put(&Object::Commit(c0))?;
@@ -253,6 +259,7 @@ mod tests {
         let ds_id = single_record_dataset(store, &s1, "rec-key")?;
         let s1_id = crate::tree::store_schema_as_tree(store, s1)?;
         let c1 = CommitObject::builder(s1_id, "test", "bob", "add pickedf + data")
+            .environment_id(environment(store)?)
             .parents(vec![c0_id])
             .timestamp(200)
             .data_ids(vec![ds_id])
@@ -262,6 +269,7 @@ mod tests {
         let s2 = make_schema(&[("a", "object"), ("headf", "string")]);
         let s2_id = crate::tree::store_schema_as_tree(store, s2)?;
         let c2 = CommitObject::builder(s2_id, "test", "alice", "add headf")
+            .environment_id(environment(store)?)
             .parents(vec![c0_id])
             .timestamp(300)
             .build();
@@ -313,7 +321,7 @@ mod tests {
         // Picking onto a HEAD with a different schema means the picked
         // commit's data ({a, pickedf}) is lifted to the merged schema
         // ({a, headf, pickedf}), not dropped.
-        let new_id = cherry_pick(&mut store, c1_id, "alice", &registered())?;
+        let new_id = cherry_pick(&mut store, c1_id, "alice")?;
         let new_commit = load_commit_obj(&store, new_id)?;
         assert_lifted_dataset(&store, &new_commit, ds_id);
         Ok(())
@@ -328,7 +336,7 @@ mod tests {
             no_commit: false,
             record_origin: true,
         };
-        let new_id = cherry_pick_with_options(&mut store, c1_id, "alice", &opts, &registered())?;
+        let new_id = cherry_pick_with_options(&mut store, c1_id, "alice", &opts)?;
         let new_commit = load_commit_obj(&store, new_id)?;
         assert!(
             new_commit.message.contains("cherry picked from commit"),

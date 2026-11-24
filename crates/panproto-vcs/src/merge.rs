@@ -52,7 +52,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::auto_mig;
-use crate::hash::ObjectId;
 
 /// Overlap information discovered via pullback computation.
 ///
@@ -150,17 +149,6 @@ pub enum IdentifiedAddition {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum MergeConflict {
-    // --- Protocols ---
-    /// The branches gave one name different protocols.
-    BothModifiedProtocol {
-        /// The protocol name.
-        name: String,
-        /// The protocol object our branch gave it.
-        ours: ObjectId,
-        /// The protocol object their branch gave it.
-        theirs: ObjectId,
-    },
-
     // --- Vertices ---
     /// Both branches modified the same vertex's kind differently.
     BothModifiedVertex {

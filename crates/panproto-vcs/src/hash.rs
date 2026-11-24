@@ -1631,6 +1631,7 @@ mod tests {
             data: vec![10, 20, 30],
             record_count: 3,
             key: None,
+            protocol_id: None,
         };
         let h1 = hash_dataset(&ds)?;
         let h2 = hash_dataset(&ds)?;

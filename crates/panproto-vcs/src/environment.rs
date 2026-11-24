@@ -40,9 +40,21 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::VcsError;
 use crate::hash::ObjectId;
-use crate::merge::MergeConflict;
 use crate::object::Object;
 use crate::store::Store;
+
+/// A name two branches gave different protocols, which obstructs the pushout
+/// of their environments.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("protocol {name:?} is {ours} on our branch and {theirs} on theirs")]
+pub struct ProtocolConflict {
+    /// The protocol name.
+    pub name: String,
+    /// The protocol object our branch gave it.
+    pub ours: ObjectId,
+    /// The protocol object their branch gave it.
+    pub theirs: ObjectId,
+}
 
 /// A finite partial function from protocol names to protocol objects.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -90,15 +102,16 @@ impl ProtocolEnvironment {
     ///
     /// # Errors
     ///
-    /// Every name the two edits define differently, in name order.
-    pub fn merge(base: &Self, ours: &Self, theirs: &Self) -> Result<Self, Vec<MergeConflict>> {
+    /// [`VcsError::ProtocolConflicts`] with every name the two edits define
+    /// differently, in name order.
+    pub fn merge(base: &Self, ours: &Self, theirs: &Self) -> Result<Self, VcsError> {
         let ours_edit = ours.edit_from(base);
         let theirs_edit = theirs.edit_from(base);
-        let conflicts: Vec<MergeConflict> = ours_edit
+        let conflicts: Vec<ProtocolConflict> = ours_edit
             .iter()
             .filter_map(|(name, ours)| {
                 let theirs = theirs_edit.get(name).filter(|theirs| *theirs != ours)?;
-                Some(MergeConflict::BothModifiedProtocol {
+                Some(ProtocolConflict {
                     name: name.to_owned(),
                     ours,
                     theirs,
@@ -108,7 +121,7 @@ impl ProtocolEnvironment {
         if conflicts.is_empty() {
             Ok(base.updated(&ours_edit).updated(&theirs_edit))
         } else {
-            Err(conflicts)
+            Err(VcsError::ProtocolConflicts { conflicts })
         }
     }
 
@@ -289,21 +302,14 @@ mod tests {
                             o != b && t != b && o != t
                         })
                         .collect();
-                    let found: Vec<String> =
-                        ProtocolEnvironment::merge(&base, &ours, &theirs).map_or_else(
-                            |conflicts| {
-                                conflicts
-                                    .into_iter()
-                                    .filter_map(|conflict| match conflict {
-                                        MergeConflict::BothModifiedProtocol { name, .. } => {
-                                            Some(name)
-                                        }
-                                        _ => None,
-                                    })
-                                    .collect()
-                            },
-                            |_| Vec::new(),
-                        );
+                    let found: Vec<String> = match ProtocolEnvironment::merge(&base, &ours, &theirs)
+                    {
+                        Ok(_) => Vec::new(),
+                        Err(VcsError::ProtocolConflicts { conflicts }) => {
+                            conflicts.into_iter().map(|found| found.name).collect()
+                        }
+                        Err(other) => panic!("{other}"),
+                    };
                     assert_eq!(found, expected);
                 }
             }

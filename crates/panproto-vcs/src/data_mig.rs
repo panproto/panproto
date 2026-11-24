@@ -4,7 +4,6 @@
 //! infrastructure. Complements are stored as VCS objects so backward
 //! migration never loses data.
 
-
 use panproto_inst::WInstance;
 use panproto_inst::identity::{AnyComplement, ComplementShape, Encoding, decode_complements};
 use panproto_schema::{Protocol, Schema};
@@ -267,11 +266,10 @@ pub fn migrate_data_directory(
                 }
             })?;
 
-        let (view, _complement) = panproto_lens::get(&lens, &instance).map_err(|e| {
-            VcsError::DataMigrationFailed {
+        let (view, _complement) =
+            panproto_lens::get(&lens, &instance).map_err(|e| VcsError::DataMigrationFailed {
                 reason: format!("lens get: {e}"),
-            }
-        })?;
+            })?;
 
         let output = panproto_inst::to_json(tgt.schema, &view).map_err(|e| {
             VcsError::DataMigrationFailed {
@@ -405,9 +403,7 @@ pub fn lift_commit_data(
         let (tgt_protocol_id, tgt_protocol) = match &tgt_protocol {
             Some(found) => found,
             None => {
-                let protocol = target
-                    .environment
-                    .resolve(store, &target.schema.protocol)?;
+                let protocol = target.environment.resolve(store, &target.schema.protocol)?;
                 let id = store.put(&Object::Protocol(Box::new(protocol.clone())))?;
                 tgt_protocol.insert((id, protocol))
             }
@@ -446,9 +442,7 @@ pub(crate) fn data_protocol(
 ) -> Result<Protocol, VcsError> {
     match recorded {
         Some(id) => load_protocol(store, id),
-        None => {
-            load_environment(store, commit.environment_id)?.resolve(store, &schema.protocol)
-        }
+        None => load_environment(store, commit.environment_id)?.resolve(store, &schema.protocol),
     }
 }
 
@@ -568,9 +562,42 @@ mod tests {
         }
     }
 
-    /// The registered protocols the tests resolve "test" through.
-    fn registered() -> HashMap<String, Protocol> {
-        HashMap::from([("test".to_owned(), test_protocol())])
+    /// A fibre over `schema` under the test protocol.
+    fn fibre<'a>(schema: &'a Schema, protocol: &'a Protocol) -> Result<Fibre<'a>, VcsError> {
+        Ok(Fibre {
+            schema_id: crate::hash::hash_schema(schema)?,
+            schema,
+            protocol_id: None,
+            protocol,
+        })
+    }
+
+    /// The environment in which "test" means the test protocol.
+    fn environment(store: &mut MemStore) -> Result<ProtocolEnvironment, VcsError> {
+        let mut environment = ProtocolEnvironment::new();
+        let id = store.put(&Object::Protocol(Box::new(test_protocol())))?;
+        environment.define("test", id);
+        Ok(environment)
+    }
+
+    /// Lift `commit`'s data from `src` to `tgt` in `environment`.
+    fn lift(
+        store: &mut MemStore,
+        commit: &CommitObject,
+        src: &Schema,
+        tgt: &Schema,
+        environment: &ProtocolEnvironment,
+    ) -> Result<LiftedData, VcsError> {
+        lift_commit_data(
+            store,
+            commit,
+            src,
+            LiftTarget {
+                schema_id: crate::hash::hash_schema(tgt)?,
+                schema: tgt,
+                environment,
+            },
+        )
     }
 
     fn make_commit(schema_id: ObjectId, data_ids: Vec<ObjectId>) -> CommitObject {
@@ -596,6 +623,7 @@ mod tests {
             data: vec![],
             record_count: 0,
             key: None,
+            protocol_id: None,
         };
         let data_id = store.put(&Object::DataSet(ds))?;
 
@@ -622,6 +650,7 @@ mod tests {
             data: vec![],
             record_count: 0,
             key: None,
+            protocol_id: None,
         };
         let data_id = store.put(&Object::DataSet(ds))?;
 
@@ -651,7 +680,8 @@ mod tests {
         let schema_id = crate::tree::store_schema_as_tree(&mut store, schema.clone())?;
 
         let protocol = test_protocol();
-        let result = migrate_forward(&mut store, schema_id, &schema, &schema, &protocol);
+        let over = fibre(&schema, &protocol)?;
+        let result = migrate_forward(&mut store, schema_id, over, over);
 
         assert!(result.is_err());
         if let Err(VcsError::TypeMismatch { expected, got }) = result {
@@ -687,50 +717,25 @@ mod tests {
     }
 
     #[test]
-    fn a_protocol_name_resolves_in_order() -> Result<(), VcsError> {
-        let schema = make_schema(&[("a", "object")]);
-        let none = HashMap::new();
-        let stored = Protocol {
-            obj_kinds: vec!["stored".into()],
-            ..test_protocol()
-        };
-        // A stored protocol of that name comes first.
-        let found = protocol_for_schema(
-            &schema,
-            ProtocolSources {
-                stored: Some(&stored),
-                registered: &registered(),
-            },
-        )?;
-        assert_eq!(found, stored);
-        // A stored protocol of another name is passed over for the
-        // registered one.
-        let other = Protocol {
-            name: "other".into(),
-            ..test_protocol()
-        };
-        let found = protocol_for_schema(
-            &schema,
-            ProtocolSources {
-                stored: Some(&other),
-                registered: &registered(),
-            },
-        )?;
-        assert_eq!(found, test_protocol());
-        // A name only the registry declares resolves to its protocol.
-        let atproto = resolve_protocol(
-            "atproto",
-            ProtocolSources {
-                stored: None,
-                registered: &none,
-            },
-        )?;
+    fn a_protocol_name_resolves_in_the_environment_then_the_registry() -> Result<(), VcsError> {
+        let mut store = MemStore::new();
+        let environment = environment(&mut store)?;
+        assert_eq!(environment.resolve(&store, "test")?, test_protocol());
+        let atproto =
+            panproto_protocols::registry::descriptor("atproto").ok_or(VcsError::NothingStaged)?;
         assert_eq!(
-            atproto,
-            (panproto_protocols::registry::descriptor("atproto")
-                .ok_or(VcsError::NothingStaged)?
-                .protocol)()
+            environment.resolve(&store, "atproto")?,
+            (atproto.protocol)()
         );
+        // A definition takes the place of the built-in protocol of its name.
+        let mut shadowing = environment;
+        let own = Protocol {
+            name: "atproto".into(),
+            ..test_protocol()
+        };
+        let id = store.put(&Object::Protocol(Box::new(own.clone())))?;
+        shadowing.define("atproto", id);
+        assert_eq!(shadowing.resolve(&store, "atproto")?, own);
         Ok(())
     }
 
@@ -749,9 +754,10 @@ mod tests {
             data: rmp_serde::to_vec(&vec![inst])?,
             record_count: 1,
             key: None,
+            protocol_id: None,
         }))?;
         let commit = make_commit(crate::hash::hash_schema(&src)?, vec![ds_id]);
-        match lift_commit_data(&mut store, &commit, &src, &tgt, &HashMap::new()) {
+        match lift(&mut store, &commit, &src, &tgt, &ProtocolEnvironment::new()) {
             Err(VcsError::UnknownProtocol { name }) => assert_eq!(name, "test"),
             other => panic!("an unknown protocol name was accepted: {other:?}"),
         }
@@ -773,25 +779,68 @@ mod tests {
             data: rmp_serde::to_vec(&vec![inst])?,
             record_count: 1,
             key: None,
+            protocol_id: None,
         }))?;
-        // The commit records the protocol object, so it resolves the name
-        // with nothing registered.
-        let protocol_id = store.put(&Object::Protocol(Box::new(test_protocol())))?;
+        // The data records no protocol, so its name is read in the commit's
+        // environment.
+        let environment = environment(&mut store)?;
+        let environment_id =
+            crate::environment::store_environment(&mut store, environment.clone())?;
         let commit = CommitObject::builder(crate::hash::hash_schema(&src)?, "test", "test", "c")
             .timestamp(0)
             .data_ids(vec![ds_id])
-            .protocol_id(protocol_id)
+            .environment_id(environment_id)
             .build();
-        let (data_ids, complement_ids) =
-            lift_commit_data(&mut store, &commit, &src, &tgt, &HashMap::new())?;
-        assert_eq!(data_ids.len(), 1);
-        assert_eq!(complement_ids.len(), 1);
-        // The lift is the migration under that protocol.
+        let lifted = lift(&mut store, &commit, &src, &tgt, &environment)?;
+        assert_eq!(lifted.complement_ids.len(), 1);
+        // The lift is the migration under that protocol, which it records.
+        let protocol = test_protocol();
         let mut expected = MemStore::new();
         let expected_ds = expected.put(&store.get(&ds_id)?)?;
+        let target = Fibre {
+            protocol_id: environment.get("test"),
+            ..fibre(&tgt, &protocol)?
+        };
         let (expected_view, _) =
-            migrate_forward(&mut expected, expected_ds, &src, &tgt, &test_protocol())?;
-        assert_eq!(data_ids[0], expected_view);
+            migrate_forward(&mut expected, expected_ds, fibre(&src, &protocol)?, target)?;
+        assert_eq!(lifted.data_ids, [expected_view]);
+        Ok(())
+    }
+
+    /// A commit can hold data over schemas other than its own, which a change
+    /// of its schema does not act on.
+    #[test]
+    fn data_over_another_schema_is_carried_as_it_is() -> Result<(), Box<dyn std::error::Error>> {
+        let mut store = MemStore::new();
+        let environment = environment(&mut store)?;
+        let src = make_schema(&[("a", "object")]);
+        let tgt = make_schema(&[("a", "object"), ("b", "string")]);
+        let other = make_schema(&[("z", "object")]);
+        let mut ids = Vec::new();
+        for (schema, anchor) in [(&src, "a"), (&other, "z")] {
+            let node = panproto_inst::Node::new(0, anchor);
+            let instance = WInstance::new(
+                HashMap::from([(0_u32, node)]),
+                vec![],
+                vec![],
+                0,
+                Name::from(anchor),
+            );
+            ids.push(store.put(&Object::DataSet(DataSetObject {
+                schema_id: crate::hash::hash_schema(schema)?,
+                data: rmp_serde::to_vec(&vec![instance])?,
+                record_count: 1,
+                key: None,
+                protocol_id: environment.get("test"),
+            }))?);
+        }
+        let commit = make_commit(crate::hash::hash_schema(&src)?, ids.clone());
+        let lifted = lift(&mut store, &commit, &src, &tgt, &environment)?;
+        assert_eq!(lifted.data_ids.len(), 2);
+        assert_ne!(lifted.data_ids[0], ids[0]);
+        assert_eq!(lifted.data_ids[1], ids[1]);
+        assert_eq!(lifted.transported.len(), 1);
+        assert_eq!(lifted.transported[0].base, ids[0]);
         Ok(())
     }
 
@@ -812,12 +861,20 @@ mod tests {
             data: rmp_serde::to_vec(&vec![inst])?,
             record_count: 1,
             key: Some("rec-key".to_owned()),
+            protocol_id: None,
         };
         let ds_id = store.put(&Object::DataSet(ds))?;
-        let commit = make_commit(crate::hash::hash_schema(&src)?, vec![ds_id]);
+        let environment = environment(&mut store)?;
+        let commit = CommitObject {
+            environment_id: crate::environment::store_environment(&mut store, environment.clone())?,
+            ..make_commit(crate::hash::hash_schema(&src)?, vec![ds_id])
+        };
 
-        let (data_ids, complement_ids) =
-            lift_commit_data(&mut store, &commit, &src, &tgt, &registered())?;
+        let LiftedData {
+            data_ids,
+            complement_ids,
+            ..
+        } = lift(&mut store, &commit, &src, &tgt, &environment)?;
         assert_eq!(data_ids.len(), 1);
         assert_eq!(complement_ids.len(), 1);
         assert_ne!(data_ids[0], ds_id, "data set lifted to a fresh object");
@@ -850,10 +907,22 @@ mod tests {
             data: rmp_serde::to_vec(&vec![inst])?,
             record_count: 1,
             key: None,
+            protocol_id: None,
         }))?;
 
-        let (view_id, comp_id) = migrate_forward(&mut store, ds_id, &src, &tgt, &protocol)?;
-        migrate_backward(&mut store, view_id, comp_id, &src, &tgt, &protocol)?;
+        let (view_id, comp_id) = migrate_forward(
+            &mut store,
+            ds_id,
+            fibre(&src, &protocol)?,
+            fibre(&tgt, &protocol)?,
+        )?;
+        migrate_backward(
+            &mut store,
+            view_id,
+            comp_id,
+            fibre(&src, &protocol)?,
+            fibre(&tgt, &protocol)?,
+        )?;
 
         // The same complement with a byte left over after it.
         let Object::Complement(mut comp) = store.get(&comp_id)? else {
@@ -861,7 +930,13 @@ mod tests {
         };
         comp.complement.push(0);
         let padded_id = store.put(&Object::Complement(comp))?;
-        match migrate_backward(&mut store, view_id, padded_id, &src, &tgt, &protocol) {
+        match migrate_backward(
+            &mut store,
+            view_id,
+            padded_id,
+            fibre(&src, &protocol)?,
+            fibre(&tgt, &protocol)?,
+        ) {
             Err(VcsError::DataMigrationFailed { reason }) => {
                 assert!(reason.contains("trailing byte"), "{reason}");
             }
@@ -880,15 +955,16 @@ mod tests {
             data: vec![],
             record_count: 0,
             key: None,
+            protocol_id: None,
         };
         let ds_id = store.put(&Object::DataSet(ds))?;
         let commit = make_commit(crate::hash::hash_schema(&src)?, vec![ds_id]);
 
         // Equal src and tgt: ids returned verbatim with no new objects.
-        let (data_ids, complement_ids) =
-            lift_commit_data(&mut store, &commit, &src, &src, &HashMap::new())?;
-        assert_eq!(data_ids, vec![ds_id]);
-        assert_eq!(complement_ids, []);
+        let lifted = lift(&mut store, &commit, &src, &src, &ProtocolEnvironment::new())?;
+        assert_eq!(lifted.data_ids, [ds_id]);
+        assert_eq!(lifted.complement_ids, []);
+        assert_eq!(lifted.transported, []);
         Ok(())
     }
 }
