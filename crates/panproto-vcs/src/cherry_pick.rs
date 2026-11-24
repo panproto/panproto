@@ -1,15 +1,10 @@
 //! Cherry-pick: apply a single commit's migration to the current branch.
 
-use std::collections::HashMap;
-use std::hash::BuildHasher;
 use std::time::{SystemTime, UNIX_EPOCH};
-
-use panproto_schema::Protocol;
 
 use crate::error::VcsError;
 use crate::hash::ObjectId;
-use crate::merge;
-use crate::object::{CommitObject, Object};
+use crate::replay::replay;
 use crate::store::{self, ReflogEntry, Store};
 
 /// Options for cherry-pick operations.
@@ -21,269 +16,54 @@ pub struct CherryPickOptions {
     pub record_origin: bool,
 }
 
-/// Apply a single commit's schema changes to the current HEAD.
+/// Apply a single commit's changes to the current HEAD.
 ///
-/// Extracts the migration represented by `commit_id` (the diff between
-/// its parent's schema and its own schema), then performs a three-way
-/// merge with the current HEAD schema using the parent's schema as the
-/// base.
-///
-/// # Algorithm
-///
-/// 1. Load the commit and its first parent.
-/// 2. Load all three schemas: parent's, commit's, and HEAD's.
-/// 3. Three-way merge: base = parent's schema, ours = HEAD's schema,
-///    theirs = commit's schema.
-/// 4. If clean, create a new commit on the current branch.
-///
-/// The picked commit's data is lifted under the protocol its schema names,
-/// resolved through the commit's protocol object, then `registered`, then
-/// the protocol registry
-/// ([`resolve_protocol`](crate::data_mig::resolve_protocol)).
+/// [`cherry_pick_with_options`] with the default options.
 ///
 /// # Errors
 ///
-/// Returns an error if the merge has conflicts, or if the commit is a
-/// root commit (no parent to diff against).
-pub fn cherry_pick<S: BuildHasher>(
+/// The errors of [`cherry_pick_with_options`].
+pub fn cherry_pick(
     store: &mut dyn Store,
     commit_id: ObjectId,
     author: &str,
-    registered: &HashMap<String, Protocol, S>,
 ) -> Result<ObjectId, VcsError> {
-    // Load the commit being cherry-picked.
-    let commit = load_commit(store, commit_id)?;
-
-    // Need at least one parent to compute the diff.
-    let parent_id = commit.parents.first().ok_or(VcsError::NoPath)?;
-
-    let parent_commit = load_commit(store, *parent_id)?;
-
-    // Load schemas.
-    let base_schema = load_schema_dyn(store, &parent_commit.schema_id)?;
-    let theirs_schema = load_schema_dyn(store, &commit.schema_id)?;
-
-    // Load HEAD's schema.
-    let head_id = store::resolve_head(store)?.ok_or_else(|| VcsError::RefNotFound {
-        name: "HEAD".to_owned(),
-    })?;
-    let head_commit = load_commit(store, head_id)?;
-    let ours_schema = load_schema_dyn(store, &head_commit.schema_id)?;
-
-    // Three-way merge.
-    let result = merge::three_way_merge(&base_schema, &ours_schema, &theirs_schema);
-    if !result.conflicts.is_empty() {
-        return Err(VcsError::MergeConflicts {
-            count: result.conflicts.len(),
-        });
-    }
-
-    // Verify the pushout cocone conditions before rebuilding the commit.
-    let resolved = merge::ResolvedMerge {
-        schema: result.merged_schema.clone(),
-        migration_from_ours: result.migration_from_ours.clone(),
-        migration_from_theirs: result.migration_from_theirs.clone(),
-    };
-    merge::verify_pushout(&base_schema, &ours_schema, &theirs_schema, &resolved)
-        .map_err(VcsError::PushoutVerification)?;
-
-    // Lift the picked commit's versioned data through the schema change
-    // (its own schema -> the merged schema) so cherry-pick carries data
-    // forward instead of silently dropping it.
-    let (lifted_data_ids, lifted_complement_ids) = crate::data_mig::lift_commit_data(
-        store,
-        &commit,
-        &theirs_schema,
-        &result.merged_schema,
-        registered,
-    )?;
-
-    // Square coherence: each lifted data set must round-trip through its
-    // complement, so the cherry-pick square commutes on data.
-    crate::square::verify_lifted_squares(
-        store,
-        &commit,
-        &lifted_data_ids,
-        &lifted_complement_ids,
-        &theirs_schema,
-        &result.merged_schema,
-        registered,
-    )?;
-
-    let protocol_id =
-        crate::data_mig::record_protocols(store, &[commit.protocol_id, head_commit.protocol_id])?;
-
-    // Store the merged schema.
-    let mig_src = store.put(&Object::FlatSchema(Box::new(ours_schema)))?;
-    let mig_tgt = store.put(&Object::FlatSchema(Box::new(result.merged_schema.clone())))?;
-    let merged_schema_id = crate::tree::store_schema_as_tree(store, result.merged_schema)?;
-
-    // Store the migration from ours to merged.
-    let migration_id = store.put(&Object::Migration {
-        src: mig_src,
-        tgt: mig_tgt,
-        mapping: result.migration_from_ours,
-    })?;
-
-    // Create the new commit.
-    let mut builder = CommitObject::builder(
-        merged_schema_id,
-        commit.protocol.clone(),
-        author,
-        format!("cherry-pick: {}", commit.message),
-    )
-    .parents(vec![head_id])
-    .migration_id(migration_id);
-    if let Some(protocol_id) = protocol_id {
-        builder = builder.protocol_id(protocol_id);
-    }
-    if !lifted_data_ids.is_empty() {
-        builder = builder.data_ids(lifted_data_ids);
-    }
-    if !lifted_complement_ids.is_empty() {
-        builder = builder.complement_ids(lifted_complement_ids);
-    }
-    // CST complements are keyed by content, not schema, so they carry
-    // through the cherry-pick unchanged.
-    if !commit.cst_complement_ids.is_empty() {
-        builder = builder.cst_complement_ids(commit.cst_complement_ids.clone());
-    }
-    let new_commit = builder.build();
-    let new_commit_id = store.put(&Object::Commit(new_commit))?;
-
-    // Advance HEAD.
-    advance_head(store, head_id, new_commit_id, author, "cherry-pick")?;
-
-    Ok(new_commit_id)
+    cherry_pick_with_options(store, commit_id, author, &CherryPickOptions::default())
 }
 
-/// Apply a single commit's schema changes with options.
+/// Apply a single commit's changes to the current HEAD with options.
 ///
-/// See [`cherry_pick`] for the algorithm. Additional options control
-/// whether to auto-commit and whether to record the source commit.
+/// The commit's changes of its first parent's schema and protocol environment
+/// are merged into HEAD's, and its data is transported to the merged schema
+/// (see [`replay`]). Returns the new commit, or the merged schema when
+/// `options.no_commit`.
 ///
 /// # Errors
 ///
-/// Returns an error if the merge has conflicts.
-pub fn cherry_pick_with_options<S: BuildHasher>(
+/// Returns an error if the merge has conflicts, if the commit is a root
+/// commit (no parent to diff against), or if its data cannot be transported.
+pub fn cherry_pick_with_options(
     store: &mut dyn Store,
     commit_id: ObjectId,
     author: &str,
     options: &CherryPickOptions,
-    registered: &HashMap<String, Protocol, S>,
 ) -> Result<ObjectId, VcsError> {
-    // Load the commit being cherry-picked.
-    let commit = load_commit(store, commit_id)?;
-
-    let parent_id = commit.parents.first().ok_or(VcsError::NoPath)?;
-    let parent_commit = load_commit(store, *parent_id)?;
-
-    let base_schema = load_schema_dyn(store, &parent_commit.schema_id)?;
-    let theirs_schema = load_schema_dyn(store, &commit.schema_id)?;
-
     let head_id = store::resolve_head(store)?.ok_or_else(|| VcsError::RefNotFound {
         name: "HEAD".to_owned(),
     })?;
-    let head_commit = load_commit(store, head_id)?;
-    let ours_schema = load_schema_dyn(store, &head_commit.schema_id)?;
-
-    let result = merge::three_way_merge(&base_schema, &ours_schema, &theirs_schema);
-    if !result.conflicts.is_empty() {
-        return Err(VcsError::MergeConflicts {
-            count: result.conflicts.len(),
-        });
-    }
-
-    // Verify the pushout cocone conditions before rebuilding the commit.
-    let resolved = merge::ResolvedMerge {
-        schema: result.merged_schema.clone(),
-        migration_from_ours: result.migration_from_ours.clone(),
-        migration_from_theirs: result.migration_from_theirs.clone(),
-    };
-    merge::verify_pushout(&base_schema, &ours_schema, &theirs_schema, &resolved)
-        .map_err(VcsError::PushoutVerification)?;
-
-    let mig_src = store.put(&Object::FlatSchema(Box::new(ours_schema)))?;
-    let mig_tgt = store.put(&Object::FlatSchema(Box::new(result.merged_schema.clone())))?;
-    let merged_schema_id = crate::tree::store_schema_as_tree(store, result.merged_schema.clone())?;
-
+    let replay = replay(store, commit_id, head_id)?;
     if options.no_commit {
-        return Ok(merged_schema_id);
+        return Ok(replay.schema_id);
     }
 
-    // Lift the picked commit's versioned data through the schema change
-    // (its own schema -> the merged schema) so the rebuilt commit carries
-    // data forward instead of silently dropping it.
-    let (lifted_data_ids, lifted_complement_ids) = crate::data_mig::lift_commit_data(
-        store,
-        &commit,
-        &theirs_schema,
-        &result.merged_schema,
-        registered,
-    )?;
-
-    // Square coherence: each lifted data set must round-trip through its
-    // complement, so the cherry-pick square commutes on data.
-    crate::square::verify_lifted_squares(
-        store,
-        &commit,
-        &lifted_data_ids,
-        &lifted_complement_ids,
-        &theirs_schema,
-        &result.merged_schema,
-        registered,
-    )?;
-
-    let protocol_id =
-        crate::data_mig::record_protocols(store, &[commit.protocol_id, head_commit.protocol_id])?;
-
-    let migration_id = store.put(&Object::Migration {
-        src: mig_src,
-        tgt: mig_tgt,
-        mapping: result.migration_from_ours,
-    })?;
-
-    let mut message = format!("cherry-pick: {}", commit.message);
+    let mut message = format!("cherry-pick: {}", replay.commit.message);
     if options.record_origin {
         use std::fmt::Write as _;
         let _ = write!(message, "\n\n(cherry picked from commit {commit_id})");
     }
-
-    let mut builder =
-        CommitObject::builder(merged_schema_id, commit.protocol.clone(), author, message)
-            .parents(vec![head_id])
-            .migration_id(migration_id);
-    if let Some(protocol_id) = protocol_id {
-        builder = builder.protocol_id(protocol_id);
-    }
-    if !lifted_data_ids.is_empty() {
-        builder = builder.data_ids(lifted_data_ids);
-    }
-    if !lifted_complement_ids.is_empty() {
-        builder = builder.complement_ids(lifted_complement_ids);
-    }
-    // CST complements are keyed by content, not schema, so they carry
-    // through the cherry-pick unchanged.
-    if !commit.cst_complement_ids.is_empty() {
-        builder = builder.cst_complement_ids(commit.cst_complement_ids.clone());
-    }
-    let new_commit = builder.build();
-    let new_commit_id = store.put(&Object::Commit(new_commit))?;
-
+    let new_commit_id = replay.into_commit(store, author, message)?;
     advance_head(store, head_id, new_commit_id, author, "cherry-pick")?;
-
     Ok(new_commit_id)
-}
-
-/// The commit object `id` names.
-fn load_commit(store: &dyn Store, id: ObjectId) -> Result<CommitObject, VcsError> {
-    match store.get(&id)? {
-        Object::Commit(commit) => Ok(commit),
-        other => Err(VcsError::WrongObjectType {
-            expected: "commit",
-            found: other.type_name(),
-        }),
-    }
 }
 
 /// Advance HEAD (or the branch it points to) and append a reflog entry.
@@ -329,14 +109,6 @@ pub(crate) fn advance_head(
         },
     )?;
     Ok(())
-}
-
-fn load_schema_dyn(
-    store: &dyn Store,
-    schema_id: &ObjectId,
-) -> Result<panproto_schema::Schema, VcsError> {
-    let proto = crate::tree::project_coproduct_protocol();
-    crate::tree::assemble_schema_dyn(store, schema_id, &proto)
 }
 
 #[cfg(test)]

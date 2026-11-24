@@ -123,16 +123,71 @@ impl ProtocolEnvironment {
         )
     }
 
-    /// The protocol `name` means, read from `store`.
+    /// The protocol `name` means to data staged in this environment: the one
+    /// it defines, else the built-in protocol of that name or alias.
     ///
     /// # Errors
     ///
-    /// The errors of [`load_protocol`].
-    pub fn load(&self, store: &dyn Store, name: &str) -> Result<Option<Protocol>, VcsError> {
-        self.get(name)
-            .map(|id| load_protocol(store, id))
-            .transpose()
+    /// [`VcsError::UnknownProtocol`] when there is neither, and the errors of
+    /// [`load_protocol`].
+    pub fn resolve(&self, store: &dyn Store, name: &str) -> Result<Protocol, VcsError> {
+        if let Some(id) = self.get(name) {
+            return load_protocol(store, id);
+        }
+        panproto_protocols::registry::descriptor(name)
+            .map(|descriptor| (descriptor.protocol)())
+            .ok_or_else(|| VcsError::UnknownProtocol {
+                name: name.to_owned(),
+            })
     }
+}
+
+/// The environment recorded at `id`, the one that defines no name when there
+/// is none.
+///
+/// A commit made before 0.78.0 recorded a lone [`Object::Protocol`] here,
+/// which is the environment that defines its name.
+///
+/// # Errors
+///
+/// A store error, or [`VcsError::WrongObjectType`] when `id` names another
+/// kind of object.
+pub fn load_environment(
+    store: &dyn Store,
+    id: Option<ObjectId>,
+) -> Result<ProtocolEnvironment, VcsError> {
+    let Some(id) = id else {
+        return Ok(ProtocolEnvironment::new());
+    };
+    match store.get(&id)? {
+        Object::ProtocolEnvironment(environment) => Ok(environment),
+        Object::Protocol(protocol) => {
+            let mut environment = ProtocolEnvironment::new();
+            environment.define(protocol.name, id);
+            Ok(environment)
+        }
+        other => Err(VcsError::WrongObjectType {
+            expected: "protocol_environment",
+            found: other.type_name(),
+        }),
+    }
+}
+
+/// Store `environment`; `None` when it defines no name.
+///
+/// # Errors
+///
+/// A store error.
+pub fn store_environment(
+    store: &mut dyn Store,
+    environment: ProtocolEnvironment,
+) -> Result<Option<ObjectId>, VcsError> {
+    if environment.is_empty() {
+        return Ok(None);
+    }
+    store
+        .put(&Object::ProtocolEnvironment(environment))
+        .map(Some)
 }
 
 /// The protocol object at `id`.

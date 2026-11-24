@@ -58,9 +58,7 @@ pub fn mark_reachable(
                 for parent in commit.parents {
                     queue.push(parent);
                 }
-                if let Some(protocol_id) = commit.protocol_id {
-                    queue.push(protocol_id);
-                }
+                queue.extend(commit.environment_id);
                 for data_id in commit.data_ids {
                     queue.push(data_id);
                 }
@@ -81,7 +79,9 @@ pub fn mark_reachable(
                 queue.push(src);
                 queue.push(tgt);
             }
-            Object::ProtocolSet(protocols) => queue.extend(protocols.into_values()),
+            Object::ProtocolEnvironment(environment) => {
+                queue.extend(environment.iter().map(|(_, id)| id));
+            }
             Object::Protocol(_)
             | Object::Expr(_)
             | Object::Theory(_)
@@ -110,6 +110,7 @@ pub fn mark_reachable(
             }
             Object::DataSet(dataset) => {
                 queue.push(dataset.schema_id);
+                queue.extend(dataset.protocol_id);
             }
             Object::Complement(complement) => {
                 queue.push(complement.migration_id);

@@ -8,6 +8,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::environment::ProtocolEnvironment;
 use crate::gat_validate::GatDiagnostics;
 use crate::hash::ObjectId;
 
@@ -19,9 +20,10 @@ pub struct Index {
     /// Data files staged for the next commit.
     #[serde(default)]
     pub staged_data: Vec<StagedData>,
-    /// Protocol definition staged for the next commit.
+    /// The protocols staged for the next commit: the edit it makes to the
+    /// protocol environment of HEAD.
     #[serde(default)]
-    pub staged_protocol: Option<ObjectId>,
+    pub staged_protocols: ProtocolEnvironment,
 }
 
 /// A data file that has been staged for commit.
@@ -80,14 +82,14 @@ pub enum ValidationStatus {
 impl Index {
     /// Returns `true` if something is staged.
     #[must_use]
-    pub const fn has_staged(&self) -> bool {
-        self.staged.is_some() || !self.staged_data.is_empty() || self.staged_protocol.is_some()
+    pub fn has_staged(&self) -> bool {
+        self.staged.is_some() || !self.staged_data.is_empty() || !self.staged_protocols.is_empty()
     }
 
     /// Clear the staging area.
     pub fn clear(&mut self) {
         self.staged = None;
         self.staged_data.clear();
-        self.staged_protocol = None;
+        self.staged_protocols = ProtocolEnvironment::new();
     }
 }

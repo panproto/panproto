@@ -13,6 +13,10 @@ use panproto_schema::{Protocol, Schema};
 use crate::auto_mig;
 use crate::cherry_pick::{self, advance_head};
 use crate::dag;
+use crate::data_mig::{Fibre, LiftTarget};
+use crate::environment::{
+    ProtocolEnvironment, load_environment, load_protocol, store_environment,
+};
 use crate::error::VcsError;
 use crate::fs_store::FsStore;
 use crate::gat_validate;
@@ -21,13 +25,18 @@ use crate::hash::ObjectId;
 use crate::index::{Index, StagedData, StagedSchema, ValidationStatus};
 use crate::merge;
 use crate::object::{CommitObject, DataSetObject, Object};
+use crate::records::{Check, lift_records};
 use crate::refs;
 use crate::store::{self, HeadState, Store};
 use crate::tree::ProjectProtocol;
 
-/// The versioned-data references a merge commit carries, as
-/// `(data_ids, complement_ids, cst_complement_ids)`.
-type MergedCommitData = (Vec<ObjectId>, Vec<ObjectId>, Vec<ObjectId>);
+/// What a merge commit carries of its parents' data.
+#[derive(Default)]
+struct MergedCommitData {
+    data_ids: Vec<ObjectId>,
+    complement_ids: Vec<ObjectId>,
+    cst_complement_ids: Vec<ObjectId>,
+}
 
 /// The context needed to record a clean three-way merge commit.
 struct MergeCommitCtx<'a> {
@@ -38,9 +47,9 @@ struct MergeCommitCtx<'a> {
     theirs_id: ObjectId,
     ours_schema: Schema,
     result: &'a merge::MergeResult,
-    data_ids: Vec<ObjectId>,
-    complement_ids: Vec<ObjectId>,
-    cst_complement_ids: Vec<ObjectId>,
+    merged_schema_id: ObjectId,
+    environment: ProtocolEnvironment,
+    data: MergedCommitData,
 }
 
 /// Options for creating a commit.
@@ -110,10 +119,6 @@ pub struct Repository {
     /// CLI populates this from the `panproto-protocols` registry before
     /// operating on a repository.
     protocol_theories: HashMap<String, Theory>,
-    /// Protocols registered by name with [`set_protocol`](Self::set_protocol),
-    /// the second place a schema's protocol name is resolved in (after the
-    /// staged or committed protocol object, before the protocol registry).
-    protocols: HashMap<String, Protocol>,
 }
 
 impl Repository {
@@ -130,7 +135,6 @@ impl Repository {
             store,
             working_dir: path.to_owned(),
             protocol_theories: HashMap::new(),
-            protocols: HashMap::new(),
         })
     }
 
@@ -145,7 +149,6 @@ impl Repository {
             store,
             working_dir: path.to_owned(),
             protocol_theories: HashMap::new(),
-            protocols: HashMap::new(),
         })
     }
 
@@ -160,66 +163,36 @@ impl Repository {
         self.protocol_theories.insert(protocol.into(), theory);
     }
 
-    /// Register `protocol` under its name, so that a schema naming it
-    /// resolves to it when no staged or committed protocol object of that
-    /// name exists.
+    /// The protocol environment at HEAD with the staged protocols in it: what
+    /// each protocol name means to data staged now.
     ///
-    /// A schema's protocol name resolves, in this order, to the staged
-    /// protocol object of that name (else the one HEAD records), to a
-    /// protocol registered here, and to the protocol the
-    /// `panproto-protocols` registry declares. Data is validated and
-    /// migrated under the protocol it resolves to; a name none of the three
-    /// resolves is a recorded violation of every record staged under it.
-    pub fn set_protocol(&mut self, protocol: Protocol) {
-        self.protocols.insert(protocol.name.clone(), protocol);
+    /// # Errors
+    ///
+    /// A store error.
+    pub fn environment(&self) -> Result<ProtocolEnvironment, VcsError> {
+        let head = match store::resolve_head(&self.store)? {
+            Some(head) => self.environment_at(&self.load_commit(head)?)?,
+            None => ProtocolEnvironment::new(),
+        };
+        Ok(head.updated(&self.read_index()?.staged_protocols))
     }
 
-    /// The protocol of `name` the current state records: among those staged,
-    /// else among those HEAD records.
-    fn stored_protocol(&self, name: &str) -> Result<Option<Protocol>, VcsError> {
-        let staged = self.read_index()?.staged_protocol;
-        if let Some(protocol) = crate::data_mig::recorded_protocol(&self.store, staged, name)? {
-            return Ok(Some(protocol));
-        }
-        match store::resolve_head(&self.store)? {
-            Some(head) => crate::data_mig::recorded_protocol(
-                &self.store,
-                self.load_commit(head)?.protocol_id,
-                name,
-            ),
-            None => Ok(None),
-        }
+    /// The protocol environment `commit` records.
+    fn environment_at(&self, commit: &CommitObject) -> Result<ProtocolEnvironment, VcsError> {
+        load_environment(&self.store, commit.environment_id)
     }
 
-    /// The protocol `schema` names, resolved in the order
-    /// [`set_protocol`](Self::set_protocol) states, or `None` when the name
-    /// does not resolve.
-    fn resolved_protocol(&self, schema: &Schema) -> Result<Option<Protocol>, VcsError> {
-        let stored = self.stored_protocol(&schema.protocol)?;
-        match crate::data_mig::protocol_for_schema(
-            schema,
-            crate::data_mig::ProtocolSources {
-                stored: stored.as_ref(),
-                registered: &self.protocols,
-            },
-        ) {
-            Ok(protocol) => Ok(Some(protocol)),
-            Err(VcsError::UnknownProtocol { .. }) => Ok(None),
-            Err(other) => Err(other),
-        }
-    }
-
-    /// The protocol `schema` names, resolved in the order
-    /// [`set_protocol`](Self::set_protocol) states.
-    fn protocol_for(&self, schema: &Schema) -> Result<Protocol, VcsError> {
-        let stored = self.stored_protocol(&schema.protocol)?;
-        crate::data_mig::protocol_for_schema(
-            schema,
-            crate::data_mig::ProtocolSources {
-                stored: stored.as_ref(),
-                registered: &self.protocols,
-            },
-        )
+    /// The environment of a commit that makes the edit `staged` to `parent`.
+    fn store_edited_environment(
+        &mut self,
+        parent: Option<&CommitObject>,
+        staged: &ProtocolEnvironment,
+    ) -> Result<Option<ObjectId>, VcsError> {
+        let environment = match parent {
+            Some(parent) => self.environment_at(parent)?.updated(staged),
+            None => staged.clone(),
+        };
+        store_environment(&mut self.store, environment)
     }
 
     /// Validate `schema` against its registered protocol theory's
@@ -509,27 +482,18 @@ impl Repository {
         let parents: Vec<ObjectId> = head_id.into_iter().collect();
         let data_ids: Vec<ObjectId> = index.staged_data.iter().map(|sd| sd.data_id).collect();
 
-        // The staged protocols and those HEAD records: a commit that stages
-        // no protocol of a name does not change which one the name means.
-        let head_protocols = match head_id {
-            Some(head) => self.load_commit(head)?.protocol_id,
-            None => None,
-        };
-        let protocol_id = crate::data_mig::record_protocols(
-            &mut self.store,
-            &[index.staged_protocol, head_protocols],
-        )?;
+        let head_commit = head_id.map(|head| self.load_commit(head)).transpose()?;
+        let environment_id =
+            self.store_edited_environment(head_commit.as_ref(), &index.staged_protocols)?;
 
         let mut builder = CommitObject::builder(schema_id, schema.protocol, author, message)
-            .theory_ids(theory_ids);
+            .theory_ids(theory_ids)
+            .environment_id(environment_id);
         if !parents.is_empty() {
             builder = builder.parents(parents);
         }
         if let Some(mid) = migration_id {
             builder = builder.migration_id(mid);
-        }
-        if let Some(pid) = protocol_id {
-            builder = builder.protocol_id(pid);
         }
         if !data_ids.is_empty() {
             builder = builder.data_ids(data_ids);
@@ -638,7 +602,21 @@ impl Repository {
         let ours_schema = self.load_schema(ours_commit.schema_id)?;
         let theirs_schema = self.load_schema(theirs_commit.schema_id)?;
 
-        let result = merge::three_way_merge(&base_schema, &ours_schema, &theirs_schema);
+        let mut result = merge::three_way_merge(&base_schema, &ours_schema, &theirs_schema);
+
+        // The merge is a pushout of protocol environments too, and a name whose
+        // pushout does not exist is a conflict like any other.
+        let environment = match ProtocolEnvironment::merge(
+            &self.environment_at(&base_commit)?,
+            &self.environment_at(&ours_commit)?,
+            &self.environment_at(&theirs_commit)?,
+        ) {
+            Ok(environment) => environment,
+            Err(conflicts) => {
+                result.conflicts.extend(conflicts);
+                return Ok(result);
+            }
+        };
 
         if result.conflicts.is_empty() && !options.no_commit && !options.squash {
             // Verify the merge pushout cocone conditions before committing:
@@ -671,17 +649,22 @@ impl Repository {
                 });
             }
 
-            // Lift both parents' data through the merged schema and union
-            // the results (data, complements, and CST complements), deduped
-            // by ObjectId, rather than set-unioning stale parent data_ids:
-            // the merge commit references the merged schema, so the data it
-            // carries must conform to that schema, not to a parent's.
-            let (data_ids, complement_ids, cst_complement_ids) = self.lift_and_union_parent_data(
-                &ours_commit,
-                &theirs_commit,
-                &ours_schema,
-                &theirs_schema,
-                &result.merged_schema,
+            // Transport both parents' data to the merged schema and union the
+            // results, rather than set-unioning stale parent data: the merge
+            // commit references the merged schema, so the data it carries must
+            // lie over it.
+            let merged_schema_id = crate::tree::store_schema_as_tree(
+                &mut self.store,
+                result.merged_schema.clone(),
+            )?;
+            let target = LiftTarget {
+                schema_id: merged_schema_id,
+                schema: &result.merged_schema,
+                environment: &environment,
+            };
+            let data = self.lift_and_union_parent_data(
+                [(&ours_commit, &ours_schema), (&theirs_commit, &theirs_schema)],
+                target,
             )?;
 
             self.write_merge_commit(MergeCommitCtx {
@@ -692,9 +675,9 @@ impl Repository {
                 theirs_id,
                 ours_schema,
                 result: &result,
-                data_ids,
-                complement_ids,
-                cst_complement_ids,
+                merged_schema_id,
+                environment,
+                data,
             })?;
         }
 
@@ -703,8 +686,6 @@ impl Repository {
 
     /// Assemble and record a clean three-way merge commit, advancing HEAD.
     fn write_merge_commit(&mut self, ctx: MergeCommitCtx<'_>) -> Result<(), VcsError> {
-        let merged_schema_id =
-            crate::tree::store_schema_as_tree(&mut self.store, ctx.result.merged_schema.clone())?;
         let mig_src = self
             .store
             .put(&Object::FlatSchema(Box::new(ctx.ours_schema)))?;
@@ -728,32 +709,20 @@ impl Repository {
             .unwrap_or_else(|| format!("merge branch '{}'", ctx.branch));
 
         // Store theory for the merged schema.
-        let merged_schema = self.load_schema(merged_schema_id)?;
+        let merged_schema = ctx.result.merged_schema.clone();
         let merge_theory_ids = self.store_schema_theory(&merged_schema)?;
 
-        let parent_protocols = [
-            self.load_commit(ctx.ours_id)?.protocol_id,
-            self.load_commit(ctx.theirs_id)?.protocol_id,
-        ];
-        let protocol_id = crate::data_mig::record_protocols(&mut self.store, &parent_protocols)?;
+        let environment_id = store_environment(&mut self.store, ctx.environment)?;
 
-        let mut merge_builder =
-            CommitObject::builder(merged_schema_id, merged_schema.protocol, ctx.author, msg)
+        let merge_builder =
+            CommitObject::builder(ctx.merged_schema_id, merged_schema.protocol, ctx.author, msg)
                 .parents(vec![ctx.ours_id, ctx.theirs_id])
                 .migration_id(migration_id)
-                .theory_ids(merge_theory_ids);
-        if let Some(pid) = protocol_id {
-            merge_builder = merge_builder.protocol_id(pid);
-        }
-        if !ctx.data_ids.is_empty() {
-            merge_builder = merge_builder.data_ids(ctx.data_ids);
-        }
-        if !ctx.complement_ids.is_empty() {
-            merge_builder = merge_builder.complement_ids(ctx.complement_ids);
-        }
-        if !ctx.cst_complement_ids.is_empty() {
-            merge_builder = merge_builder.cst_complement_ids(ctx.cst_complement_ids);
-        }
+                .theory_ids(merge_theory_ids)
+                .environment_id(environment_id)
+                .data_ids(ctx.data.data_ids)
+                .complement_ids(ctx.data.complement_ids)
+                .cst_complement_ids(ctx.data.cst_complement_ids);
         let merge_commit = merge_builder.build();
         let merge_id = self.store.put(&Object::Commit(merge_commit))?;
         advance_head(
@@ -807,10 +776,8 @@ impl Repository {
         };
         let schema = self.load_schema(schema_id)?;
         let theory_ids = self.store_schema_theory(&schema)?;
-        let protocol_id = crate::data_mig::record_protocols(
-            &mut self.store,
-            &[index.staged_protocol, old_commit.protocol_id],
-        )?;
+        let environment_id =
+            self.store_edited_environment(Some(&old_commit), &index.staged_protocols)?;
         let mut data_ids = old_commit.data_ids;
         data_ids.extend(index.staged_data.iter().map(|staged| staged.data_id));
 
@@ -823,6 +790,7 @@ impl Repository {
             .parents(old_commit.parents)
             .renames(renames)
             .theory_ids(theory_ids)
+            .environment_id(environment_id)
             .data_ids(data_ids)
             .complement_ids(old_commit.complement_ids)
             .edit_log_ids(old_commit.edit_log_ids)
@@ -830,9 +798,6 @@ impl Repository {
             .unverified(old_commit.unverified);
         if let Some(mid) = migration_id {
             builder = builder.migration_id(mid);
-        }
-        if let Some(pid) = protocol_id {
-            builder = builder.protocol_id(pid);
         }
         let new_commit = builder.build();
         let new_id = self.store.put(&Object::Commit(new_commit))?;
@@ -921,7 +886,7 @@ impl Repository {
     ///
     /// Returns an error if the cherry-pick produces conflicts.
     pub fn cherry_pick(&mut self, commit_id: ObjectId, author: &str) -> Result<ObjectId, VcsError> {
-        cherry_pick::cherry_pick(&mut self.store, commit_id, author, &self.protocols)
+        cherry_pick::cherry_pick(&mut self.store, commit_id, author)
     }
 
     /// Rebase the current branch onto `onto`.
@@ -930,7 +895,7 @@ impl Repository {
     ///
     /// Returns an error if rebase produces conflicts.
     pub fn rebase(&mut self, onto: ObjectId, author: &str) -> Result<ObjectId, VcsError> {
-        crate::rebase::rebase(&mut self.store, onto, author, &self.protocols)
+        crate::rebase::rebase(&mut self.store, onto, author)
     }
 
     /// Reset HEAD to a target commit.
@@ -1042,19 +1007,25 @@ impl Repository {
             commit.schema_id
         };
         let schema = self.load_schema(schema_id)?;
-        let protocol = self.resolved_protocol(&schema)?;
-
+        let (protocol, check) = match self.environment()?.resolve(&self.store, &schema.protocol) {
+            Ok(protocol) if options.skip_verify => (Some(protocol), Check::Skipped),
+            Ok(protocol) => (Some(protocol), Check::Complete),
+            Err(VcsError::UnknownProtocol { .. }) if options.skip_verify => (None, Check::Skipped),
+            Err(error) => return Err(error),
+        };
+        // With no protocol no vertex kind is classified, so every object and
+        // array is read as structure.
+        let unclassified = Protocol::default();
         let instances = lift_records(
             &data_bytes,
             path,
             &schema,
-            protocol.as_ref(),
-            if options.skip_verify {
-                RecordCheck::Skipped
-            } else {
-                RecordCheck::Staged
-            },
+            protocol.as_ref().unwrap_or(&unclassified),
+            check,
         )?;
+        let protocol_id = protocol
+            .map(|protocol| self.store.put(&Object::Protocol(Box::new(protocol))))
+            .transpose()?;
         let record_count = instances.len() as u64;
         let data = rmp_serde::to_vec(&instances)?;
 
@@ -1066,6 +1037,7 @@ impl Repository {
             data,
             record_count,
             key: Some(key),
+            protocol_id,
         };
         let data_id = self.store.put(&Object::DataSet(dataset))?;
 
@@ -1102,10 +1074,9 @@ impl Repository {
             .store
             .put(&Object::Protocol(Box::new(protocol.clone())))?;
         let mut index = self.read_index()?;
-        index.staged_protocol = crate::data_mig::record_protocols(
-            &mut self.store,
-            &[Some(protocol_id), index.staged_protocol],
-        )?;
+        index
+            .staged_protocols
+            .define(protocol.name.clone(), protocol_id);
         self.write_index(&index)?;
         Ok(index)
     }
@@ -1136,13 +1107,10 @@ impl Repository {
 
         // 3. If schemas differ, migrate data files
         if current_commit.schema_id != target_commit.schema_id && data_dir.is_dir() {
-            let protocol = self.protocol_for(&current_schema)?;
-            crate::data_mig::migrate_data_directory(
-                &mut self.store,
+            self.migrate_data_directory(
                 data_dir,
-                &current_schema,
-                &target_schema,
-                &protocol,
+                (&current_commit, &current_schema),
+                (&target_commit, &target_schema),
             )?;
         }
 
@@ -1190,14 +1158,10 @@ impl Repository {
     /// by each data set, validates every decoded record, verifies the recorded
     /// count, and returns the records in source-JSON-equivalent form.
     ///
-    /// Records are validated under the protocol their schema names: the
-    /// protocol object recorded by the commit at `reference`, else the one
-    /// the name resolves to in the current state (see
-    /// [`set_protocol`](Self::set_protocol)). A schema whose protocol name
-    /// resolves to neither has its records checked against what the schema
-    /// decides by itself, so data outlives the protocol that described it.
-    /// An attribute the schema does not declare is returned rather than
-    /// refused. Staging is stricter in both respects.
+    /// Records are validated under the protocol the data set records, so what
+    /// they mean and whether they are valid are the same at every commit that
+    /// holds them. A data set that records none, as those committed before
+    /// 0.78.0 do, is checked against what its schema decides by itself.
     ///
     /// # Errors
     ///
@@ -1206,27 +1170,18 @@ impl Repository {
     /// committed count, or if a record does not conform to the committed
     /// schema.
     pub fn decoded_data_at(&self, reference: &str) -> Result<Vec<DecodedDataSet>, VcsError> {
-        let commit = self.load_commit(refs::resolve_ref(&self.store, reference)?)?;
         self.data_at(reference)?
             .into_iter()
-            .map(|dataset| self.decode_data_set(dataset, commit.protocol_id))
+            .map(|dataset| self.decode_data_set(dataset))
             .collect()
     }
 
-    /// Decode one committed data set through the schema it names, under the
-    /// protocol of that name recorded at `recorded` by the commit that
-    /// carries it, else under the one the name resolves to in the current
-    /// state.
-    fn decode_data_set(
-        &self,
-        dataset: DataSetObject,
-        recorded: Option<ObjectId>,
-    ) -> Result<DecodedDataSet, VcsError> {
+    /// Decode one committed data set through the schema and protocol it names.
+    fn decode_data_set(&self, dataset: DataSetObject) -> Result<DecodedDataSet, VcsError> {
         let schema = self.load_schema(dataset.schema_id)?;
-        let recorded = crate::data_mig::recorded_protocol(&self.store, recorded, &schema.protocol)?;
-        let protocol = match recorded {
-            Some(recorded) => Some(recorded),
-            None => self.resolved_protocol(&schema)?,
+        let (protocol, check) = match dataset.protocol_id {
+            Some(id) => (load_protocol(&self.store, id)?, Check::Complete),
+            None => (Protocol::default(), Check::SchemaAlone),
         };
         let display = dataset
             .key
@@ -1242,8 +1197,8 @@ impl Repository {
                     &dataset.data,
                     Path::new(&display),
                     &schema,
-                    protocol.as_ref(),
-                    RecordCheck::Committed,
+                    &protocol,
+                    check,
                 )?
             } else {
                 rmp_serde::from_slice(&dataset.data)?
@@ -1262,7 +1217,7 @@ impl Repository {
 
         let mut records = Vec::with_capacity(instances.len());
         for (index, instance) in instances.iter().enumerate() {
-            let reasons = committed_violations(&schema, protocol.as_ref(), instance);
+            let reasons = check.violations(&schema, &protocol, instance);
             if !reasons.is_empty() {
                 return Err(VcsError::DataValidationFailed {
                     path: display,
@@ -1324,13 +1279,10 @@ impl Repository {
 
             if pre_merge_commit.schema_id != head_commit.schema_id {
                 let merged_schema = self.load_schema(head_commit.schema_id)?;
-                let protocol = self.protocol_for(&pre_merge_schema)?;
-                crate::data_mig::migrate_data_directory(
-                    &mut self.store,
+                self.migrate_data_directory(
                     data_dir,
-                    &pre_merge_schema,
-                    &merged_schema,
-                    &protocol,
+                    (&pre_merge_commit, &pre_merge_schema),
+                    (&head_commit, &merged_schema),
                 )?;
             }
         }
@@ -1340,57 +1292,72 @@ impl Repository {
 
     // -- internal helpers --
 
-    /// Lift both parents' versioned data through the merged schema and
-    /// union the results, deduped by [`ObjectId`].
+    /// Migrate the data files in `data_dir` from one commit's schema to
+    /// another's, each read under the protocol it names at its commit.
+    fn migrate_data_directory(
+        &mut self,
+        data_dir: &Path,
+        source: (&CommitObject, &Schema),
+        target: (&CommitObject, &Schema),
+    ) -> Result<(), VcsError> {
+        let mut protocols = Vec::with_capacity(2);
+        for (commit, schema) in [source, target] {
+            let protocol = self
+                .environment_at(commit)?
+                .resolve(&self.store, &schema.protocol)?;
+            let id = self
+                .store
+                .put(&Object::Protocol(Box::new(protocol.clone())))?;
+            protocols.push((id, protocol));
+        }
+        let [src, tgt] = [(source, &protocols[0]), (target, &protocols[1])].map(
+            |((commit, schema), (protocol_id, protocol))| Fibre {
+                schema_id: commit.schema_id,
+                schema,
+                protocol_id: Some(*protocol_id),
+                protocol,
+            },
+        );
+        crate::data_mig::migrate_data_directory(&mut self.store, data_dir, src, tgt)
+    }
+
+    /// Transport each parent's data to `target` and union the results,
+    /// deduped by [`ObjectId`].
     ///
-    /// Returns `(data_ids, complement_ids, cst_complement_ids)` for the
-    /// merge commit: each parent's data sets lifted from its own schema to
-    /// `merged_schema` (returned unchanged when a parent did not change the
-    /// schema), its complements extended with the fresh backward-migration
-    /// complements, and both parents' CST complements carried through
-    /// unchanged (they are keyed by content, not schema).
+    /// CST complements are carried through unchanged: they are keyed by
+    /// content, not schema.
     fn lift_and_union_parent_data(
         &mut self,
-        ours_commit: &CommitObject,
-        theirs_commit: &CommitObject,
-        ours_schema: &Schema,
-        theirs_schema: &Schema,
-        merged_schema: &Schema,
+        parents: [(&CommitObject, &Schema); 2],
+        target: LiftTarget<'_>,
     ) -> Result<MergedCommitData, VcsError> {
-        let (ours_data_ids, ours_complement_ids) = crate::data_mig::lift_commit_data(
-            &mut self.store,
-            ours_commit,
-            ours_schema,
-            merged_schema,
-            &self.protocols,
-        )?;
-        let (theirs_data_ids, theirs_complement_ids) = crate::data_mig::lift_commit_data(
-            &mut self.store,
-            theirs_commit,
-            theirs_schema,
-            merged_schema,
-            &self.protocols,
-        )?;
+        fn union(into: &mut Vec<ObjectId>, ids: impl IntoIterator<Item = ObjectId>) {
+            for id in ids {
+                if !into.contains(&id) {
+                    into.push(id);
+                }
+            }
+        }
 
-        let mut data_ids = ours_data_ids;
-        for id in theirs_data_ids {
-            if !data_ids.contains(&id) {
-                data_ids.push(id);
-            }
+        let mut merged = MergedCommitData::default();
+        for (commit, schema) in parents {
+            let lifted =
+                crate::data_mig::lift_commit_data(&mut self.store, commit, schema, target)?;
+            crate::square::verify_lifted_squares(
+                &mut self.store,
+                commit,
+                &lifted,
+                schema,
+                target,
+            )?;
+            union(&mut merged.data_ids, lifted.data_ids);
+            union(&mut merged.complement_ids, lifted.complement_ids);
+            union(
+                &mut merged.cst_complement_ids,
+                commit.cst_complement_ids.iter().copied(),
+            );
         }
-        let mut complement_ids = ours_complement_ids;
-        for id in theirs_complement_ids {
-            if !complement_ids.contains(&id) {
-                complement_ids.push(id);
-            }
-        }
-        let mut cst_complement_ids = ours_commit.cst_complement_ids.clone();
-        for id in &theirs_commit.cst_complement_ids {
-            if !cst_complement_ids.contains(id) {
-                cst_complement_ids.push(*id);
-            }
-        }
-        Ok((data_ids, complement_ids, cst_complement_ids))
+        Ok(merged)
     }
 
     fn load_commit(&self, id: ObjectId) -> Result<CommitObject, VcsError> {
@@ -1404,6 +1371,10 @@ impl Repository {
     }
 
     fn load_schema(&self, id: ObjectId) -> Result<Schema, VcsError> {
+        // A migration endpoint is stored flat.
+        if let Object::FlatSchema(schema) = self.store.get(&id)? {
+            return Ok(*schema);
+        }
         let proto = crate::tree::project_coproduct_protocol();
         crate::tree::assemble_schema(&self.store, &id, &proto)
     }
@@ -1449,30 +1420,6 @@ impl Repository {
     /// Returns an error if writing the index file fails.
     pub fn clear_index(&self) -> Result<(), VcsError> {
         self.write_index(&Index::default())
-    }
-}
-
-/// Count records in a data blob.
-///
-/// Tries to parse as a JSON array and returns the number of elements.
-/// Falls back to 1 for non-array JSON or non-JSON data.
-/// The vertices a record of `schema` may be rooted at.
-///
-/// A schema is pointed by a *family* of basepoints, not by one: its
-/// declared entries are the sorts at which an instance may be rooted,
-/// and which of them a given record belongs to is a property of the
-/// record. So a record is read at whichever entry accepts it rather
-/// than at a single vertex chosen in advance.
-///
-/// Falls back to [`panproto_schema::primary_entry`] for a schema that
-/// declares no entries, which is that function's own documented
-/// fallback for schemas predating declared entries.
-fn candidate_roots(schema: &Schema) -> Vec<&panproto_gat::Name> {
-    let declared = schema.entry_vertices();
-    if declared.is_empty() {
-        panproto_schema::primary_entry(schema).into_iter().collect()
-    } else {
-        declared.iter().collect()
     }
 }
 
@@ -1526,197 +1473,6 @@ fn unverified_stages(index: &Index, options: &CommitOptions) -> Result<Vec<Strin
         });
     }
     Ok(unverified)
-}
-
-/// What a record is held to when its schema's protocol is, or is not, one
-/// that resolves.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum RecordCheck {
-    /// Nothing: the record is parsed and left unchecked.
-    Skipped,
-    /// Everything [`record_violations`] reports, as for a record being
-    /// staged.
-    Staged,
-    /// Everything [`committed_violations`] reports, as for a record read
-    /// back from a commit.
-    Committed,
-}
-
-impl RecordCheck {
-    /// What this check finds wrong with `instance`.
-    fn violations(
-        self,
-        schema: &Schema,
-        protocol: Option<&Protocol>,
-        instance: &panproto_inst::WInstance,
-    ) -> Vec<String> {
-        match self {
-            Self::Skipped => Vec::new(),
-            Self::Staged => record_violations(schema, protocol, instance),
-            Self::Committed => committed_violations(schema, protocol, instance),
-        }
-    }
-}
-
-/// Read a data file's records as W-type instances of `schema`.
-///
-/// A top-level JSON array is a set of records; anything else is one
-/// record. Each is lifted at one of the schema's entry vertices and held to
-/// `check`. A record is accepted at the first entry that both reads it and
-/// passes the check; a record no entry accepts is reported with what went
-/// wrong at each, since which entry was meant is exactly what is in
-/// question.
-///
-/// Counting bytes instead would report a file which is not JSON at all
-/// as holding one record, which is wrong under any policy: nothing would
-/// have read the bytes.
-fn lift_records(
-    data: &[u8],
-    path: &Path,
-    schema: &Schema,
-    protocol: Option<&Protocol>,
-    check: RecordCheck,
-) -> Result<Vec<panproto_inst::WInstance>, VcsError> {
-    let display = path.display().to_string();
-    let value: serde_json::Value =
-        serde_json::from_slice(data).map_err(|e| VcsError::DataParseFailed {
-            path: display.clone(),
-            reason: format!("not JSON: {e}"),
-        })?;
-
-    let records: Vec<&serde_json::Value> = match &value {
-        serde_json::Value::Array(items) => items.iter().collect(),
-        single => vec![single],
-    };
-
-    let roots = candidate_roots(schema);
-    if roots.is_empty() {
-        return Err(VcsError::DataParseFailed {
-            path: display,
-            reason: "the schema has no vertex to root a record at".to_owned(),
-        });
-    }
-
-    // An unknown protocol classifies no vertex kind, so the parse reads
-    // every object and array as structure; `check` decides whether that is
-    // acceptable.
-    let unclassified = Protocol::default();
-    let parse_protocol = protocol.unwrap_or(&unclassified);
-    let mut instances = Vec::with_capacity(records.len());
-    for (i, record) in records.iter().enumerate() {
-        let mut accepted = None;
-        let mut rejections: Vec<String> = Vec::with_capacity(roots.len());
-
-        for root in &roots {
-            match panproto_inst::parse_json(schema, parse_protocol, root.as_str(), record) {
-                Err(e) => rejections.push(format!("at {root}: {e}")),
-                Ok(instance) => {
-                    let reasons = check.violations(schema, protocol, &instance);
-                    if reasons.is_empty() {
-                        accepted = Some(instance);
-                        break;
-                    }
-                    rejections.push(format!("at {root}: {}", reasons.join("; ")));
-                }
-            }
-        }
-
-        let Some(instance) = accepted else {
-            return Err(VcsError::DataValidationFailed {
-                path: display,
-                reasons: rejections
-                    .into_iter()
-                    .map(|r| format!("record {i} {r}"))
-                    .collect(),
-            });
-        };
-        instances.push(instance);
-    }
-
-    Ok(instances)
-}
-
-/// Everything wrong with `instance` as a record of `schema` under
-/// `protocol`, the protocol the schema's name resolved to (`None` when it
-/// resolved to none).
-///
-/// No reason when the validation report's status is `Passed`; otherwise
-/// the message of every required diagnostic, in report order, then one per
-/// required check left undecided. Advisory entries never decide the status
-/// and give no reason. An unresolved protocol name is the one reason
-/// `unknown protocol "{name}"`.
-fn record_violations(
-    schema: &Schema,
-    protocol: Option<&Protocol>,
-    instance: &panproto_inst::WInstance,
-) -> Vec<String> {
-    let Some(protocol) = protocol else {
-        return vec![
-            VcsError::UnknownProtocol {
-                name: schema.protocol.clone(),
-            }
-            .to_string(),
-        ];
-    };
-    let report = panproto_inst::validate_wtype(instance, schema, protocol);
-    if report.status == panproto_gat::CheckStatus::Passed {
-        return Vec::new();
-    }
-    let required = panproto_inst::validation::Requirement::Required;
-    report
-        .diagnostics
-        .iter()
-        .filter(|d| d.requirement == required)
-        .map(ToString::to_string)
-        .chain(
-            report
-                .incomplete
-                .iter()
-                .filter(|i| i.requirement == required)
-                .map(ToString::to_string),
-        )
-        .collect()
-}
-
-/// Everything known to be wrong with `instance`, a record read back from a
-/// commit, as a record of `schema`.
-///
-/// What [`record_violations`] reports, with two things left out. An
-/// attribute the schema does not declare is no reason, because a commit may
-/// hold records staged before staging refused one. And when the protocol
-/// did not resolve, the record is validated under a protocol that gives no
-/// vertex kind and no constraint a meaning, whose undecided checks are no
-/// reason either, because they were decided when the record was staged.
-fn committed_violations(
-    schema: &Schema,
-    protocol: Option<&Protocol>,
-    instance: &panproto_inst::WInstance,
-) -> Vec<String> {
-    let required = panproto_inst::validation::Requirement::Required;
-    let unclassified = Protocol::default();
-    let report = panproto_inst::validate_wtype(instance, schema, protocol.unwrap_or(&unclassified));
-    let mut reasons: Vec<String> = report
-        .diagnostics
-        .iter()
-        .filter(|d| {
-            d.requirement == required
-                && !matches!(
-                    d.violation,
-                    panproto_inst::validation::Violation::UndeclaredAttribute { .. }
-                )
-        })
-        .map(ToString::to_string)
-        .collect();
-    if protocol.is_some() {
-        reasons.extend(
-            report
-                .incomplete
-                .iter()
-                .filter(|i| i.requirement == required)
-                .map(ToString::to_string),
-        );
-    }
-    reasons
 }
 
 #[cfg(test)]

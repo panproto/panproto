@@ -505,12 +505,17 @@ pub fn hash_tag(tag: &TagObject) -> Result<ObjectId, VcsError> {
 ///
 /// Returns an error if serialization fails.
 pub fn hash_dataset(dataset: &DataSetObject) -> Result<ObjectId, VcsError> {
-    let canonical: BTreeMap<&str, Vec<u8>> = BTreeMap::from([
+    let mut canonical: BTreeMap<&str, Vec<u8>> = BTreeMap::from([
         ("schema_id", rmp_serde::to_vec(&dataset.schema_id)?),
         ("data", rmp_serde::to_vec(&dataset.data)?),
         ("record_count", rmp_serde::to_vec(&dataset.record_count)?),
         ("key", rmp_serde::to_vec(&dataset.key)?),
     ]);
+    // An unrecorded protocol contributes nothing, so a data set that predates
+    // the field keeps its ID.
+    if let Some(protocol_id) = &dataset.protocol_id {
+        canonical.insert("protocol_id", rmp_serde::to_vec(protocol_id)?);
+    }
     let bytes = rmp_serde::to_vec(&canonical)?;
     Ok(ObjectId(blake3::hash(&bytes).into()))
 }
@@ -557,16 +562,16 @@ pub fn hash_protocol(protocol: &panproto_schema::Protocol) -> Result<ObjectId, V
     Ok(ObjectId(blake3::hash(&bytes).into()))
 }
 
-/// Compute the content-addressed ID of a set of protocols, which is ordered
-/// by name.
+/// Compute the content-addressed ID of a protocol environment, which is
+/// ordered by name.
 ///
 /// # Errors
 ///
 /// Returns an error if serialization fails.
-pub fn hash_protocol_set(
-    protocols: &std::collections::BTreeMap<String, ObjectId>,
+pub fn hash_protocol_environment(
+    environment: &crate::environment::ProtocolEnvironment,
 ) -> Result<ObjectId, VcsError> {
-    let bytes = rmp_serde::to_vec(&("protocol_set", protocols))?;
+    let bytes = rmp_serde::to_vec(&("protocol_environment", environment))?;
     Ok(ObjectId(blake3::hash(&bytes).into()))
 }
 
@@ -770,7 +775,7 @@ pub fn object_id(object: &crate::object::Object) -> Result<ObjectId, VcsError> {
         Object::FileSchema(file) => hash_file_schema(file),
         Object::SchemaTree(tree) => hash_schema_tree(tree),
         Object::FlatSchema(schema) => hash_schema(schema),
-        Object::ProtocolSet(protocols) => hash_protocol_set(protocols),
+        Object::ProtocolEnvironment(environment) => hash_protocol_environment(environment),
     }
 }
 
@@ -1501,7 +1506,7 @@ mod tests {
             timestamp: u64,
             message: &'a str,
             renames: &'a [panproto_gat::SiteRename],
-            protocol_id: Option<ObjectId>,
+            environment_id: Option<ObjectId>,
             data_ids: &'a [ObjectId],
             complement_ids: &'a [ObjectId],
             edit_log_ids: &'a [ObjectId],
@@ -1523,7 +1528,7 @@ mod tests {
             timestamp: 1_234_567_890,
             message: "historical commit",
             renames: &[],
-            protocol_id: None,
+            environment_id: None,
             data_ids: &[],
             complement_ids: &[],
             edit_log_ids: &[],
