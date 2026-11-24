@@ -63,9 +63,7 @@ impl PyProjectSchema {
     /// Get the unified schema.
     #[getter]
     fn schema(&self) -> PySchema {
-        PySchema {
-            inner: std::sync::Arc::new(self.inner.schema.clone()),
-        }
+        PySchema::unbound(std::sync::Arc::new(self.inner.schema.clone()))
     }
 
     /// Get the file -> protocol mapping as a dict.

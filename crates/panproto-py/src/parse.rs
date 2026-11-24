@@ -98,9 +98,7 @@ impl PyAstParserRegistry {
         let schema = py
             .detach(|| self.inner.parse_file(std::path::Path::new(path), content))
             .map_err(|e| crate::error::PanprotoError::new_err(e.to_string()))?;
-        Ok(PySchema {
-            inner: std::sync::Arc::new(schema),
-        })
+        Ok(PySchema::unbound(std::sync::Arc::new(schema)))
     }
 
     /// Parse source code with a specific protocol name.
@@ -117,9 +115,7 @@ impl PyAstParserRegistry {
         let schema = py
             .detach(|| self.inner.parse_with_protocol(protocol, content, file_path))
             .map_err(|e| crate::error::PanprotoError::new_err(e.to_string()))?;
-        Ok(PySchema {
-            inner: std::sync::Arc::new(schema),
-        })
+        Ok(PySchema::unbound(std::sync::Arc::new(schema)))
     }
 
     /// Detect the language protocol for a file path.
@@ -261,9 +257,7 @@ impl PyParseEmitLens {
                 lens.parse(source)
             })
             .map_err(|e| crate::error::PanprotoError::new_err(e.to_string()))?;
-        Ok(PySchema {
-            inner: Arc::new(schema),
-        })
+        Ok(PySchema::unbound(Arc::new(schema)))
     }
 
     /// Backward direction: schema → canonical source bytes (no complement).
@@ -309,9 +303,7 @@ impl PyParseEmitLens {
     fn strip_complement(schema: &PySchema) -> PySchema {
         let mut copy = schema.inner.as_ref().clone();
         strip_complement(&mut copy);
-        PySchema {
-            inner: Arc::new(copy),
-        }
+        PySchema::unbound(Arc::new(copy))
     }
 
     /// Vertex-kind multiset of a schema (one half of the retraction witness).
@@ -346,9 +338,7 @@ fn parse_source_file(py: Python<'_>, path: &str, content: &[u8]) -> PyResult<PyS
             registry.parse_file(std::path::Path::new(path), content)
         })
         .map_err(|e| crate::error::PanprotoError::new_err(e.to_string()))?;
-    Ok(PySchema {
-        inner: std::sync::Arc::new(schema),
-    })
+    Ok(PySchema::unbound(std::sync::Arc::new(schema)))
 }
 
 /// List all available tree-sitter grammar languages.

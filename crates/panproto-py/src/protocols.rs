@@ -35,71 +35,19 @@ fn lookup(name: &str) -> Option<Protocol> {
     protocols::registry::descriptor(name).map(|descriptor| (descriptor.protocol)())
 }
 
-/// The protocols schemas were built with, and how many times the table has
-/// changed.
-#[derive(Default)]
-struct BuiltProtocols {
-    /// Each protocol by name, with the value of `changes` after the change
-    /// that recorded it.
-    by_name: std::collections::HashMap<String, (u64, Protocol)>,
-    /// The number of changes made to `by_name`.
-    changes: u64,
-}
-
 /// The protocols schemas were built with through `SchemaBuilder.build()`,
 /// keyed by protocol name; the latest build under a name wins.
-static BUILT_PROTOCOLS: std::sync::LazyLock<std::sync::Mutex<BuiltProtocols>> =
-    std::sync::LazyLock::new(|| std::sync::Mutex::new(BuiltProtocols::default()));
-
-/// The table of built protocols, locked.
-fn built_protocols() -> std::sync::MutexGuard<'static, BuiltProtocols> {
-    BUILT_PROTOCOLS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-}
+static BUILT_PROTOCOLS: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<String, Protocol>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
 /// Record `protocol` as the protocol a schema was built with, so every
 /// later operation on a schema naming it reads values under it.
 pub fn record_built_protocol(protocol: &Protocol) {
-    let mut built = built_protocols();
-    if built
-        .by_name
-        .get(&protocol.name)
-        .is_some_and(|(_, recorded)| recorded == protocol)
-    {
-        return;
-    }
-    built.changes += 1;
-    let change = built.changes;
-    built
-        .by_name
-        .insert(protocol.name.clone(), (change, protocol.clone()));
-}
-
-/// The protocols recorded after the first `seen` changes to the table, and
-/// the number of changes made so far.
-pub fn protocols_built_since(seen: u64) -> (u64, Vec<Protocol>) {
-    let built = built_protocols();
-    if built.changes == seen {
-        return (seen, Vec::new());
-    }
-    let recorded = built
-        .by_name
-        .values()
-        .filter(|(change, _)| *change > seen)
-        .map(|(_, protocol)| protocol.clone())
-        .collect();
-    (built.changes, recorded)
-}
-
-/// The protocol a schema naming `name` was last built with, when it is not
-/// the built-in protocol of that name.
-pub fn custom_protocol(name: &str) -> Option<Protocol> {
-    let protocol = built_protocols()
-        .by_name
-        .get(name)
-        .map(|(_, protocol)| protocol.clone())?;
-    (lookup(name).as_ref() != Some(&protocol)).then_some(protocol)
+    BUILT_PROTOCOLS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .insert(protocol.name.clone(), protocol.clone());
 }
 
 /// The protocol a schema names: the one a schema naming it was last built
@@ -110,10 +58,11 @@ pub fn custom_protocol(name: &str) -> Option<Protocol> {
 /// kind the protocol classifies (an `object` vertex holding a record value,
 /// say) reads back as the value a lens wrote rather than as structure.
 pub fn protocol_for_schema(schema: &panproto_core::schema::Schema) -> Protocol {
-    built_protocols()
-        .by_name
+    BUILT_PROTOCOLS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
         .get(&schema.protocol)
-        .map(|(_, protocol)| protocol.clone())
+        .cloned()
         .or_else(|| lookup(&schema.protocol))
         .or_else(|| grammar_protocol(&schema.protocol))
         .unwrap_or_else(|| Protocol {

@@ -592,6 +592,7 @@ impl PySchemaBuilder {
         crate::protocols::record_built_protocol(&self.protocol);
         Ok(PySchema {
             inner: Arc::new(schema),
+            protocol: Some(Arc::new(self.protocol.clone())),
         })
     }
 }
@@ -615,6 +616,19 @@ impl PySchemaBuilder {
 #[derive(Clone)]
 pub struct PySchema {
     pub(crate) inner: Arc<Schema>,
+    /// The protocol the schema was built under, when it was built in this
+    /// process; a schema alone has only the protocol's name.
+    pub(crate) protocol: Option<Arc<Protocol>>,
+}
+
+impl PySchema {
+    /// A schema that was not built under a protocol here.
+    pub(crate) fn unbound(schema: impl Into<Arc<Schema>>) -> Self {
+        Self {
+            inner: schema.into(),
+            protocol: None,
+        }
+    }
 }
 
 #[pymethods]
@@ -729,6 +743,7 @@ impl PySchema {
         let normalized = schema::normalize(&self.inner);
         Self {
             inner: Arc::new(normalized),
+            protocol: self.protocol.clone(),
         }
     }
 
@@ -756,9 +771,7 @@ impl PySchema {
         let schema: Schema = serde_json::from_str(json).map_err(|e| {
             pyo3::exceptions::PyValueError::new_err(format!("JSON deserialization failed: {e}"))
         })?;
-        Ok(Self {
-            inner: Arc::new(schema),
-        })
+        Ok(PySchema::unbound(Arc::new(schema)))
     }
 
     /// Parse an `ATProto` lexicon document into a schema.

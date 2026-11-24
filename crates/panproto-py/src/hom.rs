@@ -255,9 +255,7 @@ impl PySchemaSpan {
     /// The apex: the sub-schema of ``src`` the search covered.
     #[getter]
     fn apex(&self) -> PySchema {
-        PySchema {
-            inner: Arc::new(self.inner.apex.clone()),
-        }
+        PySchema::unbound(Arc::new(self.inner.apex.clone()))
     }
 
     /// The left leg ``apex -> src``, an inclusion.

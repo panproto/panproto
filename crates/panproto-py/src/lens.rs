@@ -1089,12 +1089,7 @@ mod tests {
         let chain = PyProtolensChain::from_dsl_json(COMPUTE_FIELD_JSON, "r:body")?;
         assert!(
             chain
-                .instantiate(
-                    &PySchema {
-                        inner: Arc::new(source)
-                    },
-                    &protocol
-                )
+                .instantiate(&PySchema::unbound(Arc::new(source)), &protocol)
                 .is_err()
         );
         let declared = panproto_core::schema::SchemaBuilder::new(&protocol.inner)
@@ -1107,12 +1102,7 @@ mod tests {
             .map_err(|error| crate::error::SchemaValidationError::new_err(error.to_string()))?;
         assert!(
             chain
-                .instantiate(
-                    &PySchema {
-                        inner: Arc::new(declared)
-                    },
-                    &protocol
-                )
+                .instantiate(&PySchema::unbound(Arc::new(declared)), &protocol)
                 .is_ok()
         );
         Ok(())

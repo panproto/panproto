@@ -239,6 +239,12 @@ fn parse_object(
     // fields materialize here rather than falling through to
     // `extra_fields`.
     let anchor = resolve_transparent_indirection(schema, vertex_id);
+    // A list vertex writes a node without members as an empty array.
+    if map.is_empty() && is_list_vertex(schema, anchor) {
+        return Err(ParseError::ExpectedArray {
+            path: path.to_owned(),
+        });
+    }
     let mut node = Node::new(node_id, anchor);
 
     // Check for discriminator ($type field)
@@ -274,7 +280,8 @@ fn parse_object(
 
     // Preserve unhandled fields as extra_fields
     for (key, val) in map {
-        if key == "$type" || handled_fields.contains(key.as_str()) {
+        if handled_fields.contains(key.as_str()) || (key == "$type" && node.discriminator.is_some())
+        {
             continue;
         }
         node.extra_fields
@@ -1181,5 +1188,63 @@ mod tests {
         let instance = parse_json(&schema, &Protocol::default(), "r", &record).unwrap();
         assert_eq!(instance.nodes.len(), 4);
         assert_eq!(to_json(&schema, &instance).unwrap(), record);
+    }
+
+    /// Every JSON value of depth at most two over a few atoms, lists of at
+    /// most two elements and objects of at most one member.
+    fn small_values() -> Vec<serde_json::Value> {
+        let mut level = vec![
+            json!(null),
+            json!(true),
+            json!(0),
+            json!(1.5),
+            json!(""),
+            json!("s"),
+            json!([]),
+            json!({}),
+        ];
+        for _ in 0..2 {
+            let inner = level.clone();
+            level.extend(inner.iter().map(|a| json!([a])));
+            level.extend(
+                inner
+                    .iter()
+                    .flat_map(|a| inner.iter().map(move |b| json!([a, b]))),
+            );
+            for key in ["f", "g", "$type"] {
+                level.extend(inner.iter().map(|a| json!({ key: a })));
+            }
+        }
+        level.sort_by_key(ToString::to_string);
+        level.dedup();
+        level
+    }
+
+    /// Reading a record either is refused or loses nothing: `to_json` is a
+    /// left inverse of `parse_json` wherever it is defined. The one refusal
+    /// is an empty object where the schema declares a list.
+    #[test]
+    fn a_record_that_is_read_is_written_back() {
+        let values = small_values();
+        for (kind, list) in [
+            ("string", false),
+            ("array", false),
+            ("object", false),
+            ("array", true),
+        ] {
+            let schema = schema_with_property(kind, list);
+            for value in &values {
+                let record = json!({ "x": value });
+                match parse_json(&schema, &Protocol::default(), "r", &record) {
+                    Ok(instance) => {
+                        assert_eq!(to_json(&schema, &instance).unwrap(), record, "{kind}");
+                    }
+                    Err(ParseError::ExpectedArray { .. }) => {
+                        assert!(list && *value == json!({}), "{kind} {value}");
+                    }
+                    Err(other) => panic!("{kind} {value}: {other}"),
+                }
+            }
+        }
     }
 }
