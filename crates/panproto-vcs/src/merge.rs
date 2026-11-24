@@ -3183,10 +3183,9 @@ fn merge_nsids(
 ///
 /// `protocol` is what the discovered overlap is validated against. Overlap
 /// discovery induces a sub-schema, and a schema is only well formed relative
-/// to a protocol, so it re-validates rather than assuming. Callers with a
-/// stored protocol should pass it;
-/// [`ProtocolEnvironment::resolve`](crate::ProtocolEnvironment::resolve) builds a
-/// minimal one from a schema's protocol name otherwise.
+/// to a protocol, so it re-validates rather than assuming.
+/// [`ProtocolEnvironment::resolve`](crate::ProtocolEnvironment::resolve) is
+/// the protocol a schema's protocol name means at a commit.
 ///
 /// Returns the integrated schema together with morphisms embedding each
 /// input into the result.
