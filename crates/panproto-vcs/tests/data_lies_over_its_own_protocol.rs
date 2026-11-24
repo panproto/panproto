@@ -218,11 +218,11 @@ fn a_handle_that_staged_nothing_reads_and_stages() {
 fn collection_keeps_what_data_and_environments_name() {
     let (dir, mut repo, _) = repository(&annotation());
     stage(&mut repo, dir.path(), "abcdef").unwrap();
-    repo.commit("long", "alice").unwrap();
+    let long = repo.commit("long", "alice").unwrap();
     repo.add_protocol(&checked()).unwrap();
     repo.commit("checked", "alice").unwrap();
     repo.gc().unwrap();
-    assert_eq!(texts(&repo, "HEAD~1"), ["abcdef"]);
+    assert_eq!(texts(&repo, &long.to_string()), ["abcdef"]);
     assert!(!long_is_accepted(&mut repo, dir.path()));
 }
 
@@ -242,10 +242,10 @@ fn data_without_a_recorded_protocol_is_read_against_its_schema() {
     };
     index.staged_data[0].data_id = repo.store_mut().put(&Object::DataSet(old)).unwrap();
     repo.write_index(&index).unwrap();
-    repo.commit("old", "alice").unwrap();
+    let old = repo.commit("old", "alice").unwrap();
     repo.add_protocol(&checked()).unwrap();
     repo.commit("checked", "alice").unwrap();
-    assert_eq!(texts(&repo, "HEAD~1"), ["abcdef"]);
+    assert_eq!(texts(&repo, &old.to_string()), ["abcdef"]);
 }
 
 #[test]
@@ -361,7 +361,7 @@ fn a_merge_refuses_protocols_that_have_none() {
     repo.add_protocol(&annotation()).unwrap();
     repo.commit("agree", "alice").unwrap();
     repo.merge("side", "alice").unwrap();
-    assert_eq!(texts(&repo, "HEAD").len(), 2);
+    assert_eq!(texts(&repo, "HEAD"), ["xyz"]);
 }
 
 /// Transported data must be a record of the schema it is transported to,

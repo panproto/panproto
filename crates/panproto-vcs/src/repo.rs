@@ -2276,12 +2276,14 @@ mod tests {
     fn merge_lifts_data_instead_of_unioning() -> Result<(), Box<dyn std::error::Error>> {
         let dir = tempfile::tempdir()?;
         let mut repo = Repository::init(dir.path())?;
-        repo.add_protocol(&test_protocol())?;
+        let staged = repo.add_protocol(&test_protocol())?.staged_protocols;
+        let environment_id = store_environment(repo.store_mut(), staged)?;
 
         // Base {a}.
         let s0 = make_schema(&[("a", "object")]);
         let s0_id = crate::tree::store_schema_as_tree(repo.store_mut(), s0)?;
         let c0 = CommitObject::builder(s0_id, "test", "alice", "base")
+            .environment_id(environment_id)
             .timestamp(100)
             .build();
         let c0_id = repo.store_mut().put(&Object::Commit(c0))?;
@@ -2292,6 +2294,7 @@ mod tests {
         let s_ours_id = crate::tree::store_schema_as_tree(repo.store_mut(), s_ours)?;
         let c_ours = CommitObject::builder(s_ours_id, "test", "alice", "ours change + data")
             .parents(vec![c0_id])
+            .environment_id(environment_id)
             .timestamp(200)
             .data_ids(vec![ds_ours])
             .build();
@@ -2303,6 +2306,7 @@ mod tests {
         let s_theirs_id = crate::tree::store_schema_as_tree(repo.store_mut(), s_theirs)?;
         let c_theirs = CommitObject::builder(s_theirs_id, "test", "bob", "theirs change + data")
             .parents(vec![c0_id])
+            .environment_id(environment_id)
             .timestamp(300)
             .data_ids(vec![ds_theirs])
             .build();
