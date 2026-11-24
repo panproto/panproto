@@ -48,7 +48,8 @@ use pyo3::prelude::*;
 ///
 /// Registered as `panproto._native` by maturin.
 #[pymodule]
-fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
+#[pyo3(name = "_native")]
+fn native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Exception hierarchy
     error::register(m)?;
 

@@ -7081,7 +7081,7 @@ mod model {
         let mut counts = Counts::default();
         for source in sources() {
             let (view, index) = get(&source);
-            assert_eq!(put(&view, &index), Ok(source.clone()), "GetPut");
+            assert_eq!(put(&view, &index), Ok(source), "GetPut");
             for edit in candidates(&view) {
                 let candidate = apply(&view, edit);
                 let verdict = put(&candidate, &index);
@@ -7125,7 +7125,7 @@ mod model {
                 if put(&candidate, &next) != Ok(once.clone()) {
                     counts.raw_put_twice_failures += 1;
                 }
-                if put(&candidate, &rekeyed(&next, &candidate)) != Ok(once.clone()) {
+                if put(&candidate, &rekeyed(&next, &candidate)) != Ok(once) {
                     counts.gated_put_twice_failures += 1;
                 }
             }
