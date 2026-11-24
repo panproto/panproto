@@ -1,0 +1,236 @@
+# What CI verifies, and where each part of it runs.
+#
+# This file is the one declaration. `.github/scripts/verification.py` derives
+# the job matrices of the workflows from it, and checks that the tests the
+# `ci` profile of `.config/nextest.toml` leaves out of the ordinary suite are
+# exactly the gates below, so no test can be in neither.
+#
+# A bucket is a set of packages whose ordinary tests run on one machine. The
+# packages no bucket lists form one more, so a new package is tested without
+# being added here. `features` are those a build of the whole workspace turns
+# on and a build of the bucket alone would not.
+
+[[bucket]]
+name = "lens"
+packages = ["panproto-lens", "panproto-lens-dsl"]
+
+[[bucket]]
+name = "inst"
+packages = ["panproto-inst"]
+
+[[bucket]]
+name = "theory"
+packages = [
+    "panproto-expr",
+    "panproto-expr-parser",
+    "panproto-gat",
+    "panproto-gat-macros",
+    "panproto-reference",
+    "panproto-schema",
+    "panproto-theory-dsl",
+]
+
+[[bucket]]
+name = "migration"
+packages = ["panproto-check", "panproto-mig", "panproto-protocols", "panproto-vcs", "panproto-xrpc"]
+features = ["panproto-mig/oracle"]
+
+[[bucket]]
+name = "git"
+packages = ["panproto-git", "panproto-git-remote", "panproto-project"]
+
+# Gates run outside the ordinary suite. A certificate runs on a change that
+# affects its package: one that touches the package, a package it depends on,
+# or a file that belongs to no package. An exhaustive or Kan gate takes hours,
+# and runs on a schedule and on the commit of a release. A gate with several
+# `tests` runs them in one job; `shards` runs a test as that many jobs, each
+# given `i/shards` in `shard_env`.
+
+[[gate]]
+tier = "certificate"
+name = "graph put domain"
+package = "panproto-lens"
+binary = "reference_lenses"
+tests = [
+    "graph_put_domain_and_cascade_law_certificate",
+    "randomized_graph_put_domain_and_cascade_differential",
+    "randomized_graph_put_law_differential",
+]
+
+[[gate]]
+tier = "certificate"
+name = "lens equivalence"
+package = "panproto-lens"
+binary = "reference_lenses"
+tests = [
+    "lens_equivalence_law_certificate",
+    "randomized_lens_law_differential",
+    "table_get_put_law_certificate",
+    "tree_put_law_certificate",
+]
+
+[[gate]]
+tier = "certificate"
+name = "graph put and protolenses"
+package = "panproto-lens"
+binary = "reference_lenses"
+tests = [
+    "graph_put_law_certificate",
+    "protolens_schema_law_certificate",
+    "protolens_transforms_agree_with_the_reference_exhaustively",
+    "randomized_protolens_instance_differential",
+    "randomized_protolens_schema_differential",
+]
+
+[[gate]]
+tier = "certificate"
+name = "theory composition"
+package = "panproto-gat"
+binary = "reference_theories"
+tests = [
+    "composition_agrees_on_every_class_signature_pair",
+    "composition_agrees_with_the_reference_on_every_span",
+]
+
+[[gate]]
+tier = "certificate"
+name = "Kan extensions"
+package = "panproto-inst"
+binary = "reference_kan"
+tests = [
+    "bounded_family_kan_objects_agree_with_the_reference",
+    "every_labelled_object_has_the_reference_units_and_counits",
+    "graph_decoding_agrees_with_the_reference_on_every_table_and_layout",
+    "graph_encoding_graph_adjunctions_agree_with_the_reference",
+    "randomized_kan_hom_bijection_differential",
+    "representative_pair_shards_match_unsharded_prefix",
+]
+
+[[gate]]
+tier = "certificate"
+name = "reference edits"
+package = "panproto-reference"
+binary = "edits"
+tests = [
+    "every_accepted_perturbation_of_a_short_lowering_is_an_image_of_its_reading",
+    "lowerings_read_back_soundly_with_every_floor_near_the_id_ceiling",
+    "the_u32_tree_edit_semantics_refines_the_unbounded_one_near_the_id_ceiling",
+]
+
+[[gate]]
+tier = "certificate"
+name = "reference Kan results"
+package = "panproto-reference"
+binary = "kan"
+tests = ["complete_bounded_family_has_typed_kan_results_and_refusals"]
+
+[[gate]]
+tier = "corpus"
+package = "panproto-parse"
+binary = "emit_corpus_audit"
+tests = [
+    "corpus_verified_protocols_round_trip_full_corpus",
+    "strip_complement_canonical_section_is_structurally_faithful",
+]
+
+[[gate]]
+tier = "corpus"
+package = "panproto-parse"
+binary = "emit_long_tail"
+tests = ["long_tail_emit_is_verified"]
+
+[[gate]]
+tier = "corpus"
+package = "panproto-mig"
+binary = "lexicon_oracle"
+tests = ["every_enumerable_lexicon_pair_agrees_with_exhaustive_enumeration"]
+
+[[gate]]
+tier = "corpus"
+package = "panproto-mig"
+binary = "the_corpus_span_is_a_function_of_the_pair"
+tests = ["every_corpus_pair_yields_the_same_span_in_every_process"]
+
+[[gate]]
+tier = "exhaustive"
+package = "panproto-gat"
+binary = "reference_theories"
+tests = ["composition_agrees_with_the_reference_on_every_discrete_pair"]
+
+[[gate]]
+tier = "exhaustive"
+package = "panproto-inst"
+binary = "reference_coercion"
+tests = ["nearest_reading_coercion_agrees_with_the_reference"]
+
+[[gate]]
+tier = "exhaustive"
+package = "panproto-inst"
+binary = "reference_coercion"
+tests = ["coerce_value_agrees_with_the_reference_over_the_values_scope"]
+
+[[gate]]
+tier = "exhaustive"
+package = "panproto-lens"
+binary = "reference_lenses"
+tests = ["lens_laws_agree_with_the_reference_exhaustively"]
+shards = 12
+shard_env = "PANPROTO_TEST_SHARD"
+
+[[gate]]
+tier = "exhaustive"
+package = "panproto-lens"
+binary = "reference_lenses"
+tests = ["lens_path_law_certificate"]
+
+[[gate]]
+tier = "exhaustive"
+package = "panproto-inst"
+binary = "reference_edits"
+tests = ["graph_edit_algebra_matches_reference_on_every_word_of_the_coverage_scope"]
+shards = 4
+shard_env = "PANPROTO_EDIT_COVERAGE_SHARD"
+
+[[gate]]
+tier = "exhaustive"
+package = "panproto-inst"
+binary = "reference_edits"
+tests = ["table_edits_match_reference_on_every_word_of_the_coverage_scope"]
+shards = 4
+shard_env = "PANPROTO_EDIT_COVERAGE_SHARD"
+
+[[gate]]
+tier = "exhaustive"
+package = "panproto-inst"
+binary = "reference_edits"
+tests = ["tree_edits_and_lowering_match_reference_on_every_word_of_the_coverage_scope"]
+shards = 4
+shard_env = "PANPROTO_EDIT_COVERAGE_SHARD"
+
+[[gate]]
+tier = "exhaustive"
+package = "panproto-inst"
+binary = "reference_edits"
+tests = ["graph_independence_and_merge_match_reference_on_every_letter_pair_of_the_coverage_scope"]
+
+[[gate]]
+tier = "kan"
+package = "panproto-reference"
+binary = "kan"
+tests = ["exhaustive_kan_executes_every_representative_profile_pair"]
+shards = 32
+shard_env = "PANPROTO_KAN_PAIR_SHARD"
+
+[[gate]]
+tier = "kan"
+package = "panproto-reference"
+binary = "kan"
+tests = ["exhaustive_kan_every_labelled_member_has_checked_operation_transports"]
+
+[[gate]]
+tier = "kan"
+package = "panproto-inst"
+binary = "reference_kan"
+tests = ["exhaustive_kan_hom_profile_pairs_agree_with_the_reference"]
+shards = 32
+shard_env = "PANPROTO_KAN_PAIR_SHARD"
