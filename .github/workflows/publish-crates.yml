@@ -25,6 +25,12 @@ permissions:
   contents: read
 
 jobs:
+  verified:
+    uses: ./.github/workflows/require-verified.yml
+    permissions:
+      checks: read
+      contents: read
+
   package:
     # `cargo publish --no-verify` below skips the rebuild-from-package
     # step, on the reasoning that CI already built and tested the
@@ -106,7 +112,7 @@ jobs:
 
   publish:
     name: Publish workspace crates
-    needs: package
+    needs: [package, verified]
     runs-on: ubuntu-latest
     permissions:
       contents: read

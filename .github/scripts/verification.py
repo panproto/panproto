@@ -113,7 +113,9 @@ def affected_packages(base: str) -> set[str]:
     package affects all of them, except documentation and the bindings that are
     not Rust packages, which no gate reads.
     """
-    metadata = json.loads(run("cargo", "metadata", "--format-version", "1", "--locked", "--no-deps"))
+    metadata = json.loads(
+        run("cargo", "metadata", "--format-version", "1", "--locked", "--no-deps")
+    )
     home = {
         Path(package["manifest_path"]).parent.relative_to(ROOT).as_posix(): package["name"]
         for package in metadata["packages"]
@@ -125,9 +127,7 @@ def affected_packages(base: str) -> set[str]:
 
     affected: set[str] = set()
     for file in run("git", "diff", "--name-only", f"{base}...HEAD").splitlines():
-        owner = max(
-            (path for path in home if file.startswith(f"{path}/")), key=len, default=None
-        )
+        owner = max((path for path in home if file.startswith(f"{path}/")), key=len, default=None)
         if owner is not None:
             affected.add(home[owner])
         elif not (file.endswith(".md") or file.startswith(("book/", "bindings/"))):
@@ -222,7 +222,8 @@ def check_units(declared: dict, toolchain: str) -> list[str]:
                 changed = sorted(set(features) ^ set(whole[key]))
                 problems.append(f"{label} of bucket {name} differs in the features {changed}")
     problems += [
-        f"{key[0].rsplit('/', 1)[-1]} {key[1]} is in no bucket" for key in whole.keys() - built.keys()
+        f"{key[0].rsplit('/', 1)[-1]} {key[1]} is in no bucket"
+        for key in whole.keys() - built.keys()
     ]
     return problems
 
