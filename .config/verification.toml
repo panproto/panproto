@@ -125,6 +125,23 @@ binary = "kan"
 tests = ["complete_bounded_family_has_typed_kan_results_and_refusals"]
 
 [[gate]]
+tier = "certificate"
+name = "protolens composites"
+package = "panproto-lens"
+binary = "reference_lenses"
+tests = [
+    "fused_and_scoped_protolenses_agree_with_the_reference_exhaustively",
+    "sequential_composites_of_elementary_protolenses_agree_with_the_reference_exhaustively",
+]
+
+[[gate]]
+tier = "certificate"
+name = "bounded migration search"
+package = "panproto-mig"
+binary = "reference_migration_search"
+tests = ["a_bounded_search_answers_or_names_its_bound_on_every_bounded_pair"]
+
+[[gate]]
 tier = "corpus"
 package = "panproto-parse"
 binary = "emit_corpus_audit"
