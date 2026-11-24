@@ -2630,9 +2630,7 @@ class TestRepositoryCustomProtocols:
         )
         assert out == "[[{'a': 'abc'}], [{'a': 'abc'}]]"
 
-    def test_a_fresh_process_stages_under_each_protocol_of_a_commit(
-        self, tmp_path: Path
-    ) -> None:
+    def test_a_fresh_process_stages_under_each_protocol_of_a_commit(self, tmp_path: Path) -> None:
         path = str(tmp_path / "repo")
         repo = panproto.Repository.init(path)
         record = self._record(tmp_path)
