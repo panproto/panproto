@@ -40,7 +40,7 @@ bumpalo = { workspace = true }
 memchr = { workspace = true }
 
 # XML parsing (zero-copy pull parser)
-quick-xml = "0.41"
+quick-xml = "0.42"
 
 # Tree-sitter-based unified parsing (optional, enables format-preserving round-trips)
 panproto-parse = { workspace = true, optional = true }
