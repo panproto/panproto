@@ -295,10 +295,17 @@ fn a_view_edited_in_memory_puts_back_the_expected_source() {
                     ));
                 }
             }
+            // The view get returned puts back the source, whatever a view
+            // read from its serialization does.
+            let source = if expected["view"] == case.json["view"] {
+                &case.json["source"]
+            } else {
+                &expected["source"]
+            };
             check(
                 &mut failures,
                 &format!("{} at {}", case.name(), expected["view"]),
-                &expected["source"],
+                source,
                 found
                     .map(|found| case.write(&found))
                     .map_err(|error| error.to_string()),

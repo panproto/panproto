@@ -201,6 +201,57 @@ pub(crate) fn record(
     }
 }
 
+/// `view` with each field that a rewrite of `lens` may change and that the
+/// view holds on a child alone held where `again` holds it, when both show
+/// the same value there.
+///
+/// A serialization presents a node's own field and the child of that name
+/// under one key, so this changes no serialized view.
+pub(crate) fn held_as(lens: &Lens, view: &WInstance, again: &WInstance) -> WInstance {
+    let mut keys_of: HashMap<&Name, BTreeSet<String>> = HashMap::new();
+    for (anchor, program) in &lens.compiled.field_transforms {
+        let image = lens.compiled.vertex_remap.get(anchor).unwrap_or(anchor);
+        rewritable_keys(program, keys_of.entry(image).or_default());
+    }
+    let arcs = Arcs::new(view);
+    let mut held = view.clone();
+    for (id, node) in &view.nodes {
+        let (Some(keys), Some(again_node)) = (keys_of.get(&node.anchor), again.nodes.get(id))
+        else {
+            continue;
+        };
+        for key in keys {
+            if node.extra_fields.contains_key(key) {
+                continue;
+            }
+            let mut named = arcs
+                .below(*id)
+                .iter()
+                .filter(|(_, edge)| column(edge) == key);
+            let (Some((child, _)), None) = (named.next(), named.next()) else {
+                continue;
+            };
+            let (Some(shown), Some(again_child)) = (view.nodes.get(child), again.nodes.get(child))
+            else {
+                continue;
+            };
+            let left = again_node.extra_fields.get(key);
+            let value = left.map_or_else(|| presented(again_child), Clone::clone);
+            if !arcs.below(*child).is_empty() || !asymmetric::value_equiv(&presented(shown), &value)
+            {
+                continue;
+            }
+            if let Some(node) = held.nodes.get_mut(child) {
+                Content::of(again_child).put_on(node);
+            }
+            if let (Some(left), Some(node)) = (left, held.nodes.get_mut(id)) {
+                node.extra_fields.insert(key.clone(), left.clone());
+            }
+        }
+    }
+    held
+}
+
 /// What a child holds in place of a value: put restores these and nothing
 /// else of the node.
 #[derive(Clone, Debug)]
@@ -384,14 +435,11 @@ fn coordinates(
                 key: key.clone(),
                 child,
                 collapses,
-                own: structure
-                    .nodes
-                    .get(&child)
-                    .is_some_and(|node| {
-                        plan.program(&node.anchor)
-                            .iter()
-                            .any(asymmetric::transforms_node_value)
-                    }),
+                own: structure.nodes.get(&child).is_some_and(|node| {
+                    plan.program(&node.anchor)
+                        .iter()
+                        .any(asymmetric::transforms_node_value)
+                }),
                 held: complement.original_parent.contains_key(&child),
                 shown: presented(node),
                 on_child: Content::of(node),
@@ -651,10 +699,12 @@ impl<'a> Search<'a> {
         );
         match carried {
             Some(value) if !same(&value, &coordinate.shown) => {
-                let fielded = coordinate.recorded.as_ref().map_or(
-                    coordinate.on_child.value.is_none(),
-                    |recorded| recorded.value.is_none(),
-                );
+                let fielded = coordinate
+                    .recorded
+                    .as_ref()
+                    .map_or(coordinate.on_child.value.is_none(), |recorded| {
+                        recorded.value.is_none()
+                    });
                 Content::presenting(value, fielded)
             }
             _ => coordinate.on_child.clone(),
@@ -805,9 +855,7 @@ impl<'a> Search<'a> {
                     }
                 })
             });
-            let repeats = |contents: &[Content]| {
-                contents.iter().zip(&next).all(|(a, b)| a.same(b))
-            };
+            let repeats = |contents: &[Content]| contents.iter().zip(&next).all(|(a, b)| a.same(b));
             if repeats(&last.contents) || before.as_deref().is_some_and(repeats) {
                 return None;
             }

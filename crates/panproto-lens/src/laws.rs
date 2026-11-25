@@ -263,6 +263,22 @@ pub trait LawShape: LensShape {
         }
     }
 
+    /// The first difference between `view`, which put admitted, and `again`,
+    /// the view get shows of the source put gave, as `PutGet` compares them.
+    ///
+    /// The default is [`LensShape::divergence`]. A shape in which one
+    /// serialized view stands for several in-memory ones compares them up to
+    /// that difference where put does.
+    fn put_get_divergence(
+        _lens: &Lens,
+        view: &Self::Instance,
+        view_index: &SynthIndex,
+        again: &Self::Instance,
+        again_index: &SynthIndex,
+    ) -> Option<String> {
+        Self::divergence(view, view_index, again, again_index)
+    }
+
     /// Exact equality of source presentations, with NaN-reflexive values.
     fn identical(a: &Self::Instance, b: &Self::Instance) -> bool;
 
@@ -422,6 +438,16 @@ impl<S: LawShape> LawShape for ExhaustiveValueShape<S> {
         mutation: Mutation,
     ) -> Vec<NegativeMutationCase<Self::Instance>> {
         S::negative_mutation_cases(lens, source, view, complement, ctx, mutation)
+    }
+
+    fn put_get_divergence(
+        lens: &Lens,
+        view: &Self::Instance,
+        view_index: &SynthIndex,
+        again: &Self::Instance,
+        again_index: &SynthIndex,
+    ) -> Option<String> {
+        S::put_get_divergence(lens, view, view_index, again, again_index)
     }
 
     fn identical(a: &Self::Instance, b: &Self::Instance) -> bool {
@@ -770,6 +796,11 @@ pub fn check_get_put(lens: &Lens, instance: &WInstance) -> Result<(), LawViolati
 /// Verify strict `PutGet`, `get(put(s, v, c)) = v`, on the original view and
 /// every admitted positive view in the deterministic single-step basis.
 ///
+/// A field that a rewrite may change and that a child of its node holds is
+/// one coordinate, which get may leave among the node's own fields and a
+/// serialized view holds on the child. A view holding such a field on the
+/// child is compared by the value it shows there.
+///
 /// Success means that there was no counterexample found in that finite basis; it
 /// is not a proof over arbitrary views.
 ///
@@ -966,7 +997,8 @@ fn put_get_candidate<S: LawShape>(
     let (actual, actual_complement) = S::get(lens, &restored, ctx).map_err(LawViolation::Error)?;
     let expected_index = S::synth_index(view, complement);
     let actual_index = S::synth_index(&actual, &actual_complement);
-    if let Some(detail) = S::divergence(view, &expected_index, &actual, &actual_index) {
+    if let Some(detail) = S::put_get_divergence(lens, view, &expected_index, &actual, &actual_index)
+    {
         return Err(LawViolation::PutGet { detail });
     }
     Ok(())
@@ -1059,7 +1091,7 @@ pub fn check_put_get_for_shape<S: LawShape>(
                 let expected_index = S::synth_index(&candidate, &complement);
                 let actual_index = S::synth_index(&actual, &actual_complement);
                 if let Some(detail) =
-                    S::divergence(&candidate, &expected_index, &actual, &actual_index)
+                    S::put_get_divergence(lens, &candidate, &expected_index, &actual, &actual_index)
                 {
                     return Err(LawViolation::PutGet {
                         detail: format!("{}: {detail}", mutation.as_str()),
@@ -5314,6 +5346,18 @@ impl LawShape for TreeShape {
         _ctx: &Self::Context,
     ) -> Vec<Self::Instance> {
         tree_exhaustive_value_cases(lens, view, complement)
+    }
+
+    fn put_get_divergence(
+        lens: &Lens,
+        view: &Self::Instance,
+        view_index: &SynthIndex,
+        again: &Self::Instance,
+        again_index: &SynthIndex,
+    ) -> Option<String> {
+        Self::divergence(view, view_index, again, again_index)?;
+        let view = crate::child_fields::held_as(lens, view, again);
+        Self::divergence(&view, view_index, again, again_index)
     }
 
     fn identical(a: &Self::Instance, b: &Self::Instance) -> bool {

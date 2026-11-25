@@ -1904,8 +1904,7 @@ pub fn wtype_restrict_with_plan(
     instance: &WInstance,
     plan: &crate::restrict_plan::RestrictPlan,
 ) -> Result<(WInstance, TreeSynthesis), RestrictError> {
-    wtype_restrict_with_child_fields(instance, plan)
-        .map(|(view, synthesis, _)| (view, synthesis))
+    wtype_restrict_with_child_fields(instance, plan).map(|(view, synthesis, _)| (view, synthesis))
 }
 
 /// [`wtype_restrict_with_plan`], with what the transforms of each surviving

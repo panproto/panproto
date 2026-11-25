@@ -662,11 +662,28 @@
  "source": {"n": {"$type": "blob", "ref": {"$link": "bafyreidfayvfuwqa7qlnopdjiqrxzs6blmoeu4rujcjtnci5beludirz2a"}, "mimeType": "a/b", "size": 3}, "m": 1},
  "view": {"n": {"ref": {"$link": "bafyreidfayvfuwqa7qlnopdjiqrxzs6blmoeu4rujcjtnci5beludirz2a"}, "mimeType": "a/b", "size": 3}, "m": 1},
  "puts": [
-  {"view": {"n": {"ref": {"$link": "bafyreidfayvfuwqa7qlnopdjiqrxzs6blmoeu4rujcjtnci5beludirz2a"}, "mimeType": "a/b", "size": 3}, "m": 1}, "source": "refused"},
-  {"view": {"n": {"ref": {"$link": "bafyreidfayvfuwqa7qlnopdjiqrxzs6blmoeu4rujcjtnci5beludirz2a"}, "mimeType": "a/b", "size": 3}, "m": 2}, "source": "refused"}
+  {"view": {"n": {"ref": {"$link": "bafyreidfayvfuwqa7qlnopdjiqrxzs6blmoeu4rujcjtnci5beludirz2a"}, "mimeType": "a/b", "size": 3}, "m": 1}, "source": {"n": {"$type": "blob", "ref": {"$link": "bafyreidfayvfuwqa7qlnopdjiqrxzs6blmoeu4rujcjtnci5beludirz2a"}, "mimeType": "a/b", "size": 3}, "m": 1}},
+  {"view": {"n": {"ref": {"$link": "bafyreidfayvfuwqa7qlnopdjiqrxzs6blmoeu4rujcjtnci5beludirz2a"}, "mimeType": "a/b", "size": 3}, "m": 2}, "source": {"n": {"$type": "blob", "ref": {"$link": "bafyreidfayvfuwqa7qlnopdjiqrxzs6blmoeu4rujcjtnci5beludirz2a"}, "mimeType": "a/b", "size": 3}, "m": 2}}
  ],
  "undo": false,
  "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {"0": {}}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "16f9aab4f99c8deef2989520d137bb7e2814fee301aab7be4f972dcf811f520c", "target_schema": "16f9aab4f99c8deef2989520d137bb7e2814fee301aab7be4f972dcf811f520c", "lens": "dad24eda15a0a1b127b2a9032b213bb45ce61a0be53a90ae2bfd149b7d0cba20", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "record with a discriminator",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "cid-link"}, "m": {"type": "integer"}},
+ "transforms": [{"rewrite": "n", "to": "n"}],
+ "source": {"n": {"$type": "t", "$link": "bafyreidfayvfuwqa7qlnopdjiqrxzs6blmoeu4rujcjtnci5beludirz2a"}, "m": 1},
+ "view": {"n": {"$link": "bafyreidfayvfuwqa7qlnopdjiqrxzs6blmoeu4rujcjtnci5beludirz2a"}, "m": 1},
+ "puts": [
+  {"view": {"n": {"$link": "bafyreidfayvfuwqa7qlnopdjiqrxzs6blmoeu4rujcjtnci5beludirz2a"}, "m": 1}, "source": "refused"},
+  {"view": {"n": {"$link": "bafyreidfayvfuwqa7qlnopdjiqrxzs6blmoeu4rujcjtnci5beludirz2a"}, "m": 2}, "source": "refused"},
+  {"view": {"n": {"$link": "bafyreigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi"}, "m": 1}, "source": "refused"},
+  {"view": {"m": 1}, "source": {"m": 1}}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {"0": {}}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "4b2af8553c435087a7dc10082f4a4b232f65e837ed2bc7cc88e9beea92d6a9fa", "target_schema": "4b2af8553c435087a7dc10082f4a4b232f65e837ed2bc7cc88e9beea92d6a9fa", "lens": "6f40d5670dd80949952ae78d8a113eb37d4dbb94acb11f8ab3a59fefc2532d66", "complement_format": {"shape": "wtype", "version": 1}}},
  "same_complement": true
 },
 {
@@ -985,7 +1002,8 @@
  "view": {"n": 8, "m": 1},
  "puts": [
   {"view": {"n": 8, "m": 1}, "source": {"n": 3, "m": 1}},
-  {"view": {"n": 20, "m": 1}, "source": "refused"},
+  {"view": {"n": 20, "m": 1}, "source": {"n": 9, "m": 1}},
+  {"view": {"n": 21, "m": 1}, "source": "refused"},
   {"view": {"n": 8, "m": 2}, "source": {"n": 3, "m": 2}}
  ],
  "undo": false,

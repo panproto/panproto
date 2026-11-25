@@ -37,8 +37,7 @@ use crate::value::{Value, ValueSite};
 use crate::view_ref::SynthKey;
 use crate::wtype::{
     CompiledMigration, FieldTransform, KeyTrack, TransformContext, TransformTrace,
-    apply_transforms_observed, apply_transforms_tracked,
-    check_expansion, direct_source_edge_image,
+    apply_transforms_observed, apply_transforms_tracked, check_expansion, direct_source_edge_image,
 };
 
 /// An element of the source schema on which the survival rule of the
@@ -862,10 +861,9 @@ impl RestrictPlan {
     /// Every name the survival predicate and the value transforms of
     /// `anchor` read.
     pub(crate) fn demand(&self, anchor: &Name) -> crate::wtype::Demand {
-        let mut names: BTreeSet<String> =
-            crate::wtype::referenced_names(self.program(anchor))
-                .into_iter()
-                .collect();
+        let mut names: BTreeSet<String> = crate::wtype::referenced_names(self.program(anchor))
+            .into_iter()
+            .collect();
         if let Some(predicate) = self.migration.conditional_survival.get(anchor) {
             names.extend(
                 panproto_expr::free_vars(predicate)
@@ -1086,7 +1084,11 @@ impl RestrictPlan {
 /// column is read from the cells as they were, so a rename onto a column
 /// that is itself renamed or dropped moves the right value. A renamed value
 /// carries whether a transform wrote it.
-fn apply_cell_fates(fields: &mut HashMap<String, Value>, fates: &[CellFate], track: &mut KeyTrack<'_>) {
+fn apply_cell_fates(
+    fields: &mut HashMap<String, Value>,
+    fates: &[CellFate],
+    track: &mut KeyTrack<'_>,
+) {
     let mut moved = Vec::new();
     for fate in fates {
         match fate {

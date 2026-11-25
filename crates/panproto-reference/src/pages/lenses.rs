@@ -2,6 +2,8 @@
 
 // Structural alignment of a tree view read from a serialization.
 mod alignment;
+// Fields of a record that its children hold.
+mod child_fields;
 mod constructions;
 // Shared put-domain machinery and graph restoration.
 mod domain;
@@ -20,6 +22,10 @@ mod tree;
 
 pub use self::alignment::{
     ViewAlignmentRefusal, ViewPosition, align_tree_view, tree_view_positions,
+};
+pub use self::child_fields::{
+    Assignment, Bindings, ChildComplement, Content, Function, Operation, Predicate, Record,
+    child_get, child_put, child_put_solutions,
 };
 pub use self::constructions::{
     ConstructionFeature, ConstructionObstruction, ConstructionShape, construction_obstruction,

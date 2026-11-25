@@ -241,7 +241,6 @@ pub use wtype::{
 };
 pub use wtype::{
     ChildField, ChildFieldResult, InstanceRef, NodeRun, NotExpressible, TreeRuns, TreeSynthesis,
-    tree_survival_verdicts, wtype_extend_engine, wtype_extend_validated,
-    wtype_restrict_with_child_fields, wtype_restrict_validated, wtype_restrict_with_plan,
-    wtype_restrict_with_synthesis,
+    tree_survival_verdicts, wtype_extend_engine, wtype_extend_validated, wtype_restrict_validated,
+    wtype_restrict_with_child_fields, wtype_restrict_with_plan, wtype_restrict_with_synthesis,
 };
