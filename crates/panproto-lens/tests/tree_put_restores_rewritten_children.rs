@@ -14,9 +14,10 @@ use panproto_expr::{BuiltinOp, Expr, Literal};
 use panproto_gat::{CoercionClass, Name};
 use panproto_inst::value::FieldPresence;
 use panproto_inst::{
-    CaseBranch, CompiledMigration, FieldTransform, Node, PutDomainError, Value, ViewRef, WInstance,
+    CaseBranch, CompiledMigration, EdgeId, FieldTransform, GEdge, GInstance, Node, PutDomainError,
+    Value, ViewRef, WInstance,
 };
-use panproto_lens::{Lens, LensError, get, put};
+use panproto_lens::{Lens, LensError, get, graph_lens, put};
 use panproto_schema::{Edge, Protocol, Schema, SchemaBuilder};
 
 const FIELDS: [&str; 3] = ["n", "m", "k"];
@@ -536,4 +537,95 @@ fn the_round_trip_laws_hold_for_every_program_of_three_operations() {
         .into_iter()
         .filter(|program| program.len() == 3);
     check_laws(programs, &decisive_records(), &[Vec::new()]);
+}
+
+/// What a graph holds, in an order of its own.
+fn held_graph(graph: &GInstance) -> Held {
+    let nodes = graph.nodes().iter().map(|(id, node)| (*id, node.clone()));
+    held(&WInstance::new(
+        nodes.collect(),
+        Vec::new(),
+        Vec::new(),
+        0,
+        "r".into(),
+    ))
+}
+
+/// The graph of a record, which holds each child as a node of its own.
+fn record_graph(tree: &WInstance) -> GInstance {
+    let mut ids: Vec<u32> = tree.nodes.keys().copied().collect();
+    ids.sort_unstable();
+    let mut graph = GInstance::new();
+    for id in ids {
+        graph = graph.with_node(tree.nodes[&id].clone());
+    }
+    for (at, (parent, child, edge)) in (0..).zip(&tree.arcs) {
+        graph
+            .insert_edge(EdgeId(at), GEdge::new(*parent, *child, edge.clone()))
+            .unwrap();
+    }
+    graph
+}
+
+#[test]
+fn the_round_trip_laws_hold_on_graphs_for_every_program_of_two_operations() {
+    let (mut accepted, mut refused) = (0_u32, 0_u32);
+    for program in sequences(&OPERATIONS, 2) {
+        let transforms: Vec<FieldTransform> = program
+            .iter()
+            .map(|operation| operation.transform())
+            .collect();
+        let lens = lens(transforms, Vec::new());
+        for source in decisive_records() {
+            let source = record_graph(&source);
+            let Ok((view, complement)) = graph_lens::get(&lens, &source) else {
+                continue;
+            };
+            let restored = graph_lens::put(&lens, &view, &complement)
+                .unwrap_or_else(|error| panic!("GetPut refused: {error:?}: {program:?}"));
+            assert_eq!(
+                held_graph(&restored),
+                held_graph(&source),
+                "GetPut: {program:?}"
+            );
+            let ids: Vec<u32> = view.nodes().keys().copied().collect();
+            for id in ids {
+                for value in [-1, 0, 2, 9] {
+                    for field in [None, Some("n"), Some("k")] {
+                        let mut edited = view.clone();
+                        let node = edited.node_mut(id).unwrap();
+                        match field {
+                            None if id == 0 => continue,
+                            None => {
+                                node.value = Some(FieldPresence::Present(Value::Int(value)));
+                            }
+                            Some(_) if id != 0 => continue,
+                            Some(field) => {
+                                node.extra_fields
+                                    .insert(field.to_owned(), Value::Int(value));
+                            }
+                        }
+                        match graph_lens::put(&lens, &edited, &complement) {
+                            Ok(put_back) => {
+                                let (again, _) = graph_lens::get(&lens, &put_back).unwrap();
+                                assert_eq!(
+                                    held_graph(&again),
+                                    held_graph(&edited),
+                                    "PutGet: {program:?} restored {:?}",
+                                    held_graph(&put_back)
+                                );
+                                accepted += 1;
+                            }
+                            Err(LensError::PutDomain(_)) => refused += 1,
+                            Err(error) => panic!("{error:?}: {program:?}"),
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        accepted > 0 && refused > 0,
+        "{accepted} accepted, {refused} refused"
+    );
 }
