@@ -62,12 +62,14 @@
 //! assert!(top.allocate().is_err());
 //! ```
 
+use std::collections::BTreeMap;
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
 use super::error::SegmentError;
 use crate::error::InstError;
+use crate::ginstance::EdgeId;
 
 /// Identifier of a segment of a partitioned instance.
 ///
@@ -364,31 +366,76 @@ impl RangeExhausted {
     }
 }
 
-/// Check that the edge allocation range of `segment` lies above every edge id
-/// of the input, whose largest is `max_edge` (`None` when it has no edge).
+/// The seal floor rule of a segment family's edge ids.
 ///
-/// Edge ids are not owned by range: an edge keeps its id when its source
-/// moves, so an edge of one segment may carry an id inside another segment's
-/// edge allocation range. Requiring every edge allocation range to start
-/// above the input's largest edge id keeps a fresh edge id from colliding
-/// with an existing edge anywhere, and keeps fresh edges after their existing
-/// siblings in ascending edge-id order.
+/// Edge ids are not owned by range: an edge is held by the segment owning
+/// its source, whatever its id. The *floor* is the least lower bound of the
+/// family's edge allocation ranges. An edge id below the floor may be held
+/// by any segment; an edge id at or above the floor must lie in the edge
+/// allocation range of the segment holding it. Edge allocation ranges are
+/// pairwise disjoint ([`Partition::validate`]), so under the rule an id
+/// inside the range of segment `i` is held only by segment `i`, and every
+/// id outside every range lies below every range.
 ///
-/// # Errors
+/// The rule is what allocation needs. A segment allocates from its own range
+/// at or above the append floor of its own ids in that range (the source
+/// floor of [`IdAllocator`]); no other segment holds an id there, so a fresh
+/// id collides with no held id, and it lies above every edge its segment
+/// holds, so fresh edges follow their existing siblings (which share their
+/// source and hence their segment) in ascending edge-id order. A family with
+/// no edge id at or above the floor satisfies the rule, and appending a
+/// fresh id to a family that satisfies it gives a family that satisfies it.
 ///
-/// Returns [`SegmentError::AllocationBelowFloor`] with [`IdKind::Edge`] when
-/// `alloc_edges.lo <= max_edge`.
-pub const fn check_edge_range_above(
-    segment: SegmentId,
-    alloc_edges: IdRange,
-    max_edge: Option<u32>,
-) -> Result<(), SegmentError> {
-    match max_edge {
-        Some(max) if alloc_edges.lo <= max => Err(SegmentError::AllocationBelowFloor {
-            segment,
-            kind: IdKind::Edge,
-        }),
-        _ => Ok(()),
+/// [`Partition::validate`]: super::Partition::validate
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct EdgeFloor {
+    floor: Option<u32>,
+    ranges: BTreeMap<SegmentId, IdRange>,
+}
+
+impl EdgeFloor {
+    /// The rule for a family whose segments declare the given edge
+    /// allocation ranges, `None` for a segment without one.
+    #[must_use]
+    pub fn new(ranges: impl IntoIterator<Item = (SegmentId, Option<IdRange>)>) -> Self {
+        let ranges: BTreeMap<SegmentId, IdRange> = ranges
+            .into_iter()
+            .filter_map(|(segment, range)| range.map(|range| (segment, range)))
+            .collect();
+        let floor = ranges.values().map(|range| range.lo).min();
+        Self { floor, ranges }
+    }
+
+    /// The least lower bound of the edge allocation ranges, `None` when no
+    /// segment declares one (every edge id then lies below the floor).
+    #[must_use]
+    pub const fn floor(&self) -> Option<u32> {
+        self.floor
+    }
+
+    /// Check that `segment` may hold edge id `edge`.
+    ///
+    /// # Errors
+    ///
+    /// For an id at or above the floor, [`SegmentError::NoAllocationRange`]
+    /// with [`IdKind::Edge`] when `segment` declares no edge allocation
+    /// range, and [`SegmentError::EdgeIdOutsideAllocation`] when its range
+    /// does not contain `edge`.
+    pub fn check(&self, segment: SegmentId, edge: u32) -> Result<(), SegmentError> {
+        if self.floor.is_none_or(|floor| edge < floor) {
+            return Ok(());
+        }
+        match self.ranges.get(&segment) {
+            None => Err(SegmentError::NoAllocationRange {
+                segment,
+                kind: IdKind::Edge,
+            }),
+            Some(range) if range.contains(edge) => Ok(()),
+            Some(_) => Err(SegmentError::EdgeIdOutsideAllocation {
+                edge: EdgeId(edge),
+                segment,
+            }),
+        }
     }
 }
 
@@ -399,7 +446,7 @@ mod tests {
     use panproto_schema::Edge;
     use proptest::prelude::*;
 
-    use super::{IdAllocator, IdKind, IdRange, RangeExhausted, SegmentId, check_edge_range_above};
+    use super::{EdgeFloor, IdAllocator, IdKind, IdRange, RangeExhausted, SegmentId};
     use crate::error::InstError;
     use crate::ginstance::{EdgeId, GInstance};
     use crate::metadata::Node;
@@ -529,19 +576,93 @@ mod tests {
                 range: IdRange { lo: 3, hi: 1 },
             })
         );
-        // Every edge allocation range must start above the input's largest
-        // edge id.
-        let below = IdRange { lo: 10, hi: 20 };
+        Ok(())
+    }
+
+    #[test]
+    fn an_edge_id_at_or_above_the_floor_is_held_only_in_its_holders_range() {
+        let (zero, one, two) = (SegmentId(0), SegmentId(1), SegmentId(2));
+        let rule = EdgeFloor::new([
+            (zero, Some(IdRange { lo: 20, hi: 29 })),
+            (one, Some(IdRange { lo: 10, hi: 19 })),
+            (two, None),
+        ]);
+        assert_eq!(rule.floor(), Some(10));
+        // Below the floor any segment may hold an id.
+        for segment in [zero, one, two] {
+            assert_eq!(rule.check(segment, 9), Ok(()));
+        }
+        // At or above it, only the segment whose range holds the id.
+        assert_eq!(rule.check(one, 10), Ok(()));
+        assert_eq!(rule.check(zero, 29), Ok(()));
         assert_eq!(
-            check_edge_range_above(segment, below, Some(10)),
-            Err(SegmentError::AllocationBelowFloor {
-                segment,
+            rule.check(zero, 10),
+            Err(SegmentError::EdgeIdOutsideAllocation {
+                edge: EdgeId(10),
+                segment: zero,
+            })
+        );
+        // An id above the floor in no range is admitted for no segment.
+        assert_eq!(
+            rule.check(one, 30),
+            Err(SegmentError::EdgeIdOutsideAllocation {
+                edge: EdgeId(30),
+                segment: one,
+            })
+        );
+        assert_eq!(
+            rule.check(two, 10),
+            Err(SegmentError::NoAllocationRange {
+                segment: two,
                 kind: IdKind::Edge,
             })
         );
-        assert_eq!(check_edge_range_above(segment, below, Some(9)), Ok(()));
-        assert_eq!(check_edge_range_above(segment, below, None), Ok(()));
-        Ok(())
+        // Without any edge range the rule admits every id.
+        let none = EdgeFloor::new([(zero, None), (one, None)]);
+        assert_eq!(none.floor(), None);
+        assert_eq!(none.check(zero, u32::MAX), Ok(()));
+    }
+
+    proptest! {
+        /// Allocation keeps the rule: a fresh id that a segment draws from
+        /// its own range above its own ids there differs from every id the
+        /// family holds, lies above every id its segment holds, and is
+        /// admitted by the rule.
+        #[test]
+        fn a_fresh_edge_id_keeps_the_seal_floor_rule(
+            held in prop::collection::vec((0_u32..3, 0_u32..40), 0..16),
+            drawer in 0_u32..3,
+        ) {
+            let ranges = [
+                (SegmentId(0), Some(IdRange { lo: 10, hi: 19 })),
+                (SegmentId(1), Some(IdRange { lo: 20, hi: 29 })),
+                (SegmentId(2), Some(IdRange { lo: 30, hi: 39 })),
+            ];
+            let rule = EdgeFloor::new(ranges);
+            let mut family: Vec<(u32, u32)> = Vec::new();
+            for (segment, edge) in held {
+                if rule.check(SegmentId(segment), edge).is_ok()
+                    && family.iter().all(|(_, other)| *other != edge)
+                {
+                    family.push((segment, edge));
+                }
+            }
+            let range = IdRange { lo: 10 + 10 * drawer, hi: 19 + 10 * drawer };
+            let own = family
+                .iter()
+                .filter(|(holder, _)| *holder == drawer)
+                .map(|(_, edge)| *edge);
+            if let Ok(fresh) = IdAllocator::from_source(range, own).allocate() {
+                prop_assert!(family.iter().all(|(_, edge)| *edge != fresh));
+                prop_assert!(
+                    family
+                        .iter()
+                        .filter(|(holder, _)| *holder == drawer)
+                        .all(|(_, edge)| *edge < fresh)
+                );
+                prop_assert_eq!(rule.check(SegmentId(drawer), fresh), Ok(()));
+            }
+        }
     }
 
     #[test]
@@ -754,7 +875,6 @@ mod tests {
                 SegmentError::InvertedRange { segment, range: IdRange { lo, hi } },
                 SegmentError::NoAllocationRange { segment, kind: IdKind::Node },
                 SegmentError::AllocationExhausted { segment, kind: IdKind::Edge },
-                SegmentError::AllocationBelowFloor { segment, kind: IdKind::Edge },
             ];
             let fail = |e: &dyn std::fmt::Display| TestCaseError::fail(e.to_string());
             for error in errors {

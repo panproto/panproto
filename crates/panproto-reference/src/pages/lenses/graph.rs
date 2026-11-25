@@ -694,9 +694,11 @@ impl GraphLens<'_> {
     /// Clauses (1) `IdCollision` and (2) `SynthesizedEdited` read the view
     /// and complement alone and always run. Clauses (3) and (4) map every
     /// view edge and node back. The clauses read on the restored source,
-    /// (5) to (8), run only when (3) and (4) report nothing, since only then
-    /// is there a restored source; a view node whose id collides with a
-    /// dropped node is restored in that node's place.
+    /// (5) to (8), run on the whole restored source when (3) and (4) report
+    /// nothing, and otherwise on the restoration of the restorable part,
+    /// the view without each node and edge (3) and (4) refuse and without
+    /// the edges incident to a refused node; a view node whose id collides
+    /// with a dropped node is restored in that node's place.
     pub(super) fn restore_unchecked(
         &self,
         view: &Graph,

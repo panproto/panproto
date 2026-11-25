@@ -32,6 +32,16 @@
 //! marker existed, in the only format there has been, and is read as version
 //! 1; the store writes the marker on its first write through the [`Store`]
 //! trait, and never on a read.
+//!
+//! Version 1 also holds table and graph data sets, complements and edit
+//! logs. Each such object records its [`PayloadEncoding`]; an object that
+//! records none is a tree object exactly as it was written before encodings
+//! were recorded, and a tree object is still written without one, so nothing
+//! a version 1 repository already holds changes its bytes, its identifier or
+//! its meaning. A build that predates payload encodings refuses a table or
+//! graph object when it decodes it, and reads every other object as before.
+//!
+//! [`PayloadEncoding`]: crate::object::PayloadEncoding
 
 use std::fs;
 use std::io::Write as _;

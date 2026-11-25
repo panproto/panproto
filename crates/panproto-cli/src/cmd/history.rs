@@ -304,7 +304,7 @@ pub fn cmd_gc(dry_run: bool) -> Result<()> {
 
     if dry_run {
         let opts = vcs::gc::GcOptions { dry_run: true };
-        let report = vcs::gc::gc_with_options(repo.store_mut(), &opts).into_diagnostic()?;
+        let report = repo.gc_with_options(&opts).into_diagnostic()?;
         println!(
             "Reachable objects: {}. Would delete: {}.",
             report.reachable,

@@ -183,7 +183,7 @@ fn segment_context_strings_are_the_contract_strings() {
         "panproto 2026-09 segment run journal v1"
     );
     assert_eq!(SEGMENT_FORMAT_VERSION, 1);
-    assert_eq!(SEGMENT_MANIFEST_VERSION, 1);
+    assert_eq!(SEGMENT_MANIFEST_VERSION, 2);
 }
 
 #[test]

@@ -13,13 +13,13 @@ use std::collections::HashMap;
 use panproto_gat::Name;
 use panproto_inst::{Node, WInstance};
 use panproto_lens::instances_equivalent;
+use panproto_mig::Migration;
 use panproto_schema::{EdgeRule, Protocol, Schema, SchemaBuilder};
 use panproto_vcs::MemStore;
 use panproto_vcs::ObjectId;
 use panproto_vcs::data_mig::{
-    ProtocolSources, migrate_backward, migrate_forward, protocol_for_schema,
+    ProtocolSources, migrate_backward, migrate_forward, protocol_for_schema, store_migration,
 };
-use panproto_vcs::hash::hash_schema;
 use panproto_vcs::object::{DataSetObject, Object};
 use panproto_vcs::square::verify_square;
 use panproto_vcs::store::Store;
@@ -77,12 +77,21 @@ fn root_dataset(store: &mut MemStore, schema: &Schema) -> ObjectId {
     nodes.insert(0_u32, Node::new(0, "Root"));
     let inst = WInstance::new(nodes, vec![], vec![], 0, Name::from("Root"));
     let ds = DataSetObject {
-        schema_id: hash_schema(schema).unwrap(),
+        schema_id: panproto_vcs::tree::store_schema_as_tree(store, schema.clone()).unwrap(),
         data: rmp_serde::to_vec(&vec![inst]).unwrap(),
         record_count: 1,
         key: Some("rec".to_owned()),
+        encoding: panproto_vcs::object::PayloadEncoding::TREE,
     };
     store.put(&Object::DataSet(ds)).unwrap()
+}
+
+/// The inclusion of `src` into a schema extending it, stored as the
+/// migration from `src` to `tgt`.
+fn inclusion(store: &mut MemStore, src: &Schema, tgt: &Schema) -> ObjectId {
+    let vertices: Vec<Name> = src.vertices.keys().cloned().collect();
+    let edges: Vec<_> = src.edges.keys().cloned().collect();
+    store_migration(store, src, tgt, Migration::identity(&vertices, &edges)).unwrap()
 }
 
 fn load_instances(store: &MemStore, id: ObjectId) -> Vec<WInstance> {
@@ -112,11 +121,10 @@ proptest! {
         let mut store = MemStore::new();
         let data = root_dataset(&mut store, &src);
         let protocol = resolved(&src);
+        let migration = inclusion(&mut store, &src, &tgt);
         let (replayed, complement) =
-            migrate_forward(&mut store, data, &src, &tgt, &protocol).unwrap();
-        prop_assert!(
-            verify_square(&mut store, data, replayed, complement, &src, &tgt, &protocol).is_ok()
-        );
+            migrate_forward(&mut store, data, migration, &protocol).unwrap();
+        prop_assert!(verify_square(&mut store, data, replayed, complement, &protocol).is_ok());
     }
 
     /// Replay preserves data: migrating a data set forward and back through the
@@ -134,10 +142,10 @@ proptest! {
         let mut store = MemStore::new();
         let data = root_dataset(&mut store, &src);
         let protocol = resolved(&src);
+        let migration = inclusion(&mut store, &src, &tgt);
         let (replayed, complement) =
-            migrate_forward(&mut store, data, &src, &tgt, &protocol).unwrap();
-        let restored =
-            migrate_backward(&mut store, replayed, complement, &src, &tgt, &protocol).unwrap();
+            migrate_forward(&mut store, data, migration, &protocol).unwrap();
+        let restored = migrate_backward(&mut store, replayed, complement, &protocol).unwrap();
 
         let before = load_instances(&store, data);
         let after = load_instances(&store, restored);
@@ -164,18 +172,19 @@ proptest! {
         let p0 = resolved(&s0);
 
         // First square: s0 -> s1.
-        let (d1, c1) = migrate_forward(&mut store, d0, &s0, &s1, &p0).unwrap();
-        prop_assert!(verify_square(&mut store, d0, d1, c1, &s0, &s1, &p0).is_ok());
+        let m01 = inclusion(&mut store, &s0, &s1);
+        let (d1, c1) = migrate_forward(&mut store, d0, m01, &p0).unwrap();
+        prop_assert!(verify_square(&mut store, d0, d1, c1, &p0).is_ok());
 
         // Second square: s1 -> s2.
         let p1 = resolved(&s1);
-        let (d2, c2) = migrate_forward(&mut store, d1, &s1, &s2, &p1).unwrap();
-        prop_assert!(verify_square(&mut store, d1, d2, c2, &s1, &s2, &p1).is_ok());
+        let m12 = inclusion(&mut store, &s1, &s2);
+        let (d2, c2) = migrate_forward(&mut store, d1, m12, &p1).unwrap();
+        prop_assert!(verify_square(&mut store, d1, d2, c2, &p1).is_ok());
 
         // Pasted square: s0 -> s2 directly commutes as well.
-        let (d2_direct, c_direct) = migrate_forward(&mut store, d0, &s0, &s2, &p0).unwrap();
-        prop_assert!(
-            verify_square(&mut store, d0, d2_direct, c_direct, &s0, &s2, &p0).is_ok()
-        );
+        let m02 = inclusion(&mut store, &s0, &s2);
+        let (d2_direct, c_direct) = migrate_forward(&mut store, d0, m02, &p0).unwrap();
+        prop_assert!(verify_square(&mut store, d0, d2_direct, c_direct, &p0).is_ok());
     }
 }

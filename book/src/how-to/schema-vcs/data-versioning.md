@@ -43,6 +43,15 @@ Checkout changes only the repository ref. Pass `--migrate` to request a correspo
 schema checkout <commit> --migrate records/
 ```
 
+A tracked instance recorded against an earlier schema is stale once a later commit changes the schema. `schema data upgrade` migrates every stale tracked instance (or the keys it is given) to `HEAD`'s schema along the migrations the commits since its schema recorded, and stages the migrated instance with the complement of each step; the next commit records them:
+
+```sh
+schema data upgrade
+schema commit -m "migrate tracked data"
+```
+
+A commit that changed the schema without recording a migration has no step to take, and the command refuses naming it.
+
 ## Verification
 
 ```sh

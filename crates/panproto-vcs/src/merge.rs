@@ -83,6 +83,12 @@ pub struct MergeOptions {
     pub squash: bool,
     /// Custom merge commit message.
     pub message: Option<String>,
+    /// Resolutions of the instance conflicts, by index in
+    /// [`MergeResult::instance_conflicts`]; see
+    /// [`instance_merge::apply_resolutions`](crate::instance_merge::apply_resolutions).
+    /// Empty by default, which leaves a merge with instance conflicts
+    /// uncommitted.
+    pub instance_resolutions: ResolutionStrategy,
 }
 
 /// The result of a three-way merge.
@@ -119,6 +125,14 @@ pub struct MergeResult {
     /// that wants both copies renames one side and merges again. Sorted, so
     /// the same merge reports them in the same order in every process.
     pub identified_additions: Vec<IdentifiedAddition>,
+    /// The conflicts of the merge of the instances both commits track
+    /// ([`instance_merge::merge_tracked`](crate::instance_merge::merge_tracked)),
+    /// in its listing order, when a repository merged them. Empty from
+    /// [`three_way_merge`], which merges schemas only, and when the schema
+    /// merge has conflicts, since the instances are merged only under a
+    /// clean schema merge. A repository records no merge commit while one
+    /// of them is unresolved ([`MergeOptions::instance_resolutions`]).
+    pub instance_conflicts: Vec<crate::instance_merge::InstanceConflict>,
 }
 
 /// An element both branches added independently that the merge identified
@@ -1837,6 +1851,7 @@ pub fn three_way_merge(base: &Schema, ours: &Schema, theirs: &Schema) -> MergeRe
         pullback_overlap,
         pullback_error,
         identified_additions,
+        instance_conflicts: Vec::new(),
     }
 }
 

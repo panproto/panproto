@@ -203,7 +203,7 @@ pub const SEGMENT_EDGE_IDS_CONTEXT: &str = "panproto 2026-09 segment edge ids v1
 pub const SEGMENT_FORMAT_VERSION: u16 = 1;
 
 /// The version of the segment manifest layout.
-pub const SEGMENT_MANIFEST_VERSION: u16 = 1;
+pub const SEGMENT_MANIFEST_VERSION: u16 = 2;
 
 /// The blake3 key-derivation context for a resolution's identity: the
 /// protocol, the resolution kind, the syntactic and semantic schema digests

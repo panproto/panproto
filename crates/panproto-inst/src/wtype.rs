@@ -1115,51 +1115,75 @@ pub fn reconstruct_fans(
     migration: &CompiledMigration,
     _tgt_schema: &Schema,
 ) -> Result<Vec<Fan>, RestrictError> {
-    let mut result = Vec::new();
     let resolver = FanResolver::new(migration);
-
+    let mut result = Vec::new();
     for fan in &instance.fans {
-        if !surviving.contains(&fan.parent) {
-            continue;
+        if let Some((projected, _)) =
+            project_fan(fan, &|node| surviving.contains(&node), &resolver)?
+        {
+            result.push(projected);
         }
+    }
+    Ok(result)
+}
 
-        let mut surviving_children: Vec<(&String, u32)> = fan
-            .children
-            .iter()
-            .filter(|(_, node_id)| surviving.contains(node_id))
-            .map(|(label, node_id)| (label, *node_id))
-            .collect();
-        if surviving_children.is_empty() {
-            continue;
-        }
-        surviving_children.sort_unstable();
+/// The projection of one fan over the surviving nodes, with the label each
+/// surviving child moves from and to, in ascending source label.
+///
+/// `None` when the fan's parent or every child is dropped; otherwise the
+/// fan keeps its parent and its surviving children, retargeted and
+/// relabelled by `resolver` when it governs the surviving shape.
+///
+/// # Errors
+///
+/// `RestrictError::FanReconstructionFailed` when the renaming sends two
+/// surviving children to one label.
+pub(crate) fn project_fan(
+    fan: &Fan,
+    surviving: &dyn Fn(u32) -> bool,
+    resolver: &FanResolver<'_>,
+) -> Result<Option<(Fan, Vec<(String, String)>)>, RestrictError> {
+    if !surviving(fan.parent) {
+        return Ok(None);
+    }
+    let mut surviving_children: Vec<(&String, u32)> = fan
+        .children
+        .iter()
+        .filter(|(_, node_id)| surviving(**node_id))
+        .map(|(label, node_id)| (label, *node_id))
+        .collect();
+    if surviving_children.is_empty() {
+        return Ok(None);
+    }
+    surviving_children.sort_unstable();
 
-        let surviving_shape = canonical_label_shape(surviving_children.iter().map(|(l, _)| l));
-        let full_shape = canonical_label_shape(fan.children.keys());
-        let entry = resolver.resolve(&fan.hyper_edge_id, &surviving_shape, &full_shape);
-        let hyper_edge_id =
-            entry.map_or_else(|| fan.hyper_edge_id.clone(), |(he, _)| he.to_string());
-        let mut children = HashMap::new();
-        for (old_label, node_id) in surviving_children {
-            let new_label = entry
-                .and_then(|(_, labels)| labels.get(old_label.as_str()))
-                .map_or_else(|| old_label.clone(), ToString::to_string);
-            if children.contains_key(&new_label) {
-                return Err(RestrictError::FanReconstructionFailed {
-                    hyper_edge_id,
-                    detail: format!("two children are relabelled `{new_label}`"),
-                });
-            }
-            children.insert(new_label, node_id);
+    let surviving_shape = canonical_label_shape(surviving_children.iter().map(|(l, _)| l));
+    let full_shape = canonical_label_shape(fan.children.keys());
+    let entry = resolver.resolve(&fan.hyper_edge_id, &surviving_shape, &full_shape);
+    let hyper_edge_id = entry.map_or_else(|| fan.hyper_edge_id.clone(), |(he, _)| he.to_string());
+    let mut children = HashMap::new();
+    let mut moves = Vec::with_capacity(surviving_children.len());
+    for (old_label, node_id) in surviving_children {
+        let new_label = entry
+            .and_then(|(_, labels)| labels.get(old_label.as_str()))
+            .map_or_else(|| old_label.clone(), ToString::to_string);
+        if children.contains_key(&new_label) {
+            return Err(RestrictError::FanReconstructionFailed {
+                hyper_edge_id,
+                detail: format!("two children are relabelled `{new_label}`"),
+            });
         }
-        result.push(Fan {
+        children.insert(new_label.clone(), node_id);
+        moves.push((old_label.clone(), new_label));
+    }
+    Ok(Some((
+        Fan {
             hyper_edge_id,
             parent: fan.parent,
             children,
-        });
-    }
-
-    Ok(result)
+        },
+        moves,
+    )))
 }
 
 // ---------------------------------------------------------------------------
@@ -1572,6 +1596,20 @@ fn refuse_merged_fields(
             images.push((parent, first, source));
         }
     }
+    first_merged_field(images)
+}
+
+/// The refusal of the least `(parent, edge)` on which the arc images
+/// `images`, each a parent, its view edge and the source edge it comes
+/// from, land from two or more distinct source edges; only named edges
+/// count, and the refusal reports the number of arcs landing there.
+///
+/// # Errors
+///
+/// [`RestrictError::MultipleArcsOnSingleValuedEdge`] as stated.
+pub(crate) fn first_merged_field<'e>(
+    images: impl IntoIterator<Item = (u32, &'e Edge, &'e Edge)>,
+) -> Result<(), RestrictError> {
     let mut landing: BTreeMap<(u32, &Edge), (usize, BTreeSet<&Edge>)> = BTreeMap::new();
     for (parent, edge, source) in images {
         if edge.name.is_some() {
@@ -1650,8 +1688,28 @@ fn contracted_chain(
     source: u32,
     child: u32,
 ) -> Result<SynthChain, RestrictError> {
-    let source_anchor = &instance.nodes[&source].anchor;
-    let child_anchor = &instance.nodes[&child].anchor;
+    contracted_chain_between(
+        plan,
+        (source, &instance.nodes[&source].anchor),
+        (child, &instance.nodes[&child].anchor),
+    )
+}
+
+/// The path joining the surviving node `source` of source anchor
+/// `source_anchor` to the surviving node `child` of source anchor
+/// `child_anchor` below it across dropped nodes: the plan's resolution of
+/// the two anchors.
+///
+/// # Errors
+///
+/// [`RestrictError::NoEdgeFound`] when the plan holds no pair for the
+/// anchors, the unresolved refusal of an unresolved pair, and
+/// [`RestrictError::ExpansionTooLong`] for a path a key cannot number.
+pub(crate) fn contracted_chain_between(
+    plan: &crate::restrict_plan::RestrictPlan,
+    (source, source_anchor): (u32, &Name),
+    (child, child_anchor): (u32, &Name),
+) -> Result<SynthChain, RestrictError> {
     let Some(pair) = plan.contraction.pair(source_anchor, child_anchor) else {
         return Err(RestrictError::NoEdgeFound {
             src: plan.target_anchor(source_anchor).to_string(),

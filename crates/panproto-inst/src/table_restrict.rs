@@ -118,10 +118,105 @@ fn restrict_with_row_domain(
         return Err(RestrictError::TablePlanRequired);
     };
     let mut run = TableRun::new(instance, plan, functor.source());
-    run.rows(domain)?;
-    run.pairs()?;
+    run.rows(domain).map_err(|(_, error)| error)?;
+    run.pairs().map_err(|refused| refused.1)?;
     run.contraction()?;
     Ok((run.view, run.complement))
+}
+
+/// The element of a table instance a refusal of the row or pair stage of
+/// the table engine arose at. Rows come before pairs, rows in ascending id
+/// and pairs in ascending foreign key and pair, which is the order the
+/// engine refuses in.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum TableStageKey {
+    /// The row stage, at a row.
+    Row(RowId),
+    /// The pair stage, at a pair.
+    Pair(Edge, RowId, RowId),
+}
+
+/// The row and pair stages of [`functor_restrict_finite_with_plan`] on
+/// `instance`, without contraction: the view and complement they build, or
+/// the first refusal with the element it arose at (`None` for a plan
+/// compiled without the table functor).
+pub(crate) fn restrict_rows_and_pairs(
+    instance: &FInstance,
+    plan: &RestrictPlan,
+) -> Result<(FInstance, TableComplement), StageRefusal> {
+    let Some(functor) = plan.table_functor() else {
+        return Err(Box::new((None, RestrictError::TablePlanRequired)));
+    };
+    let mut run = TableRun::new(instance, plan, functor.source());
+    run.rows(RowDomain::Finite)
+        .map_err(|(row, error)| Box::new((Some(TableStageKey::Row(row)), error)))?;
+    run.pairs().map_err(|refused| {
+        let ((edge, src, tgt), error) = *refused;
+        Box::new((Some(TableStageKey::Pair(edge, src, tgt)), error))
+    })?;
+    Ok((run.view, run.complement))
+}
+
+/// A refusal of the pair stage with the pair it arose at.
+type PairRefusal = Box<((Edge, RowId, RowId), RestrictError)>;
+
+/// A refusal of the row or pair stage with the element it arose at.
+pub(crate) type StageRefusal = Box<(Option<TableStageKey>, RestrictError)>;
+
+/// Join the surviving rows `src` and `tgt`, of source tables `src_table`
+/// and `tgt_table`, by the pair their contraction resolves to, and record
+/// the pair as synthesized: the contraction stage of the table engine at one
+/// realized pair.
+///
+/// # Errors
+///
+/// [`RestrictError::NoEdgeFound`] when the plan resolves no pair of the two
+/// tables, and [`RestrictError::NotTableRepresentable`] or the plan's
+/// unresolved refusal for a resolution that is no single label.
+pub(crate) fn contract_pair(
+    plan: &RestrictPlan,
+    (view, complement): (&mut FInstance, &mut TableComplement),
+    (src, src_table): (RowId, &Name),
+    (tgt, tgt_table): (RowId, &Name),
+) -> Result<(), RestrictError> {
+    let Some(pair) = plan.contraction.pair(src_table, tgt_table) else {
+        return Err(RestrictError::NoEdgeFound {
+            src: plan.target_anchor(src_table).to_string(),
+            tgt: plan.target_anchor(tgt_table).to_string(),
+        });
+    };
+    match &pair.resolution {
+        PairResolution::Label(edge) => {
+            view.place_pair(edge.clone(), src, tgt);
+            complement
+                .synthesized_fk_pairs
+                .insert((edge.clone(), src, tgt));
+            Ok(())
+        }
+        PairResolution::Expand { .. } => Err(RestrictError::NotTableRepresentable {
+            reason: format!("the contracted pair ({src_table}, {tgt_table}) expands into a path"),
+        }),
+        PairResolution::Unresolved(reason) => {
+            Err(plan.unresolved(&pair.target.0, &pair.target.1, *reason))
+        }
+    }
+}
+
+/// The view table of a row of source table `table` under a plan whose
+/// survival carries no expression, or `None` when such a row is dropped.
+pub(crate) fn surviving_table<'a>(plan: &'a RestrictPlan, table: &'a Name) -> Option<&'a Name> {
+    plan.anchor_survives(table)
+        .then(|| plan.target_anchor(table))
+}
+
+/// The image of the pairs of source foreign key `edge` between surviving
+/// rows: `Some` when the key's fate keeps them, `None` when it drops them
+/// or has no table fate (which the pair stage refuses at the key's owner).
+pub(crate) fn kept_pair_image(plan: &RestrictPlan, edge: &Edge) -> Option<Edge> {
+    match plan.edge_image.fate(edge) {
+        Some(EdgeFate::Keep(image)) => Some(image.clone()),
+        _ => None,
+    }
 }
 
 /// The state of one table restrict.
@@ -155,14 +250,15 @@ impl<'a> TableRun<'a> {
     }
 
     /// Survival and transforms, row by row.
-    fn rows(&mut self, domain: RowDomain) -> Result<(), RestrictError> {
+    fn rows(&mut self, domain: RowDomain) -> Result<(), (RowId, RestrictError)> {
         for id in self.instance.row_ids() {
             let (Some(table), Some(row)) = (self.instance.table_of(id), self.instance.row(id))
             else {
                 continue;
             };
-            self.conform(id, table, row, domain)?;
-            match self.row(id, table, row)? {
+            self.conform(id, table, row, domain)
+                .map_err(|error| (id, error))?;
+            match self.row(id, table, row).map_err(|error| (id, error))? {
                 Some((image, cells)) => self.view.place_row(image, id, cells),
                 None => {
                     self.complement.dropped_rows.insert(
@@ -285,43 +381,12 @@ impl<'a> TableRun<'a> {
     }
 
     /// Pairs between surviving rows, by their foreign key's fate.
-    fn pairs(&mut self) -> Result<(), RestrictError> {
+    fn pairs(&mut self) -> Result<(), PairRefusal> {
         let instance = self.instance;
         for (edge, pairs) in instance.foreign_keys() {
             for &(src, tgt) in pairs {
-                let kept = self.view.table_of(src).is_some() && self.view.table_of(tgt).is_some();
-                if !kept {
-                    self.drop_pair(edge, src, tgt);
-                    continue;
-                }
-                match self.plan.edge_image.fate(edge) {
-                    None => {
-                        return Err(RestrictError::IncoherentEdgeImage {
-                            source_edge: Box::new(edge.clone()),
-                            image: Box::new(edge.clone()),
-                        });
-                    }
-                    Some(EdgeFate::Keep(image)) => {
-                        self.view.place_pair(image.clone(), src, tgt);
-                        self.carriers
-                            .entry((image.clone(), src, tgt))
-                            .or_default()
-                            .insert(edge.clone());
-                    }
-                    Some(EdgeFate::Drop) => self.drop_pair(edge, src, tgt),
-                    Some(EdgeFate::Expand { .. }) => {
-                        return Err(RestrictError::NotTableRepresentable {
-                            reason: format!("edge {edge:?} expands into a path"),
-                        });
-                    }
-                    Some(EdgeFate::Unresolved(reason)) => {
-                        let (Some(a), Some(b)) = (self.view.table_of(src), self.view.table_of(tgt))
-                        else {
-                            continue;
-                        };
-                        return Err(self.plan.unresolved(a, b, *reason));
-                    }
-                }
+                self.pair(edge, src, tgt)
+                    .map_err(|error| Box::new(((edge.clone(), src, tgt), error)))?;
             }
         }
         for ((image, src, tgt), carriers) in std::mem::take(&mut self.carriers) {
@@ -334,6 +399,36 @@ impl<'a> TableRun<'a> {
             }
         }
         Ok(())
+    }
+
+    /// One pair, by its foreign key's fate when both its rows survive.
+    fn pair(&mut self, edge: &Edge, src: RowId, tgt: RowId) -> Result<(), RestrictError> {
+        let (Some(a), Some(b)) = (self.view.table_of(src), self.view.table_of(tgt)) else {
+            self.drop_pair(edge, src, tgt);
+            return Ok(());
+        };
+        match self.plan.edge_image.fate(edge) {
+            None => Err(RestrictError::IncoherentEdgeImage {
+                source_edge: Box::new(edge.clone()),
+                image: Box::new(edge.clone()),
+            }),
+            Some(EdgeFate::Keep(image)) => {
+                self.view.place_pair(image.clone(), src, tgt);
+                self.carriers
+                    .entry((image.clone(), src, tgt))
+                    .or_default()
+                    .insert(edge.clone());
+                Ok(())
+            }
+            Some(EdgeFate::Drop) => {
+                self.drop_pair(edge, src, tgt);
+                Ok(())
+            }
+            Some(EdgeFate::Expand { .. }) => Err(RestrictError::NotTableRepresentable {
+                reason: format!("edge {edge:?} expands into a path"),
+            }),
+            Some(EdgeFate::Unresolved(reason)) => Err(self.plan.unresolved(a, b, *reason)),
+        }
     }
 
     fn drop_pair(&mut self, edge: &Edge, src: RowId, tgt: RowId) {
@@ -385,32 +480,12 @@ impl<'a> TableRun<'a> {
             else {
                 continue;
             };
-            let Some(pair) = self.plan.contraction.pair(src_table, tgt_table) else {
-                return Err(RestrictError::NoEdgeFound {
-                    src: self.plan.target_anchor(src_table).to_string(),
-                    tgt: self.plan.target_anchor(tgt_table).to_string(),
-                });
-            };
-            match &pair.resolution {
-                PairResolution::Label(edge) => {
-                    self.view.place_pair(edge.clone(), src, tgt);
-                    self.complement
-                        .synthesized_fk_pairs
-                        .insert((edge.clone(), src, tgt));
-                }
-                PairResolution::Expand { .. } => {
-                    return Err(RestrictError::NotTableRepresentable {
-                        reason: format!(
-                            "the contracted pair ({src_table}, {tgt_table}) expands into a path"
-                        ),
-                    });
-                }
-                PairResolution::Unresolved(reason) => {
-                    return Err(self
-                        .plan
-                        .unresolved(&pair.target.0, &pair.target.1, *reason));
-                }
-            }
+            contract_pair(
+                self.plan,
+                (&mut self.view, &mut self.complement),
+                (src, src_table),
+                (tgt, tgt_table),
+            )?;
         }
         Ok(())
     }

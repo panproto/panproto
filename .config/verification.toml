@@ -142,6 +142,34 @@ binary = "reference_migration_search"
 tests = ["a_bounded_search_answers_or_names_its_bound_on_every_bounded_pair"]
 
 [[gate]]
+tier = "certificate"
+name = "segmented graph put"
+package = "panproto-lens"
+binary = "reference_lenses"
+tests = [
+    "segmented_graph_put::segmented_graph_put_agrees_with_the_reference_and_assembles_to_whole_state_put",
+    "segmented_graph_put_run::segmented_graph_put_run_matches_the_reference_runner_at_every_cancellation_point",
+]
+
+[[gate]]
+tier = "certificate"
+name = "segmented table edit lens"
+package = "panproto-lens"
+binary = "reference_lenses"
+tests = [
+    "segmented_table_edit_lens::segmented_table_edit_lens_agrees_with_the_reference_and_the_whole_state_lens_on_every_case",
+]
+
+[[gate]]
+tier = "certificate"
+name = "segmented apply"
+package = "panproto-inst"
+binary = "reference_edits"
+tests = [
+    "segmented_apply::segmented_apply_agrees_with_the_reference_on_every_case_of_the_carrier",
+]
+
+[[gate]]
 tier = "corpus"
 package = "panproto-parse"
 binary = "emit_corpus_audit"
@@ -229,6 +257,26 @@ tier = "exhaustive"
 package = "panproto-inst"
 binary = "reference_edits"
 tests = ["graph_independence_and_merge_match_reference_on_every_letter_pair_of_the_coverage_scope"]
+
+[[gate]]
+tier = "exhaustive"
+package = "panproto-lens"
+binary = "reference_lenses"
+tests = ["graph_edit_lens_differential::graph_edit_lens_law_certificate"]
+shards = 4
+shard_env = "PANPROTO_TEST_SHARD"
+
+[[gate]]
+tier = "exhaustive"
+package = "panproto-inst"
+binary = "reference_edits"
+tests = ["graph_rebase_keeps_independent_deltas_and_agrees_with_the_merge_on_the_rebase_scope"]
+
+[[gate]]
+tier = "exhaustive"
+package = "panproto-inst"
+binary = "reference_edits"
+tests = ["table_rebase_keeps_independent_deltas_and_agrees_with_the_merge_on_the_rebase_scope"]
 
 [[gate]]
 tier = "kan"

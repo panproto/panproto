@@ -170,60 +170,6 @@ fn remap_old_edge_ids(
     .map_err(|error| EditLensError::TranslationFailed(error.to_string()))
 }
 
-/// Keep replacement events carried by the input delta even when their old
-/// and new payloads happen to be equal. A state diff cannot recover this
-/// provenance, while canonical graph-delta normal form deliberately retains
-/// it.
-fn preserve_input_replacements(
-    delta: GraphDelta,
-    input: &GraphDelta,
-    before: &GInstance,
-    after: &GInstance,
-) -> Result<GraphDelta, EditLensError> {
-    let mut parts = delta.into_parts();
-    for id in input
-        .del_nodes()
-        .keys()
-        .filter(|id| input.add_nodes().contains_key(id))
-    {
-        if let (Some(old), Some(new)) = (before.node(*id), after.node(*id)) {
-            parts.del_nodes.insert(*id, old.clone());
-            parts.add_nodes.insert(*id, new.clone());
-        }
-    }
-    for id in input
-        .del_edges()
-        .keys()
-        .filter(|id| input.add_edges().contains_key(id))
-    {
-        if let (Some(old), Some(new)) = (before.edge(*id), after.edge(*id)) {
-            parts.del_edges.insert(*id, old.clone());
-            parts.add_edges.insert(*id, new.clone());
-        }
-    }
-    // Replacing a node deletes its old incidence. Even an unchanged edge
-    // synthesized by contraction must be deleted and re-added when it
-    // touches that node; only the before/after states determine this closure.
-    for (id, old) in before.edges_sorted() {
-        if parts.del_nodes.contains_key(&old.src) || parts.del_nodes.contains_key(&old.tgt) {
-            parts.del_edges.insert(id, old.clone());
-            if let Some(new) = after.edge(id) {
-                parts.add_edges.insert(id, new.clone());
-            }
-        }
-    }
-    for (id, new) in after.edges_sorted() {
-        if parts.add_nodes.contains_key(&new.src) || parts.add_nodes.contains_key(&new.tgt) {
-            parts.add_edges.insert(id, new.clone());
-            if let Some(old) = before.edge(id) {
-                parts.del_edges.insert(id, old.clone());
-            }
-        }
-    }
-    GraphDelta::normalize(parts)
-        .map_err(|error| EditLensError::TranslationFailed(error.to_string()))
-}
-
 pub(crate) fn whole_state_error(error: crate::LensError) -> EditLensError {
     match error {
         crate::LensError::Restrict(error) => EditLensError::Restrict(error),
@@ -350,12 +296,8 @@ impl EditLens {
             ));
         }
         let edge_ids = edge_presentation_map(&before_embedding, view_embedding)?;
-        let translated = preserve_input_replacements(
-            GraphDelta::diff(&before_view, &after_view),
-            edit,
-            &before_view,
-            &after_view,
-        )?;
+        let translated = GraphDelta::diff_keeping_replacements(&before_view, &after_view, edit)
+            .map_err(|error| EditLensError::TranslationFailed(error.to_string()))?;
         let translated = remap_old_edge_ids(translated, &edge_ids)?;
         let mut translated_view = current_view;
         translated.apply(&mut translated_view)?;
@@ -2864,7 +2806,6 @@ mod tests {
     }
     #[test]
     fn synthetic_incidence_is_replaced_without_touching_unrelated_edges() {
-        use super::preserve_input_replacements;
         use panproto_inst::graph_edit::GraphDeltaParts;
         use panproto_inst::{EdgeId, GInstance, GraphDelta};
         let edge = |src: &str, tgt: &str| Edge {
@@ -2898,8 +2839,7 @@ mod tests {
         let mut edited_source = source.clone();
         input.apply(&mut edited_source).unwrap();
         assert_eq!(edited_source, source);
-        let translated =
-            preserve_input_replacements(GraphDelta::identity(), &input, &view, &view).unwrap();
+        let translated = GraphDelta::diff_keeping_replacements(&view, &view, &input).unwrap();
         assert_eq!(
             translated.del_edges().keys().copied().collect::<Vec<_>>(),
             vec![EdgeId(10)]
@@ -2917,13 +2857,7 @@ mod tests {
             translated
         );
         assert_eq!(
-            preserve_input_replacements(
-                GraphDelta::identity(),
-                &GraphDelta::identity(),
-                &view,
-                &view
-            )
-            .unwrap(),
+            GraphDelta::diff_keeping_replacements(&view, &view, &GraphDelta::identity()).unwrap(),
             GraphDelta::identity()
         );
     }

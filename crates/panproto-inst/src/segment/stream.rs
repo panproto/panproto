@@ -10,17 +10,17 @@ use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 
 use panproto_gat::Name;
-use panproto_schema::{Edge, InstanceShapeKind};
+use panproto_schema::{CanonicalWriter, Edge, InstanceShapeKind};
 
 use super::body::{AnySegment, SegmentStats};
 use super::error::SegmentError;
+use super::reader::Reader;
 use super::store::ArtifactKind;
 use super::tree_bytes::{FanRecord, write_arc_record, write_winstance_header};
 use crate::functor::{Row, write_pair_record, write_row_record};
 use crate::ginstance::{EdgeId, GEdge, write_edge_record, write_node_record};
 use crate::identity::{
-    CanonicalSink, Digest, DigestHasher, GRAPH_INSTANCE_CONTEXT, TABLE_INSTANCE_CONTEXT,
-    TREE_INSTANCE_CONTEXT,
+    CanonicalSink, Digest, GRAPH_INSTANCE_CONTEXT, TABLE_INSTANCE_CONTEXT, TREE_INSTANCE_CONTEXT,
 };
 use crate::metadata::Node;
 use crate::view_ref::{RowId, ViewRef};
@@ -86,21 +86,119 @@ impl InstanceRecord {
         )
     }
 
-    fn write(&self, hasher: &mut DigestHasher) {
+    /// Write the record as the instance's canonical bytes write it.
+    fn write<S: CanonicalSink + ?Sized>(&self, sink: &mut S) {
         match self {
-            Self::Node(node) => write_node_record(hasher, node),
-            Self::Edge(id, edge) => write_edge_record(hasher, *id, edge),
-            Self::Row(id, table, row) => write_row_record(hasher, *id, table, row),
-            Self::Pair(edge, src, tgt) => write_pair_record(hasher, edge, *src, *tgt),
+            Self::Node(node) => write_node_record(sink, node),
+            Self::Edge(id, edge) => write_edge_record(sink, *id, edge),
+            Self::Row(id, table, row) => write_row_record(sink, *id, table, row),
+            Self::Pair(edge, src, tgt) => write_pair_record(sink, edge, *src, *tgt),
             Self::Arc {
                 parent,
                 child,
                 label,
                 ..
-            } => write_arc_record(hasher, *parent, *child, label),
-            Self::Fan(fan) => fan.write(hasher),
+            } => write_arc_record(sink, *parent, *child, label),
+            Self::Fan(fan) => fan.write(sink),
         }
     }
+
+    /// The record's frame tag: `0` node, `1` edge, `2` row, `3` pair, `4`
+    /// arc, `5` fan.
+    const fn frame_tag(&self) -> u8 {
+        match self {
+            Self::Node(_) => 0,
+            Self::Edge(..) => 1,
+            Self::Row(..) => 2,
+            Self::Pair(..) => 3,
+            Self::Arc { .. } => 4,
+            Self::Fan(_) => 5,
+        }
+    }
+
+    /// The record's frame: its frame tag (`0` node, `1` edge, `2` row, `3`
+    /// pair, `4` arc, `5` fan), then, for an arc, its embedding edge id,
+    /// then the record as the instance's canonical bytes write it.
+    ///
+    /// The frame holds everything the record is, so [`InstanceRecord::from_frame`]
+    /// reads it back.
+    #[must_use]
+    pub fn frame(&self) -> Vec<u8> {
+        let mut sink = CanonicalWriter::new();
+        sink.tag(self.frame_tag());
+        if let Self::Arc { id, .. } = self {
+            sink.u32(id.0);
+        }
+        self.write(&mut sink);
+        sink.into_bytes()
+    }
+
+    /// The record a frame holds ([`InstanceRecord::frame`]).
+    ///
+    /// # Errors
+    ///
+    /// [`SegmentError::Decode`] of a segment when the frame has an unknown
+    /// tag, ends early, holds a value the value types refuse or a fan whose
+    /// children do not strictly ascend, or has bytes after its record.
+    pub fn from_frame(bytes: &[u8]) -> Result<Self, SegmentError> {
+        let mut r = Reader::new(bytes, ArtifactKind::Segment);
+        let record = match r.u8()? {
+            0 => Self::Node(r.node()?),
+            1 => {
+                let (id, edge) = r.edge_record()?;
+                Self::Edge(id, edge)
+            }
+            2 => {
+                let (id, table, row) = r.row_record()?;
+                Self::Row(id, table, row)
+            }
+            3 => {
+                let (edge, src, tgt) = r.pair_record()?;
+                Self::Pair(edge, src, tgt)
+            }
+            4 => {
+                let id = EdgeId(r.u32()?);
+                let (parent, child, label) = r.arc_record()?;
+                Self::Arc {
+                    id,
+                    parent,
+                    child,
+                    label,
+                }
+            }
+            5 => Self::Fan(r.fan_record()?),
+            other => return Err(r.error(format!("record frame tag {other}"))),
+        };
+        r.finish()?;
+        Ok(record)
+    }
+}
+
+/// The record stream of `records`: each record's frame
+/// ([`InstanceRecord::frame`]) after its length as eight little-endian
+/// bytes, in the order given.
+#[must_use]
+pub fn record_stream<'a>(records: impl IntoIterator<Item = &'a InstanceRecord>) -> Vec<u8> {
+    let mut sink = CanonicalWriter::new();
+    for record in records {
+        sink.bytes(&record.frame());
+    }
+    sink.into_bytes()
+}
+
+/// The records of a record stream ([`record_stream`]), in stream order.
+///
+/// # Errors
+///
+/// [`SegmentError::Decode`] of a segment when a length runs past the end of
+/// the stream or a frame does not decode ([`InstanceRecord::from_frame`]).
+pub fn decode_record_stream(bytes: &[u8]) -> Result<Vec<InstanceRecord>, SegmentError> {
+    let mut r = Reader::new(bytes, ArtifactKind::Segment);
+    let mut records = Vec::new();
+    while !r.finished() {
+        records.push(InstanceRecord::from_frame(r.byte_string()?)?);
+    }
+    Ok(records)
 }
 
 /// A stream of one segment's records in canonical order, with the counts
@@ -123,6 +221,14 @@ pub trait RecordSource {
 pub struct SegmentRecords {
     stats: SegmentStats,
     records: std::vec::IntoIter<InstanceRecord>,
+}
+
+impl SegmentRecords {
+    /// The records not yet streamed, in canonical order.
+    #[must_use]
+    pub fn as_slice(&self) -> &[InstanceRecord] {
+        self.records.as_slice()
+    }
 }
 
 impl RecordSource for SegmentRecords {
@@ -208,6 +314,14 @@ impl AnySegment {
             stats: self.stats(),
             records: records.into_iter(),
         }
+    }
+
+    /// The segment's record stream ([`record_stream`] of
+    /// [`AnySegment::records`]): the records the instance digest reads, in
+    /// canonical order.
+    #[must_use]
+    pub fn record_stream(&self) -> Vec<u8> {
+        record_stream(self.records().as_slice())
     }
 }
 

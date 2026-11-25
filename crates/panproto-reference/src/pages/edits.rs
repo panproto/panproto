@@ -3248,6 +3248,221 @@ pub mod edit {
         Ok(out)
     }
 
+    /// Why a delta does not rebase over committed deltas: the position of
+    /// the first committed delta it depends on, and the first conflict
+    /// between them.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct RebaseConflict<C> {
+        /// The committed delta's position, from zero.
+        pub index: usize,
+        /// The first conflict.
+        pub conflict: Box<C>,
+    }
+
+    /// The first committed delta `delta` is not independent of, by
+    /// `conflicts`, with the first conflict; `None` when it is independent
+    /// of all.
+    fn first_dependence<D, C>(
+        delta: &D,
+        committed: &[D],
+        conflicts: impl Fn(&D, &D) -> Vec<C>,
+    ) -> Option<RebaseConflict<C>> {
+        committed.iter().enumerate().find_map(|(index, other)| {
+            conflicts(delta, other)
+                .into_iter()
+                .next()
+                .map(|conflict| RebaseConflict {
+                    index,
+                    conflict: Box::new(conflict),
+                })
+        })
+    }
+
+    /// Definition: Rebase a graph delta over committed graph deltas.
+    ///
+    /// A delta made against a state that has since taken the committed
+    /// deltas in order is rebased to follow them as itself when it is
+    /// independent of each, and otherwise refused with the first conflict of
+    /// the first committed delta it is not independent of.
+    ///
+    /// # Errors
+    ///
+    /// That conflict, with the committed delta's position.
+    ///
+    /// Book anchors: `L-edits-11`.
+    pub fn rebase(
+        delta: &GraphDelta,
+        committed: &[GraphDelta],
+    ) -> Result<GraphDelta, RebaseConflict<EditConflict>> {
+        first_dependence(delta, committed, independence).map_or_else(|| Ok(delta.clone()), Err)
+    }
+
+    /// A table element or attribute that a table conflict names as a use.
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    pub enum TableUse {
+        /// An attribute.
+        Attr(TKey),
+        /// A row or a pair.
+        Elem(TElem),
+    }
+
+    /// A representation-level conflict between two table deltas, in the
+    /// order of the graph conflicts of [`EditConflict`].
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    pub enum TableConflict {
+        /// Both delete the row or pair.
+        DeleteDelete {
+            /// The element.
+            elem: TElem,
+        },
+        /// One deletes the row or pair and the other uses it.
+        DeleteUse {
+            /// The deleted element.
+            deleted: TElem,
+            /// The use.
+            user: TableUse,
+        },
+        /// Both change the cell or table.
+        UpdateUpdate {
+            /// The key.
+            key: TKey,
+        },
+        /// Both add the row or pair.
+        AddAdd {
+            /// The element.
+            elem: TElem,
+        },
+        /// One changes a row's table and the other adds or replaces a pair
+        /// at the row.
+        AnchorUse {
+            /// The row.
+            row: u32,
+            /// The pair.
+            user: TElem,
+        },
+    }
+
+    /// Whether the table element `x` is the row `r` or a pair at it.
+    const fn table_meets(x: &TElem, r: u32) -> bool {
+        match x {
+            TElem::Row(row) => *row == r,
+            TElem::Pair(_, src, tgt) => *src == r || *tgt == r,
+        }
+    }
+
+    /// The uses by `d` of the table element `x`: each pair `d` adds at the
+    /// row `x`, each entry of `d` the element owns, and `x` itself when `d`
+    /// replaces it.
+    fn table_uses(d: &TableDelta, x: &TElem) -> Vec<TableUse> {
+        let mut out = Vec::new();
+        if let TElem::Row(r) = x {
+            out.extend(
+                d.add
+                    .keys()
+                    .filter(|y| matches!(y, TElem::Pair(..)) && table_meets(y, *r))
+                    .map(|y| TableUse::Elem(y.clone())),
+            );
+        }
+        out.extend(
+            d.attrs
+                .keys()
+                .filter(|k| TableSpace::owner(k) == *x)
+                .map(|k| TableUse::Attr(k.clone())),
+        );
+        if d.del.contains_key(x) && d.add.contains_key(x) {
+            out.push(TableUse::Elem(x.clone()));
+        }
+        out
+    }
+
+    /// Definition: Every conflict between two table deltas of one table.
+    ///
+    /// The list is sorted, and the deltas are independent iff it is empty.
+    /// Both delete or both
+    /// add an element; one deletes an element the other uses (adds a pair
+    /// at a deleted row, changes an entry of it, or replaces it); both
+    /// change an entry; or one changes a row's table and the other adds a
+    /// pair at the row.
+    ///
+    /// Book anchors: `L-edits-11`.
+    #[must_use]
+    pub fn table_independence(a: &TableDelta, b: &TableDelta) -> Vec<TableConflict> {
+        let mut out = BTreeSet::new();
+        for x in a.del.keys().filter(|x| b.del.contains_key(*x)) {
+            out.insert(TableConflict::DeleteDelete { elem: x.clone() });
+        }
+        for x in a.add.keys().filter(|x| b.add.contains_key(*x)) {
+            out.insert(TableConflict::AddAdd { elem: x.clone() });
+        }
+        for k in a.attrs.keys().filter(|k| b.attrs.contains_key(*k)) {
+            out.insert(TableConflict::UpdateUpdate { key: k.clone() });
+        }
+        for (d1, d2) in [(a, b), (b, a)] {
+            for x in d1.del.keys() {
+                for user in table_uses(d2, x) {
+                    out.insert(TableConflict::DeleteUse {
+                        deleted: x.clone(),
+                        user,
+                    });
+                }
+            }
+            for k in d1.attrs.keys() {
+                if let TKey::Table(r) = k {
+                    for y in d2.add.keys() {
+                        if matches!(y, TElem::Pair(..)) && table_meets(y, *r) {
+                            out.insert(TableConflict::AnchorUse {
+                                row: *r,
+                                user: y.clone(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        out.into_iter().collect()
+    }
+
+    /// Definition: The merge of two independent table deltas is their
+    /// union, without an entry owned by a deleted or added row or an entry
+    /// whose old and new values agree.
+    ///
+    /// # Errors
+    ///
+    /// The first conflict when they are not independent.
+    ///
+    /// Book anchors: `L-edits-11`.
+    pub fn merge_table(a: &TableDelta, b: &TableDelta) -> Result<TableDelta, Box<TableConflict>> {
+        if let Some(c) = table_independence(a, b).into_iter().next() {
+            return Err(Box::new(c));
+        }
+        let mut out = a.clone();
+        out.del.extend(b.del.clone());
+        out.add.extend(b.add.clone());
+        out.attrs.extend(b.attrs.clone());
+        out.attrs.retain(|key, (old, new)| {
+            let owner = TableSpace::owner(key);
+            !out.del.contains_key(&owner) && !out.add.contains_key(&owner) && old != new
+        });
+        Ok(out)
+    }
+
+    /// Definition: A table delta is rebased over committed table deltas as
+    /// [`rebase`] rebases a graph delta, by [`table_independence`].
+    ///
+    /// # Errors
+    ///
+    /// The first conflict of the first committed delta the delta is not
+    /// independent of, with its position.
+    ///
+    /// Book anchors: `L-edits-11`.
+    pub fn rebase_table(
+        delta: &TableDelta,
+        committed: &[TableDelta],
+    ) -> Result<TableDelta, RebaseConflict<TableConflict>> {
+        first_dependence(delta, committed, table_independence)
+            .map_or_else(|| Ok(delta.clone()), Err)
+    }
+
     /// A typed incremental edit result, including the complement that belongs
     /// to the edited state.
     #[derive(Clone, Debug, PartialEq)]
@@ -3391,6 +3606,206 @@ pub mod edit {
             delta: diff_keeping_replacements(s, &source, dv),
             complement,
         })
+    }
+
+    /// The state of a reference graph edit lens: a source with the view and
+    /// complement the lens holds for it.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct GraphEditState {
+        /// The source.
+        pub source: Graph,
+        /// The held view.
+        pub view: Graph,
+        /// The held complement.
+        pub complement: crate::restrict::Complement,
+    }
+
+    /// Why the reference graph edit lens refuses an edit.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum GraphEditError<G, P> {
+        /// The edit does not apply to the source (get) or view (put).
+        Apply(ApplyError),
+        /// Whole-state get refuses the edited source.
+        Get(G),
+        /// Whole-state put refuses the edited view.
+        Put(P),
+        /// No id below `u32::MAX` remains for a synthesized element.
+        IdsExhausted,
+        /// The get of the put source is not the edited view.
+        PutGetMismatch,
+    }
+
+    /// Whole-state get oracle of the reference graph edit lens.
+    pub type StateGet<'a, G> =
+        dyn Fn(&Graph) -> Result<(Graph, crate::restrict::Complement), G> + 'a;
+
+    /// Whole-state put oracle of the reference graph edit lens.
+    pub type StatePut<'a, P> =
+        dyn Fn(&Graph, &crate::restrict::Complement) -> Result<Graph, P> + 'a;
+
+    /// A translated delta with the next state, or the refusal.
+    pub type GraphEditOutcome<G, P> = Result<(GraphDelta, GraphEditState), GraphEditError<G, P>>;
+
+    /// Ids for the keys of `keys` (key, whole-state id), ascending by key:
+    /// the id `held` records for a key when `in_source` does not hold it,
+    /// else the least id at or above `floor` that no earlier key took,
+    /// never `u32::MAX`.
+    fn stable_ids(
+        keys: &BTreeMap<crate::restrict::SynthKey, u32>,
+        held: &BTreeMap<crate::restrict::SynthKey, u32>,
+        in_source: &dyn Fn(u32) -> bool,
+        floor: u32,
+    ) -> Option<BTreeMap<u32, u32>> {
+        let mut out = BTreeMap::new();
+        let mut taken = BTreeSet::new();
+        for (key, id) in keys {
+            if let Some(old) = held.get(key).copied().filter(|old| !in_source(*old)) {
+                out.insert(*id, old);
+                taken.insert(old);
+            }
+        }
+        let mut next = floor;
+        for id in keys.values() {
+            if out.contains_key(id) {
+                continue;
+            }
+            while taken.contains(&next) {
+                next = next.checked_add(1)?;
+            }
+            if next == u32::MAX {
+                return None;
+            }
+            out.insert(*id, next);
+            taken.insert(next);
+        }
+        Some(out)
+    }
+
+    /// Definition: The stable presentation of a whole-state get.
+    ///
+    /// `view` and `complement` are the get of `source`; `held` is the
+    /// complement the lens held before. Every synthesized node or edge whose
+    /// key `held` records keeps its held id when `source` holds no element
+    /// of that id; every other one, in ascending key order, takes the least
+    /// id at or above the complement's floor that no synthesized element of
+    /// the same kind took. `None` when no such id remains below `u32::MAX`.
+    ///
+    /// Book anchors: `L-edits-9`.
+    #[must_use]
+    pub fn stable_presentation(
+        held: &crate::restrict::Complement,
+        source: &Graph,
+        view: &Graph,
+        complement: &crate::restrict::Complement,
+    ) -> Option<(Graph, crate::restrict::Complement)> {
+        let invert = |map: &BTreeMap<u32, crate::restrict::SynthKey>| {
+            map.iter()
+                .map(|(id, key)| (key.clone(), *id))
+                .collect::<BTreeMap<_, _>>()
+        };
+        let nodes = stable_ids(
+            &invert(&complement.synthesized_nodes),
+            &invert(&held.synthesized_nodes),
+            &|id| source.nodes.contains_key(&id),
+            complement.floor.0,
+        )?;
+        let edges = stable_ids(
+            &invert(&complement.synthesized_edges),
+            &invert(&held.synthesized_edges),
+            &|id| source.edges.contains_key(&id),
+            complement.floor.1,
+        )?;
+        let node = |id: u32| nodes.get(&id).copied().unwrap_or(id);
+        let edge = |id: u32| edges.get(&id).copied().unwrap_or(id);
+        let mut out = Graph::default();
+        for (id, n) in &view.nodes {
+            let mut n = n.clone();
+            n.id = node(*id);
+            out.nodes.insert(n.id, n);
+        }
+        for (id, e) in &view.edges {
+            let mut e = e.clone();
+            e.src = node(e.src);
+            e.tgt = node(e.tgt);
+            out.edges.insert(edge(*id), e);
+        }
+        let mut renamed = complement.clone();
+        renamed.synthesized_nodes = complement
+            .synthesized_nodes
+            .iter()
+            .map(|(id, key)| (node(*id), key.clone()))
+            .collect();
+        renamed.synthesized_edges = complement
+            .synthesized_edges
+            .iter()
+            .map(|(id, key)| (edge(*id), key.clone()))
+            .collect();
+        Some((out, renamed))
+    }
+
+    /// Definition: The reference graph edit lens's translation of a source edit.
+    ///
+    /// The edited source is `d` applied to the held source; its view and
+    /// complement are the stable presentation of its whole-state get
+    /// relative to the held complement ([`stable_presentation`]); and the
+    /// translated delta is the incidence-closed replacement differ from the
+    /// held view to that view, keeping the replacements of `d`
+    /// ([`diff_keeping_replacements`]).
+    ///
+    /// # Errors
+    ///
+    /// The refusal of applying `d`, of get, or `IdsExhausted`.
+    ///
+    /// Book anchors: `L-edits-9`.
+    pub fn graph_edit_get<G, P>(
+        get: &StateGet<'_, G>,
+        state: &GraphEditState,
+        d: &GraphDelta,
+    ) -> GraphEditOutcome<G, P> {
+        let source = apply(d, &state.source).map_err(GraphEditError::Apply)?;
+        let (view, complement) = get(&source).map_err(GraphEditError::Get)?;
+        let (view, complement) =
+            stable_presentation(&state.complement, &source, &view, &complement)
+                .ok_or(GraphEditError::IdsExhausted)?;
+        let delta = diff_keeping_replacements(&state.view, &view, d);
+        Ok((
+            delta,
+            GraphEditState {
+                source,
+                view,
+                complement,
+            },
+        ))
+    }
+
+    /// Definition: The reference graph edit lens's translation of a view edit.
+    ///
+    /// The edited view is `e` applied to the held view; put it against the
+    /// held complement; the translated delta is the incidence-closed
+    /// replacement differ from the held source to the put source, keeping
+    /// the replacements of `e`; and the next state is the translation of
+    /// that delta by [`graph_edit_get`], whose view must be the edited view.
+    ///
+    /// # Errors
+    ///
+    /// The refusal of applying `e`, of put, of the forward translation, or
+    /// `PutGetMismatch`.
+    ///
+    /// Book anchors: `L-edits-9`.
+    pub fn graph_edit_put<G, P>(
+        get: &StateGet<'_, G>,
+        put: &StatePut<'_, P>,
+        state: &GraphEditState,
+        e: &GraphDelta,
+    ) -> GraphEditOutcome<G, P> {
+        let view = apply(e, &state.view).map_err(GraphEditError::Apply)?;
+        let source = put(&view, &state.complement).map_err(GraphEditError::Put)?;
+        let d = diff_keeping_replacements(&state.source, &source, e);
+        let (_, next) = graph_edit_get(get, state, &d)?;
+        if next.view != view {
+            return Err(GraphEditError::PutGetMismatch);
+        }
+        Ok((d, next))
     }
 
     /// The table delta space: rows with their table and cells, pairs without
@@ -4193,6 +4608,156 @@ pub mod edit {
                 .insert(TElem::Pair(pair.0.clone(), pair.1, pair.2), TPayload::Pair);
         }
         delta
+    }
+
+    /// Definition: The table differ from `before` to `after` that keeps the
+    /// replacements of an input delta and is closed under incidence.
+    ///
+    /// Every row or pair the input replaces that both tables hold becomes a
+    /// replacement from its `before` payload to its `after` payload, with no
+    /// attribute change of its own. Every pair of `before` incident to a
+    /// deleted row is deleted, and every pair of `after` incident to an added
+    /// row is added, each with its counterpart when the other table holds
+    /// it.
+    ///
+    /// Book anchors: `L-edits-10`.
+    #[must_use]
+    pub fn diff_keeping_replacements_table(
+        before: &Table,
+        after: &Table,
+        input: &TableDelta,
+    ) -> TableDelta {
+        let mut delta = diff_table(before, after);
+        let element = |table: &Table, x: &TElem| match x {
+            TElem::Row(id) => table
+                .rows
+                .get(id)
+                .map(|(name, cells)| TPayload::Row(name.clone(), cells.clone())),
+            TElem::Pair(edge, src, tgt) => table
+                .pairs
+                .contains(&(edge.clone(), *src, *tgt))
+                .then_some(TPayload::Pair),
+        };
+        for x in input.del.keys().filter(|x| input.add.contains_key(*x)) {
+            let (Some(old), Some(new)) = (element(before, x), element(after, x)) else {
+                continue;
+            };
+            delta.attrs.retain(|key, _| TableSpace::owner(key) != *x);
+            delta.del.insert(x.clone(), old);
+            delta.add.insert(x.clone(), new);
+        }
+        let deleted_row = |delta: &TableDelta, id: u32| delta.del.contains_key(&TElem::Row(id));
+        let added_row = |delta: &TableDelta, id: u32| delta.add.contains_key(&TElem::Row(id));
+        for (edge, src, tgt) in &before.pairs {
+            if deleted_row(&delta, *src) || deleted_row(&delta, *tgt) {
+                let x = TElem::Pair(edge.clone(), *src, *tgt);
+                delta.del.insert(x.clone(), TPayload::Pair);
+                if after.pairs.contains(&(edge.clone(), *src, *tgt)) {
+                    delta.add.insert(x, TPayload::Pair);
+                }
+            }
+        }
+        for (edge, src, tgt) in &after.pairs {
+            if added_row(&delta, *src) || added_row(&delta, *tgt) {
+                let x = TElem::Pair(edge.clone(), *src, *tgt);
+                delta.add.insert(x.clone(), TPayload::Pair);
+                if before.pairs.contains(&(edge.clone(), *src, *tgt)) {
+                    delta.del.insert(x, TPayload::Pair);
+                }
+            }
+        }
+        delta.attrs.retain(|key, _| {
+            let owner = TableSpace::owner(key);
+            !delta.del.contains_key(&owner) && !delta.add.contains_key(&owner)
+        });
+        delta
+    }
+
+    /// The state of a reference table edit lens: a source table with the
+    /// view the lens holds for it.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct TableEditState {
+        /// The source.
+        pub source: Table,
+        /// The held view.
+        pub view: Table,
+    }
+
+    /// Why the reference table edit lens refuses an edit.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum TableEditError<G, P> {
+        /// The edit does not apply to the source (get) or view (put).
+        Apply(TableApplyError),
+        /// Whole-state get refuses the edited source.
+        Get(G),
+        /// Whole-state put refuses the edited view.
+        Put(P),
+        /// The get of the put source is not the edited view.
+        PutGetMismatch,
+    }
+
+    /// Whole-state table get oracle of the reference table edit lens.
+    pub type TableStateGet<'a, G> = dyn Fn(&Table) -> Result<Table, G> + 'a;
+
+    /// Whole-state table put oracle of the reference table edit lens: the
+    /// held source and the edited view to the put source.
+    pub type TableStatePut<'a, P> = dyn Fn(&Table, &Table) -> Result<Table, P> + 'a;
+
+    /// A translated table delta with the next state, or the refusal.
+    pub type TableEditOutcome<G, P> = Result<(TableDelta, TableEditState), TableEditError<G, P>>;
+
+    /// Definition: The reference table edit lens's translation of a source edit.
+    ///
+    /// The edited source is `d` applied to the held source, its view is
+    /// whole-state get of it, and the translated delta is the closed differ
+    /// from the held view to that view keeping the replacements of `d`
+    /// ([`diff_keeping_replacements_table`]). A table view carries no
+    /// synthesized id, so no presentation is chosen.
+    ///
+    /// # Errors
+    ///
+    /// The refusal of applying `d` or of get.
+    ///
+    /// Book anchors: `L-edits-10`.
+    pub fn table_edit_get<G, P>(
+        get: &TableStateGet<'_, G>,
+        state: &TableEditState,
+        d: &TableDelta,
+    ) -> TableEditOutcome<G, P> {
+        let source = apply_table(d, &state.source).map_err(TableEditError::Apply)?;
+        let view = get(&source).map_err(TableEditError::Get)?;
+        let delta = diff_keeping_replacements_table(&state.view, &view, d);
+        Ok((delta, TableEditState { source, view }))
+    }
+
+    /// Definition: The reference table edit lens's translation of a view edit.
+    ///
+    /// The edited view is `e` applied to the held view; put it; the
+    /// translated delta is the closed differ from the held source to the
+    /// put source keeping the replacements of `e`; and the next state is
+    /// the translation of that delta by [`table_edit_get`], whose view must
+    /// be the edited view.
+    ///
+    /// # Errors
+    ///
+    /// The refusal of applying `e`, of put, of the forward translation, or
+    /// `PutGetMismatch`.
+    ///
+    /// Book anchors: `L-edits-10`.
+    pub fn table_edit_put<G, P>(
+        get: &TableStateGet<'_, G>,
+        put: &TableStatePut<'_, P>,
+        state: &TableEditState,
+        e: &TableDelta,
+    ) -> TableEditOutcome<G, P> {
+        let view = apply_table(e, &state.view).map_err(TableEditError::Apply)?;
+        let source = put(&state.source, &view).map_err(TableEditError::Put)?;
+        let d = diff_keeping_replacements_table(&state.source, &source, e);
+        let (_, next) = table_edit_get(get, state, &d)?;
+        if next.view != view {
+            return Err(TableEditError::PutGetMismatch);
+        }
+        Ok((d, next))
     }
 
     /// Domain separator for graph-delta digests.

@@ -353,6 +353,19 @@ impl AnySegment {
         }
     }
 
+    /// The tree embedding's node and edge counters, when the segment is the
+    /// tree segment holding them, and `None` otherwise.
+    #[must_use]
+    pub const fn counters(&self) -> Option<(u32, u32)> {
+        match self {
+            Self::Tree(s) => match (s.next_node, s.next_edge) {
+                (Some(node), Some(edge)) => Some((node, edge)),
+                _ => None,
+            },
+            Self::Graph(_) | Self::Table(_) => None,
+        }
+    }
+
     /// The largest owned edge id, or `None` when it owns no edge with an id
     /// (always `None` for tables).
     #[must_use]

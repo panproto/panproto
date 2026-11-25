@@ -9,7 +9,11 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 
 use panproto_gat::Name;
 use panproto_inst::identity::{
-    ComplementShape, IdentityCarrier, IdentityPolicy, IdentityStatus, compose_identities,
+    ComplementShape, Digest, IdentityCarrier, IdentityPolicy, IdentityStatus, compose_identities,
+};
+use panproto_inst::segment::{
+    Budget, GraphRestrictRun, RunSpec, SegmentManifest, SegmentSource, SegmentStore,
+    graph_restrict_run,
 };
 use panproto_inst::{
     BoundaryProtocols, ContractionMode, ContractionPlan, EdgeFate, EdgeId, FanResolver, GEdge,
@@ -22,6 +26,13 @@ use panproto_schema::{Edge, Schema};
 use crate::asymmetric::{ComplementCompose, extra_fields_equiv, node_equiv, presence_equiv};
 use crate::compose::{check_boundary, duplicate, tree_fusion};
 use crate::{Lens, LensError};
+
+mod segmented;
+
+pub use segmented::{
+    GRAPH_PUT_OP, GraphPut, GraphPutRun, HeldView, SegmentedPutError, graph_put_locality,
+    put_segmented, put_segmented_run,
+};
 
 type KeyBuckets = BTreeMap<(Option<u32>, Vec<u8>), (Vec<panproto_inst::Value>, Vec<u32>)>;
 
@@ -61,6 +72,59 @@ pub fn get_with_protocols(
         protocols,
     )?;
     get_with_plan(lens, source, &plan)
+}
+
+/// Forward graph-lens direction over a graph held as segments, as a
+/// checkpointed run.
+///
+/// The graph restrict plan of `lens` is compiled once and run by
+/// [`graph_restrict_run`] over the graph the manifest `manifest` seals,
+/// whose trusted digest is `input`, reading its segments from `source` and
+/// committing every task to `store` under `budget`. The run's lens identity
+/// and view schema are those of the graph identity of `lens`
+/// ([`Lens::identity`]), so its run identity is a function of the lens and
+/// the input alone; it stops once `cancel_after_tasks` tasks are done, and a
+/// later call against the same store resumes it. A complete run emits each
+/// segment's view and complement, read back with
+/// [`read_emitted`](panproto_inst::segment::read_emitted) and
+/// [`GraphComplementSegment::from_canonical_bytes`](panproto_inst::segment::GraphComplementSegment::from_canonical_bytes);
+/// assembled, they are [`get`] of the glued graph without its identity
+/// stamp.
+///
+/// A lens whose restrict carries an expression is declined by the run with
+/// a global residual before any segment is read; budgets, refusals and
+/// store failures are reported in the run's report.
+///
+/// # Errors
+///
+/// Returns the plan compilation error.
+pub fn get_segmented<Src: SegmentSource, St: SegmentStore>(
+    lens: &Lens,
+    manifest: &SegmentManifest,
+    input: Digest,
+    source: &Src,
+    budget: Budget,
+    store: &mut St,
+    cancel_after_tasks: Option<u32>,
+) -> Result<GraphRestrictRun, LensError> {
+    let plan = RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, &lens.compiled)?;
+    let identity = lens.identity(ComplementShape::Graph);
+    let spec = RunSpec {
+        lens: identity.lens,
+        input,
+        output_schema: identity.target_schema,
+        cancel_after_tasks,
+        reuse: None,
+    };
+    Ok(graph_restrict_run(
+        &plan,
+        manifest,
+        source,
+        spec,
+        budget,
+        store,
+        &mut |_| {},
+    ))
 }
 
 fn get_with_plan(
@@ -495,7 +559,7 @@ pub fn check_put_domain(
     };
     let mut found = id_collisions(view, complement);
     found.extend(synthesized_edits(view, complement, &plan));
-    match restore_with_plan(lens, view, complement, &plan) {
+    match restore_with_plan(lens, view, complement, &plan, &PutScope::default()) {
         Ok(source) => {
             found.extend(forward_stability(lens, view, complement, &source, &plan));
             found.extend(schema_violations(&source, &lens.src_schema, &|id| {
@@ -508,7 +572,9 @@ pub fn check_put_domain(
             // the view put can still restore.
             let restorable = restorable_part(view, &errors);
             found.extend(errors);
-            if let Ok(source) = restore_with_plan(lens, &restorable, complement, &plan) {
+            if let Ok(source) =
+                restore_with_plan(lens, &restorable, complement, &plan, &PutScope::default())
+            {
                 found.extend(forward_stability(
                     lens,
                     &restorable,
@@ -1022,13 +1088,31 @@ fn restore(
             }]
         },
     )?;
-    restore_with_plan(lens, view, complement, &plan)
+    restore_with_plan(lens, view, complement, &plan, &PutScope::default())
+}
+
+/// What a put that restores one segment of a view knows of the nodes other
+/// segments own. Whole-state put restores every node and its scope is
+/// empty.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct PutScope {
+    /// The view nodes held as placeholders for nodes owned elsewhere, which
+    /// this put neither restores nor checks.
+    pub(crate) foreign: BTreeSet<u32>,
+    /// Each node owned elsewhere that a restored edge here may name, as its
+    /// owner restored it.
+    pub(crate) restored: BTreeMap<u32, panproto_inst::Node>,
+    /// The view edges held here whose ids another segment's complement
+    /// records as synthesized, which put leaves out as it leaves out its
+    /// own synthesized edges.
+    pub(crate) synthesized_edges: BTreeSet<EdgeId>,
 }
 
 fn restore_nodes(
     lens: &Lens,
     view: &GInstance,
     complement: &GraphComplement,
+    scope: &PutScope,
 ) -> (GInstance, Vec<PutDomainError>) {
     let reverse = reverse_anchors(lens);
     let mut source = GInstance::new();
@@ -1036,7 +1120,7 @@ fn restore_nodes(
     let mut ids: Vec<u32> = view.nodes().keys().copied().collect();
     ids.sort_unstable();
     for id in ids {
-        if complement.synthesized_nodes.contains_key(&id) {
+        if complement.synthesized_nodes.contains_key(&id) || scope.foreign.contains(&id) {
             continue;
         }
         let node = &view.nodes()[&id];
@@ -1082,7 +1166,7 @@ fn restore_nodes(
         }
         let _ = source.insert_node(restored);
     }
-    for (&id, node) in &complement.dropped_nodes {
+    for (&id, node) in complement.dropped_nodes.iter().chain(&scope.restored) {
         if source.node(id).is_none() {
             let _ = source.insert_node(node.clone());
         }
@@ -1095,13 +1179,14 @@ fn restore_edges(
     view: &GInstance,
     complement: &GraphComplement,
     plan: &RestrictPlan,
+    scope: &PutScope,
     source: &mut GInstance,
     errors: &mut Vec<PutDomainError>,
 ) {
     let mut edge_ids: Vec<EdgeId> = view.edges().keys().copied().collect();
     edge_ids.sort_unstable();
     for id in edge_ids {
-        if complement.synthesized_edges.contains_key(&id) {
+        if complement.synthesized_edges.contains_key(&id) || scope.synthesized_edges.contains(&id) {
             continue;
         }
         let edge = &view.edges()[&id];
@@ -1147,15 +1232,51 @@ fn restore_with_plan(
     view: &GInstance,
     complement: &GraphComplement,
     plan: &RestrictPlan,
+    scope: &PutScope,
 ) -> Result<GInstance, Vec<PutDomainError>> {
-    let (mut source, mut errors) = restore_nodes(lens, view, complement);
-    restore_edges(lens, view, complement, plan, &mut source, &mut errors);
+    let restored = restore_parts(lens, view, complement, plan, scope);
+    if restored.errors.is_empty() {
+        Ok(restored.source)
+    } else {
+        Err(restored.errors)
+    }
+}
+
+/// A restoration with its violations: the source restored from every view
+/// element that restores, and the violations of the nodes and edges that do
+/// not.
+pub(crate) struct Restored {
+    pub(crate) source: GInstance,
+    pub(crate) errors: Vec<PutDomainError>,
+}
+
+/// Restore `view` against `complement`, leaving out each element that does
+/// not restore. A node without a single source anchor and an edge without a
+/// single source label are not restored, so the source is the one the view
+/// without them restores to.
+pub(crate) fn restore_parts(
+    lens: &Lens,
+    view: &GInstance,
+    complement: &GraphComplement,
+    plan: &RestrictPlan,
+    scope: &PutScope,
+) -> Restored {
+    let (mut source, mut errors) = restore_nodes(lens, view, complement, scope);
+    restore_edges(
+        lens,
+        view,
+        complement,
+        plan,
+        scope,
+        &mut source,
+        &mut errors,
+    );
     let baseline = source.clone();
     let mut traces = HashMap::new();
     let mut ids: Vec<_> = view.nodes().keys().copied().collect();
     ids.sort_unstable();
     for id in ids {
-        if complement.synthesized_nodes.contains_key(&id) {
+        if complement.synthesized_nodes.contains_key(&id) || scope.foreign.contains(&id) {
             continue;
         }
         // A node whose baseline run fails keeps its restored fields, and the
@@ -1174,11 +1295,7 @@ fn restore_with_plan(
         }
     }
     invert_graph_child_scalars(view, &traces, &mut source);
-    if errors.is_empty() {
-        Ok(source)
-    } else {
-        Err(errors)
-    }
+    Restored { source, errors }
 }
 
 fn trace_refusal(id: u32, error: panproto_inst::RestrictError) -> Vec<PutDomainError> {
@@ -1760,18 +1877,15 @@ fn forward_stability(
 ) -> Vec<PutDomainError> {
     let mut replayed = source.clone();
     let mut refusal = None;
-    let mut refused = HashSet::new();
+    let mut refused = BTreeSet::new();
     let regenerated = loop {
         match graph_restrict_with_plan(&replayed, plan) {
             Ok((regenerated, _)) => break regenerated,
             Err(error) => {
-                let element = match &error {
-                    panproto_inst::RestrictError::At { key, .. } => Some((key.stage, key.id)),
-                    _ => None,
-                };
+                let element = refused_element(&error);
                 refusal.get_or_insert_with(|| refusal_from_restrict(error));
                 match element {
-                    Some((0, id)) if replayed.node(id).is_some() => {
+                    Some(ViewRef::Node(id)) if replayed.node(id).is_some() => {
                         let incident: Vec<EdgeId> = replayed
                             .out_edges(id)
                             .iter()
@@ -1784,42 +1898,113 @@ fn forward_stability(
                         let _ = replayed.remove_node(id);
                         refused.insert(id);
                     }
-                    Some((1, id)) if replayed.edge(EdgeId(id)).is_some() => {
-                        let _ = replayed.remove_edge(EdgeId(id));
+                    Some(ViewRef::Edge(id)) if replayed.edge(id).is_some() => {
+                        let _ = replayed.remove_edge(id);
                     }
                     _ => return refusal.unwrap_or_default(),
                 }
             }
         }
     };
-    let mut found = Vec::new();
-    let (mut baseline, mut baseline_errors) = restore_nodes(lens, view, complement);
+    let stability = stability_against(
+        lens,
+        view,
+        complement,
+        source,
+        plan,
+        &PutScope::default(),
+        &Replay {
+            refused: &refused,
+            node: &|id| regenerated.node(id),
+        },
+    );
+    let mut found = stability.violations;
+    found.extend(
+        refusal
+            .or_else(|| stability.untraced.map(|(_, refusal)| refusal))
+            .unwrap_or_default(),
+    );
+    found
+}
+
+/// The element a replay refusal is about, which the replay leaves out when
+/// it runs again: a node at stage 0 and an edge at stage 1.
+pub(crate) const fn refused_element(error: &panproto_inst::RestrictError) -> Option<ViewRef> {
+    match error {
+        panproto_inst::RestrictError::At { key, .. } if key.stage == 0 => {
+            Some(ViewRef::Node(key.id))
+        }
+        panproto_inst::RestrictError::At { key, .. } if key.stage == 1 => {
+            Some(ViewRef::Edge(EdgeId(key.id)))
+        }
+        _ => None,
+    }
+}
+
+/// What comparing view nodes with their replays finds: the violations of
+/// the nodes whose replay differs, and the least node whose transforms
+/// cannot be traced, with the refusal.
+#[derive(Default)]
+pub(crate) struct Stability {
+    pub(crate) violations: Vec<PutDomainError>,
+    pub(crate) untraced: Option<(u32, Vec<PutDomainError>)>,
+}
+
+/// A replay of get on a restored source without the nodes and edges the
+/// replay refused: the refused nodes, and the nodes it gives.
+pub(crate) struct Replay<'a, 'r> {
+    pub(crate) refused: &'a BTreeSet<u32>,
+    pub(crate) node: &'a dyn Fn(u32) -> Option<&'r panproto_inst::Node>,
+}
+
+/// Compare the view nodes that `scope` does not hold as placeholders with
+/// `replay`, the replay of the restored `source`, leaving out the nodes it
+/// refused.
+pub(crate) fn stability_against(
+    lens: &Lens,
+    view: &GInstance,
+    complement: &GraphComplement,
+    source: &GInstance,
+    plan: &RestrictPlan,
+    scope: &PutScope,
+    replay: &Replay<'_, '_>,
+) -> Stability {
+    let mut found = Stability::default();
+    let (mut baseline, mut baseline_errors) = restore_nodes(lens, view, complement, scope);
     restore_edges(
         lens,
         view,
         complement,
         plan,
+        scope,
         &mut baseline,
         &mut baseline_errors,
     );
     let mut ids: Vec<u32> = view.nodes().keys().copied().collect();
     ids.sort_unstable();
     for id in ids {
-        if complement.synthesized_nodes.contains_key(&id) || refused.contains(&id) {
+        if complement.synthesized_nodes.contains_key(&id)
+            || scope.foreign.contains(&id)
+            || replay.refused.contains(&id)
+        {
             continue;
         }
         let before = match graph_transform_trace(lens, &baseline, id) {
             Ok(trace) => trace.operations,
             Err(error) => {
-                refusal.get_or_insert_with(|| trace_refusal(id, error));
+                found
+                    .untraced
+                    .get_or_insert_with(|| (id, trace_refusal(id, error)));
                 continue;
             }
         };
         let node = &view.nodes()[&id];
-        let Some(actual) = regenerated.node(id) else {
-            found.push(PutDomainError::SurvivalPredicateFails {
-                elem: ViewRef::Node(id),
-            });
+        let Some(actual) = (replay.node)(id) else {
+            found
+                .violations
+                .push(PutDomainError::SurvivalPredicateFails {
+                    elem: ViewRef::Node(id),
+                });
             continue;
         };
         if !node_equiv(node, actual) {
@@ -1827,14 +2012,22 @@ fn forward_stability(
             match graph_transform_trace(lens, source, id) {
                 Ok(trace) => transforms.extend(trace.operations),
                 Err(error) => {
-                    refusal.get_or_insert_with(|| trace_refusal(id, error));
+                    found
+                        .untraced
+                        .get_or_insert_with(|| (id, trace_refusal(id, error)));
                     continue;
                 }
             }
-            classify_transform_differences(view, id, &transforms, node, actual, &mut found);
+            classify_transform_differences(
+                view,
+                id,
+                &transforms,
+                node,
+                actual,
+                &mut found.violations,
+            );
         }
     }
-    found.extend(refusal.unwrap_or_default());
     found
 }
 

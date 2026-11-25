@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 
 use super::canonical::same_val;
-use super::delta::{AttrChange, AttrKey, GraphDelta, GraphDeltaParts, Payload};
+use super::delta::{AttrChange, AttrKey, GraphDelta, GraphDeltaParts, MalformedDelta, Payload};
 use crate::ginstance::GInstance;
 use crate::metadata::Node;
 
@@ -127,5 +127,70 @@ impl GraphDelta {
             }
         }
         Self::from_valid_parts(parts)
+    }
+
+    /// The incidence-closed replacement differ from `before` to `after`
+    /// keeping the replacements of `input`.
+    ///
+    /// It is [`Self::diff`] with every element `input` replaces (an id in
+    /// both of its structural parts) that both states hold made a
+    /// replacement from its `before` payload to its `after` payload, even
+    /// when the two are equal, and then closed under incidence: every edge of
+    /// `before` incident to a deleted node is deleted, and every edge of
+    /// `after` incident to an added node is added, each with its counterpart
+    /// in the other state when that state holds the edge's id. A state diff
+    /// cannot recover a replacement with equal payloads, while canonical
+    /// normal form keeps it. The closure reads only edges the two states
+    /// hold, so the states may be parts of two larger states that hold every
+    /// edge incident to a node the result changes. The result applies to
+    /// `before` with result `after` when both are valid graphs.
+    ///
+    /// # Errors
+    ///
+    /// [`MalformedDelta`] when the closed parts are not well sorted, which a
+    /// pair of graphs never gives.
+    pub fn diff_keeping_replacements(
+        before: &GInstance,
+        after: &GInstance,
+        input: &Self,
+    ) -> Result<Self, MalformedDelta> {
+        let mut parts = Self::diff(before, after).into_parts();
+        for id in input
+            .del_nodes()
+            .keys()
+            .filter(|id| input.add_nodes().contains_key(id))
+        {
+            if let (Some(old), Some(new)) = (before.node(*id), after.node(*id)) {
+                parts.del_nodes.insert(*id, old.clone());
+                parts.add_nodes.insert(*id, new.clone());
+            }
+        }
+        for id in input
+            .del_edges()
+            .keys()
+            .filter(|id| input.add_edges().contains_key(id))
+        {
+            if let (Some(old), Some(new)) = (before.edge(*id), after.edge(*id)) {
+                parts.del_edges.insert(*id, old.clone());
+                parts.add_edges.insert(*id, new.clone());
+            }
+        }
+        for (id, old) in before.edges_sorted() {
+            if parts.del_nodes.contains_key(&old.src) || parts.del_nodes.contains_key(&old.tgt) {
+                parts.del_edges.insert(id, old.clone());
+                if let Some(new) = after.edge(id) {
+                    parts.add_edges.insert(id, new.clone());
+                }
+            }
+        }
+        for (id, new) in after.edges_sorted() {
+            if parts.add_nodes.contains_key(&new.src) || parts.add_nodes.contains_key(&new.tgt) {
+                parts.add_edges.insert(id, new.clone());
+                if let Some(old) = before.edge(id) {
+                    parts.del_edges.insert(id, old.clone());
+                }
+            }
+        }
+        Self::normalize(parts)
     }
 }

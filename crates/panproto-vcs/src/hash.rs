@@ -17,7 +17,9 @@ use panproto_schema::{
 use serde::{Deserialize, Serialize};
 
 use crate::error::VcsError;
-use crate::object::{CommitObject, ComplementObject, DataSetObject, EditLogObject, TagObject};
+use crate::object::{
+    CommitObject, ComplementObject, DataSetObject, EditLogObject, PayloadEncoding, TagObject,
+};
 
 /// A content-addressed object identifier: a blake3 hash (32 bytes).
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -496,21 +498,36 @@ pub fn hash_tag(tag: &TagObject) -> Result<ObjectId, VcsError> {
     Ok(ObjectId(blake3::hash(&bytes).into()))
 }
 
+/// Add a payload encoding to a canonical map unless it is the default tree
+/// encoding, which an object without the field holds.
+fn insert_encoding(
+    canonical: &mut BTreeMap<&str, Vec<u8>>,
+    encoding: PayloadEncoding,
+) -> Result<(), VcsError> {
+    if !encoding.is_default() {
+        canonical.insert("encoding", rmp_serde::to_vec(&encoding)?);
+    }
+    Ok(())
+}
+
 /// Compute the content-addressed ID of a data set.
 ///
 /// Uses a canonical `BTreeMap` form to ensure deterministic hashing
-/// regardless of field ordering.
+/// regardless of field ordering. The payload encoding enters the map only
+/// when it is not the default tree encoding (see [`PayloadEncoding`]), so a
+/// tree data set has the identifier it had before encodings were recorded.
 ///
 /// # Errors
 ///
 /// Returns an error if serialization fails.
 pub fn hash_dataset(dataset: &DataSetObject) -> Result<ObjectId, VcsError> {
-    let canonical: BTreeMap<&str, Vec<u8>> = BTreeMap::from([
+    let mut canonical: BTreeMap<&str, Vec<u8>> = BTreeMap::from([
         ("schema_id", rmp_serde::to_vec(&dataset.schema_id)?),
         ("data", rmp_serde::to_vec(&dataset.data)?),
         ("record_count", rmp_serde::to_vec(&dataset.record_count)?),
         ("key", rmp_serde::to_vec(&dataset.key)?),
     ]);
+    insert_encoding(&mut canonical, dataset.encoding)?;
     let bytes = rmp_serde::to_vec(&canonical)?;
     Ok(ObjectId(blake3::hash(&bytes).into()))
 }
@@ -523,11 +540,12 @@ pub fn hash_dataset(dataset: &DataSetObject) -> Result<ObjectId, VcsError> {
 ///
 /// Returns an error if serialization fails.
 pub fn hash_complement(complement: &ComplementObject) -> Result<ObjectId, VcsError> {
-    let canonical: BTreeMap<&str, Vec<u8>> = BTreeMap::from([
+    let mut canonical: BTreeMap<&str, Vec<u8>> = BTreeMap::from([
         ("migration_id", rmp_serde::to_vec(&complement.migration_id)?),
         ("data_id", rmp_serde::to_vec(&complement.data_id)?),
         ("complement", rmp_serde::to_vec(&complement.complement)?),
     ]);
+    insert_encoding(&mut canonical, complement.encoding)?;
     let bytes = rmp_serde::to_vec(&canonical)?;
     Ok(ObjectId(blake3::hash(&bytes).into()))
 }
@@ -657,7 +675,7 @@ pub fn hash_cst_complement(
 ///
 /// Returns an error if serialization fails.
 pub fn hash_edit_log(edit_log: &EditLogObject) -> Result<ObjectId, VcsError> {
-    let canonical: BTreeMap<&str, Vec<u8>> = BTreeMap::from([
+    let mut canonical: BTreeMap<&str, Vec<u8>> = BTreeMap::from([
         ("schema_id", rmp_serde::to_vec(&edit_log.schema_id)?),
         ("data_id", rmp_serde::to_vec(&edit_log.data_id)?),
         ("edits", rmp_serde::to_vec(&edit_log.edits)?),
@@ -667,6 +685,7 @@ pub fn hash_edit_log(edit_log: &EditLogObject) -> Result<ObjectId, VcsError> {
             rmp_serde::to_vec(&edit_log.final_complement)?,
         ),
     ]);
+    insert_encoding(&mut canonical, edit_log.encoding)?;
     let bytes = rmp_serde::to_vec(&canonical)?;
     Ok(ObjectId(blake3::hash(&bytes).into()))
 }
@@ -1612,6 +1631,7 @@ mod tests {
             data: vec![10, 20, 30],
             record_count: 3,
             key: None,
+            encoding: crate::object::PayloadEncoding::TREE,
         };
         let h1 = hash_dataset(&ds)?;
         let h2 = hash_dataset(&ds)?;
@@ -1625,6 +1645,7 @@ mod tests {
             migration_id: ObjectId::from_bytes([1; 32]),
             data_id: ObjectId::from_bytes([2; 32]),
             complement: vec![42],
+            encoding: crate::object::PayloadEncoding::TREE,
         };
         let h1 = hash_complement(&comp)?;
         let h2 = hash_complement(&comp)?;

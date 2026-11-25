@@ -17386,6 +17386,3821 @@ mod transformed_tables {
 }
 
 // ---------------------------------------------------------------------------
+// Graph edit lenses (L-edits-9)
+// ---------------------------------------------------------------------------
+
+mod graph_edit_lens_differential {
+    use panproto_inst::GraphDelta;
+    use panproto_inst::graph_edit::{AttrChange, AttrKey, AttrVal, GraphDeltaParts, NodeMeta};
+    use panproto_lens::{GraphEditLens, ShapeEditError};
+    use panproto_reference::edit::{
+        self as ref_edit, GraphDelta as RefGraphDelta, GraphEditError, GraphEditState,
+    };
+    use panproto_reference::enumerate::edits::{
+        graph_edit_lens_letter_count, graph_edit_lens_letters,
+    };
+    use panproto_reference::enumerate::lenses::bounded_lens_stages;
+
+    use super::*;
+
+    fn ref_meta(meta: &NodeMeta) -> ref_edit::NodeMeta {
+        ref_edit::NodeMeta {
+            discriminator: meta.discriminator.as_deref().map(str::to_owned),
+            position: meta.position,
+            shape: ref_shape(&meta.shape),
+            annotations: meta
+                .annotations
+                .iter()
+                .map(|(name, value)| (name.clone(), ref_value(value)))
+                .collect(),
+        }
+    }
+
+    fn prod_meta(meta: &ref_edit::NodeMeta) -> NodeMeta {
+        NodeMeta {
+            discriminator: meta.discriminator.as_deref().map(Into::into),
+            position: meta.position,
+            shape: prod_shape(&meta.shape),
+            annotations: meta
+                .annotations
+                .iter()
+                .map(|(name, value)| (name.clone(), prod_value(value)))
+                .collect(),
+        }
+    }
+
+    fn ref_attr_key(key: &AttrKey) -> ref_edit::AttrKey {
+        match key {
+            AttrKey::Value { node } => ref_edit::AttrKey::Value(*node),
+            AttrKey::Field { node, field } => ref_edit::AttrKey::Field(*node, field.clone()),
+            AttrKey::Meta { node } => ref_edit::AttrKey::Meta(*node),
+            AttrKey::Anchor { node } => ref_edit::AttrKey::Anchor(*node),
+            AttrKey::EdgeLabel { edge } => ref_edit::AttrKey::EdgeLabel(edge.0),
+            AttrKey::EdgePosition { edge } => ref_edit::AttrKey::EdgePosition(edge.0),
+            other => panic!("table key in a graph delta: {other:?}"),
+        }
+    }
+
+    fn prod_attr_key(key: &ref_edit::AttrKey) -> AttrKey {
+        match key {
+            ref_edit::AttrKey::Value(node) => AttrKey::Value { node: *node },
+            ref_edit::AttrKey::Field(node, field) => AttrKey::Field {
+                node: *node,
+                field: field.clone(),
+            },
+            ref_edit::AttrKey::Meta(node) => AttrKey::Meta { node: *node },
+            ref_edit::AttrKey::Anchor(node) => AttrKey::Anchor { node: *node },
+            ref_edit::AttrKey::EdgeLabel(edge) => AttrKey::EdgeLabel {
+                edge: EdgeId(*edge),
+            },
+            ref_edit::AttrKey::EdgePosition(edge) => AttrKey::EdgePosition {
+                edge: EdgeId(*edge),
+            },
+        }
+    }
+
+    fn ref_attr_val(value: &AttrVal) -> ref_edit::AttrVal {
+        match value {
+            AttrVal::Presence(value) => {
+                ref_edit::AttrVal::Presence(value.as_ref().map(ref_presence))
+            }
+            AttrVal::Field(value) => ref_edit::AttrVal::Field(value.as_ref().map(ref_value)),
+            AttrVal::Meta(value) => ref_edit::AttrVal::Meta(ref_meta(value)),
+            AttrVal::Anchor(value) => ref_edit::AttrVal::Anchor(value.to_string()),
+            AttrVal::Label(value) => ref_edit::AttrVal::Label(ref_edge(value)),
+            AttrVal::Position(value) => ref_edit::AttrVal::Position(*value),
+        }
+    }
+
+    fn prod_attr_val(value: &ref_edit::AttrVal) -> AttrVal {
+        match value {
+            ref_edit::AttrVal::Presence(value) => {
+                AttrVal::Presence(value.as_ref().map(prod_presence))
+            }
+            ref_edit::AttrVal::Field(value) => AttrVal::Field(value.as_ref().map(prod_value)),
+            ref_edit::AttrVal::Meta(value) => AttrVal::Meta(prod_meta(value)),
+            ref_edit::AttrVal::Anchor(value) => AttrVal::Anchor(value.as_str().into()),
+            ref_edit::AttrVal::Label(value) => AttrVal::Label(prod_edge(value)),
+            ref_edit::AttrVal::Position(value) => AttrVal::Position(*value),
+        }
+    }
+
+    pub fn prod_delta(delta: &RefGraphDelta) -> GraphDelta {
+        let mut parts = GraphDeltaParts::default();
+        for (element, payload) in &delta.del {
+            match (element, payload) {
+                (ref_edit::GElem::Node(id), ref_edit::GPayload::Node(node)) => {
+                    parts.del_nodes.insert(*id, prod_node(node));
+                }
+                (ref_edit::GElem::Edge(id), ref_edit::GPayload::Edge(edge)) => {
+                    parts.del_edges.insert(EdgeId(*id), prod_gedge(edge));
+                }
+                other => panic!("cross-sort reference deletion: {other:?}"),
+            }
+        }
+        for (element, payload) in &delta.add {
+            match (element, payload) {
+                (ref_edit::GElem::Node(id), ref_edit::GPayload::Node(node)) => {
+                    parts.add_nodes.insert(*id, prod_node(node));
+                }
+                (ref_edit::GElem::Edge(id), ref_edit::GPayload::Edge(edge)) => {
+                    parts.add_edges.insert(EdgeId(*id), prod_gedge(edge));
+                }
+                other => panic!("cross-sort reference addition: {other:?}"),
+            }
+        }
+        parts.attrs = delta
+            .attrs
+            .iter()
+            .map(|(key, (old, new))| {
+                (
+                    prod_attr_key(key),
+                    AttrChange {
+                        old: prod_attr_val(old),
+                        new: prod_attr_val(new),
+                    },
+                )
+            })
+            .collect();
+        GraphDelta::normalize(parts).expect("a carrier letter is normal")
+    }
+
+    pub fn ref_delta(delta: &GraphDelta) -> RefGraphDelta {
+        let mut out = RefGraphDelta::identity();
+        for (id, node) in delta.del_nodes() {
+            out.del.insert(
+                ref_edit::GElem::Node(*id),
+                ref_edit::GPayload::Node(ref_node(node)),
+            );
+        }
+        for (id, edge) in delta.del_edges() {
+            out.del.insert(
+                ref_edit::GElem::Edge(id.0),
+                ref_edit::GPayload::Edge(ref_gedge(edge)),
+            );
+        }
+        for (id, node) in delta.add_nodes() {
+            out.add.insert(
+                ref_edit::GElem::Node(*id),
+                ref_edit::GPayload::Node(ref_node(node)),
+            );
+        }
+        for (id, edge) in delta.add_edges() {
+            out.add.insert(
+                ref_edit::GElem::Edge(id.0),
+                ref_edit::GPayload::Edge(ref_gedge(edge)),
+            );
+        }
+        out.attrs = delta
+            .attrs()
+            .iter()
+            .map(|(key, change)| {
+                (
+                    ref_attr_key(key),
+                    (ref_attr_val(&change.old), ref_attr_val(&change.new)),
+                )
+            })
+            .collect();
+        out
+    }
+
+    /// The observable outcome of one edit: the translated delta with the
+    /// next source, view and complement, or a refusal by class and reason.
+    #[derive(Debug, PartialEq)]
+    enum Outcome {
+        Admitted(Box<Admitted>),
+        Refused(String),
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct Admitted {
+        delta: RefGraphDelta,
+        source: RefGraph,
+        view: RefGraph,
+        complement: RefComplement,
+    }
+
+    fn production_refusal(error: &ShapeEditError) -> String {
+        match error {
+            ShapeEditError::Apply(_) => "apply".to_owned(),
+            ShapeEditError::Get(error) => format!("get {:?}", lens_reason(error)),
+            ShapeEditError::Put(error) => format!("put {:?}", lens_reason(error)),
+            ShapeEditError::IdsExhausted { .. } => "ids exhausted".to_owned(),
+            ShapeEditError::PutGetMismatch => "put-get mismatch".to_owned(),
+            other => format!("production refusal outside the carrier: {other:?}"),
+        }
+    }
+
+    fn reference_refusal(error: &GraphEditError<RefRestrictError, RefLensError>) -> String {
+        match error {
+            GraphEditError::Apply(_) => "apply".to_owned(),
+            GraphEditError::Get(error) => {
+                format!("get {:?}", Reason::Restrict(ref_restrict_reason(error)))
+            }
+            GraphEditError::Put(error) => format!("put {:?}", ref_lens_reason(error)),
+            GraphEditError::IdsExhausted => "ids exhausted".to_owned(),
+            GraphEditError::PutGetMismatch => "put-get mismatch".to_owned(),
+        }
+    }
+
+    fn production_state(lens: &GraphEditLens) -> (RefGraph, RefGraph, RefComplement) {
+        (
+            ref_graph(lens.source()),
+            ref_graph(lens.view()),
+            ref_complement(lens.complement()),
+        )
+    }
+
+    /// Translate `letter` in direction `put` on both sides, assert that the
+    /// outcomes agree and that a refusal leaves the production lens as it
+    /// was, and return the two advanced states when the edit is admitted.
+    fn step(
+        lens: &RefGraphLens<'_>,
+        production: &GraphEditLens,
+        state: &GraphEditState,
+        put: bool,
+        letter: &RefGraphDelta,
+    ) -> Option<(GraphEditLens, GraphEditState)> {
+        let get = |source: &RefGraph| panproto_reference::lens::get(lens, source);
+        let put_oracle = |view: &RefGraph, complement: &RefComplement| lens.put(view, complement);
+        let reference = if put {
+            ref_edit::graph_edit_put(&get, &put_oracle, state, letter)
+        } else {
+            ref_edit::graph_edit_get::<RefRestrictError, RefLensError>(&get, state, letter)
+        };
+        let mut advanced = production.clone();
+        let edit = prod_delta(letter);
+        let produced = if put {
+            advanced.put_edit(&edit)
+        } else {
+            advanced.get_edit(&edit)
+        };
+        let (production_outcome, translated) = match &produced {
+            Ok(step) => {
+                let (source, view, complement) = production_state(&advanced);
+                let delta = if put {
+                    &step.source_delta
+                } else {
+                    &step.view_delta
+                };
+                (
+                    Outcome::Admitted(Box::new(Admitted {
+                        delta: ref_delta(delta),
+                        source,
+                        view,
+                        complement,
+                    })),
+                    true,
+                )
+            }
+            Err(error) => {
+                assert_eq!(
+                    production_state(&advanced),
+                    production_state(production),
+                    "a refused edit changed the lens: {letter:?}"
+                );
+                (Outcome::Refused(production_refusal(error)), false)
+            }
+        };
+        let reference_outcome = match &reference {
+            Ok((delta, next)) => Outcome::Admitted(Box::new(Admitted {
+                delta: delta.clone(),
+                source: next.source.clone(),
+                view: next.view.clone(),
+                complement: without_identity(&next.complement),
+            })),
+            Err(error) => Outcome::Refused(reference_refusal(error)),
+        };
+        assert_eq!(
+            production_outcome,
+            reference_outcome,
+            "graph edit lens {} of {letter:?} from {:?}",
+            if put { "put" } else { "get" },
+            state.source
+        );
+        match reference {
+            Ok((_, next)) if translated => Some((advanced, next)),
+            _ => None,
+        }
+    }
+
+    /// Bind both sides to `source`, or `None` when graph get refuses it.
+    fn bind(
+        pair: &Pair,
+        lens: &RefGraphLens<'_>,
+        source: &RefGraph,
+    ) -> Option<(GraphEditLens, GraphEditState)> {
+        let (view, complement) = panproto_reference::lens::get(lens, source).ok()?;
+        let production = Lens {
+            compiled: pair.production.compiled.clone(),
+            src_schema: pair.production.src_schema.clone(),
+            tgt_schema: pair.production.tgt_schema.clone(),
+        };
+        let production = GraphEditLens::new(production, prod_graph(source))
+            .expect("production get accepts what reference get accepts");
+        let state = GraphEditState {
+            source: source.clone(),
+            view,
+            complement,
+        };
+        assert_eq!(ref_graph(production.view()), state.view);
+        assert_eq!(
+            ref_complement(production.complement()),
+            without_identity(&state.complement)
+        );
+        Some((production, state))
+    }
+
+    /// The edits one sweep compared.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    struct Counts {
+        /// Bound bases: those whose reference get succeeds.
+        bound: usize,
+        /// Get letters, one per letter of every bound base's source.
+        get_letters: usize,
+        /// Put letters, one per letter of every bound base's view.
+        put_letters: usize,
+        /// Inverses translated after an admitted get letter.
+        inverses: usize,
+    }
+
+    impl std::ops::AddAssign for Counts {
+        fn add_assign(&mut self, other: Self) {
+            self.bound += other.bound;
+            self.get_letters += other.get_letters;
+            self.put_letters += other.put_letters;
+            self.inverses += other.inverses;
+        }
+    }
+
+    /// The closed-form letter counts of one carrier base: the get letters
+    /// of its source and the put letters of its reference view, without
+    /// building a letter or running a production lens.
+    fn closed_form(pair: &Pair, stage: &BoundedLensStage, source: &RefGraph) -> Counts {
+        pair.with_reference(|lens| {
+            let Ok(lens) = lens else {
+                return Counts::default();
+            };
+            let Ok((view, _)) = panproto_reference::lens::get(lens, source) else {
+                return Counts::default();
+            };
+            Counts {
+                bound: 1,
+                get_letters: graph_edit_lens_letter_count(&stage.source, source),
+                put_letters: graph_edit_lens_letter_count(&stage.target, &view),
+                inverses: 0,
+            }
+        })
+    }
+
+    /// Every one-letter get and put edit of one carrier base, and the
+    /// inverse of each admitted get edit after it.
+    fn unit(pair: &Pair, stage: &BoundedLensStage, source: &RefGraph) -> Counts {
+        pair.with_reference(|lens| {
+            let Ok(lens) = lens else {
+                return Counts::default();
+            };
+            let Some((edit_lens, held)) = bind(pair, lens, source) else {
+                return Counts::default();
+            };
+            let mut counts = Counts {
+                bound: 1,
+                ..Counts::default()
+            };
+            for letter in graph_edit_lens_letters(
+                &stage.source,
+                source,
+                BOUNDED_LENS_FIELD,
+                &BOUNDED_LENS_VALUE,
+            ) {
+                counts.get_letters += 1;
+                if let Some((advanced, next)) = step(lens, &edit_lens, &held, false, &letter) {
+                    counts.inverses += 1;
+                    step(lens, &advanced, &next, false, &letter.invert());
+                }
+            }
+            for letter in graph_edit_lens_letters(
+                &stage.target,
+                &held.view,
+                BOUNDED_LENS_FIELD,
+                &BOUNDED_LENS_VALUE,
+            ) {
+                counts.put_letters += 1;
+                step(lens, &edit_lens, &held, true, &letter);
+            }
+            counts
+        })
+    }
+
+    /// Run `per_base` on every graph base of the bounded lens carrier that
+    /// `select` admits, by position; returns the bases, the selected bases
+    /// and the summed counts.
+    fn sweep(
+        select: impl Fn(usize, &RefGraph) -> bool,
+        per_base: impl Fn(&Pair, &BoundedLensStage, &RefGraph) -> Counts,
+    ) -> (usize, usize, Counts) {
+        let stages = bounded_lens_stages();
+        let pairs: Vec<Pair> = stages.iter().map(Pair::from_stage).collect();
+        let (mut bases, mut selected, mut counts) = (0, 0, Counts::default());
+        for_each_lens_equivalence_case(|case| {
+            if let LensEquivalenceCase::Graph { stage, source } = case {
+                if select(bases, &source) {
+                    selected += 1;
+                    let observed = per_base(&pairs[stage], &stages[stage], &source);
+                    if observed.bound == 1 {
+                        let expected = closed_form(&pairs[stage], &stages[stage], &source);
+                        assert_eq!(
+                            (observed.get_letters, observed.put_letters),
+                            (expected.get_letters, expected.put_letters),
+                            "letters of stage {stage} at {source:?}"
+                        );
+                    }
+                    counts += observed;
+                }
+                bases += 1;
+            }
+        });
+        (bases, selected, counts)
+    }
+
+    /// The closed-form census of the whole carrier: bound bases, get
+    /// letters and put letters, summed from [`graph_edit_lens_letter_count`]
+    /// over every base whose reference get succeeds.
+    const GRAPH_EDIT_LENS_CENSUS: (usize, usize, usize) = (124_009, 5_300_310, 5_221_561);
+
+    #[test]
+    fn graph_edit_lens_letter_census_is_the_closed_form_over_the_carrier() {
+        let (bases, selected, counts) = sweep(|_, _| true, closed_form);
+        println!("graph edit lens census: bases={bases}, counts={counts:?}");
+        assert_eq!((bases, selected), (144_397, 144_397));
+        assert_eq!(
+            (counts.bound, counts.get_letters, counts.put_letters),
+            GRAPH_EDIT_LENS_CENSUS
+        );
+    }
+
+    #[test]
+    fn graph_edit_lens_agrees_with_the_reference_on_every_two_node_base() {
+        let (bases, selected, counts) = sweep(|_, source| source.nodes.len() <= 2, unit);
+        println!(
+            "graph edit lens two-node scope: bases={bases}, selected={selected}, counts={counts:?}"
+        );
+        assert_eq!(bases, 144_397);
+        assert!(counts.bound > 0 && counts.get_letters > counts.bound);
+    }
+
+    #[test]
+    fn graph_edit_lens_law_certificate() {
+        let shard = LawShard::from_environment();
+        let (bases, selected, counts) = sweep(
+            |position, _| shard.is_none_or(|shard| shard.contains(position)),
+            unit,
+        );
+        println!(
+            "graph edit lens carrier: bases={bases}, shard={shard:?}, selected={selected}, counts={counts:?}"
+        );
+        assert_eq!(bases, 144_397);
+        assert_eq!(selected, shard.map_or(bases, |shard| shard.share(bases)));
+        if shard.is_none() {
+            assert_eq!(
+                (counts.bound, counts.get_letters, counts.put_letters),
+                GRAPH_EDIT_LENS_CENSUS
+            );
+        }
+    }
+
+    /// A graph over the plain vertices of `stage` built from generated
+    /// choices: one node per entry of `nodes`, and each entry of `edges`
+    /// that names a schema edge between the anchors of its two nodes.
+    fn generated_source(
+        stage: &BoundedLensStage,
+        nodes: &[u8],
+        edges: &[(u8, u8, u8)],
+    ) -> Option<RefGraph> {
+        let vertices: Vec<&String> = stage.source.vertices.keys().collect();
+        if vertices.is_empty() {
+            return None;
+        }
+        let mut graph = RefGraph::default();
+        for (id, choice) in nodes.iter().enumerate() {
+            let id = u32::try_from(id).ok()?;
+            let anchor = vertices[usize::from(*choice) % vertices.len()];
+            graph.nodes.insert(id, RefNode::new(id, anchor));
+        }
+        let count = nodes.len();
+        for (index, (src, tgt, label)) in edges.iter().enumerate() {
+            let src = u32::try_from(usize::from(*src) % count).ok()?;
+            let tgt = u32::try_from(usize::from(*tgt) % count).ok()?;
+            let joining: Vec<&RefSEdge> = stage
+                .source
+                .edges
+                .iter()
+                .filter(|edge| {
+                    edge.src == graph.nodes[&src].anchor && edge.tgt == graph.nodes[&tgt].anchor
+                })
+                .collect();
+            if joining.is_empty() {
+                continue;
+            }
+            let label = joining[usize::from(*label) % joining.len()].clone();
+            graph.edges.insert(
+                u32::try_from(index).ok()?,
+                RefGEdge {
+                    src,
+                    tgt,
+                    label,
+                    position: None,
+                },
+            );
+        }
+        Some(graph)
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(128))]
+
+        #[test]
+        fn randomized_graph_edit_lens_differential(
+            stage in 0usize..1024,
+            nodes in prop::collection::vec(any::<u8>(), 1..6),
+            edges in prop::collection::vec((any::<u8>(), any::<u8>(), any::<u8>()), 0..8),
+            word in prop::collection::vec((any::<bool>(), any::<usize>()), 1..6),
+        ) {
+            let stages = bounded_lens_stages();
+            let stage = &stages[stage % stages.len()];
+            let pair = Pair::from_stage(stage);
+            let Some(source) = generated_source(stage, &nodes, &edges) else {
+                return Ok(());
+            };
+            pair.with_reference(|lens| {
+                let Ok(lens) = lens else { return };
+                let Some((mut production, mut state)) = bind(&pair, lens, &source) else {
+                    return;
+                };
+                for (put, choice) in &word {
+                    let (schema, graph) = if *put {
+                        (&stage.target, &state.view)
+                    } else {
+                        (&stage.source, &state.source)
+                    };
+                    let letters = graph_edit_lens_letters(
+                        schema,
+                        graph,
+                        BOUNDED_LENS_FIELD,
+                        &BOUNDED_LENS_VALUE,
+                    );
+                    if letters.is_empty() {
+                        continue;
+                    }
+                    let letter = &letters[choice % letters.len()];
+                    if let Some((advanced, next)) = step(lens, &production, &state, *put, letter) {
+                        production = advanced;
+                        state = next;
+                    }
+                }
+            });
+        }
+    }
+}
+
+/// Segmented graph get: the checkpointed run of a graph lens's restrict
+/// over a sealed segment family, against the reference definition of
+/// segmented restriction and whole-state get of the glued graph.
+mod segmented_graph_get {
+    use std::collections::BTreeMap;
+
+    use panproto_inst::InstanceShapeKind;
+    use panproto_inst::identity::{ComplementShape, Digest};
+    use panproto_inst::segment::{
+        AnySegment, Budget, EdgeIdRun, GraphComplementSegment, GraphRestrictRun, IdRange,
+        ManifestHeader, ManifestRole, MemoryStore, Partition, RecordSource, Residual,
+        RunIncompleteReason, RunStatus, SegmentId, SegmentManifest, SegmentRecord, SegmentSpec,
+        SegmentedRestrict, partition_graph, read_emitted, seal_full,
+    };
+    use panproto_lens::{Lens, graph_lens};
+    use panproto_reference::enumerate::segments::{
+        SEGMENTED_RESTRICT_ALLOCATION_BASE, segmented_restrict_cases,
+    };
+    use panproto_reference::restrict::NoValueLayer;
+    use panproto_reference::segment as reference;
+
+    use super::{
+        RefGraph, RefMigration, RefSchema, prod_graph, prod_migration, prod_schema, ref_complement,
+        ref_graph,
+    };
+
+    /// The schema digest of a sealed source family.
+    pub const SOURCE_SCHEMA: [u8; 32] = [7; 32];
+
+    pub fn prod_partition(partition: &reference::Partition) -> Partition {
+        let range = |r: &reference::IdRange| IdRange { lo: r.lo, hi: r.hi };
+        Partition::new(
+            InstanceShapeKind::Graph,
+            partition
+                .specs
+                .iter()
+                .map(|spec| SegmentSpec {
+                    id: SegmentId(spec.id.0),
+                    nodes: spec.nodes.iter().map(range).collect(),
+                    alloc_nodes: spec.alloc_nodes.as_ref().map(range),
+                    alloc_edges: spec.alloc_edges.as_ref().map(range),
+                })
+                .collect(),
+        )
+    }
+
+    /// A sealed source family: its manifest, the segments' canonical bytes
+    /// and the production partition.
+    pub struct Input {
+        /// The source manifest.
+        pub manifest: SegmentManifest,
+        /// The segments' canonical bytes.
+        pub bytes: BTreeMap<SegmentId, Vec<u8>>,
+        /// The production partition.
+        pub partition: Partition,
+    }
+
+    /// Seal the production segments of `graph` under `partition`.
+    pub fn input(graph: &RefGraph, partition: &reference::Partition) -> Input {
+        let partition = prod_partition(partition);
+        let segments: Vec<AnySegment> = partition_graph(&prod_graph(graph), &partition)
+            .expect("production split")
+            .into_iter()
+            .map(AnySegment::Graph)
+            .collect();
+        let schema = Digest(SOURCE_SCHEMA);
+        let records = segments
+            .iter()
+            .zip(partition.specs())
+            .map(|(segment, spec)| SegmentRecord::of(segment, spec, &schema))
+            .collect();
+        let runs: Vec<EdgeIdRun<'_>> = segments
+            .iter()
+            .map(|segment| {
+                (
+                    segment.segment(),
+                    Box::new(segment.edge_id_run().into_iter())
+                        as Box<dyn Iterator<Item = panproto_inst::EdgeId>>,
+                )
+            })
+            .collect();
+        let sources = segments
+            .iter()
+            .map(|segment| Box::new(segment.records()) as Box<dyn RecordSource + '_>)
+            .collect();
+        let manifest = seal_full(
+            records,
+            ManifestHeader {
+                shape: InstanceShapeKind::Graph,
+                schema,
+                role: ManifestRole::Source,
+                binding: None,
+            },
+            runs,
+            sources,
+        )
+        .expect("the carrier seals");
+        let bytes = segments
+            .iter()
+            .map(|segment| {
+                (
+                    segment.segment(),
+                    segment
+                        .canonical_bytes(&schema, &partition)
+                        .expect("canonical bytes"),
+                )
+            })
+            .collect();
+        Input {
+            manifest,
+            bytes,
+            partition,
+        }
+    }
+
+    pub fn lens_of(schema: &RefSchema, migration: &RefMigration) -> Lens {
+        let schema = prod_schema(schema);
+        Lens {
+            compiled: prod_migration(migration),
+            src_schema: schema.clone(),
+            tgt_schema: schema,
+        }
+    }
+
+    fn run(
+        lens: &Lens,
+        input: &Input,
+        budget: Budget,
+        store: &mut MemoryStore,
+        cancel: Option<u32>,
+    ) -> GraphRestrictRun {
+        graph_lens::get_segmented(
+            lens,
+            &input.manifest,
+            input.manifest.digest(),
+            &input.bytes,
+            budget,
+            store,
+            cancel,
+        )
+        .expect("the lens's plan compiles")
+    }
+
+    /// The emitted view and complement segments of a complete run, the
+    /// complements decoded from their canonical bytes.
+    fn emitted(store: &MemoryStore, run: &GraphRestrictRun, input: &Input) -> SegmentedRestrict {
+        let identity = run.run.expect("a run identity");
+        let (mut views, mut complements) = (Vec::new(), Vec::new());
+        for spec in input.partition.specs() {
+            let emitted =
+                read_emitted(store, identity, &input.partition, spec.id).expect("emitted segment");
+            complements.push(
+                GraphComplementSegment::from_canonical_bytes(&emitted.complement, spec.id)
+                    .expect("the emitted complement decodes"),
+            );
+            views.push(emitted.view);
+        }
+        SegmentedRestrict { views, complements }
+    }
+
+    /// The outcome of one case.
+    #[derive(Debug, PartialEq, Eq)]
+    enum Outcome {
+        Complete,
+        Refused,
+    }
+
+    /// Check the law on one case: the complete run's segments are, byte for
+    /// byte, the reference definition's, they assemble to whole-state get,
+    /// and every cancellation point resumes to the uninterrupted run.
+    fn check_case(
+        schema: &RefSchema,
+        migration: &RefMigration,
+        graph: &RefGraph,
+        partition: &reference::Partition,
+    ) -> Outcome {
+        let lens = lens_of(schema, migration);
+        let input = input(graph, partition);
+        let mut store = MemoryStore::default();
+        let baseline = run(&lens, &input, Budget::unlimited(), &mut store, None);
+        let reference_segments =
+            reference::partition_graph(graph, partition).expect("reference split");
+        let expected = reference::restrict_graph_segmented(
+            schema,
+            schema,
+            migration,
+            &NoValueLayer,
+            &reference_segments,
+            partition,
+        );
+        let whole = graph_lens::get(&lens, &prod_graph(graph));
+        let outcome = match (&baseline.report.status, expected) {
+            (RunStatus::Complete { manifest }, Ok(expected)) => {
+                assert_eq!(
+                    Some(*manifest),
+                    baseline.manifest.as_ref().map(SegmentManifest::digest)
+                );
+                let output = emitted(&store, &baseline, &input);
+                let view_schema =
+                    reference::Digest(lens.identity(ComplementShape::Graph).target_schema.0);
+                for ((view, complement), (expected_view, expected_complement)) in
+                    output.views.iter().zip(&output.complements).zip(&expected)
+                {
+                    assert_eq!(
+                        AnySegment::Graph(view.clone())
+                            .canonical_bytes(&Digest(view_schema.0), &input.partition)
+                            .expect("view bytes"),
+                        reference::canonical_segment_bytes(
+                            &reference::AnySegment::Graph(expected_view.clone()),
+                            view_schema,
+                            partition,
+                        )
+                        .expect("reference view bytes"),
+                        "view segment of {graph:?} under {partition:?}"
+                    );
+                    assert_eq!(
+                        complement.canonical_bytes().expect("complement bytes"),
+                        reference::canonical_complement_segment_bytes(
+                            &reference::AnyComplementSegment::Graph(expected_complement.clone()),
+                        )
+                        .expect("reference complement bytes"),
+                        "complement segment of {graph:?} under {partition:?}"
+                    );
+                }
+                let (view, complement) = output
+                    .assemble(&input.partition)
+                    .expect("the emitted segments assemble");
+                let (whole_view, whole_complement) = whole.expect("whole-state get accepts");
+                assert_eq!(
+                    ref_graph(&view),
+                    ref_graph(&whole_view),
+                    "assembled view of {graph:?}"
+                );
+                assert_eq!(
+                    ref_complement(&complement),
+                    ref_complement(&whole_complement),
+                    "assembled complement of {graph:?}"
+                );
+                Outcome::Complete
+            }
+            (RunStatus::Failed(_), Err(reference::SegmentedRestrictRefusal::Restrict { .. })) => {
+                assert!(whole.is_err(), "whole-state get refuses {graph:?}");
+                Outcome::Refused
+            }
+            (status, expected) => {
+                panic!(
+                    "segmented get disagrees on {graph:?} under {partition:?}: {status:?} / {expected:?}"
+                )
+            }
+        };
+        check_resumption(&lens, &input, &baseline);
+        outcome
+    }
+
+    /// Stopping the run of `lens` over `input` at every cancellation point
+    /// and resuming it against the same store ends as `baseline`, the
+    /// uninterrupted run, reusing every task the stopped run committed.
+    fn check_resumption(lens: &Lens, input: &Input, baseline: &GraphRestrictRun) {
+        let finished = baseline.report.progress.tasks_done;
+        for cancel in 0..=baseline.report.progress.tasks_total {
+            let mut store = MemoryStore::default();
+            let stopped = run(lens, input, Budget::unlimited(), &mut store, Some(cancel));
+            assert_eq!(stopped.run, baseline.run, "run identity");
+            if cancel < finished {
+                assert!(
+                    matches!(
+                        stopped.report.status,
+                        RunStatus::Incomplete {
+                            reason: RunIncompleteReason::Cancelled
+                        }
+                    ),
+                    "{:?}",
+                    stopped.report.status
+                );
+            }
+            let resumed = run(lens, input, Budget::unlimited(), &mut store, None);
+            assert_eq!(resumed.report.tasks_reused, cancel.min(finished));
+            assert_eq!(
+                format!("{:?}", resumed.report.status),
+                format!("{:?}", baseline.report.status)
+            );
+            assert_eq!(
+                resumed.manifest.as_ref().map(SegmentManifest::digest),
+                baseline.manifest.as_ref().map(SegmentManifest::digest)
+            );
+            assert_eq!(resumed.report.orphans, Vec::new());
+        }
+    }
+
+    /// Every 97th case of the segmented restriction carrier, read as a lens
+    /// over its schema: the segmented get agrees with the reference
+    /// definition segment by segment, assembles to whole-state get, and
+    /// resumes from every cancellation point.
+    #[test]
+    fn segmented_graph_get_assembles_to_whole_state_get_and_resumes_from_every_cancellation_point()
+    {
+        let (mut complete, mut refused) = (0_u64, 0_u64);
+        for case in segmented_restrict_cases().step_by(97) {
+            match check_case(&case.schema, &case.migration, &case.graph, &case.partition) {
+                Outcome::Complete => complete += 1,
+                Outcome::Refused => refused += 1,
+            }
+        }
+        assert_eq!(complete + refused, 1_323);
+        assert!(
+            complete > 0 && refused > 0,
+            "{complete} complete, {refused} refused"
+        );
+    }
+
+    /// A budget admitting fewer segments than the partition holds declines
+    /// the segmented get before any task, and a lens whose restrict carries
+    /// a survival predicate is declined with a global residual.
+    #[test]
+    fn segmented_graph_get_declines_an_exceeded_budget_and_an_expression_before_any_task() {
+        let case = segmented_restrict_cases()
+            .find(|case| case.partition.specs.len() == 3)
+            .expect("a three-segment case");
+        let lens = lens_of(&case.schema, &case.migration);
+        let input = input(&case.graph, &case.partition);
+        let mut store = MemoryStore::default();
+        let budget = Budget {
+            affected_segments: 2,
+            ..Budget::unlimited()
+        };
+        let declined = run(&lens, &input, budget, &mut store, None);
+        assert!(
+            matches!(
+                declined.report.status,
+                RunStatus::Residual(Residual::BudgetExceeded { .. })
+            ),
+            "{:?}",
+            declined.report.status
+        );
+        assert_eq!(declined.report.progress.tasks_done, 0);
+
+        let mut predicated = lens;
+        let vertex = predicated
+            .src_schema
+            .vertices
+            .keys()
+            .next()
+            .cloned()
+            .expect("a vertex");
+        predicated.compiled.conditional_survival.insert(
+            vertex,
+            panproto_expr::Expr::Lit(panproto_expr::Literal::Bool(true)),
+        );
+        let mut store = MemoryStore::default();
+        let global = run(&predicated, &input, Budget::unlimited(), &mut store, None);
+        assert!(
+            matches!(
+                global.report.status,
+                RunStatus::Residual(Residual::Global { .. })
+            ),
+            "{:?}",
+            global.report.status
+        );
+        assert_eq!(global.report.progress.tasks_done, 0);
+    }
+
+    pub const ANCHORS: [&str; 3] = ["a", "b", "c"];
+
+    /// A generated case over a three-vertex schema with every edge and loop:
+    /// the schema, a survival classification, a graph and a partition giving
+    /// each node to one of `segments` segments with its own allocation range.
+    pub fn generated(
+        anchors: &[usize],
+        edges: &[(usize, usize)],
+        owners: &[u32],
+        segments: u32,
+        surviving: u8,
+    ) -> (RefSchema, RefMigration, RefGraph, reference::Partition) {
+        let mut schema = RefSchema::default();
+        for anchor in ANCHORS {
+            schema = schema.vertex(anchor, "record");
+        }
+        for src in ANCHORS {
+            for tgt in ANCHORS {
+                schema = schema.edge(src, tgt, "prop", Some(&format!("{src}{tgt}")));
+            }
+        }
+        let survivors: Vec<&str> = (0..3)
+            .filter(|i| surviving & (1 << i) != 0)
+            .map(|i| ANCHORS[i])
+            .collect();
+        let migration = RefMigration {
+            surviving_verts: survivors.iter().map(|a| (*a).to_owned()).collect(),
+            surviving_edges: schema
+                .edges
+                .iter()
+                .filter(|e| {
+                    survivors.contains(&e.src.as_str()) && survivors.contains(&e.tgt.as_str())
+                })
+                .cloned()
+                .collect(),
+            ..RefMigration::default()
+        };
+        let n = anchors.len();
+        let mut graph = RefGraph::default();
+        for (id, anchor) in (0_u32..).zip(anchors) {
+            graph
+                .nodes
+                .insert(id, super::RefNode::new(id, ANCHORS[*anchor]));
+        }
+        for (id, (src, tgt)) in (0_u32..).zip(edges.iter().filter(|(s, t)| *s < n && *t < n)) {
+            let (a, b) = (ANCHORS[anchors[*src]], ANCHORS[anchors[*tgt]]);
+            graph.edges.insert(
+                id,
+                super::RefGEdge {
+                    src: u32::try_from(*src).expect("a small index"),
+                    tgt: u32::try_from(*tgt).expect("a small index"),
+                    label: super::RefSEdge::new(a, b, "prop", Some(&format!("{a}{b}"))),
+                    position: None,
+                },
+            );
+        }
+        let partition = reference::Partition {
+            shape: reference::InstanceShapeKind::Graph,
+            specs: (0..segments)
+                .map(|segment| {
+                    let lo = SEGMENTED_RESTRICT_ALLOCATION_BASE + 10 * segment;
+                    let range = reference::IdRange { lo, hi: lo + 9 };
+                    let mut nodes: Vec<reference::IdRange> = (0_u32..)
+                        .zip(owners)
+                        .take(n)
+                        .filter(|(_, owner)| **owner % segments == segment)
+                        .map(|(id, _)| reference::IdRange { lo: id, hi: id })
+                        .collect();
+                    nodes.push(range);
+                    reference::SegmentSpec {
+                        id: reference::SegmentId(segment),
+                        nodes,
+                        alloc_nodes: Some(range),
+                        alloc_edges: Some(range),
+                    }
+                })
+                .collect(),
+        };
+        (schema, migration, graph, partition)
+    }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(64))]
+
+        #[test]
+        fn segmented_graph_get_matches_the_reference_and_resumes_on_generated_partitions(
+            anchors in proptest::collection::vec(0_usize..3, 2..=8),
+            edges in proptest::collection::vec((0_usize..8, 0_usize..8), 0..=14),
+            owners in proptest::collection::vec(0_u32..4, 8),
+            segments in 2_u32..=4,
+            surviving in 0_u8..8,
+        ) {
+            let (schema, migration, graph, partition) =
+                generated(&anchors, &edges, &owners, segments, surviving);
+            let outcome = check_case(&schema, &migration, &graph, &partition);
+            proptest::prop_assert!(matches!(outcome, Outcome::Complete | Outcome::Refused));
+        }
+    }
+}
+
+mod segmented_graph_put {
+    use std::collections::BTreeMap;
+
+    use panproto_inst::identity::{ComplementShape, Digest, IdentityCarrier};
+    use panproto_inst::locality::{GlobalReason, Locality, SummaryKind};
+    use panproto_inst::segment::{
+        AnySegment, GraphComplementSegment, GraphSegment, Partition, Residual, SegmentError,
+        SegmentedRestrict, assemble_graph, graph_restrict_segmented, partition_graph,
+    };
+    use panproto_inst::{GraphComplement, PutDomainError, RestrictPlan, ViewRef};
+    use panproto_lens::graph_lens::{self, SegmentedPutError};
+    use panproto_lens::{Lens, LensError};
+    use panproto_reference::enumerate::segments::segmented_restrict_cases;
+    use panproto_reference::restrict::NoValueLayer;
+    use panproto_reference::segment as reference;
+
+    use super::segmented_graph_get::{generated, lens_of, prod_partition};
+    use super::{
+        RefGraph, RefGraphLens, RefMigration, RefSchema, lens_reason, prod_graph, ref_graph,
+        ref_lens_reason,
+    };
+
+    const SCHEMA: Digest = Digest([9; 32]);
+
+    /// The complement segments joined into one complement, unrenumbered and
+    /// stamped with the lens's graph identity, as whole-state get stamps it.
+    fn joined(complements: &[GraphComplementSegment], lens: &Lens) -> GraphComplement {
+        let mut whole = GraphComplement::empty();
+        for part in complements {
+            whole.dropped_nodes.extend(part.dropped_nodes.clone());
+            whole.dropped_edges.extend(part.dropped_edges.clone());
+            whole.original_edges.extend(part.original_edges.clone());
+            whole.original_anchors.extend(part.original_anchors.clone());
+            whole
+                .original_extra_fields
+                .extend(part.original_extra_fields.clone());
+            whole.original_values.extend(part.original_values.clone());
+            whole
+                .synthesized_nodes
+                .extend(part.synthesized_nodes.clone());
+            whole
+                .synthesized_edges
+                .extend(part.synthesized_edges.clone());
+        }
+        whole.stamp(lens.identity(ComplementShape::Graph), &lens.src_schema);
+        whole
+    }
+
+    fn segment_bytes(segment: &GraphSegment, partition: &Partition) -> Vec<u8> {
+        AnySegment::Graph(segment.clone())
+            .canonical_bytes(&SCHEMA, partition)
+            .expect("segment bytes")
+    }
+
+    fn reference_bytes(
+        segment: &reference::GraphSegment,
+        partition: &reference::Partition,
+    ) -> Vec<u8> {
+        reference::canonical_segment_bytes(
+            &reference::AnySegment::Graph(segment.clone()),
+            reference::Digest(SCHEMA.0),
+            partition,
+        )
+        .expect("reference segment bytes")
+    }
+
+    /// The view of a segmented get assembled, its synthesized elements
+    /// numbered as whole-state get numbers them.
+    fn assembled_view(
+        views: Vec<GraphSegment>,
+        complements: Vec<GraphComplementSegment>,
+        partition: &Partition,
+    ) -> RefGraph {
+        let (view, _) = SegmentedRestrict { views, complements }
+            .assemble(partition)
+            .expect("the view segments assemble");
+        ref_graph(&view)
+    }
+
+    /// The edits of the carrier: the identity, every node and every edge
+    /// removed, every edge retargeted at every other node, an edge added
+    /// between every ordered pair of nodes in different segments, every
+    /// node's anchor changed to every other vertex, and a node added to
+    /// every segment.
+    pub fn edits(view: &RefGraph, partition: &reference::Partition) -> Vec<RefGraph> {
+        let owner = |node: u32| partition.owner_of_node(node);
+        let label = |src: &str, tgt: &str| {
+            super::RefSEdge::new(src, tgt, "prop", Some(&format!("{src}{tgt}")))
+        };
+        let anchor = |graph: &RefGraph, node: u32| graph.nodes[&node].anchor.clone();
+        let mut out = vec![view.clone()];
+        for node in view.nodes.keys() {
+            let mut edited = view.clone();
+            edited.nodes.remove(node);
+            edited
+                .edges
+                .retain(|_, edge| edge.src != *node && edge.tgt != *node);
+            out.push(edited);
+        }
+        for id in view.edges.keys() {
+            let mut edited = view.clone();
+            edited.edges.remove(id);
+            out.push(edited);
+        }
+        for (id, edge) in &view.edges {
+            for target in view.nodes.keys().filter(|target| **target != edge.tgt) {
+                let mut edited = view.clone();
+                let moved = edited.edges.get_mut(id).expect("the edge");
+                moved.tgt = *target;
+                moved.label = label(&anchor(view, edge.src), &anchor(view, *target));
+                out.push(edited);
+            }
+        }
+        for src in view.nodes.keys() {
+            for tgt in view.nodes.keys() {
+                let Some(holder) = owner(*src).filter(|holder| owner(*tgt) != Some(*holder)) else {
+                    continue;
+                };
+                let Some(range) = partition.spec(holder).and_then(|spec| spec.alloc_edges) else {
+                    continue;
+                };
+                let mut edited = view.clone();
+                edited.edges.insert(
+                    range.lo + 5,
+                    super::RefGEdge {
+                        src: *src,
+                        tgt: *tgt,
+                        label: label(&anchor(view, *src), &anchor(view, *tgt)),
+                        position: None,
+                    },
+                );
+                out.push(edited);
+            }
+        }
+        for node in view.nodes.keys() {
+            for vertex in super::segmented_graph_get::ANCHORS {
+                if vertex == anchor(view, *node) {
+                    continue;
+                }
+                let mut edited = view.clone();
+                edited.nodes.get_mut(node).expect("the node").anchor = vertex.into();
+                out.push(edited);
+            }
+        }
+        for spec in &partition.specs {
+            let Some(range) = spec.alloc_nodes else {
+                continue;
+            };
+            let mut edited = view.clone();
+            edited
+                .nodes
+                .insert(range.lo + 5, super::RefNode::new(range.lo + 5, "a"));
+            out.push(edited);
+        }
+        out
+    }
+
+    /// What one case gave.
+    #[derive(Default)]
+    struct Tally {
+        restored: u64,
+        refused: u64,
+        crossing: u64,
+        get_refused: u64,
+    }
+
+    /// Check one case: the segmented get's view and every edit of it put
+    /// back segment by segment agree with the reference definition and,
+    /// glued, with whole-state put of the glued view; the unedited view
+    /// restores the source segments exactly, and a restored source's
+    /// segmented get assembles to the edited view exactly when whole-state
+    /// get of whole-state put does.
+    fn check_case(
+        schema: &RefSchema,
+        migration: &RefMigration,
+        graph: &RefGraph,
+        partition: &reference::Partition,
+        tally: &mut Tally,
+    ) {
+        let lens = lens_of(schema, migration);
+        let prod_p = prod_partition(partition);
+        let plan = RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, &lens.compiled)
+            .expect("the carrier compiles");
+        let source = partition_graph(&prod_graph(graph), &prod_p).expect("production split");
+        let Ok(got) = graph_restrict_segmented(&plan, &source, &prod_p) else {
+            return;
+        };
+        let (reference_views, reference_complements) =
+            reference_get(schema, migration, graph, partition);
+        let reference_plan = panproto_reference::restrict::compile(schema, schema, migration)
+            .expect("the reference plan compiles");
+        let reference_lens = RefGraphLens::new(
+            schema,
+            schema,
+            migration,
+            &reference_plan,
+            &BTreeMap::new(),
+            &NoValueLayer,
+        )
+        .expect("the reference lens");
+        let whole_complement = joined(&got.complements, &lens);
+        let view = reference::assemble_graph(&reference_views, partition).expect("glued view");
+
+        for (at, edited) in edits(&view, partition).into_iter().enumerate() {
+            let views = partition_graph(&prod_graph(&edited), &prod_p).expect("edited split");
+            let reference_edited =
+                reference::partition_graph(&edited, partition).expect("reference edited split");
+            let production = graph_lens::put_segmented(&lens, &views, &got.complements, &prod_p);
+            let expected = reference::put_graph_segmented(
+                &reference_lens,
+                &reference_edited,
+                &reference_complements,
+                partition,
+            );
+            let whole = graph_lens::put(&lens, &prod_graph(&edited), &whole_complement);
+            match (&production, &whole) {
+                (Ok(restored), Ok(whole)) => {
+                    let glued = assemble_graph(restored.iter().cloned(), &prod_p)
+                        .expect("the restored segments glue");
+                    assert_eq!(
+                        ref_graph(&glued),
+                        ref_graph(whole),
+                        "glued put of {edited:?}"
+                    );
+                    let Ok(expected) = &expected else {
+                        panic!("the reference refuses {edited:?}: {expected:?}");
+                    };
+                    for (segment, expected) in restored.iter().zip(expected) {
+                        assert_eq!(
+                            segment_bytes(segment, &prod_p),
+                            reference_bytes(expected, partition),
+                            "restored segment of {edited:?} under {partition:?}"
+                        );
+                    }
+                    if at == 0 {
+                        for (segment, original) in restored.iter().zip(&source) {
+                            assert_eq!(
+                                segment_bytes(segment, &prod_p),
+                                segment_bytes(original, &prod_p),
+                                "GetPut of {graph:?} under {partition:?}"
+                            );
+                        }
+                    }
+                    check_put_get(
+                        &lens,
+                        &plan,
+                        restored,
+                        &views,
+                        &got.complements,
+                        &prod_p,
+                        whole,
+                    );
+                    if views
+                        .iter()
+                        .any(|segment| !segment.boundary.ghosts.is_empty())
+                    {
+                        tally.crossing += 1;
+                    }
+                    tally.restored += 1;
+                }
+                (Err(SegmentedPutError::Lens(error)), Err(whole)) => {
+                    assert_ne!(at, 0, "GetPut refused on {graph:?}");
+                    check_refusal(error, whole, &expected, &edited, partition, tally);
+                }
+                outcomes => panic!(
+                    "segmented put disagrees with whole-state put on {edited:?} under {partition:?}: {outcomes:?}"
+                ),
+            }
+        }
+    }
+
+    /// The segment-get of the reference definition: each segment's view and
+    /// complement.
+    pub fn reference_get(
+        schema: &RefSchema,
+        migration: &RefMigration,
+        graph: &RefGraph,
+        partition: &reference::Partition,
+    ) -> (
+        Vec<reference::GraphSegment>,
+        Vec<reference::GraphComplementSegment>,
+    ) {
+        let source = reference::partition_graph(graph, partition).expect("reference split");
+        reference::restrict_graph_segmented(
+            schema,
+            schema,
+            migration,
+            &NoValueLayer,
+            &source,
+            partition,
+        )
+        .expect("the reference restricts what production restricts")
+        .into_iter()
+        .unzip()
+    }
+
+    /// A refused segmented put: whole-state put refuses with the same
+    /// reason, and so does the reference definition, a view whose restored
+    /// source get refuses included.
+    fn check_refusal(
+        error: &LensError,
+        whole: &LensError,
+        expected: &Result<Vec<reference::GraphSegment>, reference::SegmentedPutRefusal>,
+        edited: &RefGraph,
+        partition: &reference::Partition,
+        tally: &mut Tally,
+    ) {
+        assert_eq!(lens_reason(error), lens_reason(whole), "{edited:?}");
+        match expected {
+            Err(reference::SegmentedPutRefusal::Put(expected)) => {
+                assert_eq!(lens_reason(error), ref_lens_reason(expected), "{edited:?}");
+                tally.refused += 1;
+                if refused_by_the_next_get(error) {
+                    tally.get_refused += 1;
+                }
+            }
+            expected => panic!(
+                "the reference disagrees on {edited:?} under {partition:?}: {error:?} / {expected:?}"
+            ),
+        }
+    }
+
+    /// Whether a refusal is the clause (5) refusal of a view whose restored
+    /// source get refuses with something other than a predicate's verdict.
+    pub fn refused_by_the_next_get(error: &LensError) -> bool {
+        matches!(
+            error,
+            LensError::PutDomain(found) if matches!(
+                **found,
+                PutDomainError::SurvivalPredicateRefused {
+                    refusal: panproto_inst::PredicateRefusal::EvaluationFailed { .. },
+                    ..
+                }
+            )
+        )
+    }
+
+    /// `PutGet` over segments: the segmented get of a restored family
+    /// assembles to whole-state get of the glued restored source, and to
+    /// the edited view exactly when whole-state get of whole-state put does.
+    fn check_put_get(
+        lens: &Lens,
+        plan: &RestrictPlan,
+        restored: &[GraphSegment],
+        views: &[GraphSegment],
+        complements: &[GraphComplementSegment],
+        partition: &Partition,
+        whole: &panproto_inst::GInstance,
+    ) {
+        let again = graph_restrict_segmented(plan, restored, partition)
+            .expect("a restored family restricts again");
+        let segmented = assembled_view(again.views, again.complements, partition);
+        let (whole_view, _) = graph_lens::get(lens, whole).expect("whole-state get");
+        assert_eq!(
+            segmented,
+            ref_graph(&whole_view),
+            "segmented get of the put"
+        );
+        let edited = assembled_view(views.to_vec(), complements.to_vec(), partition);
+        assert_eq!(
+            segmented == edited,
+            ref_graph(&whole_view) == edited,
+            "PutGet"
+        );
+    }
+
+    /// What the cases of [`check_added_field_case`] gave.
+    #[derive(Default)]
+    struct AddedFieldTally {
+        restored: u64,
+        edit_refused: u64,
+        get_refused: u64,
+    }
+
+    /// Check one case with the lens that also adds a field to every
+    /// surviving node: each edit of the segmented view, with and without an
+    /// edit of the added field of the least node that keeps it, put back
+    /// segment by segment gives what whole-state put of the glued view gives.
+    fn check_added_field_case(
+        schema: &RefSchema,
+        migration: &RefMigration,
+        graph: &RefGraph,
+        partition: &reference::Partition,
+        tally: &mut AddedFieldTally,
+    ) {
+        let (mut schema, mut migration) = (schema.clone(), migration.clone());
+        migration.transformed.clone_from(&migration.surviving_verts);
+        for vertex in &migration.transformed {
+            let field = format!("{vertex}:{}", super::BOUNDED_LENS_FIELD);
+            let edge =
+                super::RefSEdge::new(vertex, &field, "prop", Some(super::BOUNDED_LENS_FIELD));
+            schema = schema.vertex(&field, "string").edge(
+                vertex,
+                &field,
+                "prop",
+                Some(super::BOUNDED_LENS_FIELD),
+            );
+            migration.surviving_verts.insert(field);
+            migration.surviving_edges.insert(edge);
+        }
+        let structural = RefMigration {
+            transformed: std::collections::BTreeSet::new(),
+            ..migration.clone()
+        };
+        let mut lens = lens_of(&schema, &structural);
+        for vertex in &migration.transformed {
+            lens.compiled.field_transforms.insert(
+                vertex.clone().into(),
+                vec![panproto_inst::FieldTransform::AddField {
+                    key: super::BOUNDED_LENS_FIELD.to_owned(),
+                    value: super::prod_value(&super::BOUNDED_LENS_VALUE),
+                }],
+            );
+        }
+        migration.output_fields = super::reference_output_fields(&lens.compiled);
+        let layer: &'static dyn super::ValueLayer =
+            Box::leak(Box::new(panproto_reference::lens::FieldProgram {
+                name: "add-field",
+                vertices: migration.transformed.iter().cloned().collect(),
+                steps: vec![panproto_reference::lens::FieldStep::Default {
+                    key: super::BOUNDED_LENS_FIELD,
+                    value: super::BOUNDED_LENS_VALUE,
+                }],
+            }));
+        let pair = super::Pair::with_production(schema.clone(), schema, migration, layer, lens);
+        let lens = &pair.production;
+        let prod_p = prod_partition(partition);
+        let plan = RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, &lens.compiled)
+            .expect("the carrier compiles");
+        let source = partition_graph(&prod_graph(graph), &prod_p).expect("production split");
+        let Ok(got) = graph_restrict_segmented(&plan, &source, &prod_p) else {
+            return;
+        };
+        let complement = joined(&got.complements, lens);
+        let view =
+            ref_graph(&assemble_graph(got.views.iter().cloned(), &prod_p).expect("the view glues"));
+        let shown = view
+            .nodes
+            .iter()
+            .find(|(_, node)| node.fields.contains_key(super::BOUNDED_LENS_FIELD))
+            .map(|(id, _)| *id);
+        for edited in edits(&view, partition) {
+            let mut with_field = edited.clone();
+            if let Some(node) = shown.and_then(|id| with_field.nodes.get_mut(&id)) {
+                node.fields.insert(
+                    super::BOUNDED_LENS_FIELD.to_owned(),
+                    super::RefValue::Int(7),
+                );
+            }
+            for edited in [edited, with_field] {
+                let prod_edited = prod_graph(&edited);
+                let views = partition_graph(&prod_edited, &prod_p).expect("edited split");
+                let segmented = graph_lens::put_segmented(lens, &views, &got.complements, &prod_p);
+                match (segmented, graph_lens::put(lens, &prod_edited, &complement)) {
+                    (Ok(restored), Ok(whole)) => {
+                        assert_eq!(
+                            ref_graph(&assemble_graph(restored, &prod_p).expect("a glued source")),
+                            ref_graph(&whole)
+                        );
+                        tally.restored += 1;
+                    }
+                    (Err(SegmentedPutError::Lens(error)), Err(whole)) => {
+                        assert_eq!(lens_reason(&error), lens_reason(&whole), "{edited:?}");
+                        if let LensError::PutDomain(found) = &error {
+                            let edit = matches!(**found, PutDomainError::DerivedCellEdited { .. });
+                            tally.edit_refused += u64::from(edit);
+                        }
+                        tally.get_refused += u64::from(refused_by_the_next_get(&error));
+                    }
+                    outcomes => panic!("segmented put disagrees on {edited:?}: {outcomes:?}"),
+                }
+            }
+        }
+    }
+
+    /// Segmented put of a lens that adds fields agrees with whole-state put
+    /// on every 97th case of the segmented restriction carrier, views with an
+    /// edited added field and views whose restored source get refuses
+    /// included.
+    #[test]
+    fn segmented_put_along_a_lens_adding_fields_agrees_with_whole_state_put() {
+        let mut tally = AddedFieldTally::default();
+        for case in segmented_restrict_cases().step_by(97) {
+            check_added_field_case(
+                &case.schema,
+                &case.migration,
+                &case.graph,
+                &case.partition,
+                &mut tally,
+            );
+        }
+        assert!(
+            tally.restored > 0 && tally.edit_refused > 0 && tally.get_refused > 0,
+            "{} restored, {} edits refused, {} refused by the next get",
+            tally.restored,
+            tally.edit_refused,
+            tally.get_refused
+        );
+    }
+
+    /// Run [`check_case`] on the cases of every 97th case of the segmented
+    /// restriction carrier whose position among them `select` admits, and
+    /// return how many there are and how many were selected.
+    fn sweep(select: impl Fn(usize) -> bool) -> (usize, usize, Tally) {
+        let mut tally = Tally::default();
+        let (mut cases, mut selected) = (0, 0);
+        for (position, case) in segmented_restrict_cases().step_by(97).enumerate() {
+            cases += 1;
+            if !select(position) {
+                continue;
+            }
+            selected += 1;
+            check_case(
+                &case.schema,
+                &case.migration,
+                &case.graph,
+                &case.partition,
+                &mut tally,
+            );
+        }
+        (cases, selected, tally)
+    }
+
+    fn assert_every_outcome(tally: &Tally) {
+        assert!(
+            tally.restored > 0 && tally.refused > 0 && tally.crossing > 0 && tally.get_refused > 0,
+            "{} restored, {} refused, {} crossing, {} refused by the next get",
+            tally.restored,
+            tally.refused,
+            tally.crossing,
+            tally.get_refused
+        );
+    }
+
+    /// Every 97th case of the segmented restriction carrier, read as a lens
+    /// over its schema, with every edit of its segmented view: segmented put
+    /// agrees with the reference definition segment by segment and, glued,
+    /// with whole-state put of the glued view, refusing exactly when it
+    /// refuses and with the same violation; `GetPut` and `PutGet` hold over
+    /// segments where they hold whole. `PANPROTO_TEST_SHARD=i/n` restricts
+    /// the check to the cases at positions `i` modulo `n`.
+    #[test]
+    fn segmented_graph_put_agrees_with_the_reference_and_assembles_to_whole_state_put() {
+        let shard = super::LawShard::from_environment();
+        let (cases, selected, tally) =
+            sweep(|position| shard.is_none_or(|shard| shard.contains(position)));
+        assert_eq!(cases, 1_323);
+        assert_eq!(selected, shard.map_or(cases, |shard| shard.share(cases)));
+        assert_every_outcome(&tally);
+    }
+
+    /// The eighth of the certificate's cases at positions divisible by eight,
+    /// checked on every run.
+    #[test]
+    fn segmented_graph_put_slice_agrees_with_the_reference_on_every_eighth_case() {
+        let (cases, selected, tally) = sweep(|position| position % 8 == 0);
+        assert_eq!((cases, selected), (1_323, 166));
+        assert_every_outcome(&tally);
+    }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(64))]
+
+        #[test]
+        fn segmented_graph_put_matches_the_reference_on_generated_partitions(
+            anchors in proptest::collection::vec(0_usize..3, 2..=8),
+            edges in proptest::collection::vec((0_usize..8, 0_usize..8), 0..=14),
+            owners in proptest::collection::vec(0_u32..4, 8),
+            segments in 2_u32..=4,
+            surviving in 0_u8..8,
+        ) {
+            let (schema, migration, graph, partition) =
+                generated(&anchors, &edges, &owners, segments, surviving);
+            check_case(&schema, &migration, &graph, &partition, &mut Tally::default());
+        }
+    }
+
+    /// A three-segment graph whose dropped middle node hides a path from
+    /// the first segment to the third: the segmented view holds the
+    /// contracted edge, and an edit that removes the third segment's node
+    /// and adds an edge from it back to the first is put back segment by
+    /// segment like whole-state put.
+    #[test]
+    fn a_put_crossing_three_segments_restores_like_whole_state_put() {
+        let (schema, migration, graph, partition) = generated(
+            &[0, 1, 2, 0],
+            &[(0, 1), (1, 2), (3, 0)],
+            &[0, 1, 2, 2, 0, 0, 0, 0],
+            3,
+            0b101,
+        );
+        let lens = lens_of(&schema, &migration);
+        let prod_p = prod_partition(&partition);
+        let plan = RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, &lens.compiled)
+            .expect("the lens compiles");
+        let source = partition_graph(&prod_graph(&graph), &prod_p).expect("split");
+        let got = graph_restrict_segmented(&plan, &source, &prod_p).expect("segmented get");
+        assert_eq!(
+            got.complements
+                .iter()
+                .map(|complement| complement.synthesized_edges.len())
+                .collect::<Vec<_>>(),
+            vec![1, 0, 0],
+            "the contracted edge is synthesized in the first segment"
+        );
+        let restored = graph_lens::put_segmented(&lens, &got.views, &got.complements, &prod_p)
+            .expect("GetPut");
+        for (segment, original) in restored.iter().zip(&source) {
+            assert_eq!(
+                segment_bytes(segment, &prod_p),
+                segment_bytes(original, &prod_p)
+            );
+        }
+        let mut tally = Tally::default();
+        check_case(&schema, &migration, &graph, &partition, &mut tally);
+        assert!(tally.crossing > 0 && tally.refused > 0 && tally.restored > 0);
+    }
+
+    /// A view edge whose id a complement in another segment records as a
+    /// dropped edge collides, and two violations in different segments
+    /// refuse the put with the lesser of them, as whole-state put does.
+    #[test]
+    fn a_refused_put_returns_the_least_violation_of_every_segment() {
+        let (schema, migration, graph, partition) = generated(
+            &[0, 1, 2],
+            &[(0, 1), (1, 2), (2, 0)],
+            &[0, 1, 0, 0, 0, 0, 0, 0],
+            2,
+            0b101,
+        );
+        let lens = lens_of(&schema, &migration);
+        let prod_p = prod_partition(&partition);
+        let plan = RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, &lens.compiled)
+            .expect("the lens compiles");
+        let source = partition_graph(&prod_graph(&graph), &prod_p).expect("split");
+        let got = graph_restrict_segmented(&plan, &source, &prod_p).expect("segmented get");
+        let dropped: Vec<(u32, u32)> = got
+            .complements
+            .iter()
+            .flat_map(|complement| {
+                complement
+                    .dropped_edges
+                    .keys()
+                    .map(|id| (complement.segment.0, id.0))
+            })
+            .collect();
+        assert_eq!(dropped, vec![(0, 0), (1, 1)]);
+
+        // Node 2 (segment 0) gets an anchor no source vertex maps to, and a
+        // new view edge in segment 0 reuses the id of segment 1's dropped
+        // edge 1: the collision is the lesser violation.
+        let view = assemble_graph(got.views.iter().cloned(), &prod_p).expect("glue");
+        let mut edited = ref_graph(&view);
+        edited.nodes.get_mut(&2).expect("node 2").anchor = "b".into();
+        edited.edges.insert(
+            1,
+            super::RefGEdge {
+                src: 0,
+                tgt: 2,
+                label: super::RefSEdge::new("a", "c", "prop", Some("ac")),
+                position: None,
+            },
+        );
+        let views = partition_graph(&prod_graph(&edited), &prod_p).expect("edited split");
+        let error = graph_lens::put_segmented(&lens, &views, &got.complements, &prod_p)
+            .expect_err("the put is refused");
+        assert!(
+            matches!(
+                &error,
+                SegmentedPutError::Lens(LensError::PutDomain(found))
+                    if **found == PutDomainError::IdCollision { elem: ViewRef::Edge(panproto_inst::EdgeId(1)) }
+            ),
+            "{error:?}"
+        );
+        let whole = graph_lens::put(
+            &lens,
+            &prod_graph(&edited),
+            &joined(&got.complements, &lens),
+        )
+        .expect_err("whole-state put refuses");
+        let SegmentedPutError::Lens(error) = error else {
+            unreachable!("matched above")
+        };
+        assert_eq!(lens_reason(&error), lens_reason(&whole));
+
+        // Without the colliding edge, the edge from node 2 no longer maps
+        // back: its source's view anchor is the image of no source vertex
+        // with an edge of its label.
+        edited.edges.remove(&1);
+        let views = partition_graph(&prod_graph(&edited), &prod_p).expect("edited split");
+        let error = graph_lens::put_segmented(&lens, &views, &got.complements, &prod_p)
+            .expect_err("the put is refused");
+        assert!(
+            matches!(
+                &error,
+                SegmentedPutError::Lens(LensError::PutDomain(found))
+                    if **found == PutDomainError::UnrepresentableViewEdge { elem: ViewRef::Edge(panproto_inst::EdgeId(2)) }
+            ),
+            "{error:?}"
+        );
+        let whole = graph_lens::put(
+            &lens,
+            &prod_graph(&edited),
+            &joined(&got.complements, &lens),
+        )
+        .expect_err("whole-state put refuses");
+        let SegmentedPutError::Lens(error) = error else {
+            unreachable!("matched above")
+        };
+        assert_eq!(lens_reason(&error), lens_reason(&whole));
+    }
+
+    /// The locality of put: a plain lens merges sorted runs, a survival
+    /// predicate and a key on a path of two edges are global, and a segmented put
+    /// declines a global lens before reading any segment and refuses a
+    /// complement entry filed under a segment that does not own it.
+    #[test]
+    fn put_locality_classes_and_input_refusals() {
+        let (schema, migration, graph, partition) =
+            generated(&[0, 1], &[(0, 1)], &[0, 1, 0, 0, 0, 0, 0, 0], 2, 0b001);
+        let lens = lens_of(&schema, &migration);
+        assert_eq!(
+            graph_lens::graph_put_locality(&lens).expect("compiles"),
+            Locality::Summary(SummaryKind::SortedMerge)
+        );
+        let prod_p = prod_partition(&partition);
+        let plan = RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, &lens.compiled)
+            .expect("the lens compiles");
+        let source = partition_graph(&prod_graph(&graph), &prod_p).expect("split");
+        let got = graph_restrict_segmented(&plan, &source, &prod_p).expect("segmented get");
+
+        let mut keyed = lens_of(&schema, &migration);
+        keyed.src_schema.declarations.keys.insert(
+            "a".into(),
+            vec![panproto_schema::Key {
+                id: "order".into(),
+                parts: vec![panproto_schema::KeyPart::Path(
+                    ["aa", "ab"]
+                        .into_iter()
+                        .map(|name| panproto_schema::Edge {
+                            src: "a".into(),
+                            tgt: name[1..].into(),
+                            kind: "prop".into(),
+                            name: Some(name.into()),
+                        })
+                        .collect(),
+                )],
+                role: panproto_schema::KeyRole::Unique,
+                scope: panproto_schema::KeyScope::Global,
+                equality: Vec::new(),
+            }],
+        );
+        let demand = Locality::Global(GlobalReason::KeyDemand {
+            vertex: "a".into(),
+            key: "order".into(),
+        });
+        assert_eq!(
+            graph_lens::graph_put_locality(&keyed).expect("compiles"),
+            demand
+        );
+        assert!(matches!(
+            graph_lens::put_segmented(&keyed, &got.views, &got.complements, &prod_p),
+            Err(SegmentedPutError::Residual(Residual::Global { .. }))
+        ));
+
+        let mut predicated = lens_of(&schema, &migration);
+        predicated.compiled.conditional_survival.insert(
+            "a".into(),
+            panproto_expr::Expr::Lit(panproto_expr::Literal::Bool(true)),
+        );
+        assert!(matches!(
+            graph_lens::graph_put_locality(&predicated).expect("compiles"),
+            Locality::Global(GlobalReason::ExpressionDemand { .. })
+        ));
+
+        let mut misplaced = got.complements;
+        let moved = misplaced[1]
+            .dropped_nodes
+            .pop_first()
+            .expect("segment 1 drops node 1");
+        misplaced[0].dropped_nodes.insert(moved.0, moved.1);
+        assert!(
+            matches!(
+                graph_lens::put_segmented(&lens, &got.views, &misplaced, &prod_p),
+                Err(SegmentedPutError::Segment(SegmentError::WrongOwner { .. }))
+            ),
+            "a dropped node filed under a segment that does not own it"
+        );
+    }
+}
+
+/// Segmented graph put as a checkpointed run: the production run against
+/// the reference runner, at every cancellation point and under budgets.
+mod segmented_graph_put_run {
+    use std::collections::BTreeMap;
+
+    use panproto_inst::RestrictPlan;
+    use panproto_inst::identity::{ComplementShape, Digest};
+    use panproto_inst::segment::{
+        AnySegment, ArtifactKey, Budget, EdgeIdRun, GraphSegment, ManifestHeader, ManifestRole,
+        MemoryStore, Partition, Phase, RecordSource, Residual, Resource, RunIncompleteReason,
+        RunJournal, RunStatus, SegmentId, SegmentManifest, SegmentRecord, SegmentRunReport,
+        SegmentStore, TaskRecord, graph_restrict_segmented, partition_graph, read_emitted,
+        seal_full,
+    };
+    use panproto_lens::Lens;
+    use panproto_lens::graph_lens::{self, GraphPutRun, HeldView, SegmentedPutError};
+    use panproto_reference::enumerate::segments::segmented_restrict_cases;
+    use panproto_reference::restrict::NoValueLayer;
+    use panproto_reference::segment as reference;
+
+    use super::segmented_graph_get::{generated, lens_of, prod_partition};
+    use super::segmented_graph_put::{edits, reference_get, refused_by_the_next_get};
+    use super::{
+        RefGraph, RefGraphLens, RefMigration, RefSchema, lens_reason, prod_graph, ref_lens_reason,
+    };
+
+    const VIEW_SCHEMA: [u8; 32] = [11; 32];
+
+    /// A report in a form both implementations project to.
+    #[derive(Debug, PartialEq, Eq)]
+    struct Seen {
+        status: String,
+        locality: String,
+        budget: (u64, Option<u64>, u64, u32),
+        progress: (String, u32, u32, u64, u64),
+        peak: (u64, Option<u64>),
+        complement: (u64, u64, Vec<(u32, u64, u64)>),
+        tasks: (u32, u32),
+        orphans: Vec<([u8; 32], String, Option<u32>, String)>,
+        phases: Vec<(String, u32, u32, u64, Option<u64>)>,
+    }
+
+    fn seen_production(report: &SegmentRunReport<SegmentedPutError>) -> Seen {
+        let status = match &report.status {
+            RunStatus::Complete { manifest } => format!("complete {:?}", manifest.0),
+            RunStatus::Incomplete { reason } => format!("incomplete {reason:?}"),
+            RunStatus::Residual(residual) => format!("residual {residual:?}"),
+            RunStatus::Failed(SegmentedPutError::Lens(error)) => {
+                format!("put {:?}", lens_reason(error))
+            }
+            RunStatus::Failed(SegmentedPutError::Segment(error)) => format!("segment {error:?}"),
+            RunStatus::Failed(other) => format!("other {other:?}"),
+        };
+        Seen {
+            status,
+            locality: format!("{:?}", report.locality),
+            budget: (
+                report.budget.working_set,
+                report.budget.complement,
+                report.budget.summary,
+                report.budget.affected_segments,
+            ),
+            progress: (
+                format!("{:?}", report.progress.phase),
+                report.progress.tasks_done,
+                report.progress.tasks_total,
+                report.progress.elements_done,
+                report.progress.elements_total,
+            ),
+            peak: (report.peak_estimated_bytes, report.observed_peak_bytes),
+            complement: (
+                report.complement.elements,
+                report.complement.bytes,
+                report
+                    .complement
+                    .per_segment
+                    .iter()
+                    .map(|(id, (elements, bytes))| (id.0, *elements, *bytes))
+                    .collect(),
+            ),
+            tasks: (report.tasks_run, report.tasks_reused),
+            orphans: report
+                .orphans
+                .iter()
+                .map(|key| {
+                    (
+                        key.run.0,
+                        format!("{:?}", key.task.phase),
+                        key.task.segment.map(|segment| segment.0),
+                        format!("{:?}", key.kind),
+                    )
+                })
+                .collect(),
+            phases: report
+                .phases
+                .iter()
+                .map(|phase| {
+                    (
+                        format!("{:?}", phase.phase),
+                        phase.tasks,
+                        phase.reused,
+                        phase.peak_estimated_bytes,
+                        phase.wall_ms,
+                    )
+                })
+                .collect(),
+        }
+    }
+
+    fn seen_reference(
+        report: &reference::SegmentRunReport<reference::SegmentedPutRefusal>,
+    ) -> Seen {
+        let status = match &report.status {
+            reference::RunStatus::Complete { manifest } => format!("complete {:?}", manifest.0),
+            reference::RunStatus::Incomplete { reason } => format!("incomplete {reason:?}"),
+            reference::RunStatus::Residual(residual) => format!("residual {residual:?}"),
+            reference::RunStatus::Failed(reference::SegmentedPutRefusal::Put(error)) => {
+                format!("put {:?}", ref_lens_reason(error))
+            }
+            reference::RunStatus::Failed(reference::SegmentedPutRefusal::Segment(error)) => {
+                format!("segment {error:?}")
+            }
+        };
+        Seen {
+            status,
+            locality: format!("{:?}", report.locality.put),
+            budget: (
+                report.budget.working_set,
+                report.budget.complement,
+                report.budget.summary,
+                report.budget.affected_segments,
+            ),
+            progress: (
+                format!("{:?}", report.progress.phase),
+                report.progress.tasks_done,
+                report.progress.tasks_total,
+                report.progress.elements_done,
+                report.progress.elements_total,
+            ),
+            peak: (report.peak_estimated_bytes, report.observed_peak_bytes),
+            complement: (
+                report.complement.elements,
+                report.complement.bytes,
+                report
+                    .complement
+                    .per_segment
+                    .iter()
+                    .map(|(id, (elements, bytes))| (id.0, *elements, *bytes))
+                    .collect(),
+            ),
+            tasks: (report.tasks_run, report.tasks_reused),
+            orphans: report
+                .orphans
+                .iter()
+                .map(|key| {
+                    (
+                        key.run.0,
+                        format!("{:?}", key.task.phase),
+                        key.task.segment.map(|segment| segment.0),
+                        format!("{:?}", key.kind),
+                    )
+                })
+                .collect(),
+            phases: report
+                .phases
+                .iter()
+                .map(|phase| {
+                    (
+                        format!("{:?}", phase.phase),
+                        phase.tasks,
+                        phase.reused,
+                        phase.peak_estimated_bytes,
+                        phase.wall_ms,
+                    )
+                })
+                .collect(),
+        }
+    }
+
+    /// A view held as segments: its sealed manifest, each segment's bytes
+    /// and each segment's complement bytes.
+    struct Held {
+        manifest: SegmentManifest,
+        views: BTreeMap<SegmentId, Vec<u8>>,
+        complements: BTreeMap<SegmentId, Vec<u8>>,
+    }
+
+    impl Held {
+        fn of(
+            segments: &[GraphSegment],
+            complements: &[panproto_inst::segment::GraphComplementSegment],
+            partition: &Partition,
+        ) -> Self {
+            let schema = Digest(VIEW_SCHEMA);
+            let any: Vec<AnySegment> = segments.iter().cloned().map(AnySegment::Graph).collect();
+            let records = any
+                .iter()
+                .zip(partition.specs())
+                .map(|(segment, spec)| SegmentRecord::of(segment, spec, &schema))
+                .collect();
+            let runs: Vec<EdgeIdRun<'_>> = any
+                .iter()
+                .map(|segment| {
+                    (
+                        segment.segment(),
+                        Box::new(segment.edge_id_run().into_iter())
+                            as Box<dyn Iterator<Item = panproto_inst::EdgeId>>,
+                    )
+                })
+                .collect();
+            let sources = any
+                .iter()
+                .map(|segment| Box::new(segment.records()) as Box<dyn RecordSource + '_>)
+                .collect();
+            let manifest = seal_full(
+                records,
+                ManifestHeader {
+                    shape: panproto_inst::InstanceShapeKind::Graph,
+                    schema,
+                    role: ManifestRole::Source,
+                    binding: None,
+                },
+                runs,
+                sources,
+            )
+            .expect("the view seals");
+            Self {
+                manifest,
+                views: any
+                    .iter()
+                    .map(|segment| {
+                        (
+                            segment.segment(),
+                            segment
+                                .canonical_bytes(&schema, partition)
+                                .expect("view bytes"),
+                        )
+                    })
+                    .collect(),
+                complements: complements
+                    .iter()
+                    .map(|complement| {
+                        (
+                            complement.segment,
+                            complement.canonical_bytes().expect("complement bytes"),
+                        )
+                    })
+                    .collect(),
+            }
+        }
+
+        fn input(
+            &self,
+        ) -> HeldView<'_, BTreeMap<SegmentId, Vec<u8>>, BTreeMap<SegmentId, Vec<u8>>> {
+            HeldView {
+                manifest: &self.manifest,
+                input: self.manifest.digest(),
+                views: &self.views,
+                complements: &self.complements,
+            }
+        }
+    }
+
+    /// One put of the carrier on both sides.
+    struct Case<'a> {
+        lens: &'a Lens,
+        reference_lens: &'a RefGraphLens<'a>,
+        held: &'a Held,
+        reference_views: &'a [reference::GraphSegment],
+        reference_complements: &'a [reference::GraphComplementSegment],
+        partition: &'a reference::Partition,
+    }
+
+    impl Case<'_> {
+        fn production<S: SegmentStore>(
+            &self,
+            budget: Budget,
+            store: &mut S,
+            cancel: Option<u32>,
+        ) -> GraphPutRun {
+            graph_lens::put_segmented_run(self.lens, &self.held.input(), budget, store, cancel)
+                .expect("the carrier's plan compiles")
+        }
+
+        fn reference(
+            &self,
+            budget: Budget,
+            store: &mut reference::MemoryStore,
+            cancel: Option<u32>,
+        ) -> reference::PutRun {
+            let identity = self.lens.identity(ComplementShape::Graph);
+            reference::segmented_put_with_progress(
+                self.reference_lens,
+                (self.reference_views, self.reference_complements),
+                self.partition,
+                &reference::PutRunSpec {
+                    lens: reference::Digest(identity.lens.0),
+                    view_schema: reference::Digest(VIEW_SCHEMA),
+                    view_role: reference::ManifestRole::Source,
+                    source_schema: reference::Digest(identity.source_schema.0),
+                    binding: None,
+                    cancel_after_tasks: cancel,
+                },
+                reference::Budget {
+                    working_set: budget.working_set,
+                    complement: budget.complement,
+                    summary: budget.summary,
+                    affected_segments: budget.affected_segments,
+                },
+                store,
+                &mut |_| {},
+            )
+        }
+    }
+
+    /// What the run law showed.
+    #[derive(Debug, Default)]
+    struct Tally {
+        complete: u64,
+        refused: u64,
+        declined: u64,
+        get_refused: u64,
+        cancellations: u64,
+    }
+
+    /// The journal of a run holds no Emit or Seal task.
+    fn sealed_nothing(store: &MemoryStore, run: Digest) -> bool {
+        let journal: RunJournal = store.journal(&run).unwrap_or_else(|never| match never {});
+        journal
+            .tasks
+            .keys()
+            .all(|task| !matches!(task.phase, Phase::Emit | Phase::Seal))
+    }
+
+    /// Check the run law on one put under `budget`: the production report
+    /// equals the reference runner's uninterrupted and at every
+    /// cancellation point, a resumed run ends as the uninterrupted one
+    /// reusing every task the stopped run committed, a complete run emits
+    /// the restored segments of in-memory segmented put and of the
+    /// reference, and a refused or declined run seals nothing.
+    fn check_put(case: &Case<'_>, budget: Budget, every_point: bool, tally: &mut Tally) {
+        let mut store = MemoryStore::default();
+        let baseline = case.production(budget, &mut store, None);
+        let mut reference_store = reference::MemoryStore::default();
+        let expected = case.reference(budget, &mut reference_store, None);
+        assert_eq!(
+            seen_production(&baseline.report),
+            seen_reference(&expected.report),
+            "uninterrupted put under {:?}",
+            case.partition
+        );
+        let run = baseline.run.expect("a run identity");
+        assert_eq!(run.0, expected.run.0, "run identity");
+        match &baseline.report.status {
+            RunStatus::Complete { manifest } => {
+                tally.complete += 1;
+                assert_eq!(
+                    baseline.manifest.as_ref().map(SegmentManifest::digest),
+                    Some(*manifest)
+                );
+                let partition = prod_partition(case.partition);
+                let restored: Vec<GraphSegment> = partition
+                    .specs()
+                    .iter()
+                    .map(|spec| {
+                        let emitted = read_emitted(&store, run, &partition, spec.id)
+                            .expect("an emitted segment");
+                        assert_eq!(
+                            emitted.complement,
+                            Vec::<u8>::new(),
+                            "put emits no complement"
+                        );
+                        emitted.view
+                    })
+                    .collect();
+                let schema = case.lens.identity(ComplementShape::Graph).source_schema;
+                for (segment, expected) in restored
+                    .iter()
+                    .zip(expected.output.as_ref().expect("output"))
+                {
+                    assert_eq!(
+                        AnySegment::Graph(segment.clone())
+                            .canonical_bytes(&schema, &partition)
+                            .expect("restored bytes"),
+                        reference::canonical_segment_bytes(
+                            &reference::AnySegment::Graph(expected.clone()),
+                            reference::Digest(schema.0),
+                            case.partition,
+                        )
+                        .expect("reference restored bytes"),
+                        "restored segment under {:?}",
+                        case.partition
+                    );
+                }
+            }
+            RunStatus::Failed(error) => {
+                tally.refused += 1;
+                if matches!(error, SegmentedPutError::Lens(error) if refused_by_the_next_get(error))
+                {
+                    tally.get_refused += 1;
+                }
+                assert!(sealed_nothing(&store, run), "a refused put seals nothing");
+            }
+            RunStatus::Residual(_) => {
+                tally.declined += 1;
+                assert!(sealed_nothing(&store, run), "a declined put seals nothing");
+            }
+            RunStatus::Incomplete { reason } => panic!("an uninterrupted put stopped: {reason:?}"),
+        }
+        if every_point {
+            check_cancellations(case, budget, &baseline, run, tally);
+        }
+    }
+
+    /// Stopping the put of `case` at every cancellation point and resuming
+    /// it reports what the reference runner reports, and ends as `baseline`.
+    fn check_cancellations(
+        case: &Case<'_>,
+        budget: Budget,
+        baseline: &GraphPutRun,
+        run: Digest,
+        tally: &mut Tally,
+    ) {
+        let total = baseline.report.progress.tasks_total;
+        let done = baseline.report.progress.tasks_done;
+        for cancel in 0..=total {
+            tally.cancellations += 1;
+            let mut store = MemoryStore::default();
+            let interrupted = case.production(budget, &mut store, Some(cancel));
+            let mut reference_store = reference::MemoryStore::default();
+            let stopped = case.reference(budget, &mut reference_store, Some(cancel));
+            assert_eq!(
+                seen_production(&interrupted.report),
+                seen_reference(&stopped.report),
+                "put cancelled after {cancel} tasks"
+            );
+            let resumed = case.production(budget, &mut store, None);
+            let again = case.reference(budget, &mut reference_store, None);
+            assert_eq!(
+                seen_production(&resumed.report),
+                seen_reference(&again.report),
+                "put resumed after {cancel} tasks"
+            );
+            assert_eq!(resumed.report.tasks_reused, cancel.min(done));
+            assert_eq!(
+                format!("{:?}", resumed.report.status),
+                format!("{:?}", baseline.report.status)
+            );
+            assert_eq!(resumed.manifest, baseline.manifest);
+            assert_eq!(
+                store.staged_uncommitted(&run).expect("the journal reads"),
+                Vec::<ArtifactKey>::new()
+            );
+        }
+    }
+
+    /// The puts of one carrier case: its segmented get's view and every
+    /// edit of it, against the get's complement segments.
+    fn check_case(
+        schema: &RefSchema,
+        migration: &RefMigration,
+        graph: &RefGraph,
+        partition: &reference::Partition,
+        every_point: bool,
+        tally: &mut Tally,
+    ) {
+        let lens = lens_of(schema, migration);
+        let prod_p = prod_partition(partition);
+        let plan = RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, &lens.compiled)
+            .expect("the carrier compiles");
+        let source = partition_graph(&prod_graph(graph), &prod_p).expect("production split");
+        let Ok(got) = graph_restrict_segmented(&plan, &source, &prod_p) else {
+            return;
+        };
+        let (reference_views, reference_complements) =
+            reference_get(schema, migration, graph, partition);
+        let reference_plan = panproto_reference::restrict::compile(schema, schema, migration)
+            .expect("the reference plan compiles");
+        let reference_lens = RefGraphLens::new(
+            schema,
+            schema,
+            migration,
+            &reference_plan,
+            &BTreeMap::new(),
+            &NoValueLayer,
+        )
+        .expect("the reference lens");
+        let view = reference::assemble_graph(&reference_views, partition).expect("glued view");
+        for edited in edits(&view, partition) {
+            let views = partition_graph(&prod_graph(&edited), &prod_p).expect("edited split");
+            let reference_edited =
+                reference::partition_graph(&edited, partition).expect("reference edited split");
+            let held = Held::of(&views, &got.complements, &prod_p);
+            let case = Case {
+                lens: &lens,
+                reference_lens: &reference_lens,
+                held: &held,
+                reference_views: &reference_edited,
+                reference_complements: &reference_complements,
+                partition,
+            };
+            check_put(&case, Budget::unlimited(), every_point, tally);
+            let in_memory = graph_lens::put_segmented(&lens, &views, &got.complements, &prod_p);
+            let mut store = MemoryStore::default();
+            let run = case.production(Budget::unlimited(), &mut store, None);
+            match (&run.report.status, &in_memory) {
+                (RunStatus::Complete { .. }, Ok(_)) => {}
+                (
+                    RunStatus::Failed(SegmentedPutError::Lens(run)),
+                    Err(SegmentedPutError::Lens(held)),
+                ) => {
+                    assert_eq!(lens_reason(run), lens_reason(held), "{edited:?}");
+                }
+                outcomes => {
+                    panic!("the run and in-memory put disagree on {edited:?}: {outcomes:?}")
+                }
+            }
+        }
+    }
+
+    fn sweep(select: impl Fn(usize) -> bool, every_point: bool) -> (usize, usize, Tally) {
+        let mut tally = Tally::default();
+        let (mut cases, mut selected) = (0, 0);
+        for (position, case) in segmented_restrict_cases().step_by(97).enumerate() {
+            cases += 1;
+            if !select(position) {
+                continue;
+            }
+            selected += 1;
+            check_case(
+                &case.schema,
+                &case.migration,
+                &case.graph,
+                &case.partition,
+                every_point,
+                &mut tally,
+            );
+        }
+        (cases, selected, tally)
+    }
+
+    /// Every 97th case of the segmented restriction carrier with every edit
+    /// of its segmented view, put back as a checkpointed run: the report
+    /// equals the reference runner's uninterrupted and at every
+    /// cancellation point, a resumed run ends as the uninterrupted one, a
+    /// complete run emits the reference's restored segments and agrees with
+    /// in-memory segmented put, and a refused put seals nothing.
+    /// `PANPROTO_TEST_SHARD=i/n` restricts the check to the cases at
+    /// positions `i` modulo `n`.
+    #[test]
+    fn segmented_graph_put_run_matches_the_reference_runner_at_every_cancellation_point() {
+        let shard = super::LawShard::from_environment();
+        let (cases, selected, tally) = sweep(
+            |position| shard.is_none_or(|shard| shard.contains(position)),
+            true,
+        );
+        assert_eq!(cases, 1_323);
+        assert_eq!(selected, shard.map_or(cases, |shard| shard.share(cases)));
+        assert!(
+            tally.complete > 0
+                && tally.refused > 0
+                && tally.get_refused > 0
+                && tally.cancellations > 0,
+            "{tally:?}"
+        );
+    }
+
+    /// The certificate's cases at positions divisible by 64, uninterrupted
+    /// and from every cancellation point, checked on every run.
+    #[test]
+    fn segmented_graph_put_run_slice_matches_the_reference_runner() {
+        let (cases, selected, tally) = sweep(|position| position % 64 == 0, true);
+        assert_eq!((cases, selected), (1_323, 21));
+        assert!(tally.complete > 0 && tally.refused > 0, "{tally:?}");
+    }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(16))]
+
+        #[test]
+        fn segmented_graph_put_run_matches_the_reference_runner_on_generated_partitions(
+            anchors in proptest::collection::vec(0_usize..3, 2..=6),
+            edges in proptest::collection::vec((0_usize..6, 0_usize..6), 0..=8),
+            owners in proptest::collection::vec(0_u32..4, 6),
+            segments in 2_u32..=3,
+            surviving in 0_u8..8,
+        ) {
+            let (schema, migration, graph, partition) =
+                generated(&anchors, &edges, &owners, segments, surviving);
+            check_case(&schema, &migration, &graph, &partition, false, &mut Tally::default());
+        }
+    }
+
+    /// The witness case: a three-segment carrier case with an edge crossing
+    /// segments, its unedited view held with its get's complements.
+    fn witness(tally: &mut Tally, check: &mut dyn FnMut(&Case<'_>, &mut Tally)) {
+        let case = segmented_restrict_cases()
+            .find(|case| {
+                case.partition.specs.len() == 3
+                    && case.graph.edges.len() >= 2
+                    && case.migration.surviving_verts.len() == 3
+            })
+            .expect("a three-segment case keeping every vertex");
+        let lens = lens_of(&case.schema, &case.migration);
+        let prod_p = prod_partition(&case.partition);
+        let plan = RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, &lens.compiled)
+            .expect("the carrier compiles");
+        let source = partition_graph(&prod_graph(&case.graph), &prod_p).expect("split");
+        let got = graph_restrict_segmented(&plan, &source, &prod_p).expect("get");
+        let (reference_views, reference_complements) =
+            reference_get(&case.schema, &case.migration, &case.graph, &case.partition);
+        let reference_plan =
+            panproto_reference::restrict::compile(&case.schema, &case.schema, &case.migration)
+                .expect("the reference plan");
+        let reference_lens = RefGraphLens::new(
+            &case.schema,
+            &case.schema,
+            &case.migration,
+            &reference_plan,
+            &BTreeMap::new(),
+            &NoValueLayer,
+        )
+        .expect("the reference lens");
+        let held = Held::of(&got.views, &got.complements, &prod_p);
+        check(
+            &Case {
+                lens: &lens,
+                reference_lens: &reference_lens,
+                held: &held,
+                reference_views: &reference_views,
+                reference_complements: &reference_complements,
+                partition: &case.partition,
+            },
+            tally,
+        );
+    }
+
+    /// Each budget below what a put needs declines it where the reference
+    /// runner declines it, with equal reports at every cancellation point:
+    /// the number of segments and the working set (a view segment's estimate
+    /// plus its complement's length) before any task, the summary bytes at
+    /// Assemble; a complement budget of zero bytes completes, since put
+    /// emits no complement.
+    #[test]
+    fn a_put_run_declines_each_exceeded_budget_like_the_reference() {
+        let mut tally = Tally::default();
+        witness(&mut tally, &mut |case, tally| {
+            let mut store = MemoryStore::default();
+            let full = case.production(Budget::unlimited(), &mut store, None);
+            let RunStatus::Complete { .. } = full.report.status else {
+                panic!("the witness put completes: {:?}", full.report.status);
+            };
+            let peak = full.report.peak_estimated_bytes;
+            let summaries = {
+                let mut store = MemoryStore::default();
+                let probe = case.production(
+                    Budget {
+                        summary: 0,
+                        ..Budget::unlimited()
+                    },
+                    &mut store,
+                    None,
+                );
+                match probe.report.status {
+                    RunStatus::Residual(Residual::BudgetExceeded {
+                        resource: Resource::Summary,
+                        needed,
+                        ..
+                    }) => needed,
+                    other => panic!("a zero summary budget declines at Assemble: {other:?}"),
+                }
+            };
+            for (budget, resource) in [
+                (
+                    Budget {
+                        affected_segments: 2,
+                        ..Budget::unlimited()
+                    },
+                    Some(Resource::AffectedSegments),
+                ),
+                (
+                    Budget {
+                        working_set: peak - 1,
+                        ..Budget::unlimited()
+                    },
+                    Some(Resource::WorkingSet),
+                ),
+                (
+                    Budget {
+                        summary: summaries - 1,
+                        ..Budget::unlimited()
+                    },
+                    Some(Resource::Summary),
+                ),
+                (
+                    Budget {
+                        summary: summaries,
+                        working_set: peak,
+                        complement: Some(0),
+                        ..Budget::unlimited()
+                    },
+                    None,
+                ),
+            ] {
+                let mut store = MemoryStore::default();
+                let run = case.production(budget, &mut store, None);
+                match (resource, &run.report.status) {
+                    (
+                        Some(expected),
+                        RunStatus::Residual(Residual::BudgetExceeded { resource, .. }),
+                    ) => {
+                        assert_eq!(*resource, expected);
+                    }
+                    (None, RunStatus::Complete { .. }) => {}
+                    (_, status) => panic!("{budget:?} ends as {status:?}"),
+                }
+                check_put(case, budget, true, tally);
+            }
+        });
+        assert_eq!((tally.complete, tally.declined), (1, 3), "{tally:?}");
+    }
+
+    /// A store whose commit fails at one commit, leaving that artifact
+    /// staged.
+    #[derive(Default)]
+    struct FailingStore {
+        inner: MemoryStore,
+        fail_at: u32,
+        commits: u32,
+    }
+
+    #[derive(Debug)]
+    struct CommitRefused;
+
+    impl std::fmt::Display for CommitRefused {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("the commit is refused")
+        }
+    }
+
+    impl std::error::Error for CommitRefused {}
+
+    impl SegmentStore for FailingStore {
+        type Error = CommitRefused;
+
+        fn read(&self, key: &ArtifactKey) -> Result<Option<Vec<u8>>, Self::Error> {
+            Ok(self.inner.read(key).unwrap_or_else(|never| match never {}))
+        }
+
+        fn read_at(
+            &self,
+            key: &ArtifactKey,
+            offset: u64,
+            len: u64,
+        ) -> Result<Option<Vec<u8>>, Self::Error> {
+            Ok(self
+                .inner
+                .read_at(key, offset, len)
+                .unwrap_or_else(|never| match never {}))
+        }
+
+        fn stage(&mut self, key: &ArtifactKey, bytes: Vec<u8>) -> Result<(), Self::Error> {
+            self.inner
+                .stage(key, bytes)
+                .unwrap_or_else(|never| match never {});
+            Ok(())
+        }
+
+        fn commit(&mut self, key: &ArtifactKey, record: &TaskRecord) -> Result<(), Self::Error> {
+            let at = self.commits;
+            self.commits += 1;
+            if at == self.fail_at {
+                return Err(CommitRefused);
+            }
+            self.inner
+                .commit(key, record)
+                .unwrap_or_else(|never| match never {});
+            Ok(())
+        }
+
+        fn journal(&self, run: &Digest) -> Result<RunJournal, Self::Error> {
+            Ok(self
+                .inner
+                .journal(run)
+                .unwrap_or_else(|never| match never {}))
+        }
+
+        fn staged_uncommitted(&self, run: &Digest) -> Result<Vec<ArtifactKey>, Self::Error> {
+            Ok(self
+                .inner
+                .staged_uncommitted(run)
+                .unwrap_or_else(|never| match never {}))
+        }
+    }
+
+    /// A commit that fails at any task stops the put with a store failure,
+    /// reports the staged artifact of that task as its one orphan, and a
+    /// run resumed against the store reuses every committed task and ends
+    /// as the uninterrupted run.
+    #[test]
+    fn a_put_run_stopped_by_a_failed_commit_at_any_task_resumes_to_the_uninterrupted_run() {
+        let mut tally = Tally::default();
+        witness(&mut tally, &mut |case, tally| {
+            let mut store = MemoryStore::default();
+            let baseline = case.production(Budget::unlimited(), &mut store, None);
+            let total = baseline.report.progress.tasks_total;
+            assert_eq!(baseline.report.progress.tasks_done, total);
+            for fail_at in 0..total {
+                let mut failing = FailingStore {
+                    fail_at,
+                    ..FailingStore::default()
+                };
+                let stopped = case.production(Budget::unlimited(), &mut failing, None);
+                assert!(
+                    matches!(
+                        &stopped.report.status,
+                        RunStatus::Incomplete {
+                            reason: RunIncompleteReason::Store { message }
+                        } if message == "the commit is refused"
+                    ),
+                    "{:?}",
+                    stopped.report.status
+                );
+                assert_eq!(stopped.report.progress.tasks_done, fail_at);
+                assert_eq!(
+                    stopped.report.orphans.len(),
+                    1,
+                    "the failed task's artifact"
+                );
+                let mut store = failing.inner;
+                let resumed = case.production(Budget::unlimited(), &mut store, None);
+                assert_eq!(resumed.report.tasks_reused, fail_at);
+                assert_eq!(resumed.manifest, baseline.manifest);
+                assert_eq!(
+                    format!("{:?}", resumed.report.status),
+                    format!("{:?}", baseline.report.status)
+                );
+                assert_eq!(resumed.report.orphans, Vec::<ArtifactKey>::new());
+                tally.cancellations += 1;
+            }
+        });
+        assert!(tally.cancellations >= 14, "{tally:?}");
+    }
+}
+
+/// The segmented graph edit lens against its reference definition and
+/// against the whole-state graph edit lens, by renaming synthesized ids by
+/// synthesis key.
+mod segmented_graph_edit_lens {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use panproto_inst::identity::ComplementShape;
+    use panproto_inst::identity::Digest;
+    use panproto_inst::segment::{
+        AnySegment, ArtifactKey, Budget, FamilyIndex, GRAPH_APPLY_OP, MemoryStore, MissingSegment,
+        Phase, Residual, RunJournal, SegmentId, SegmentStore, TaskKey, TaskRecord, read_emitted,
+    };
+    use panproto_lens::{Lens, SegmentedGraph, SegmentedGraphEditLens, ShapeEditError};
+    use panproto_reference::edit::{
+        self as ref_edit, GElem, GPayload, GraphDelta as RefGraphDelta,
+    };
+    use panproto_reference::enumerate::edits::{
+        graph_edit_lens_letter_count, graph_edit_lens_letters,
+    };
+    use panproto_reference::enumerate::segments::segmented_restrict_cases;
+    use panproto_reference::restrict::NoValueLayer;
+    use panproto_reference::segment as reference;
+
+    use super::graph_edit_lens_differential::{prod_delta, ref_delta};
+    use super::segmented_graph_get::{Input, SOURCE_SCHEMA, input, lens_of};
+    use super::{
+        BOUNDED_LENS_FIELD, BOUNDED_LENS_VALUE, RefComplement, RefGraph, RefMigration,
+        RefRestrictError, RefSchema,
+    };
+
+    /// The bound lenses of a case.
+    type Bound = SegmentedGraphEditLens<BTreeMap<SegmentId, Vec<u8>>, MemoryStore>;
+
+    /// `partition` with the ids from `from` to 99 given to its last segment,
+    /// so a node an edit adds has an owner.
+    pub fn with_spare(partition: &reference::Partition, from: u32) -> reference::Partition {
+        let mut spared = partition.clone();
+        if let Some(last) = spared.specs.last_mut() {
+            last.nodes.push(reference::IdRange { lo: from, hi: 99 });
+            last.nodes.sort_by_key(|range| range.lo);
+        }
+        spared
+    }
+
+    /// The lens, the restriction and the partition of one case.
+    pub struct Case<'a> {
+        /// The schema, source and target alike.
+        pub schema: &'a RefSchema,
+        /// The migration.
+        pub migration: &'a RefMigration,
+        /// The partition, with spare ids.
+        pub partition: &'a reference::Partition,
+    }
+
+    impl Case<'_> {
+        fn restriction(&self) -> reference::EditRestriction<'_> {
+            reference::EditRestriction {
+                src: self.schema,
+                tgt: self.schema,
+                m: self.migration,
+                vl: &NoValueLayer,
+            }
+        }
+
+        pub fn lens(&self) -> Lens {
+            lens_of(self.schema, self.migration)
+        }
+
+        fn whole_get(
+            &self,
+            graph: &RefGraph,
+        ) -> Result<(RefGraph, RefComplement), RefRestrictError> {
+            panproto_reference::restrict::get(
+                self.schema,
+                self.schema,
+                self.migration,
+                &NoValueLayer,
+                graph,
+            )
+        }
+    }
+
+    /// Every segment's canonical bytes in the production lens: source
+    /// segments under the source schema, view segments under the view
+    /// schema, and complement segments.
+    pub fn production_state<St: SegmentStore>(
+        lens: &SegmentedGraphEditLens<BTreeMap<SegmentId, Vec<u8>>, St>,
+        view_schema: Digest,
+    ) -> Vec<(Vec<u8>, Vec<u8>, Vec<u8>)> {
+        let state = lens.segmented_state();
+        let partition = state.view_manifest().partition().expect("a partition");
+        partition
+            .specs()
+            .iter()
+            .map(|spec| {
+                let source = state.source_segment(spec.id).expect("a source segment");
+                let emitted = read_emitted(&*state.store(), state.get_run(), &partition, spec.id)
+                    .expect("an emitted segment");
+                let view = AnySegment::Graph(emitted.view)
+                    .canonical_bytes(&view_schema, &partition)
+                    .expect("view bytes");
+                (source, view, emitted.complement)
+            })
+            .collect()
+    }
+
+    /// The same bytes of a reference state.
+    pub fn reference_state(
+        state: &reference::SegmentedEditState,
+        partition: &reference::Partition,
+        view_schema: panproto_inst::identity::Digest,
+    ) -> Vec<(Vec<u8>, Vec<u8>, Vec<u8>)> {
+        let bytes = |segment: &reference::GraphSegment, schema: [u8; 32]| {
+            reference::canonical_segment_bytes(
+                &reference::AnySegment::Graph(segment.clone()),
+                reference::Digest(schema),
+                partition,
+            )
+            .expect("reference segment bytes")
+        };
+        state
+            .source
+            .iter()
+            .zip(&state.views)
+            .zip(&state.complements)
+            .map(|((source, view), complement)| {
+                (
+                    bytes(source, SOURCE_SCHEMA),
+                    bytes(view, view_schema.0),
+                    reference::canonical_complement_segment_bytes(
+                        &reference::AnyComplementSegment::Graph(complement.clone()),
+                    )
+                    .expect("reference complement bytes"),
+                )
+            })
+            .collect()
+    }
+
+    /// The renaming of synthesized ids by synthesis key from a whole-state
+    /// complement to segmented complement segments, nodes then edges.
+    type Renaming = (BTreeMap<u32, u32>, BTreeMap<u32, u32>);
+
+    fn renaming(whole: &RefComplement, segments: &[reference::GraphComplementSegment]) -> Renaming {
+        let by_key = |pick: &dyn Fn(
+            &reference::GraphComplementSegment,
+        )
+            -> &BTreeMap<u32, panproto_reference::restrict::SynthKey>| {
+            segments
+                .iter()
+                .flat_map(|segment| pick(segment).iter().map(|(id, key)| (key.clone(), *id)))
+                .collect::<BTreeMap<_, _>>()
+        };
+        let nodes = by_key(&|segment| &segment.synthesized_nodes);
+        let edges = by_key(&|segment| &segment.synthesized_edges);
+        (
+            whole
+                .synthesized_nodes
+                .iter()
+                .map(|(id, key)| (*id, nodes[key]))
+                .collect(),
+            whole
+                .synthesized_edges
+                .iter()
+                .map(|(id, key)| (*id, edges[key]))
+                .collect(),
+        )
+    }
+
+    fn renamed_graph(graph: &RefGraph, (nodes, edges): &Renaming) -> RefGraph {
+        let node = |id: u32| nodes.get(&id).copied().unwrap_or(id);
+        let mut out = RefGraph::default();
+        for (id, held) in &graph.nodes {
+            let mut held = held.clone();
+            held.id = node(*id);
+            out.nodes.insert(held.id, held);
+        }
+        for (id, edge) in &graph.edges {
+            let mut edge = edge.clone();
+            edge.src = node(edge.src);
+            edge.tgt = node(edge.tgt);
+            out.edges
+                .insert(edges.get(id).copied().unwrap_or(*id), edge);
+        }
+        out
+    }
+
+    fn renamed_delta(delta: &RefGraphDelta, (nodes, edges): &Renaming) -> RefGraphDelta {
+        let node = |id: u32| nodes.get(&id).copied().unwrap_or(id);
+        let edge = |id: u32| edges.get(&id).copied().unwrap_or(id);
+        let element = |elem: &GElem, payload: &GPayload| match (elem, payload) {
+            (GElem::Node(id), GPayload::Node(held)) => {
+                let mut held = held.clone();
+                held.id = node(*id);
+                (GElem::Node(node(*id)), GPayload::Node(held))
+            }
+            (GElem::Edge(id), GPayload::Edge(held)) => {
+                let mut held = held.clone();
+                held.src = node(held.src);
+                held.tgt = node(held.tgt);
+                (GElem::Edge(edge(*id)), GPayload::Edge(held))
+            }
+            other => panic!("a cross-sort element: {other:?}"),
+        };
+        let mut out = RefGraphDelta::identity();
+        out.del = delta.del.iter().map(|(x, p)| element(x, p)).collect();
+        out.add = delta.add.iter().map(|(x, p)| element(x, p)).collect();
+        out.attrs = delta
+            .attrs
+            .iter()
+            .map(|(key, change)| {
+                let key = match key {
+                    ref_edit::AttrKey::Value(n) => ref_edit::AttrKey::Value(node(*n)),
+                    ref_edit::AttrKey::Field(n, f) => ref_edit::AttrKey::Field(node(*n), f.clone()),
+                    ref_edit::AttrKey::Meta(n) => ref_edit::AttrKey::Meta(node(*n)),
+                    ref_edit::AttrKey::Anchor(n) => ref_edit::AttrKey::Anchor(node(*n)),
+                    ref_edit::AttrKey::EdgeLabel(e) => ref_edit::AttrKey::EdgeLabel(edge(*e)),
+                    ref_edit::AttrKey::EdgePosition(e) => ref_edit::AttrKey::EdgePosition(edge(*e)),
+                };
+                (key, change.clone())
+            })
+            .collect();
+        out
+    }
+
+    /// The entries of a complement other than its synthesized elements and
+    /// floors: dropped nodes and edges and recorded originals.
+    type Entries = (
+        BTreeMap<u32, super::RefNode>,
+        BTreeMap<u32, super::RefGEdge>,
+        BTreeMap<u32, super::RefGEdge>,
+        BTreeMap<u32, String>,
+        BTreeMap<u32, BTreeMap<String, super::RefValue>>,
+        BTreeMap<u32, Option<super::RefPresence>>,
+    );
+
+    fn whole_entries(complement: &RefComplement) -> Entries {
+        (
+            complement.dropped_nodes.clone(),
+            complement.dropped_edges.clone(),
+            complement.original_edges.clone(),
+            complement.original_anchors.clone(),
+            complement.original_fields.clone(),
+            complement.original_values.clone(),
+        )
+    }
+
+    fn joined_entries(segments: &[reference::GraphComplementSegment]) -> Entries {
+        let mut out = Entries::default();
+        for segment in segments {
+            out.0.extend(segment.dropped_nodes.clone());
+            out.1.extend(segment.dropped_edges.clone());
+            out.2.extend(segment.original_edges.clone());
+            out.3.extend(segment.original_anchors.clone());
+            out.4.extend(segment.original_fields.clone());
+            out.5.extend(segment.original_values.clone());
+        }
+        out
+    }
+
+    /// Whether the union of two renamings of one kind is a bijection: a
+    /// function that is injective.
+    fn bijective(a: &BTreeMap<u32, u32>, b: &BTreeMap<u32, u32>) -> bool {
+        let mut union = a.clone();
+        for (id, to) in b {
+            if union.get(id).is_some_and(|held| held != to) {
+                return false;
+            }
+            union.insert(*id, *to);
+        }
+        let images: BTreeSet<u32> = union.values().copied().collect();
+        images.len() == union.len()
+    }
+
+    /// What a sweep showed.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub struct Counts {
+        /// Cases bound on both sides.
+        pub bound: u64,
+        /// Cases whose segmented get refuses on both sides.
+        pub unbound: u64,
+        /// Letters translated.
+        pub letters: u64,
+        /// Letters admitted on both sides.
+        pub admitted: u64,
+        /// Letters refused alike.
+        pub refused: u64,
+        /// Admitted letters whose renamings before and after form one
+        /// bijection, with the segmented delta the whole-state delta renamed.
+        pub single_renaming: u64,
+        /// Admitted letters whose renamings do not.
+        pub two_renamings: u64,
+        /// Letters the segmented lens refuses for its layout while the
+        /// whole-state lens admits them.
+        pub layout_refused: u64,
+    }
+
+    fn production_refusal(error: &ShapeEditError) -> String {
+        match error {
+            ShapeEditError::Apply(_) => "apply".to_owned(),
+            ShapeEditError::Get(_) => "get".to_owned(),
+            ShapeEditError::Segment(_) => "segment".to_owned(),
+            other => format!("outside the carrier: {other:?}"),
+        }
+    }
+
+    fn reference_refusal(error: &reference::SegmentedEditRefusal) -> String {
+        match error {
+            reference::SegmentedEditRefusal::Apply(reference::SegmentedApplyRefusal::Edit(_)) => {
+                "apply".to_owned()
+            }
+            reference::SegmentedEditRefusal::Put(reference::SegmentedPutRefusal::Put(_)) => {
+                "put".to_owned()
+            }
+            reference::SegmentedEditRefusal::PutGetMismatch => "put-get mismatch".to_owned(),
+            reference::SegmentedEditRefusal::Put(reference::SegmentedPutRefusal::Segment(_)) => {
+                "segment".to_owned()
+            }
+            reference::SegmentedEditRefusal::Restrict(
+                reference::SegmentedRestrictRefusal::Restrict { .. }
+                | reference::SegmentedRestrictRefusal::Unlocated(_),
+            ) => "get".to_owned(),
+            reference::SegmentedEditRefusal::Apply(reference::SegmentedApplyRefusal::Segment(
+                _,
+            ))
+            | reference::SegmentedEditRefusal::Restrict(
+                reference::SegmentedRestrictRefusal::Segment(_),
+            )
+            | reference::SegmentedEditRefusal::Segment(_) => "segment".to_owned(),
+        }
+    }
+
+    /// The segments the runs of an admitted edit read, given the lens
+    /// `before` it and `after` it: the edit run's read set in segment order,
+    /// then every segment whose source record changed, each but those whose
+    /// Validate task the store already journaled under the same run, which
+    /// the run reuses rather than reads.
+    fn expected_reads(
+        before: &Bound,
+        after: &Bound,
+        delta: &panproto_inst::GraphDelta,
+    ) -> Vec<SegmentId> {
+        let (old, new) = (before.segmented_state(), after.segmented_state());
+        let (source, edited) = (old.source_manifest(), new.source_manifest());
+        let partition = source.partition().expect("a partition");
+        let journaled = |run: Digest, segment: SegmentId| {
+            old.store()
+                .journal(&run)
+                .expect("a journal")
+                .tasks
+                .contains_key(&TaskKey {
+                    phase: Phase::Validate,
+                    segment: Some(segment),
+                })
+        };
+        let apply = RunJournal::run_digest(
+            &delta.digest(),
+            &source.digest(),
+            &partition,
+            GRAPH_APPLY_OP,
+        );
+        let mut reads: Vec<SegmentId> = FamilyIndex::of_manifest(source)
+            .expect("an index")
+            .read_set(delta)
+            .into_iter()
+            .filter(|segment| !journaled(apply, *segment))
+            .collect();
+        reads.extend(
+            edited
+                .segments
+                .iter()
+                .filter(|record| source.record(record.id) != Some(*record))
+                .map(|record| record.id)
+                .filter(|segment| !journaled(new.get_run(), *segment)),
+        );
+        reads
+    }
+
+    /// Translate one source letter through a clone of the bound lens and the
+    /// reference, check the outcome and the law against the whole-state
+    /// lens, and return the advanced lens and states when admitted.
+    pub fn step(
+        case: &Case<'_>,
+        (production, state, whole): (
+            &Bound,
+            &reference::SegmentedEditState,
+            &ref_edit::GraphEditState,
+        ),
+        letter: &RefGraphDelta,
+        counts: &mut Counts,
+    ) -> Option<(
+        Bound,
+        reference::SegmentedEditState,
+        ref_edit::GraphEditState,
+    )> {
+        let view_schema = case.lens().identity(ComplementShape::Graph).target_schema;
+        counts.letters += 1;
+        let mut advanced = production.clone();
+        let edit = prod_delta(letter);
+        let produced = advanced.get_edit(&edit);
+        let expected =
+            reference::segmented_edit_get(case.restriction(), state, case.partition, letter);
+        let whole_get = |graph: &RefGraph| case.whole_get(graph);
+        let whole_next =
+            ref_edit::graph_edit_get::<RefRestrictError, ()>(&whole_get, whole, letter);
+        match (produced, expected) {
+            (Ok(step), Ok((delta, next))) => {
+                counts.admitted += 1;
+                assert_eq!(
+                    ref_delta(&step.view_delta),
+                    delta,
+                    "view delta of {letter:?}"
+                );
+                assert_eq!(
+                    production_state(&advanced, view_schema),
+                    reference_state(&next, case.partition, view_schema),
+                    "segments after {letter:?}"
+                );
+                assert_eq!(
+                    advanced.segmented_state().reads(),
+                    expected_reads(production, &advanced, &edit),
+                    "segments read by {letter:?}"
+                );
+                let (whole_delta, whole_after) =
+                    whole_next.expect("the whole-state lens admits it");
+                let before = renaming(&whole.complement, &state.complements);
+                let after = renaming(&whole_after.complement, &next.complements);
+                let glued =
+                    reference::assemble_graph(&next.views, case.partition).expect("views glue");
+                assert_eq!(
+                    renamed_graph(&whole_after.view, &after),
+                    glued,
+                    "view after {letter:?}"
+                );
+                assert_eq!(
+                    joined_entries(&next.complements),
+                    whole_entries(&whole_after.complement),
+                    "complement after {letter:?}"
+                );
+                assert_eq!(step.source_delta, edit, "the source delta is the input");
+                if bijective(&before.0, &after.0) && bijective(&before.1, &after.1) {
+                    counts.single_renaming += 1;
+                    let mut union = before;
+                    union.0.extend(after.0.clone());
+                    union.1.extend(after.1);
+                    assert_eq!(
+                        renamed_delta(&whole_delta, &union),
+                        delta,
+                        "renamed delta of {letter:?}"
+                    );
+                } else {
+                    counts.two_renamings += 1;
+                }
+                Some((advanced, next, whole_after))
+            }
+            (Err(error), Err(refusal)) => {
+                counts.refused += 1;
+                assert_eq!(
+                    production_refusal(&error),
+                    reference_refusal(&refusal),
+                    "{letter:?}"
+                );
+                assert_eq!(
+                    production_state(&advanced, view_schema),
+                    production_state(production, view_schema),
+                    "a refused edit changed a segment"
+                );
+                assert_eq!(
+                    advanced.segmented_state().source_manifest(),
+                    production.segmented_state().source_manifest()
+                );
+                assert_eq!(
+                    advanced.segmented_state().get_run(),
+                    production.segmented_state().get_run()
+                );
+                assert_eq!(advanced.sequence(), production.sequence());
+                if matches!(error, ShapeEditError::Segment(_)) && whole_next.is_ok() {
+                    counts.layout_refused += 1;
+                } else {
+                    assert!(
+                        whole_next.is_err(),
+                        "the whole-state lens refuses {letter:?}"
+                    );
+                }
+                None
+            }
+            (produced, expected) => panic!(
+                "segmented edit lens disagrees on {letter:?}: {:?} / {expected:?}",
+                produced.map(|step| step.view_delta)
+            ),
+        }
+    }
+
+    /// Bind both sides and the whole-state lens to `graph`, or `None` when
+    /// segmented get refuses it (on both sides alike).
+    pub fn bind(
+        case: &Case<'_>,
+        graph: &RefGraph,
+    ) -> Option<(
+        Bound,
+        reference::SegmentedEditState,
+        ref_edit::GraphEditState,
+    )> {
+        let Input {
+            manifest, bytes, ..
+        } = input(graph, case.partition);
+        let segments = reference::partition_graph(graph, case.partition).expect("reference split");
+        let production = Bound::segmented(
+            case.lens(),
+            Budget::unlimited(),
+            SegmentedGraph {
+                input: manifest.digest(),
+                manifest,
+                segments: bytes,
+                store: MemoryStore::default(),
+            },
+        );
+        let expected =
+            reference::bind_segmented_edit(case.restriction(), &segments, case.partition);
+        let (production, state) = match (production, expected) {
+            (Ok(production), Ok(state)) => (production, state),
+            (Err(ShapeEditError::Get(_)), Err(_)) => return None,
+            (production, expected) => panic!(
+                "segmented bind disagrees on {graph:?}: {:?} / {expected:?}",
+                production.map(|_| ())
+            ),
+        };
+        let view_schema = case.lens().identity(ComplementShape::Graph).target_schema;
+        assert_eq!(
+            production_state(&production, view_schema),
+            reference_state(&state, case.partition, view_schema)
+        );
+        let (view, complement) = case.whole_get(graph).expect("whole-state get accepts");
+        Some((
+            production,
+            state,
+            ref_edit::GraphEditState {
+                source: graph.clone(),
+                view,
+                complement,
+            },
+        ))
+    }
+
+    /// Bind one case and translate every source letter of its graph, and
+    /// the inverse of each admitted one after it.
+    pub fn check_case(case: &Case<'_>, graph: &RefGraph, counts: &mut Counts) {
+        let Some((production, state, whole)) = bind(case, graph) else {
+            counts.unbound += 1;
+            return;
+        };
+        counts.bound += 1;
+        let letters =
+            graph_edit_lens_letters(case.schema, graph, BOUNDED_LENS_FIELD, &BOUNDED_LENS_VALUE);
+        assert_eq!(
+            letters.len(),
+            graph_edit_lens_letter_count(case.schema, graph)
+        );
+        for letter in &letters {
+            if let Some((advanced, next, whole_next)) =
+                step(case, (&production, &state, &whole), letter, counts)
+            {
+                step(
+                    case,
+                    (&advanced, &next, &whole_next),
+                    &letter.invert(),
+                    counts,
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn segmented_graph_edit_lens_agrees_with_the_reference_and_the_whole_state_lens_on_every_97th_case()
+     {
+        let mut counts = Counts::default();
+        let mut cases = 0_u64;
+        for case in segmented_restrict_cases().step_by(97) {
+            cases += 1;
+            let partition = with_spare(&case.partition, 3);
+            check_case(
+                &Case {
+                    schema: &case.schema,
+                    migration: &case.migration,
+                    partition: &partition,
+                },
+                &case.graph,
+                &mut counts,
+            );
+        }
+        assert_eq!(cases, 128_240_u64.div_ceil(97));
+        assert_eq!(
+            counts,
+            Counts {
+                bound: 1_163,
+                unbound: 160,
+                letters: 59_115,
+                admitted: 53_782,
+                refused: 5_333,
+                single_renaming: 53_734,
+                two_renamings: 48,
+                layout_refused: 0,
+            }
+        );
+    }
+
+    #[test]
+    fn a_lens_with_an_expression_is_declined_when_bound() {
+        let case = segmented_restrict_cases().next().expect("a case");
+        let partition = with_spare(&case.partition, 3);
+        let mut lens = lens_of(&case.schema, &case.migration);
+        let vertex = lens
+            .src_schema
+            .vertices
+            .keys()
+            .next()
+            .cloned()
+            .expect("a vertex");
+        lens.compiled.conditional_survival.insert(
+            vertex,
+            panproto_expr::Expr::Lit(panproto_expr::Literal::Bool(true)),
+        );
+        let Input {
+            manifest, bytes, ..
+        } = input(&case.graph, &partition);
+        let bound = Bound::segmented(
+            lens,
+            Budget::unlimited(),
+            SegmentedGraph {
+                input: manifest.digest(),
+                manifest,
+                segments: bytes,
+                store: MemoryStore::default(),
+            },
+        );
+        assert!(
+            matches!(
+                bound,
+                Err(ShapeEditError::Residual(Residual::Global { .. }))
+            ),
+            "{:?}",
+            bound.map(|_| ())
+        );
+    }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(64))]
+
+        #[test]
+        fn segmented_graph_edit_lens_agrees_with_the_reference_on_generated_words(
+            anchors in proptest::collection::vec(0_usize..3, 2..=8),
+            edges in proptest::collection::vec((0_usize..8, 0_usize..8), 0..=14),
+            owners in proptest::collection::vec(0_u32..4, 8),
+            segments in 2_u32..=4,
+            surviving in 0_u8..8,
+            word in proptest::collection::vec(proptest::prelude::any::<usize>(), 1..6),
+        ) {
+            let (schema, migration, graph, partition) =
+                super::segmented_graph_get::generated(&anchors, &edges, &owners, segments, surviving);
+            let from = u32::try_from(anchors.len()).expect("a small count");
+            let partition = with_spare(&partition, from);
+            let case = Case { schema: &schema, migration: &migration, partition: &partition };
+            let Some((mut production, mut state, mut whole)) = bind(&case, &graph) else {
+                return Ok(());
+            };
+            let mut counts = Counts::default();
+            for choice in &word {
+                let source = reference::assemble_graph(&state.source, &partition).expect("the source glues");
+                let letters = graph_edit_lens_letters(&schema, &source, BOUNDED_LENS_FIELD, &BOUNDED_LENS_VALUE);
+                let letter = &letters[choice % letters.len()];
+                if let Some(next) = step(&case, (&production, &state, &whole), letter, &mut counts) {
+                    (production, state, whole) = next;
+                }
+            }
+            proptest::prop_assert_eq!(counts.letters, u64::try_from(word.len()).expect("a count"));
+        }
+    }
+
+    /// A store whose `fail_at`th commit, counted by `commits`, fails.
+    #[derive(Clone, Default)]
+    struct FailingStore {
+        inner: MemoryStore,
+        commits: std::rc::Rc<std::cell::Cell<usize>>,
+        fail_at: std::rc::Rc<std::cell::Cell<Option<usize>>>,
+    }
+
+    impl SegmentStore for FailingStore {
+        type Error = MissingSegment;
+
+        fn read(&self, key: &ArtifactKey) -> Result<Option<Vec<u8>>, MissingSegment> {
+            Ok(self.inner.read(key).unwrap_or_else(|never| match never {}))
+        }
+
+        fn read_at(
+            &self,
+            key: &ArtifactKey,
+            offset: u64,
+            len: u64,
+        ) -> Result<Option<Vec<u8>>, MissingSegment> {
+            Ok(self
+                .inner
+                .read_at(key, offset, len)
+                .unwrap_or_else(|never| match never {}))
+        }
+
+        fn stage(&mut self, key: &ArtifactKey, bytes: Vec<u8>) -> Result<(), MissingSegment> {
+            self.inner
+                .stage(key, bytes)
+                .unwrap_or_else(|never| match never {});
+            Ok(())
+        }
+
+        fn commit(&mut self, key: &ArtifactKey, record: &TaskRecord) -> Result<(), MissingSegment> {
+            let count = self.commits.get() + 1;
+            self.commits.set(count);
+            if self.fail_at.get() == Some(count) {
+                return Err(MissingSegment(SegmentId(u32::MAX)));
+            }
+            self.inner
+                .commit(key, record)
+                .unwrap_or_else(|never| match never {});
+            Ok(())
+        }
+
+        fn journal(&self, run: &Digest) -> Result<RunJournal, MissingSegment> {
+            Ok(self
+                .inner
+                .journal(run)
+                .unwrap_or_else(|never| match never {}))
+        }
+
+        fn staged_uncommitted(&self, run: &Digest) -> Result<Vec<ArtifactKey>, MissingSegment> {
+            Ok(self
+                .inner
+                .staged_uncommitted(run)
+                .unwrap_or_else(|never| match never {}))
+        }
+    }
+
+    /// An edit whose commit fails at each of its tasks leaves the lens and
+    /// every segment as they were and reports the stopped run; translating
+    /// the same edit again resumes it and ends where the uninterrupted edit
+    /// ends, with nothing left staged.
+    #[test]
+    fn an_edit_stopped_by_a_failed_commit_at_each_task_resumes_to_the_uninterrupted_edit() {
+        let (schema, migration, graph, partition) = super::segmented_graph_get::generated(
+            &[0, 2, 2, 2, 1],
+            &[(0, 1), (1, 2), (2, 3), (3, 1), (3, 4)],
+            &[0, 1, 2, 0, 1],
+            3,
+            0b011,
+        );
+        let partition = with_spare(&partition, 5);
+        let case = Case {
+            schema: &schema,
+            migration: &migration,
+            partition: &partition,
+        };
+        let Input {
+            manifest, bytes, ..
+        } = input(&graph, &partition);
+        let store = FailingStore::default();
+        let (commits, fail_at) = (store.commits.clone(), store.fail_at.clone());
+        let bound = SegmentedGraphEditLens::segmented(
+            case.lens(),
+            Budget::unlimited(),
+            SegmentedGraph {
+                input: manifest.digest(),
+                manifest,
+                segments: bytes,
+                store,
+            },
+        )
+        .expect("the case binds");
+        let edit =
+            graph_edit_lens_letters(&schema, &graph, BOUNDED_LENS_FIELD, &BOUNDED_LENS_VALUE)
+                .iter()
+                .map(prod_delta)
+                .find(|edit| !edit.del_edges().is_empty())
+                .expect("an edge deletion");
+        let mut baseline = bound.clone();
+        let before = commits.get();
+        let expected = baseline
+            .get_edit(&edit)
+            .expect("the edge deletion is admitted");
+        let total = commits.get() - before;
+        assert_eq!(
+            total, 28,
+            "the edit run commits 4k + 2 tasks for its read set of k = 3 segments, and the restriction 4n + 2 for its n = 3"
+        );
+        let view_schema = case.lens().identity(ComplementShape::Graph).target_schema;
+        for failing in 1..=total {
+            let mut lens = bound.clone();
+            fail_at.set(Some(commits.get() + failing));
+            let stopped = lens.get_edit(&edit);
+            assert!(
+                matches!(stopped, Err(ShapeEditError::Incomplete(_))),
+                "{:?}",
+                stopped.map(|step| step.view_delta)
+            );
+            assert_eq!(
+                production_state(&lens, view_schema),
+                production_state(&bound, view_schema)
+            );
+            assert_eq!(
+                lens.segmented_state().get_run(),
+                bound.segmented_state().get_run()
+            );
+            assert_eq!(lens.sequence(), 0);
+            fail_at.set(None);
+            let resumed = lens.get_edit(&edit).expect("the retried edit is admitted");
+            assert_eq!(resumed.view_delta, expected.view_delta);
+            assert_eq!(
+                production_state(&lens, view_schema),
+                production_state(&baseline, view_schema)
+            );
+            let run = lens.segmented_state().get_run();
+            assert_eq!(
+                lens.segmented_state()
+                    .store()
+                    .staged_uncommitted(&run)
+                    .expect("the journal reads"),
+                Vec::<ArtifactKey>::new()
+            );
+        }
+    }
+
+    /// What the put sweep showed.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub struct PutCounts {
+        /// Cases bound on both sides.
+        pub bound: u64,
+        /// View letters translated.
+        pub letters: u64,
+        /// Letters admitted on both sides.
+        pub admitted: u64,
+        /// Letters refused alike.
+        pub refused: u64,
+        /// Admitted letters compared with the whole-state lens through the
+        /// renaming before the edit.
+        pub whole: u64,
+    }
+
+    fn production_put_refusal(error: &ShapeEditError) -> String {
+        match error {
+            ShapeEditError::Put(_) => "put".to_owned(),
+            ShapeEditError::PutGetMismatch => "put-get mismatch".to_owned(),
+            other => production_refusal(other),
+        }
+    }
+
+    /// `letter` with every synthesized id the renaming `rho` gives back
+    /// renamed to its whole-state id, when no other id the letter names is
+    /// a whole-state synthesized id; `None` otherwise.
+    fn whole_letter(letter: &RefGraphDelta, rho: &Renaming) -> Option<RefGraphDelta> {
+        let invert = |map: &BTreeMap<u32, u32>| -> BTreeMap<u32, u32> {
+            map.iter().map(|(from, to)| (*to, *from)).collect()
+        };
+        let back = (invert(&rho.0), invert(&rho.1));
+        let named = |elem: &GElem| match elem {
+            GElem::Node(id) => rho.0.contains_key(id) && !back.0.contains_key(id),
+            GElem::Edge(id) => rho.1.contains_key(id) && !back.1.contains_key(id),
+        };
+        let clash = letter.del.keys().chain(letter.add.keys()).any(named)
+            || letter.attrs.keys().any(|key| match key {
+                ref_edit::AttrKey::EdgeLabel(e) | ref_edit::AttrKey::EdgePosition(e) => {
+                    rho.1.contains_key(e) && !back.1.contains_key(e)
+                }
+                ref_edit::AttrKey::Value(n)
+                | ref_edit::AttrKey::Field(n, _)
+                | ref_edit::AttrKey::Meta(n)
+                | ref_edit::AttrKey::Anchor(n) => rho.0.contains_key(n) && !back.0.contains_key(n),
+            });
+        (!clash).then(|| renamed_delta(letter, &back))
+    }
+
+    /// Translate one view letter through a clone of the bound lens and the
+    /// reference, and, when the letter names whole-state ids through the
+    /// renaming before the edit, through the whole-state lens.
+    fn step_put(
+        case: &Case<'_>,
+        reference_lens: &super::RefGraphLens<'_>,
+        (production, state, whole): (
+            &Bound,
+            &reference::SegmentedEditState,
+            &ref_edit::GraphEditState,
+        ),
+        letter: &RefGraphDelta,
+        counts: &mut PutCounts,
+    ) {
+        let view_schema = case.lens().identity(ComplementShape::Graph).target_schema;
+        counts.letters += 1;
+        let mut advanced = production.clone();
+        let edit = prod_delta(letter);
+        let produced = advanced.put_edit(&edit);
+        let expected = reference::segmented_edit_put(
+            case.restriction(),
+            reference_lens,
+            state,
+            case.partition,
+            letter,
+        );
+        match (produced, expected) {
+            (Ok(step), Ok((delta, next))) => {
+                counts.admitted += 1;
+                assert_eq!(
+                    ref_delta(&step.source_delta),
+                    delta,
+                    "source delta of {letter:?}"
+                );
+                assert_eq!(step.view_delta, edit, "the view delta is the input");
+                assert_eq!(
+                    production_state(&advanced, view_schema),
+                    reference_state(&next, case.partition, view_schema),
+                    "segments after {letter:?}"
+                );
+                let before = renaming(&whole.complement, &state.complements);
+                let Some(whole_edit) = whole_letter(letter, &before) else {
+                    return;
+                };
+                let get = |graph: &RefGraph| reference_lens.get(graph);
+                let put = |view: &RefGraph, complement: &RefComplement| {
+                    reference_lens.put(view, complement)
+                };
+                if let Ok((whole_delta, whole_next)) =
+                    ref_edit::graph_edit_put(&get, &put, whole, &whole_edit)
+                {
+                    counts.whole += 1;
+                    assert_eq!(whole_delta, delta, "whole-state source delta of {letter:?}");
+                    let after = renaming(&whole_next.complement, &next.complements);
+                    assert_eq!(
+                        renamed_graph(&whole_next.view, &after),
+                        reference::assemble_graph(&next.views, case.partition).expect("views glue"),
+                        "view after {letter:?}"
+                    );
+                }
+            }
+            (Err(error), Err(refusal)) => {
+                counts.refused += 1;
+                assert_eq!(
+                    production_put_refusal(&error),
+                    reference_refusal(&refusal),
+                    "{letter:?}"
+                );
+                assert_eq!(
+                    production_state(&advanced, view_schema),
+                    production_state(production, view_schema),
+                    "a refused put changed a segment"
+                );
+                assert_eq!(
+                    advanced.segmented_state().get_run(),
+                    production.segmented_state().get_run()
+                );
+                assert_eq!(advanced.sequence(), production.sequence());
+            }
+            (produced, expected) => panic!(
+                "segmented put disagrees on {letter:?}: {:?} / {expected:?}",
+                produced.map(|step| step.source_delta)
+            ),
+        }
+    }
+
+    /// Bind one case and put back every view letter of its glued view.
+    pub fn check_puts(case: &Case<'_>, graph: &RefGraph, counts: &mut PutCounts) {
+        let Some((production, state, _)) = bind(case, graph) else {
+            return;
+        };
+        counts.bound += 1;
+        let plan = panproto_reference::restrict::compile(case.schema, case.schema, case.migration)
+            .expect("the reference plan compiles");
+        let reference_lens = super::RefGraphLens::new(
+            case.schema,
+            case.schema,
+            case.migration,
+            &plan,
+            &BTreeMap::new(),
+            &NoValueLayer,
+        )
+        .expect("the reference lens");
+        let (view, complement) = reference_lens.get(graph).expect("whole-state get");
+        let whole = ref_edit::GraphEditState {
+            source: graph.clone(),
+            view,
+            complement,
+        };
+        let glued = reference::assemble_graph(&state.views, case.partition).expect("views glue");
+        for letter in
+            graph_edit_lens_letters(case.schema, &glued, BOUNDED_LENS_FIELD, &BOUNDED_LENS_VALUE)
+        {
+            step_put(
+                case,
+                &reference_lens,
+                (&production, &state, &whole),
+                &letter,
+                counts,
+            );
+        }
+    }
+
+    #[test]
+    fn segmented_graph_edit_lens_puts_view_edits_as_the_reference_on_every_97th_case() {
+        let mut counts = PutCounts::default();
+        for case in segmented_restrict_cases().step_by(97) {
+            let partition = with_spare(&case.partition, 3);
+            let edit_case = Case {
+                schema: &case.schema,
+                migration: &case.migration,
+                partition: &partition,
+            };
+            check_puts(&edit_case, &case.graph, &mut counts);
+        }
+        assert_eq!(
+            counts,
+            PutCounts {
+                bound: 1_163,
+                letters: 17_565,
+                admitted: 9_273,
+                refused: 8_292,
+                whole: 9_273,
+            }
+        );
+    }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(64))]
+
+        #[test]
+        fn segmented_graph_edit_lens_puts_view_edits_as_the_reference_on_generated_cases(
+            anchors in proptest::collection::vec(0_usize..3, 2..=8),
+            edges in proptest::collection::vec((0_usize..8, 0_usize..8), 0..=14),
+            owners in proptest::collection::vec(0_u32..4, 8),
+            segments in 2_u32..=4,
+            surviving in 0_u8..8,
+        ) {
+            let (schema, migration, graph, partition) =
+                super::segmented_graph_get::generated(&anchors, &edges, &owners, segments, surviving);
+            let from = u32::try_from(anchors.len()).expect("a small count");
+            let partition = with_spare(&partition, from);
+            let case = Case { schema: &schema, migration: &migration, partition: &partition };
+            let mut counts = PutCounts::default();
+            check_puts(&case, &graph, &mut counts);
+            proptest::prop_assert_eq!(counts.letters, counts.admitted + counts.refused);
+        }
+    }
+
+    /// An edit put back whose commit fails at each task of its four runs
+    /// leaves the lens and every segment as they were; putting the same
+    /// edit again resumes the runs and ends where the uninterrupted put
+    /// ends.
+    #[test]
+    fn a_put_stopped_by_a_failed_commit_at_each_task_resumes_to_the_uninterrupted_put() {
+        let (schema, migration, graph, partition) = super::segmented_graph_get::generated(
+            &[0, 2, 2, 2, 1],
+            &[(0, 1), (1, 2), (2, 3), (3, 1), (3, 4)],
+            &[0, 1, 2, 0, 1],
+            3,
+            0b011,
+        );
+        let partition = with_spare(&partition, 5);
+        let case = Case {
+            schema: &schema,
+            migration: &migration,
+            partition: &partition,
+        };
+        let Input {
+            manifest, bytes, ..
+        } = input(&graph, &partition);
+        let store = FailingStore::default();
+        let (commits, fail_at) = (store.commits.clone(), store.fail_at.clone());
+        let bound = SegmentedGraphEditLens::segmented(
+            case.lens(),
+            Budget::unlimited(),
+            SegmentedGraph {
+                input: manifest.digest(),
+                manifest,
+                segments: bytes,
+                store,
+            },
+        )
+        .expect("the case binds");
+        let view_schema = case.lens().identity(ComplementShape::Graph).target_schema;
+        let state = bound.segmented_state();
+        let view_partition = state.view_manifest().partition().expect("a partition");
+        let mut view = panproto_inst::GInstance::new();
+        let mut held_edges = BTreeMap::new();
+        for spec in view_partition.specs() {
+            let emitted = read_emitted(&*state.store(), state.get_run(), &view_partition, spec.id)
+                .expect("an emitted segment");
+            for node in emitted.view.nodes.into_values() {
+                view = view.with_node(node);
+            }
+            held_edges.extend(emitted.view.edges);
+        }
+        for (id, edge) in held_edges {
+            view.insert_edge(id, edge).expect("a view edge");
+        }
+        let edit = graph_edit_lens_letters(
+            &schema,
+            &super::ref_graph(&view),
+            BOUNDED_LENS_FIELD,
+            &BOUNDED_LENS_VALUE,
+        )
+        .iter()
+        .map(prod_delta)
+        .find(|edit| !edit.del_edges().is_empty())
+        .expect("a view edge deletion");
+        let mut baseline = bound.clone();
+        let before = commits.get();
+        let expected = baseline
+            .put_edit(&edit)
+            .expect("the view edge deletion is put back");
+        let total = commits.get() - before;
+        assert_eq!(
+            total, 52,
+            "the four runs of the put commit each of their tasks once"
+        );
+        for failing in 1..=total {
+            let mut lens = bound.clone();
+            fail_at.set(Some(commits.get() + failing));
+            let stopped = lens.put_edit(&edit);
+            assert!(
+                matches!(stopped, Err(ShapeEditError::Incomplete(_))),
+                "{:?}",
+                stopped.map(|step| step.source_delta)
+            );
+            assert_eq!(
+                production_state(&lens, view_schema),
+                production_state(&bound, view_schema)
+            );
+            assert_eq!(lens.sequence(), 0);
+            fail_at.set(None);
+            let resumed = lens.put_edit(&edit).expect("the retried put is admitted");
+            assert_eq!(resumed.source_delta, expected.source_delta);
+            assert_eq!(
+                production_state(&lens, view_schema),
+                production_state(&baseline, view_schema)
+            );
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Elementary protolens kinds: instantiation, get, put and their refusals
 // against the reference's elementary kinds
 // ---------------------------------------------------------------------------
@@ -18980,6 +22795,3613 @@ proptest! {
                     reference_put(pair, &source, put_view)
                 );
             }
+        }
+    }
+}
+
+/// Segmented table get against its reference definition and whole-state
+/// table get.
+mod segmented_table_get {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use panproto_inst::InstanceShapeKind;
+    use panproto_inst::identity::{ComplementShape, Digest};
+    use panproto_inst::segment::{
+        AnySegment, Budget, EdgeIdRun, IdRange, ManifestHeader, ManifestRole, MemoryStore,
+        Partition, RecordSource, Residual, RunIncompleteReason, RunStatus, SegmentId,
+        SegmentManifest, SegmentRecord, SegmentSpec, SegmentedRestrictError, SegmentedRun,
+        TableComplementSegment, assemble_table, partition_table, read_emitted_segment, seal_full,
+    };
+    use panproto_lens::table_lens;
+    use panproto_reference::enumerate::segments::{
+        segmented_table_restrict_partitions, segmented_table_restrict_table_count,
+        segmented_table_restrict_tables,
+    };
+    use panproto_reference::segment as reference;
+    use panproto_schema::ScalarKind;
+    use proptest::prelude::*;
+
+    use super::{
+        Reason, RefMigration, RefSEdge, RefSchema, RefTable, TablePair, lens_reason, prod_table,
+        ref_restrict_reason, ref_table, ref_table_complement, restrict_reason,
+    };
+
+    /// The schema digest of a sealed source family.
+    pub const SOURCE_SCHEMA: [u8; 32] = [11; 32];
+
+    /// The lenses of the carrier, by name.
+    pub const LENSES: [&str; 6] = [
+        "identity",
+        "drop b, contract to aa",
+        "drop b, no contraction label",
+        "drop ba",
+        "drop x",
+        "drop a, contract to bb",
+    ];
+
+    fn relation(src: &str, tgt: &str, name: &str) -> RefSEdge {
+        RefSEdge::new(src, tgt, "relation", Some(name))
+    }
+
+    /// The schema with tables `a` (column `x`) and `b` (column `y`) as
+    /// `tables` lists, and the relations `relations` lists.
+    fn schema(tables: &[&str], relations: &[(&str, &str, &str)]) -> RefSchema {
+        let mut schema = RefSchema::default();
+        for table in tables {
+            let column = if *table == "a" { "x" } else { "y" };
+            let vertex = format!("{table}.{column}");
+            schema = schema.vertex(table, "record").vertex(&vertex, "int").edge(
+                table,
+                &vertex,
+                "prop",
+                Some(column),
+            );
+        }
+        for (src, tgt, name) in relations {
+            schema.edges.insert(relation(src, tgt, name));
+        }
+        schema
+    }
+
+    /// The lens of `LENSES[index]`: from tables `a` and `b` with the
+    /// relations `ab` and `ba` to the target it names, keeping everything
+    /// the target holds.
+    pub fn lens(index: usize) -> TablePair {
+        let source = schema(&["a", "b"], &[("a", "b", "ab"), ("b", "a", "ba")]);
+        let target = match index {
+            0 => source.clone(),
+            1 => schema(&["a"], &[("a", "a", "aa")]),
+            2 => schema(&["a"], &[]),
+            3 => schema(&["a", "b"], &[("a", "b", "ab")]),
+            4 => schema(&["b"], &[("a", "b", "ab"), ("b", "a", "ba")]).vertex("a", "record"),
+            _ => schema(&["b"], &[("b", "b", "bb")]),
+        };
+        let migration = RefMigration {
+            surviving_verts: target.vertices.keys().cloned().collect(),
+            surviving_edges: target.edges.iter().cloned().collect(),
+            ..RefMigration::default()
+        };
+        TablePair::new(
+            source,
+            target,
+            migration,
+            "int",
+            ScalarKind::Int {
+                bits: 64,
+                signed: true,
+            },
+        )
+    }
+
+    /// The production partition of a reference table partition.
+    pub fn prod_partition(partition: &reference::Partition) -> Partition {
+        let range = |r: &reference::IdRange| IdRange { lo: r.lo, hi: r.hi };
+        Partition::new(
+            InstanceShapeKind::Table,
+            partition
+                .specs
+                .iter()
+                .map(|spec| SegmentSpec {
+                    id: SegmentId(spec.id.0),
+                    nodes: spec.nodes.iter().map(range).collect(),
+                    alloc_nodes: spec.alloc_nodes.as_ref().map(range),
+                    alloc_edges: spec.alloc_edges.as_ref().map(range),
+                })
+                .collect(),
+        )
+    }
+
+    /// A sealed source family: its manifest, the segments' canonical bytes
+    /// and the production partition.
+    pub struct Input {
+        /// The source manifest.
+        pub manifest: SegmentManifest,
+        /// The segments' canonical bytes.
+        pub bytes: BTreeMap<SegmentId, Vec<u8>>,
+        /// The production partition.
+        pub partition: Partition,
+    }
+
+    /// Seal the production segments of `table` under `partition`.
+    pub fn input(table: &RefTable, partition: &reference::Partition) -> Input {
+        let partition = prod_partition(partition);
+        let segments: Vec<AnySegment> = partition_table(&prod_table(table), &partition)
+            .expect("production split")
+            .into_iter()
+            .map(AnySegment::Table)
+            .collect();
+        let schema = Digest(SOURCE_SCHEMA);
+        let records = segments
+            .iter()
+            .zip(partition.specs())
+            .map(|(segment, spec)| SegmentRecord::of(segment, spec, &schema))
+            .collect();
+        let runs: Vec<EdgeIdRun<'_>> = segments
+            .iter()
+            .map(|segment| {
+                (
+                    segment.segment(),
+                    Box::new(segment.edge_id_run().into_iter())
+                        as Box<dyn Iterator<Item = panproto_inst::EdgeId>>,
+                )
+            })
+            .collect();
+        let sources = segments
+            .iter()
+            .map(|segment| Box::new(segment.records()) as Box<dyn RecordSource + '_>)
+            .collect();
+        let manifest = seal_full(
+            records,
+            ManifestHeader {
+                shape: InstanceShapeKind::Table,
+                schema,
+                role: ManifestRole::Source,
+                binding: None,
+            },
+            runs,
+            sources,
+        )
+        .expect("the carrier seals");
+        let bytes = segments
+            .iter()
+            .map(|segment| {
+                (
+                    segment.segment(),
+                    segment
+                        .canonical_bytes(&schema, &partition)
+                        .expect("canonical bytes"),
+                )
+            })
+            .collect();
+        Input {
+            manifest,
+            bytes,
+            partition,
+        }
+    }
+
+    pub fn run(
+        pair: &TablePair,
+        input: &Input,
+        budget: Budget,
+        store: &mut MemoryStore,
+        cancel: Option<u32>,
+    ) -> SegmentedRun<SegmentedRestrictError> {
+        table_lens::get_segmented(
+            &pair.production,
+            pair.protocols(),
+            (&input.manifest, input.manifest.digest()),
+            &input.bytes,
+            budget,
+            store,
+            cancel,
+        )
+        .expect("the lens's table plan compiles")
+    }
+
+    /// The emitted view and complement segments of a complete run.
+    pub fn emitted(
+        store: &MemoryStore,
+        run: &SegmentedRun<SegmentedRestrictError>,
+        partition: &Partition,
+    ) -> Vec<(AnySegment, Vec<u8>)> {
+        let identity = run.run.expect("a run identity");
+        partition
+            .specs()
+            .iter()
+            .map(|spec| {
+                read_emitted_segment(store, identity, partition, spec.id).expect("emitted segment")
+            })
+            .collect()
+    }
+
+    /// The outcome of one case.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub struct Counts {
+        pub complete: u64,
+        pub refused: u64,
+        pub contracted: u64,
+    }
+
+    /// Compare a complete run's emitted segments with the reference's byte
+    /// for byte, and return them decoded.
+    fn compare_segments(
+        pair: &TablePair,
+        (table, partition): (&RefTable, &reference::Partition),
+        input: &Input,
+        store: &MemoryStore,
+        baseline: &SegmentedRun<SegmentedRestrictError>,
+        expected: &[(reference::TableSegment, reference::TableComplementSegment)],
+    ) -> (
+        Vec<panproto_inst::segment::TableSegment>,
+        Vec<TableComplementSegment>,
+    ) {
+        let view_schema = reference::Digest(
+            pair.production
+                .identity(ComplementShape::Functor)
+                .target_schema
+                .0,
+        );
+        let output = emitted(store, baseline, &input.partition);
+        let mut views = Vec::new();
+        let mut complements = Vec::new();
+        for ((spec, (view, complement)), (expected_view, expected_complement)) in
+            input.partition.specs().iter().zip(&output).zip(expected)
+        {
+            assert_eq!(
+                view.canonical_bytes(&Digest(view_schema.0), &input.partition)
+                    .expect("view bytes"),
+                reference::canonical_segment_bytes(
+                    &reference::AnySegment::Table(expected_view.clone()),
+                    view_schema,
+                    partition,
+                )
+                .expect("reference view bytes"),
+                "view segment of {table:?} under {partition:?} by {:?}",
+                pair.production.compiled
+            );
+            assert_eq!(
+                *complement,
+                reference::canonical_complement_segment_bytes(
+                    &reference::AnyComplementSegment::Table(expected_complement.clone()),
+                )
+                .expect("reference complement bytes"),
+                "complement segment of {table:?} under {partition:?}"
+            );
+            let decoded = TableComplementSegment::from_canonical_bytes(complement, spec.id)
+                .expect("the emitted complement decodes");
+            assert_eq!(decoded.canonical_bytes(), *complement);
+            let AnySegment::Table(view) = view.clone() else {
+                panic!("a table view segment");
+            };
+            views.push(view);
+            complements.push(decoded);
+        }
+        (views, complements)
+    }
+
+    /// Check the law on one case: a complete run's segments are, byte for
+    /// byte, the reference definition's, and glued they are whole-state
+    /// table get; a refusal is whole-state get's refusal.
+    pub fn check_case(
+        pair: &TablePair,
+        table: &RefTable,
+        partition: &reference::Partition,
+        counts: &mut Counts,
+    ) -> SegmentedRun<SegmentedRestrictError> {
+        let input = input(table, partition);
+        let mut store = MemoryStore::default();
+        let baseline = run(pair, &input, Budget::unlimited(), &mut store, None);
+        let reference_segments =
+            reference::partition_table(table, partition).expect("reference split");
+        let expected = pair.with_reference(|lens, _| {
+            reference::restrict_table_segmented(lens, &reference_segments, partition)
+        });
+        let whole = table_lens::get(&pair.production, &prod_table(table), pair.protocols());
+        match (&baseline.report.status, expected) {
+            (RunStatus::Complete { manifest }, Ok(expected)) => {
+                assert_eq!(
+                    Some(*manifest),
+                    baseline.manifest.as_ref().map(SegmentManifest::digest)
+                );
+                let (views, complements) = compare_segments(
+                    pair,
+                    (table, partition),
+                    &input,
+                    &store,
+                    &baseline,
+                    &expected,
+                );
+                let view = assemble_table(views, &input.partition).expect("the views assemble");
+                let complement = TableComplementSegment::glue(&complements);
+                let (whole_view, whole_complement) = whole.expect("whole-state get accepts");
+                assert_eq!(ref_table(&view), ref_table(&whole_view));
+                assert_eq!(
+                    ref_table_complement(&complement),
+                    ref_table_complement(&whole_complement)
+                );
+                counts.complete += 1;
+                if !whole_complement.synthesized_fk_pairs.is_empty() {
+                    counts.contracted += 1;
+                }
+            }
+            (
+                RunStatus::Failed(SegmentedRestrictError::Restrict { segment, error }),
+                Err(reference::SegmentedTableRestrictRefusal::Restrict(expected)),
+            ) => {
+                // The reference locates a contraction refusal at its pair;
+                // the table engine locates none, and the segmented run names
+                // the segment owning the pair's source row instead.
+                let (expected, located) = match &expected {
+                    super::RefRestrictError::At { key, error } => {
+                        (super::ref_engine_reason(error), Some(*key))
+                    }
+                    other => (ref_restrict_reason(other), None),
+                };
+                assert_eq!(
+                    Reason::Restrict(restrict_reason(error)),
+                    Reason::Restrict(expected.clone()),
+                    "refusal of {table:?} under {partition:?}"
+                );
+                assert_eq!(
+                    whole.map(|_| ()).map_err(|refusal| lens_reason(&refusal)),
+                    Err(Reason::Restrict(expected))
+                );
+                if let Some(key) = located {
+                    assert_eq!(
+                        partition.owner_of_node(key.id).map(|owner| owner.0),
+                        Some(segment.0),
+                        "the refusing segment owns the contracted pair's source row"
+                    );
+                }
+                assert!(
+                    input
+                        .partition
+                        .specs()
+                        .iter()
+                        .any(|spec| spec.id == *segment)
+                );
+                counts.refused += 1;
+            }
+            (status, expected) => panic!(
+                "segmented table get disagrees on {table:?} under {partition:?}: {status:?} / {expected:?}"
+            ),
+        }
+        baseline
+    }
+
+    /// Stopping the run at every cancellation point and resuming it against
+    /// the same store ends as `baseline`, reusing every committed task.
+    fn check_resumption(
+        pair: &TablePair,
+        input: &Input,
+        baseline: &SegmentedRun<SegmentedRestrictError>,
+    ) -> u64 {
+        let finished = baseline.report.progress.tasks_done;
+        let mut points = 0;
+        for cancel in 0..=baseline.report.progress.tasks_total {
+            points += 1;
+            let mut store = MemoryStore::default();
+            let stopped = run(pair, input, Budget::unlimited(), &mut store, Some(cancel));
+            assert_eq!(stopped.run, baseline.run, "run identity");
+            if cancel < finished {
+                assert!(
+                    matches!(
+                        stopped.report.status,
+                        RunStatus::Incomplete {
+                            reason: RunIncompleteReason::Cancelled
+                        }
+                    ),
+                    "{:?}",
+                    stopped.report.status
+                );
+            }
+            let resumed = run(pair, input, Budget::unlimited(), &mut store, None);
+            assert_eq!(resumed.report.tasks_reused, cancel.min(finished));
+            assert_eq!(
+                format!("{:?}", resumed.report.status),
+                format!("{:?}", baseline.report.status)
+            );
+            assert_eq!(
+                resumed.manifest.as_ref().map(SegmentManifest::digest),
+                baseline.manifest.as_ref().map(SegmentManifest::digest)
+            );
+        }
+        points
+    }
+
+    /// The carrier census: tables, partitions and lenses.
+    #[test]
+    fn segmented_table_get_carrier_census_is_the_closed_form() {
+        assert_eq!(
+            u64::try_from(segmented_table_restrict_tables().len()).expect("count"),
+            segmented_table_restrict_table_count()
+        );
+        assert_eq!(segmented_table_restrict_table_count(), 741);
+        assert_eq!(segmented_table_restrict_partitions().len(), 15);
+        let distinct: BTreeSet<String> = segmented_table_restrict_tables()
+            .iter()
+            .map(|table| format!("{table:?}"))
+            .collect();
+        assert_eq!(distinct.len(), 741);
+    }
+
+    /// Every case of the carrier: every table under every partition and
+    /// every lens agrees with the reference definition segment by segment
+    /// and glues to whole-state table get, or refuses as it does.
+    #[test]
+    fn segmented_table_get_agrees_with_the_reference_on_every_case() {
+        let tables = segmented_table_restrict_tables();
+        let partitions = segmented_table_restrict_partitions();
+        let mut counts = Counts::default();
+        for index in 0..LENSES.len() {
+            let pair = lens(index);
+            for table in &tables {
+                for partition in &partitions {
+                    check_case(&pair, table, partition, &mut counts);
+                }
+            }
+        }
+        println!("segmented table get: {counts:?}");
+        assert_eq!(counts.complete + counts.refused, 741 * 15 * 6);
+        assert_eq!(counts, SEGMENTED_TABLE_GET_COUNTS);
+    }
+
+    /// The pinned outcome census of the exhaustive differential, derived
+    /// apart from it. Contraction realizes a pair exactly in a table holding
+    /// a chain of two pairs through a row of the dropped table: `a -ab-> m
+    /// -ba-> a` when `b` is dropped, `b -ba-> m -ab-> b` when `a` is. With
+    /// `k_a` and `k_b` rows in the two tables there are `k_b k_a^2` chains of
+    /// the first kind (the end rows may coincide), each a table of the
+    /// carrier; summed over the assignments, `180`, and `180` of the second
+    /// kind by the symmetry exchanging the tables. The lens dropping `b`
+    /// with no `a`-to-`a` label refuses the first `180`; the lenses
+    /// contracting to `aa` and `bb` contract the first and second `180`. So,
+    /// under `15` partitions: `180 * 15 = 2,700` refused, `360 * 15 = 5,400`
+    /// contracted, and `741 * 15 * 6 - 2,700 = 63,990` complete.
+    const SEGMENTED_TABLE_GET_COUNTS: Counts = Counts {
+        complete: 63_990,
+        refused: 2_700,
+        contracted: 5_400,
+    };
+
+    /// Every 97th case of the carrier, stopped at each cancellation point and
+    /// resumed, ends as the uninterrupted run.
+    #[test]
+    fn segmented_table_get_resumes_from_every_cancellation_point() {
+        let tables = segmented_table_restrict_tables();
+        let partitions = segmented_table_restrict_partitions();
+        let mut cases = 0_u64;
+        let mut points = 0_u64;
+        let mut counts = Counts::default();
+        let mut index = 0_usize;
+        for lens_index in 0..LENSES.len() {
+            let pair = lens(lens_index);
+            for table in &tables {
+                for partition in &partitions {
+                    index += 1;
+                    if !index.is_multiple_of(97) {
+                        continue;
+                    }
+                    let baseline = check_case(&pair, table, partition, &mut counts);
+                    points += check_resumption(&pair, &input(table, partition), &baseline);
+                    cases += 1;
+                }
+            }
+        }
+        println!("segmented table get resumption: cases={cases} points={points}");
+        assert_eq!(cases, 741 * 15 * 6 / 97);
+    }
+
+    /// A lens whose survival carries a predicate is declined with a global
+    /// residual before any task.
+    #[test]
+    fn segmented_table_get_declines_an_expression_before_any_task() {
+        let mut pair = lens(0);
+        pair.production.compiled.conditional_survival.insert(
+            "a".into(),
+            panproto_expr::Expr::Lit(panproto_expr::Literal::Bool(true)),
+        );
+        let tables = segmented_table_restrict_tables();
+        let table = tables.last().expect("a table");
+        let partitions = segmented_table_restrict_partitions();
+        let input = input(table, &partitions[partitions.len() - 1]);
+        let mut store = MemoryStore::default();
+        let declined = run(&pair, &input, Budget::unlimited(), &mut store, None);
+        assert!(
+            matches!(
+                declined.report.status,
+                RunStatus::Residual(Residual::Global { .. })
+            ),
+            "{:?}",
+            declined.report.status
+        );
+        assert_eq!(declined.report.progress.tasks_done, 0);
+    }
+
+    pub fn generated_table(rows: &[u8], pairs: &[(u8, u8)]) -> RefTable {
+        let mut table = RefTable::default();
+        for (id, kind) in (0_u32..).zip(rows) {
+            match kind % 3 {
+                1 => {
+                    table.rows.insert(
+                        id,
+                        (
+                            "a".to_owned(),
+                            BTreeMap::from([(
+                                "x".to_owned(),
+                                panproto_reference::value::Value::Int(i64::from(id % 2)),
+                            )]),
+                        ),
+                    );
+                }
+                2 => {
+                    table.rows.insert(id, ("b".to_owned(), BTreeMap::new()));
+                }
+                _ => {}
+            }
+        }
+        for (src, tgt) in pairs {
+            let (src, tgt) = (u32::from(*src), u32::from(*tgt));
+            let (Some((a, _)), Some((b, _))) = (table.rows.get(&src), table.rows.get(&tgt)) else {
+                continue;
+            };
+            if a != b {
+                let name = if a == "a" { "ab" } else { "ba" };
+                table.pairs.insert((relation(a, b, name), src, tgt));
+            }
+        }
+        table
+    }
+
+    pub fn generated_partition(owners: &[u8]) -> reference::Partition {
+        let segments = owners
+            .iter()
+            .map(|owner| u32::from(*owner % 3))
+            .max()
+            .unwrap_or(0)
+            + 1;
+        reference::Partition {
+            shape: reference::InstanceShapeKind::Table,
+            specs: (0..segments)
+                .map(|segment| reference::SegmentSpec {
+                    id: reference::SegmentId(segment),
+                    nodes: (0_u32..)
+                        .zip(owners)
+                        .filter(|(_, owner)| u32::from(**owner % 3) == segment)
+                        .map(|(id, _)| reference::IdRange { lo: id, hi: id })
+                        .collect(),
+                    alloc_nodes: None,
+                    alloc_edges: None,
+                })
+                .collect(),
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        /// Generated tables of up to eight rows with up to twelve pairs,
+        /// under generated partitions into up to three segments (a segment
+        /// may own no row), by every lens of the carrier.
+        #[test]
+        fn segmented_table_get_agrees_with_the_reference_on_generated_tables(
+            rows in prop::collection::vec(0_u8..3, 1..9),
+            pairs in prop::collection::vec((0_u8..8, 0_u8..8), 0..12),
+            owners in prop::collection::vec(0_u8..3, 8),
+            lens_index in 0_usize..LENSES.len(),
+        ) {
+            let table = generated_table(&rows, &pairs);
+            let partition = generated_partition(&owners[..rows.len()]);
+            let mut counts = Counts::default();
+            check_case(&lens(lens_index), &table, &partition, &mut counts);
+        }
+    }
+}
+
+/// Segmented table put against its reference definition and whole-state
+/// table put.
+mod segmented_table_put {
+    use std::collections::BTreeMap;
+
+    use panproto_inst::identity::{ComplementShape, Digest, IdentityCarrier};
+    use panproto_inst::locality::{GlobalReason, Locality};
+    use panproto_inst::segment::{
+        AnySegment, Budget, EdgeIdRun, ManifestHeader, ManifestRole, MemoryStore, Partition,
+        RecordSource, RunIncompleteReason, RunStatus, SegmentId, SegmentManifest, SegmentRecord,
+        SegmentedRun, TableComplementSegment, TableSegment, assemble_table, partition_table,
+        read_emitted_segment, seal_full, table_restrict_segmented,
+    };
+    use panproto_inst::segment::{Residual, SegmentError};
+    use panproto_inst::{RestrictPlan, RowId};
+    use panproto_lens::graph_lens::{HeldView, SegmentedPutError};
+    use panproto_lens::table_lens;
+    use panproto_reference::enumerate::segments::{
+        segmented_table_put_partitions, segmented_table_put_table_count, segmented_table_put_tables,
+    };
+    use panproto_reference::segment as reference;
+    use panproto_reference::value::Value as RefValue;
+    use proptest::prelude::*;
+
+    use super::segmented_table_get::{
+        LENSES, generated_partition, generated_table, lens, prod_partition,
+    };
+    use super::{
+        Reason, RefSEdge, RefTable, TablePair, lens_reason, prod_table, ref_table,
+        ref_table_put_reason,
+    };
+
+    /// The schema digest the edited views are sealed under.
+    const VIEW_SCHEMA: [u8; 32] = [13; 32];
+
+    /// A view held as segments: its sealed manifest, each segment's bytes
+    /// and each segment's complement bytes.
+    struct Held {
+        manifest: SegmentManifest,
+        views: BTreeMap<SegmentId, Vec<u8>>,
+        complements: BTreeMap<SegmentId, Vec<u8>>,
+    }
+
+    impl Held {
+        fn of(
+            segments: &[TableSegment],
+            complements: &[TableComplementSegment],
+            partition: &Partition,
+        ) -> Self {
+            let schema = Digest(VIEW_SCHEMA);
+            let any: Vec<AnySegment> = segments.iter().cloned().map(AnySegment::Table).collect();
+            let records = any
+                .iter()
+                .zip(partition.specs())
+                .map(|(segment, spec)| SegmentRecord::of(segment, spec, &schema))
+                .collect();
+            let runs: Vec<EdgeIdRun<'_>> = any
+                .iter()
+                .map(|segment| {
+                    (
+                        segment.segment(),
+                        Box::new(segment.edge_id_run().into_iter())
+                            as Box<dyn Iterator<Item = panproto_inst::EdgeId>>,
+                    )
+                })
+                .collect();
+            let sources = any
+                .iter()
+                .map(|segment| Box::new(segment.records()) as Box<dyn RecordSource + '_>)
+                .collect();
+            let manifest = seal_full(
+                records,
+                ManifestHeader {
+                    shape: panproto_inst::InstanceShapeKind::Table,
+                    schema,
+                    role: ManifestRole::Source,
+                    binding: None,
+                },
+                runs,
+                sources,
+            )
+            .expect("the view seals");
+            Self {
+                manifest,
+                views: any
+                    .iter()
+                    .map(|segment| {
+                        (
+                            segment.segment(),
+                            segment
+                                .canonical_bytes(&schema, partition)
+                                .expect("view bytes"),
+                        )
+                    })
+                    .collect(),
+                complements: complements
+                    .iter()
+                    .map(|complement| (complement.segment, complement.canonical_bytes()))
+                    .collect(),
+            }
+        }
+
+        fn input(
+            &self,
+        ) -> HeldView<'_, BTreeMap<SegmentId, Vec<u8>>, BTreeMap<SegmentId, Vec<u8>>> {
+            HeldView {
+                manifest: &self.manifest,
+                input: self.manifest.digest(),
+                views: &self.views,
+                complements: &self.complements,
+            }
+        }
+    }
+
+    fn run(
+        pair: &TablePair,
+        held: &Held,
+        store: &mut MemoryStore,
+        cancel: Option<u32>,
+    ) -> SegmentedRun<SegmentedPutError> {
+        table_lens::put_segmented(
+            &pair.production,
+            pair.protocols(),
+            &held.input(),
+            Budget::unlimited(),
+            store,
+            cancel,
+        )
+        .expect("the lens's table plan compiles")
+    }
+
+    /// The column of a table of the carrier.
+    pub fn column(table: &str) -> &'static str {
+        if table == "a" { "x" } else { "y" }
+    }
+
+    /// The view tables of a lens of the carrier with whether each has its
+    /// column, and its view relations.
+    pub fn view_schema(pair: &TablePair) -> (Vec<(String, bool)>, Vec<RefSEdge>) {
+        let tables = ["a", "b"]
+            .into_iter()
+            .filter(|table| pair.tgt.vertices.contains_key(*table))
+            .map(|table| {
+                let has = pair
+                    .tgt
+                    .vertices
+                    .contains_key(&format!("{table}.{}", column(table)));
+                (table.to_owned(), has)
+            })
+            .collect();
+        let relations = pair
+            .tgt
+            .edges
+            .iter()
+            .filter(|edge| edge.kind == "relation")
+            .cloned()
+            .collect();
+        (tables, relations)
+    }
+
+    /// The kind of an edit of the carrier.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    pub enum EditKind {
+        /// The view unchanged.
+        Identity,
+        /// A row removed with its pairs.
+        DeleteRow,
+        /// A row's column set to `1`.
+        SetCell,
+        /// A pair removed.
+        DeletePair,
+        /// A pair of a view relation added between two rows.
+        AddPair,
+        /// A row without cells added at an id the view does not hold.
+        InsertRow,
+    }
+
+    /// The edits of the carrier of `view` by `pair`: the identity; every
+    /// row removed with its pairs; every row's column, where its view table
+    /// has one, set to `1`; every pair removed; every absent pair of a view
+    /// relation added between rows of its tables; and a row without cells
+    /// of each view table added at each id `partition` owns that the view
+    /// does not hold.
+    pub fn edits(
+        pair: &TablePair,
+        view: &RefTable,
+        partition: &reference::Partition,
+    ) -> Vec<(EditKind, RefTable)> {
+        let (tables, relations) = view_schema(pair);
+        let mut out = vec![(EditKind::Identity, view.clone())];
+        for id in view.rows.keys() {
+            let mut edited = view.clone();
+            edited.rows.remove(id);
+            edited.pairs.retain(|(_, src, tgt)| src != id && tgt != id);
+            out.push((EditKind::DeleteRow, edited));
+        }
+        for (id, (table, _)) in &view.rows {
+            if tables.iter().any(|(t, has)| t == table && *has) {
+                let mut edited = view.clone();
+                edited
+                    .rows
+                    .get_mut(id)
+                    .expect("the row")
+                    .1
+                    .insert(column(table).to_owned(), RefValue::Int(1));
+                out.push((EditKind::SetCell, edited));
+            }
+        }
+        for added in &view.pairs {
+            let mut edited = view.clone();
+            edited.pairs.remove(added);
+            out.push((EditKind::DeletePair, edited));
+        }
+        for relation in &relations {
+            for (src, (a, _)) in &view.rows {
+                for (tgt, (b, _)) in &view.rows {
+                    let candidate = (relation.clone(), *src, *tgt);
+                    if *a == relation.src && *b == relation.tgt && !view.pairs.contains(&candidate)
+                    {
+                        let mut edited = view.clone();
+                        edited.pairs.insert(candidate);
+                        out.push((EditKind::AddPair, edited));
+                    }
+                }
+            }
+        }
+        let owned: std::collections::BTreeSet<u32> = partition
+            .specs
+            .iter()
+            .flat_map(|spec| spec.nodes.iter().flat_map(|range| range.lo..=range.hi))
+            .collect();
+        for id in owned.into_iter().filter(|id| !view.rows.contains_key(id)) {
+            for (table, _) in &tables {
+                let mut edited = view.clone();
+                edited.rows.insert(id, (table.clone(), BTreeMap::new()));
+                out.push((EditKind::InsertRow, edited));
+            }
+        }
+        out
+    }
+
+    /// What the carrier showed, by edit kind and outcome.
+    #[derive(Debug, Default, PartialEq, Eq)]
+    pub struct Census {
+        /// The puts restored, by edit kind.
+        pub restored: BTreeMap<EditKind, u64>,
+        /// The puts refused, by edit kind and refusal.
+        pub refused: BTreeMap<(EditKind, String), u64>,
+        /// The puts whose restored family crosses a segment boundary.
+        pub crossing: u64,
+        /// The cases whose get refuses, put nothing.
+        pub get_refused: u64,
+    }
+
+    /// The name of a refusal's put-domain variant.
+    fn variant(reason: &Reason) -> String {
+        let text = format!("{reason:?}");
+        text.split(|c: char| !c.is_alphanumeric())
+            .filter(|word| !word.is_empty())
+            .nth(1)
+            .unwrap_or("")
+            .to_owned()
+    }
+
+    /// One case's get on both sides.
+    pub struct Got {
+        pub views: Vec<TableSegment>,
+        pub complements: Vec<TableComplementSegment>,
+        pub reference_complements: Vec<reference::TableComplementSegment>,
+        pub view: RefTable,
+    }
+
+    /// The segmented get of `table` under `partition`, on both sides, or
+    /// `None` when it refuses (on both sides, checked by L-segments-32).
+    pub fn got(
+        pair: &TablePair,
+        table: &RefTable,
+        partition: &reference::Partition,
+    ) -> Option<Got> {
+        let prod_p = prod_partition(partition);
+        let plan = RestrictPlan::compile_for_tables(
+            &pair.production.src_schema,
+            &pair.production.tgt_schema,
+            &pair.production.compiled,
+            pair.protocols(),
+        )
+        .expect("the carrier's plans compile");
+        let source = partition_table(&prod_table(table), &prod_p).expect("production split");
+        let got = table_restrict_segmented(&plan, &source, &prod_p);
+        let reference_source = reference::partition_table(table, partition).expect("split");
+        let expected = pair.with_reference(|lens, _| {
+            reference::restrict_table_segmented(lens, &reference_source, partition)
+        });
+        match (got, expected) {
+            (Ok(got), Ok(expected)) => {
+                let (views, complements): (Vec<_>, Vec<_>) = got.into_iter().unzip();
+                let (reference_views, reference_complements): (Vec<_>, Vec<_>) =
+                    expected.into_iter().unzip();
+                let view = reference::assemble_table(&reference_views, partition).expect("glue");
+                Some(Got {
+                    views,
+                    complements,
+                    reference_complements,
+                    view,
+                })
+            }
+            (Err(_), Err(_)) => None,
+            (got, expected) => {
+                panic!("in-memory segmented get disagrees: {got:?} / {expected:?}")
+            }
+        }
+    }
+
+    /// Whole-state table put of `edited` against the joined complement
+    /// segments of `got`, stamped as whole-state get stamps them.
+    fn whole_put(
+        pair: &TablePair,
+        got: &Got,
+        edited: &RefTable,
+    ) -> Result<panproto_inst::FInstance, panproto_lens::LensError> {
+        let mut joined = TableComplementSegment::glue(&got.complements);
+        joined.stamp(
+            pair.production.identity(ComplementShape::Functor),
+            &pair.production.src_schema,
+        );
+        table_lens::put(
+            &pair.production,
+            &prod_table(edited),
+            &joined,
+            pair.protocols(),
+        )
+    }
+
+    /// The restored segments a complete run emitted, each compared byte for
+    /// byte with the reference definition's.
+    fn restored_segments(
+        pair: &TablePair,
+        partition: &reference::Partition,
+        store: &MemoryStore,
+        baseline: &SegmentedRun<SegmentedPutError>,
+        expected: &[reference::TableSegment],
+    ) -> Vec<TableSegment> {
+        let prod_p = prod_partition(partition);
+        let schema = pair
+            .production
+            .identity(ComplementShape::Functor)
+            .source_schema;
+        let identity = baseline.run.expect("a run identity");
+        let mut restored = Vec::new();
+        for (spec, expected) in prod_p.specs().iter().zip(expected) {
+            let (segment, complement) = read_emitted_segment(store, identity, &prod_p, spec.id)
+                .expect("an emitted segment");
+            assert!(complement.is_empty(), "put emits no complement");
+            assert_eq!(
+                segment
+                    .canonical_bytes(&schema, &prod_p)
+                    .expect("restored bytes"),
+                reference::canonical_segment_bytes(
+                    &reference::AnySegment::Table(expected.clone()),
+                    reference::Digest(schema.0),
+                    partition,
+                )
+                .expect("reference restored bytes"),
+                "restored segment under {partition:?} by {:?}",
+                pair.production.compiled
+            );
+            let AnySegment::Table(segment) = segment else {
+                panic!("a table segment");
+            };
+            restored.push(segment);
+        }
+        restored
+    }
+
+    /// Check one put: the run's restored segments are, byte for byte, the
+    /// reference definition's, and glued they are whole-state table put of
+    /// the glued view; a refusal is whole-state put's and the reference's,
+    /// and seals nothing.
+    pub fn check_put(
+        pair: &TablePair,
+        (source, partition): (&RefTable, &reference::Partition),
+        got: &Got,
+        (kind, edited): (EditKind, &RefTable),
+        census: &mut Census,
+    ) -> SegmentedRun<SegmentedPutError> {
+        let prod_p = prod_partition(partition);
+        let views = partition_table(&prod_table(edited), &prod_p).expect("edited split");
+        if kind == EditKind::Identity {
+            assert_eq!(
+                views, got.views,
+                "the in-memory get lays the view out by owner"
+            );
+        }
+        let held = Held::of(&views, &got.complements, &prod_p);
+        let mut store = MemoryStore::default();
+        let baseline = run(pair, &held, &mut store, None);
+        let reference_views = reference::partition_table(edited, partition).expect("split");
+        let expected = pair.with_reference(|lens, _| {
+            reference::put_table_segmented(
+                lens,
+                &reference_views,
+                &got.reference_complements,
+                partition,
+            )
+        });
+        let whole = whole_put(pair, got, edited);
+        match (&baseline.report.status, &expected, &whole) {
+            (RunStatus::Complete { manifest }, Ok(expected), Ok(whole)) => {
+                assert_eq!(
+                    Some(*manifest),
+                    baseline.manifest.as_ref().map(SegmentManifest::digest)
+                );
+                let restored = restored_segments(pair, partition, &store, &baseline, expected);
+                if restored
+                    .iter()
+                    .any(|segment| !segment.boundary.ghosts.is_empty())
+                {
+                    census.crossing += 1;
+                }
+                let glued = assemble_table(restored, &prod_p).expect("the restored segments glue");
+                assert_eq!(
+                    ref_table(&glued),
+                    ref_table(whole),
+                    "glued put of {edited:?}"
+                );
+                if kind == EditKind::Identity {
+                    assert_eq!(ref_table(&glued), *source, "GetPut under {partition:?}");
+                }
+                *census.restored.entry(kind).or_default() += 1;
+            }
+            (RunStatus::Failed(SegmentedPutError::Lens(error)), Err(expected), Err(whole)) => {
+                let reason = lens_reason(error);
+                assert_eq!(reason, lens_reason(whole), "{edited:?} under {partition:?}");
+                match expected {
+                    reference::SegmentedTablePutRefusal::Put(expected) => {
+                        assert_eq!(reason, ref_table_put_reason(expected), "{edited:?}");
+                    }
+                    other @ reference::SegmentedTablePutRefusal::Segment(_) => {
+                        assert_ne!(kind, EditKind::Identity, "GetPut refused");
+                        panic!("the reference refuses the layout of {edited:?}: {other:?}")
+                    }
+                }
+                let identity = baseline.run.expect("a run identity");
+                assert!(
+                    read_emitted_segment(&store, identity, &prod_p, SegmentId(0)).is_err(),
+                    "a refused put emits nothing"
+                );
+                assert!(baseline.manifest.is_none(), "a refused put seals nothing");
+                *census.refused.entry((kind, variant(&reason))).or_default() += 1;
+            }
+            outcomes => panic!(
+                "segmented table put disagrees on {edited:?} under {partition:?} by {:?}: {outcomes:?}",
+                pair.production.compiled
+            ),
+        }
+        baseline
+    }
+
+    /// Stopping the put at every cancellation point and resuming it against
+    /// the same store ends as `baseline`, reusing every committed task.
+    fn check_resumption(
+        pair: &TablePair,
+        partition: &reference::Partition,
+        got: &Got,
+        edited: &RefTable,
+        baseline: &SegmentedRun<SegmentedPutError>,
+    ) -> u64 {
+        let prod_p = prod_partition(partition);
+        let views = partition_table(&prod_table(edited), &prod_p).expect("edited split");
+        let held = Held::of(&views, &got.complements, &prod_p);
+        let finished = baseline.report.progress.tasks_done;
+        let mut points = 0;
+        for cancel in 0..=baseline.report.progress.tasks_total {
+            points += 1;
+            let mut store = MemoryStore::default();
+            let stopped = run(pair, &held, &mut store, Some(cancel));
+            assert_eq!(stopped.run, baseline.run, "run identity");
+            if cancel < finished {
+                assert!(
+                    matches!(
+                        stopped.report.status,
+                        RunStatus::Incomplete {
+                            reason: RunIncompleteReason::Cancelled
+                        }
+                    ),
+                    "{:?}",
+                    stopped.report.status
+                );
+            }
+            let resumed = run(pair, &held, &mut store, None);
+            assert_eq!(resumed.report.tasks_reused, cancel.min(finished));
+            assert_eq!(
+                format!("{:?}", resumed.report.status),
+                format!("{:?}", baseline.report.status)
+            );
+            assert_eq!(
+                resumed.manifest.as_ref().map(SegmentManifest::digest),
+                baseline.manifest.as_ref().map(SegmentManifest::digest)
+            );
+        }
+        points
+    }
+
+    /// Every put of the carrier: each table under each partition by each
+    /// lens, its view and every edit of it; `visit` is given each put and
+    /// its position among them.
+    fn sweep(
+        mut visit: impl FnMut(
+            usize,
+            &TablePair,
+            (&RefTable, &reference::Partition),
+            &Got,
+            EditKind,
+            &RefTable,
+        ),
+    ) -> Census {
+        let tables = segmented_table_put_tables();
+        let partitions = segmented_table_put_partitions();
+        let mut census = Census::default();
+        let mut position = 0;
+        for index in 0..LENSES.len() {
+            let pair = lens(index);
+            for table in &tables {
+                for partition in &partitions {
+                    let Some(got) = got(&pair, table, partition) else {
+                        census.get_refused += 1;
+                        continue;
+                    };
+                    for (kind, edited) in edits(&pair, &got.view, partition) {
+                        visit(position, &pair, (table, partition), &got, kind, &edited);
+                        position += 1;
+                    }
+                }
+            }
+        }
+        census
+    }
+
+    /// The carrier census: tables and partitions.
+    #[test]
+    fn segmented_table_put_carrier_census_is_the_closed_form() {
+        assert_eq!(
+            u64::try_from(segmented_table_put_tables().len()).expect("count"),
+            segmented_table_put_table_count()
+        );
+        assert_eq!(segmented_table_put_table_count(), 105);
+        assert_eq!(segmented_table_put_partitions().len(), 5);
+    }
+
+    /// Every put of the carrier agrees with the reference definition
+    /// segment by segment and glues to whole-state table put, or refuses as
+    /// it does, and the unedited view restores the source.
+    #[test]
+    fn segmented_table_put_agrees_with_the_reference_on_every_case() {
+        let mut census = Census::default();
+        let tally = sweep(|_, pair, case, got, kind, edited| {
+            check_put(pair, case, got, (kind, edited), &mut census);
+        });
+        census.get_refused = tally.get_refused;
+        println!("segmented table put: {census:#?}");
+        assert!(
+            census.crossing > 0,
+            "some restored family crosses a boundary"
+        );
+        census.crossing = 0;
+        assert_eq!(census, derived_census());
+    }
+
+    /// The census of the exhaustive differential, derived apart from both
+    /// implementations from the carrier's tables and the lenses' meaning.
+    ///
+    /// Write `ab` and `ba` for the pairs of the two keys and a *chain* from
+    /// `a` to `a'` for pairs `a -ab-> m -ba-> a'`. The view of each lens is
+    /// read off the source: the identity and dropping `x` keep every row
+    /// and pair (dropping `x` leaves `a` without a column); dropping `ba`
+    /// keeps every row and the `ab` pairs; dropping `b` keeps the rows of
+    /// `a` with one `aa` pair per chain, or, with no `aa` label, refuses
+    /// get on a table holding a chain and otherwise keeps no pair; dropping
+    /// `a` is the mirror image with `bb`. Then the identity, a removed row
+    /// and a set cell always restore; a removed pair is refused as an edited
+    /// synthesized pair exactly when contraction made it; an added pair is
+    /// refused as an inserted contracted pair exactly when its relation is
+    /// a contraction label; and an added row is refused as an id collision
+    /// exactly when its id holds a row the lens drops. Every count is the
+    /// same under each of the five partitions.
+    fn derived_census() -> Census {
+        let mut census = Census::default();
+        for lens_index in 0..LENSES.len() {
+            for table in segmented_table_put_tables() {
+                match LensView::of(lens_index, &table) {
+                    Some(view) => view.tally(&mut census),
+                    None => census.get_refused += 5,
+                }
+            }
+        }
+        census
+    }
+
+    /// What the census reads of a lens's view of one table: whether each
+    /// view row's table has a column, the kept and synthesized pairs, each
+    /// view relation as (source rows, target rows, pairs held, whether it
+    /// is a contraction label), the number of rows the lens drops, and the
+    /// number of view tables.
+    struct LensView {
+        columns: Vec<bool>,
+        kept: u64,
+        synthesized: u64,
+        relations: Vec<(u64, u64, u64, bool)>,
+        dropped: u64,
+        tables: u64,
+    }
+
+    impl LensView {
+        /// The view of `table` by lens `lens_index`, or `None` when its get
+        /// refuses.
+        fn of(lens_index: usize, table: &RefTable) -> Option<Self> {
+            let rows_of = |name: &str| -> u64 {
+                table.rows.values().filter(|(t, _)| t == name).count() as u64
+            };
+            let pairs_of = |name: &str| -> Vec<(u32, u32)> {
+                table
+                    .pairs
+                    .iter()
+                    .filter(|(edge, _, _)| edge.name.as_deref() == Some(name))
+                    .map(|(_, s, t)| (*s, *t))
+                    .collect()
+            };
+            let chains = |first: &str, second: &str| -> u64 {
+                let mut out = std::collections::BTreeSet::new();
+                for (s, m) in pairs_of(first) {
+                    for (m2, t) in pairs_of(second) {
+                        if m == m2 {
+                            out.insert((s, t));
+                        }
+                    }
+                }
+                out.len() as u64
+            };
+            let (a, b) = (rows_of("a"), rows_of("b"));
+            let (ab, ba) = (pairs_of("ab").len() as u64, pairs_of("ba").len() as u64);
+            let rows = |n: u64, has: bool| vec![has; usize::try_from(n).unwrap_or(0)];
+            let both = vec![(a, b, ab, false), (b, a, ba, false)];
+            Some(match lens_index {
+                0 => Self {
+                    columns: rows(a + b, true),
+                    kept: ab + ba,
+                    synthesized: 0,
+                    relations: both,
+                    dropped: 0,
+                    tables: 2,
+                },
+                1 => Self {
+                    columns: rows(a, true),
+                    kept: 0,
+                    synthesized: chains("ab", "ba"),
+                    relations: vec![(a, a, chains("ab", "ba"), true)],
+                    dropped: b,
+                    tables: 1,
+                },
+                2 if chains("ab", "ba") > 0 => return None,
+                2 => Self {
+                    columns: rows(a, true),
+                    kept: 0,
+                    synthesized: 0,
+                    relations: Vec::new(),
+                    dropped: b,
+                    tables: 1,
+                },
+                3 => Self {
+                    columns: rows(a + b, true),
+                    kept: ab,
+                    synthesized: 0,
+                    relations: vec![(a, b, ab, false)],
+                    dropped: 0,
+                    tables: 2,
+                },
+                4 => Self {
+                    columns: [rows(a, false), rows(b, true)].concat(),
+                    kept: ab + ba,
+                    synthesized: 0,
+                    relations: both,
+                    dropped: 0,
+                    tables: 2,
+                },
+                _ => Self {
+                    columns: rows(b, true),
+                    kept: 0,
+                    synthesized: chains("ba", "ab"),
+                    relations: vec![(b, b, chains("ba", "ab"), true)],
+                    dropped: a,
+                    tables: 1,
+                },
+            })
+        }
+
+        /// Add this view's puts, under each of the five partitions.
+        fn tally(&self, census: &mut Census) {
+            let mut restored = |kind: EditKind, n: u64| {
+                if n > 0 {
+                    *census.restored.entry(kind).or_default() += 5 * n;
+                }
+            };
+            let r = self.columns.len() as u64;
+            restored(EditKind::Identity, 1);
+            restored(EditKind::DeleteRow, r);
+            restored(
+                EditKind::SetCell,
+                self.columns.iter().filter(|has| **has).count() as u64,
+            );
+            restored(EditKind::DeletePair, self.kept);
+            let mut refused = Vec::new();
+            refused.push((EditKind::DeletePair, "SynthesizedEdited", self.synthesized));
+            for (sources, targets, held, contraction) in &self.relations {
+                let n = sources * targets - held;
+                if *contraction {
+                    refused.push((EditKind::AddPair, "ContractedEdgeInserted", n));
+                } else {
+                    restored(EditKind::AddPair, n);
+                }
+            }
+            restored(EditKind::InsertRow, (3 - r - self.dropped) * self.tables);
+            refused.push((
+                EditKind::InsertRow,
+                "IdCollision",
+                self.dropped * self.tables,
+            ));
+            for (kind, why, n) in refused {
+                if n > 0 {
+                    *census.refused.entry((kind, why.to_owned())).or_default() += 5 * n;
+                }
+            }
+        }
+    }
+
+    /// Every 23rd put of the carrier, stopped at each cancellation point and
+    /// resumed, ends as the uninterrupted run.
+    #[test]
+    fn segmented_table_put_resumes_from_every_cancellation_point() {
+        let mut census = Census::default();
+        let (mut cases, mut points) = (0_u64, 0_u64);
+        sweep(|position, pair, case, got, kind, edited| {
+            if position % 23 != 0 {
+                return;
+            }
+            let baseline = check_put(pair, case, got, (kind, edited), &mut census);
+            points += check_resumption(pair, case.1, got, edited, &baseline);
+            cases += 1;
+        });
+        println!("segmented table put resumption: cases={cases} points={points}");
+        assert_eq!(cases, 24_045_u64.div_ceil(23));
+        assert!(points > cases);
+    }
+
+    /// A source schema with a uniqueness key and a lens with a survival
+    /// predicate are declined before any task, and a complement entry filed
+    /// under a segment that does not own its row is refused at Validate.
+    #[test]
+    fn segmented_table_put_declines_keys_and_expressions_and_refuses_a_misfiled_entry() {
+        let partitions = segmented_table_put_partitions();
+        let partition = partitions.last().expect("a partition");
+        assert_eq!(partition.specs.len(), 3);
+        let tables = segmented_table_put_tables();
+        let table = tables
+            .iter()
+            .find(|table| {
+                table.rows.get(&0).is_some_and(|(name, _)| name == "a")
+                    && table.rows.get(&1).is_some_and(|(name, _)| name == "b")
+            })
+            .expect("a table with a row of a at 0 and of b at 1");
+        let pair = lens(1);
+        let got = got(&pair, table, partition).expect("the get accepts");
+        let prod_p = prod_partition(partition);
+        let views = partition_table(&prod_table(&got.view), &prod_p).expect("split");
+        assert!(!matches!(
+            table_lens::table_put_locality(&pair.production, pair.protocols()).expect("compiles"),
+            Locality::Global(_)
+        ));
+
+        let mut keyed = lens(1);
+        keyed.production.src_schema.declarations.keys.insert(
+            "a".into(),
+            vec![panproto_schema::Key {
+                id: "by_x".into(),
+                parts: vec![panproto_schema::KeyPart::Path(vec![
+                    panproto_schema::Edge {
+                        src: "a".into(),
+                        tgt: "a.x".into(),
+                        kind: "prop".into(),
+                        name: Some("x".into()),
+                    },
+                ])],
+                role: panproto_schema::KeyRole::Unique,
+                scope: panproto_schema::KeyScope::Global,
+                equality: Vec::new(),
+            }],
+        );
+        assert_eq!(
+            table_lens::table_put_locality(&keyed.production, keyed.protocols()).expect("compiles"),
+            Locality::Global(GlobalReason::KeyDemand {
+                vertex: "a".into(),
+                key: "by_x".into(),
+            })
+        );
+        let mut predicated = lens(1);
+        predicated.production.compiled.conditional_survival.insert(
+            "a".into(),
+            panproto_expr::Expr::Lit(panproto_expr::Literal::Bool(true)),
+        );
+        let held = Held::of(&views, &got.complements, &prod_p);
+        for declined in [&keyed, &predicated] {
+            let mut store = MemoryStore::default();
+            let outcome = run(declined, &held, &mut store, None);
+            assert!(
+                matches!(
+                    outcome.report.status,
+                    RunStatus::Residual(Residual::Global { .. })
+                ),
+                "{:?}",
+                outcome.report.status
+            );
+            assert_eq!(outcome.report.progress.tasks_done, 0);
+        }
+
+        let mut misplaced = got.complements;
+        let moved = misplaced[1]
+            .dropped_rows
+            .pop_first()
+            .expect("segment 1 drops row 1");
+        misplaced[0].dropped_rows.insert(moved.0, moved.1);
+        let held = Held::of(&views, &misplaced, &prod_p);
+        let mut store = MemoryStore::default();
+        let outcome = run(&pair, &held, &mut store, None);
+        assert!(
+            matches!(
+                outcome.report.status,
+                RunStatus::Failed(SegmentedPutError::Segment(SegmentError::WrongOwner {
+                    elem: panproto_inst::ViewRef::Row(RowId(1)),
+                    ..
+                }))
+            ),
+            "{:?}",
+            outcome.report.status
+        );
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(128))]
+
+        /// Generated tables of up to eight rows with up to twelve pairs,
+        /// under generated partitions into up to three segments, by every
+        /// lens of the carrier, with one generated edit of the view.
+        #[test]
+        fn segmented_table_put_agrees_with_the_reference_on_generated_tables(
+            rows in prop::collection::vec(0_u8..3, 1..9),
+            pairs in prop::collection::vec((0_u8..8, 0_u8..8), 0..12),
+            owners in prop::collection::vec(0_u8..3, 8),
+            lens_index in 0_usize..LENSES.len(),
+            choice in 0_usize..1_000,
+        ) {
+            let table = generated_table(&rows, &pairs);
+            let partition = generated_partition(&owners[..rows.len()]);
+            let pair = lens(lens_index);
+            if let Some(got) = got(&pair, &table, &partition) {
+                let edits = edits(&pair, &got.view, &partition);
+                let (kind, edited) = &edits[choice % edits.len()];
+                check_put(&pair, (&table, &partition), &got, (*kind, edited), &mut Census::default());
+            }
+        }
+    }
+}
+
+/// The segmented table edit lens against its reference definition and the
+/// whole-state table edit lens.
+mod segmented_table_edit_lens {
+    use std::collections::BTreeMap;
+
+    use panproto_inst::RowId;
+    use panproto_inst::identity::Digest;
+    use panproto_inst::segment::{
+        AnySegment, ArtifactKey, Budget, EdgeIdRun, ManifestHeader, ManifestRole, MemoryStore,
+        MissingSegment, Partition, RecordSource, RunJournal, SegmentId, SegmentManifest,
+        SegmentRecord, SegmentStore, TaskRecord, partition_table, read_emitted_segment, seal_full,
+    };
+    use panproto_inst::table_delta::{CellChange, TableChange, TableDelta, TableDeltaParts};
+    use panproto_lens::{
+        SegmentedTable, SegmentedTableContext, SegmentedTableEditLens, ShapeEditError,
+        TableContext, TableEditLens,
+    };
+    use panproto_reference::edit::{TElem, TKey, TPayload, TVal, TableDelta as RefTableDelta};
+    use panproto_reference::enumerate::edits::{TableLetterSchema, table_edit_lens_letters};
+    use panproto_reference::enumerate::segments::{
+        segmented_table_put_partitions, segmented_table_put_tables,
+    };
+    use panproto_reference::segment as reference;
+    use panproto_reference::value::Value as RefValue;
+
+    use super::segmented_table_get::{LENSES, SOURCE_SCHEMA, lens, prod_partition};
+    use super::segmented_table_put::{column, view_schema};
+    use super::{
+        RefSEdge, RefTable, TablePair, prod_edge, prod_table, prod_value, ref_edge, ref_table,
+        ref_value,
+    };
+
+    type Lens<St> = SegmentedTableEditLens<BTreeMap<SegmentId, Vec<u8>>, St>;
+    type Bound = Lens<MemoryStore>;
+
+    const VALUES: [RefValue; 2] = [RefValue::Int(0), RefValue::Int(1)];
+
+    /// A carrier partition with the identifiers `3` to `9` given to its
+    /// last segment, so a row an edit adds at the fresh identifier has an
+    /// owner.
+    pub fn edit_partition(partition: &reference::Partition) -> reference::Partition {
+        let mut partition = partition.clone();
+        if let Some(last) = partition.specs.last_mut() {
+            last.nodes.push(reference::IdRange { lo: 3, hi: 9 });
+        }
+        partition
+    }
+
+    /// The production delta of a reference table delta.
+    pub fn production_delta(delta: &RefTableDelta) -> TableDelta {
+        let mut parts = TableDeltaParts::default();
+        for (side, map) in [(true, &delta.del), (false, &delta.add)] {
+            for (element, payload) in map {
+                match (element, payload) {
+                    (TElem::Row(id), TPayload::Row(table, cells)) => {
+                        let row = (
+                            table.as_str().into(),
+                            cells
+                                .iter()
+                                .map(|(column, value)| (column.clone(), prod_value(value)))
+                                .collect(),
+                        );
+                        if side {
+                            parts.del_rows.insert(RowId(*id), row);
+                        } else {
+                            parts.add_rows.insert(RowId(*id), row);
+                        }
+                    }
+                    (TElem::Pair(edge, src, tgt), TPayload::Pair) => {
+                        let pair = (prod_edge(edge), RowId(*src), RowId(*tgt));
+                        if side {
+                            parts.del_pairs.insert(pair);
+                        } else {
+                            parts.add_pairs.insert(pair);
+                        }
+                    }
+                    other => panic!("cross-sort reference table element: {other:?}"),
+                }
+            }
+        }
+        for (key, (old, new)) in &delta.attrs {
+            match (key, old, new) {
+                (TKey::Cell(row, column), TVal::Cell(old), TVal::Cell(new)) => {
+                    parts.cells.insert(
+                        (RowId(*row), column.clone()),
+                        CellChange {
+                            old: old.as_ref().map(prod_value),
+                            new: new.as_ref().map(prod_value),
+                        },
+                    );
+                }
+                (TKey::Table(row), TVal::Table(old), TVal::Table(new)) => {
+                    parts.tables.insert(
+                        RowId(*row),
+                        TableChange {
+                            old: old.as_str().into(),
+                            new: new.as_str().into(),
+                        },
+                    );
+                }
+                other => panic!("cross-sort reference table attribute: {other:?}"),
+            }
+        }
+        TableDelta::normalize(parts)
+    }
+
+    /// The reference delta of a production table delta.
+    pub fn reference_delta(delta: &TableDelta) -> RefTableDelta {
+        let mut out = RefTableDelta::identity();
+        let row = |table: &panproto_gat::Name, cells: &panproto_inst::Row| {
+            TPayload::Row(
+                table.to_string(),
+                cells
+                    .iter()
+                    .map(|(column, value)| (column.clone(), ref_value(value)))
+                    .collect(),
+            )
+        };
+        for (id, (table, cells)) in delta.del_rows() {
+            out.del.insert(TElem::Row(id.0), row(table, cells));
+        }
+        for (id, (table, cells)) in delta.add_rows() {
+            out.add.insert(TElem::Row(id.0), row(table, cells));
+        }
+        for (edge, src, tgt) in delta.del_pairs() {
+            out.del
+                .insert(TElem::Pair(ref_edge(edge), src.0, tgt.0), TPayload::Pair);
+        }
+        for (edge, src, tgt) in delta.add_pairs() {
+            out.add
+                .insert(TElem::Pair(ref_edge(edge), src.0, tgt.0), TPayload::Pair);
+        }
+        for ((row, column), change) in delta.cells() {
+            out.attrs.insert(
+                TKey::Cell(row.0, column.clone()),
+                (
+                    TVal::Cell(change.old.as_ref().map(ref_value)),
+                    TVal::Cell(change.new.as_ref().map(ref_value)),
+                ),
+            );
+        }
+        for (row, change) in delta.tables() {
+            out.attrs.insert(
+                TKey::Table(row.0),
+                (
+                    TVal::Table(change.old.to_string()),
+                    TVal::Table(change.new.to_string()),
+                ),
+            );
+        }
+        out
+    }
+
+    /// The one-letter edits of the table edit lens carrier at `table` over
+    /// the tables and relations `(tables, relations)`.
+    pub fn letters(
+        (tables, relations): &(Vec<(String, bool)>, Vec<RefSEdge>),
+        table: &RefTable,
+    ) -> Vec<RefTableDelta> {
+        let columns: Vec<(String, Vec<&str>)> = tables
+            .iter()
+            .map(|(name, has)| {
+                let columns = if *has { vec![column(name)] } else { Vec::new() };
+                (name.clone(), columns)
+            })
+            .collect();
+        let tables: Vec<(&str, &[&str])> = columns
+            .iter()
+            .map(|(name, columns)| (name.as_str(), columns.as_slice()))
+            .collect();
+        table_edit_lens_letters(
+            TableLetterSchema {
+                tables: &tables,
+                relations,
+                values: &VALUES,
+            },
+            table,
+        )
+    }
+
+    /// The source letter schema: tables `a` and `b` with their columns and
+    /// the relations `ab` and `ba`.
+    pub fn source_schema(pair: &TablePair) -> (Vec<(String, bool)>, Vec<RefSEdge>) {
+        let tables = vec![("a".to_owned(), true), ("b".to_owned(), true)];
+        let relations = pair
+            .src
+            .edges
+            .iter()
+            .filter(|edge| edge.kind == "relation")
+            .cloned()
+            .collect();
+        (tables, relations)
+    }
+
+    /// A sealed source family with its segment bytes.
+    pub struct Sealed {
+        pub manifest: SegmentManifest,
+        pub bytes: BTreeMap<SegmentId, Vec<u8>>,
+        pub partition: Partition,
+    }
+
+    /// Seal the production segments of `table` under `partition`.
+    pub fn sealed(table: &RefTable, partition: &reference::Partition) -> Sealed {
+        let partition = prod_partition(partition);
+        let segments: Vec<AnySegment> = partition_table(&prod_table(table), &partition)
+            .expect("production split")
+            .into_iter()
+            .map(AnySegment::Table)
+            .collect();
+        let schema = Digest(SOURCE_SCHEMA);
+        let records = segments
+            .iter()
+            .zip(partition.specs())
+            .map(|(segment, spec)| SegmentRecord::of(segment, spec, &schema))
+            .collect();
+        let runs: Vec<EdgeIdRun<'_>> = segments
+            .iter()
+            .map(|segment| {
+                (
+                    segment.segment(),
+                    Box::new(segment.edge_id_run().into_iter())
+                        as Box<dyn Iterator<Item = panproto_inst::EdgeId>>,
+                )
+            })
+            .collect();
+        let sources = segments
+            .iter()
+            .map(|segment| Box::new(segment.records()) as Box<dyn RecordSource + '_>)
+            .collect();
+        let manifest = seal_full(
+            records,
+            ManifestHeader {
+                shape: panproto_inst::InstanceShapeKind::Table,
+                schema,
+                role: ManifestRole::Source,
+                binding: None,
+            },
+            runs,
+            sources,
+        )
+        .expect("the carrier seals");
+        let bytes = segments
+            .iter()
+            .map(|segment| {
+                (
+                    segment.segment(),
+                    segment
+                        .canonical_bytes(&schema, &partition)
+                        .expect("canonical bytes"),
+                )
+            })
+            .collect();
+        Sealed {
+            manifest,
+            bytes,
+            partition,
+        }
+    }
+
+    /// An owned copy of the production lens of `pair`.
+    fn owned_lens(pair: &TablePair) -> panproto_lens::Lens {
+        panproto_lens::Lens {
+            compiled: pair.production.compiled.clone(),
+            src_schema: pair.production.src_schema.clone(),
+            tgt_schema: pair.production.tgt_schema.clone(),
+        }
+    }
+
+    fn context(pair: &TablePair) -> SegmentedTableContext {
+        SegmentedTableContext {
+            budget: Budget::unlimited(),
+            tables: TableContext {
+                src: pair.protocol.clone(),
+                tgt: pair.protocol.clone(),
+            },
+        }
+    }
+
+    /// Bind the lens of `pair` to `sealed`, committing to `store`.
+    fn bind<St: SegmentStore>(
+        pair: &TablePair,
+        sealed: &Sealed,
+        store: St,
+    ) -> Result<Lens<St>, ShapeEditError> {
+        SegmentedTableEditLens::segmented_table(
+            owned_lens(pair),
+            context(pair),
+            SegmentedTable {
+                manifest: sealed.manifest.clone(),
+                input: sealed.manifest.digest(),
+                segments: sealed.bytes.clone(),
+                store,
+            },
+        )
+    }
+
+    /// The segments a run emitted, as reference values glued.
+    fn glued_view<St: SegmentStore>(lens: &Lens<St>, partition: &Partition) -> RefTable {
+        let state = lens.segmented_table_state();
+        let store = state.store();
+        let segments = partition
+            .specs()
+            .iter()
+            .map(|spec| {
+                let (segment, _) =
+                    read_emitted_segment(&*store, state.get_run(), partition, spec.id)
+                        .expect("a view segment");
+                let AnySegment::Table(segment) = segment else {
+                    panic!("a table segment");
+                };
+                segment
+            })
+            .collect::<Vec<_>>();
+        ref_table(
+            &panproto_inst::segment::assemble_table(segments, partition).expect("the view glues"),
+        )
+    }
+
+    /// The glued source a lens holds.
+    fn glued_source<St: SegmentStore>(lens: &Lens<St>, partition: &Partition) -> RefTable {
+        let state = lens.segmented_table_state();
+        let segments = partition
+            .specs()
+            .iter()
+            .map(|spec| {
+                let bytes = state.source_segment(spec.id).expect("a source segment");
+                let AnySegment::Table(segment) =
+                    AnySegment::from_canonical_bytes(&bytes, partition)
+                        .expect("decodes")
+                        .0
+                else {
+                    panic!("a table segment");
+                };
+                segment
+            })
+            .collect::<Vec<_>>();
+        ref_table(
+            &panproto_inst::segment::assemble_table(segments, partition).expect("the source glues"),
+        )
+    }
+
+    /// The independent count of [`letters`].
+    fn letter_count(
+        (tables, relations): &(Vec<(String, bool)>, Vec<RefSEdge>),
+        table: &RefTable,
+    ) -> u64 {
+        let columns: Vec<(String, Vec<&str>)> = tables
+            .iter()
+            .map(|(name, has)| {
+                let columns = if *has { vec![column(name)] } else { Vec::new() };
+                (name.clone(), columns)
+            })
+            .collect();
+        let tables: Vec<(&str, &[&str])> = columns
+            .iter()
+            .map(|(name, columns)| (name.as_str(), columns.as_slice()))
+            .collect();
+        u64::try_from(
+            panproto_reference::enumerate::edits::table_edit_lens_letter_count(
+                TableLetterSchema {
+                    tables: &tables,
+                    relations,
+                    values: &VALUES,
+                },
+                table,
+            ),
+        )
+        .expect("a count")
+    }
+
+    /// Per-segment narrowing of an admitted source letter: the lens read,
+    /// in order, the segments the reference's read set of the letter names
+    /// and then the source segments the reference's edit changed, and every
+    /// source segment outside the read set keeps its record. Returns the
+    /// number of segments read.
+    fn check_narrowing(
+        lens: &Bound,
+        before: &SegmentManifest,
+        (state, next): (
+            &reference::SegmentedTableEditState,
+            &reference::SegmentedTableEditState,
+        ),
+        letter: &RefTableDelta,
+        partition: &reference::Partition,
+    ) -> u64 {
+        let read_set = reference::table_read_set(letter, partition);
+        let mut expected: Vec<SegmentId> = read_set.iter().map(|id| SegmentId(id.0)).collect();
+        expected.extend(
+            state
+                .source
+                .iter()
+                .zip(&next.source)
+                .filter(|(old, new)| old != new)
+                .map(|(old, _)| SegmentId(old.segment.0)),
+        );
+        let held = lens.segmented_table_state();
+        assert_eq!(
+            held.reads(),
+            expected.as_slice(),
+            "the segments {letter:?} reads"
+        );
+        for record in &held.source_manifest().segments {
+            if !read_set.contains(&reference::SegmentId(record.id.0)) {
+                assert_eq!(
+                    before.record(record.id).map(|old| old.content),
+                    Some(record.content),
+                    "an unaffected segment keeps its record under {letter:?}"
+                );
+            }
+        }
+        u64::try_from(expected.len()).expect("a count")
+    }
+
+    /// What the certificate showed.
+    #[derive(Debug, Default, PartialEq, Eq)]
+    pub struct Tally {
+        pub bound: u64,
+        pub bind_refused: u64,
+        pub source_admitted: u64,
+        pub source_refused: u64,
+        pub view_admitted: u64,
+        pub view_refused: u64,
+        /// Source letters by the independent count of the letter carrier.
+        pub source_letters: u64,
+        /// View letters by the independent count of the letter carrier.
+        pub view_letters: u64,
+        /// Segments the admitted source letters read.
+        pub reads: u64,
+    }
+
+    /// Check one carrier case: bind, then translate every source letter and
+    /// put back every view letter, each on a freshly bound lens, against the
+    /// reference definition and the whole-state table edit lens.
+    pub fn check_case(
+        pair: &TablePair,
+        table: &RefTable,
+        partition: &reference::Partition,
+        tally: &mut Tally,
+    ) {
+        check_letters(pair, table, &edit_partition(partition), &|_| true, tally);
+    }
+
+    /// Check the letters of one case that `select` admits by position,
+    /// source letters first, under `partition` as given.
+    pub fn check_letters(
+        pair: &TablePair,
+        table: &RefTable,
+        partition: &reference::Partition,
+        select: &dyn Fn(usize) -> bool,
+        tally: &mut Tally,
+    ) {
+        let partition = partition.clone();
+        let sealed = sealed(table, &partition);
+        let source_segments = reference::partition_table(table, &partition).expect("split");
+        let state = pair.with_reference(|lens, _| {
+            reference::bind_segmented_table_edit(lens, &source_segments, &partition)
+        });
+        let mut store = MemoryStore::default();
+        let bound = bind(pair, &sealed, std::mem::take(&mut store));
+        let (bound, state) = match (bound, state) {
+            (Ok(bound), Ok(state)) => (bound, state),
+            (Err(_), Err(_)) => {
+                tally.bind_refused += 1;
+                return;
+            }
+            outcomes => panic!("binding disagrees on {table:?}: {outcomes:?}"),
+        };
+        tally.bound += 1;
+        let base_store = bound.segmented_table_state().store().clone();
+        let view = reference::assemble_table(&state.views, &partition).expect("glued view");
+        assert_eq!(
+            glued_view(&bound, &sealed.partition),
+            view,
+            "the bound view"
+        );
+        let fresh = || bind(pair, &sealed, base_store.clone()).expect("rebinding");
+        let whole = || {
+            TableEditLens::new(owned_lens(pair), prod_table(table), context(pair).tables)
+                .expect("whole-state binding")
+        };
+        tally.source_letters += letter_count(&source_schema(pair), table);
+        tally.view_letters += letter_count(&view_schema(pair), &view);
+        let source_letters = letters(&source_schema(pair), table);
+        let offset = source_letters.len();
+        for (at, letter) in source_letters.into_iter().enumerate() {
+            if !select(at) {
+                continue;
+            }
+            let mut lens = fresh();
+            let before = lens.segmented_table_state().source_manifest().clone();
+            let production = lens.get_edit(&production_delta(&letter)).map_err(drop);
+            let expected = pair.with_reference(|reference_lens, _| {
+                reference::segmented_table_edit_get(reference_lens, &state, &partition, &letter)
+                    .map_err(drop)
+            });
+            let whole_state = whole().get_edit(&production_delta(&letter));
+            match (&production, &expected) {
+                (Ok(step), Ok((delta, next))) => {
+                    assert_eq!(
+                        reference_delta(&step.view_delta),
+                        *delta,
+                        "view delta of {letter:?}"
+                    );
+                    let whole_state = whole_state.expect("the whole-state lens admits it");
+                    assert_eq!(
+                        step.view_delta, whole_state.view_delta,
+                        "whole-state view delta"
+                    );
+                    assert_eq!(
+                        glued_view(&lens, &sealed.partition),
+                        reference::assemble_table(&next.views, &partition).expect("glue")
+                    );
+                    assert_eq!(
+                        glued_source(&lens, &sealed.partition),
+                        reference::assemble_table(&next.source, &partition).expect("glue")
+                    );
+                    tally.reads +=
+                        check_narrowing(&lens, &before, (&state, next), &letter, &partition);
+                    tally.source_admitted += 1;
+                }
+                (Err(()), Err(())) => {
+                    assert_eq!(
+                        glued_view(&lens, &sealed.partition),
+                        view,
+                        "a refusal changes nothing"
+                    );
+                    tally.source_refused += 1;
+                }
+                outcomes => panic!(
+                    "get_edit disagrees on {letter:?} at {table:?} under {partition:?}: {outcomes:?}"
+                ),
+            }
+        }
+        for (at, letter) in letters(&view_schema(pair), &view).into_iter().enumerate() {
+            if select(offset + at) {
+                let case = Bound3 {
+                    pair,
+                    sealed: &sealed,
+                    partition: &partition,
+                    state: &state,
+                    view: &view,
+                };
+                check_view_letter(&case, fresh(), whole(), &letter, tally);
+            }
+        }
+    }
+
+    /// One bound case as both sides hold it.
+    struct Bound3<'a> {
+        pair: &'a TablePair,
+        sealed: &'a Sealed,
+        partition: &'a reference::Partition,
+        state: &'a reference::SegmentedTableEditState,
+        view: &'a RefTable,
+    }
+
+    /// Put back one view letter on a freshly bound lens against the
+    /// reference and the whole-state lens.
+    fn check_view_letter(
+        case: &Bound3<'_>,
+        mut lens: Bound,
+        mut whole: TableEditLens,
+        letter: &RefTableDelta,
+        tally: &mut Tally,
+    ) {
+        let Bound3 {
+            pair,
+            sealed,
+            partition,
+            state,
+            view,
+        } = case;
+        let production = lens.put_edit(&production_delta(letter)).map_err(drop);
+        let expected = pair.with_reference(|reference_lens, _| {
+            reference::segmented_table_edit_put(reference_lens, state, partition, letter)
+                .map_err(drop)
+        });
+        match (&production, &expected) {
+            (Ok(step), Ok((delta, next))) => {
+                assert_eq!(
+                    reference_delta(&step.source_delta),
+                    *delta,
+                    "source delta of {letter:?}"
+                );
+                let whole_state = whole
+                    .put_edit(&production_delta(letter))
+                    .expect("the whole-state lens admits it");
+                assert_eq!(
+                    step.source_delta, whole_state.source_delta,
+                    "whole-state source delta"
+                );
+                assert_eq!(
+                    glued_view(&lens, &sealed.partition),
+                    reference::assemble_table(&next.views, partition).expect("glue")
+                );
+                assert_eq!(
+                    glued_source(&lens, &sealed.partition),
+                    reference::assemble_table(&next.source, partition).expect("glue")
+                );
+                tally.view_admitted += 1;
+            }
+            (Err(()), Err(())) => {
+                assert_eq!(
+                    glued_view(&lens, &sealed.partition),
+                    **view,
+                    "a refusal changes nothing"
+                );
+                tally.view_refused += 1;
+            }
+            outcomes => panic!(
+                "put_edit disagrees on {letter:?} at {view:?} under {partition:?}: {outcomes:?}"
+            ),
+        }
+    }
+
+    /// Run [`check_case`] on the carrier cases whose position `select`
+    /// admits: the number of cases, of selected cases, and the tally.
+    fn sweep(select: impl Fn(usize) -> bool) -> (usize, usize, Tally) {
+        let tables = segmented_table_put_tables();
+        let partitions = segmented_table_put_partitions();
+        let mut tally = Tally::default();
+        let (mut cases, mut selected) = (0, 0);
+        for index in 0..LENSES.len() {
+            let pair = lens(index);
+            for table in &tables {
+                for partition in &partitions {
+                    cases += 1;
+                    if select(cases - 1) {
+                        selected += 1;
+                        check_case(&pair, table, partition, &mut tally);
+                    }
+                }
+            }
+        }
+        (cases, selected, tally)
+    }
+
+    /// The pinned tally of the whole certificate. The binding counts are
+    /// those of the segmented table put carrier (L-segments-34), and the
+    /// letter counts are the independent letter counts of the carrier, both
+    /// asserted beside it; the split into admitted and refused letters is
+    /// the run's.
+    const SEGMENTED_TABLE_EDIT_TALLY: Tally = Tally {
+        bound: 3_030,
+        bind_refused: 120,
+        source_admitted: 40_530,
+        source_refused: 11_580,
+        view_admitted: 28_115,
+        view_refused: 10_945,
+        source_letters: 52_110,
+        view_letters: 39_060,
+        reads: READS,
+    };
+
+    /// The segments the admitted source letters read, each letter checked
+    /// against its reference read set and changed segments.
+    const READS: u64 = 93_576;
+
+    /// Every case of the segmented table put carrier, bound under its
+    /// partition with the identifiers `3` to `9` given to the last segment:
+    /// every source letter translated and every view letter put back agrees
+    /// with the reference definition and the whole-state table edit lens, a
+    /// refused letter changes nothing, and an admitted source letter reads
+    /// exactly its read set and the segments it changed.
+    /// `PANPROTO_TEST_SHARD=i/n` restricts the check to the cases at
+    /// positions `i` modulo `n`.
+    #[test]
+    fn segmented_table_edit_lens_agrees_with_the_reference_and_the_whole_state_lens_on_every_case()
+    {
+        let shard = super::LawShard::from_environment();
+        let (cases, selected, tally) =
+            sweep(|position| shard.is_none_or(|shard| shard.contains(position)));
+        println!("segmented table edit lens: {tally:?}");
+        assert_eq!(cases, 3_150);
+        assert_eq!(selected, shard.map_or(cases, |shard| shard.share(cases)));
+        assert_eq!(
+            tally.source_letters,
+            tally.source_admitted + tally.source_refused
+        );
+        assert_eq!(tally.view_letters, tally.view_admitted + tally.view_refused);
+        if shard.is_none() {
+            assert_eq!(tally, SEGMENTED_TABLE_EDIT_TALLY);
+        }
+    }
+
+    /// The eighth of the certificate's cases at positions divisible by
+    /// eight, checked on every run.
+    #[test]
+    fn segmented_table_edit_lens_slice_agrees_with_the_reference_on_every_eighth_case() {
+        let (cases, selected, tally) = sweep(|position| position % 8 == 0);
+        assert_eq!((cases, selected), (3_150, 394));
+        assert!(tally.source_admitted > 0 && tally.source_refused > 0);
+        assert!(tally.view_admitted > 0 && tally.view_refused > 0);
+    }
+
+    /// A store whose `fail_at`th commit, counted by `commits`, fails.
+    #[derive(Clone, Default)]
+    struct FailingStore {
+        inner: MemoryStore,
+        commits: std::rc::Rc<std::cell::Cell<usize>>,
+        fail_at: std::rc::Rc<std::cell::Cell<Option<usize>>>,
+    }
+
+    impl SegmentStore for FailingStore {
+        type Error = MissingSegment;
+
+        fn read(&self, key: &ArtifactKey) -> Result<Option<Vec<u8>>, MissingSegment> {
+            Ok(self.inner.read(key).unwrap_or_else(|never| match never {}))
+        }
+
+        fn read_at(
+            &self,
+            key: &ArtifactKey,
+            offset: u64,
+            len: u64,
+        ) -> Result<Option<Vec<u8>>, MissingSegment> {
+            Ok(self
+                .inner
+                .read_at(key, offset, len)
+                .unwrap_or_else(|never| match never {}))
+        }
+
+        fn stage(&mut self, key: &ArtifactKey, bytes: Vec<u8>) -> Result<(), MissingSegment> {
+            self.inner
+                .stage(key, bytes)
+                .unwrap_or_else(|never| match never {});
+            Ok(())
+        }
+
+        fn commit(&mut self, key: &ArtifactKey, record: &TaskRecord) -> Result<(), MissingSegment> {
+            let count = self.commits.get() + 1;
+            self.commits.set(count);
+            if self.fail_at.get() == Some(count) {
+                return Err(MissingSegment(SegmentId(u32::MAX)));
+            }
+            self.inner
+                .commit(key, record)
+                .unwrap_or_else(|never| match never {});
+            Ok(())
+        }
+
+        fn journal(&self, run: &Digest) -> Result<RunJournal, MissingSegment> {
+            Ok(self
+                .inner
+                .journal(run)
+                .unwrap_or_else(|never| match never {}))
+        }
+
+        fn staged_uncommitted(&self, run: &Digest) -> Result<Vec<ArtifactKey>, MissingSegment> {
+            Ok(self
+                .inner
+                .staged_uncommitted(run)
+                .unwrap_or_else(|never| match never {}))
+        }
+    }
+
+    /// A three-segment table whose dropped row in the middle segment joins
+    /// rows of the other two by contraction, bound by the lens dropping `b`:
+    /// a source edit and a view edit, each stopped by a failed commit at
+    /// every task of its runs, leave the lens unchanged and, retried, end as
+    /// the uninterrupted edit, with nothing left staged.
+    #[test]
+    fn a_table_edit_stopped_by_a_failed_commit_at_each_task_resumes_to_the_uninterrupted_edit() {
+        let pair = lens(1);
+        let partitions = segmented_table_put_partitions();
+        let partition = edit_partition(partitions.last().expect("a partition"));
+        let mut table = RefTable::default();
+        for (id, name) in [(0, "a"), (1, "b"), (2, "a")] {
+            let cells = if name == "a" {
+                BTreeMap::from([("x".to_owned(), RefValue::Int(0))])
+            } else {
+                BTreeMap::new()
+            };
+            table.rows.insert(id, (name.to_owned(), cells));
+        }
+        table
+            .pairs
+            .insert((RefSEdge::new("a", "b", "relation", Some("ab")), 0, 1));
+        table
+            .pairs
+            .insert((RefSEdge::new("b", "a", "relation", Some("ba")), 1, 2));
+        let sealed = sealed(&table, &partition);
+        let source_edit = letters(&source_schema(&pair), &table)
+            .into_iter()
+            .find(|letter| letter.del.keys().any(|key| matches!(key, TElem::Pair(..))))
+            .map(|letter| production_delta(&letter))
+            .expect("a pair deletion");
+        let bound = bind(&pair, &sealed, MemoryStore::default()).expect("binds");
+        let view = glued_view(&bound, &sealed.partition);
+        let view_edit = letters(&view_schema(&pair), &view)
+            .into_iter()
+            .find(|letter| letter.attrs.keys().any(|key| matches!(key, TKey::Cell(..))))
+            .map(|letter| production_delta(&letter))
+            .expect("a cell change");
+        let base = bound.segmented_table_state().store().clone();
+        for put in [false, true] {
+            let edit = if put { &view_edit } else { &source_edit };
+            let step = |lens: &mut Lens<FailingStore>| {
+                if put {
+                    lens.put_edit(edit)
+                } else {
+                    lens.get_edit(edit)
+                }
+            };
+            let store = FailingStore {
+                inner: base.clone(),
+                ..FailingStore::default()
+            };
+            let (commits, fail_at) = (store.commits.clone(), store.fail_at.clone());
+            let mut uninterrupted = bind(&pair, &sealed, store.clone()).expect("rebinds");
+            let before = commits.get();
+            let expected = step(&mut uninterrupted).expect("the edit is admitted");
+            let total = commits.get() - before;
+            assert!(total > 0, "the edit commits tasks");
+            for failing in 1..=total {
+                let mut lens = bind(
+                    &pair,
+                    &sealed,
+                    FailingStore {
+                        inner: base.clone(),
+                        commits: commits.clone(),
+                        fail_at: fail_at.clone(),
+                    },
+                )
+                .expect("rebinds");
+                fail_at.set(Some(commits.get() + failing));
+                let stopped = step(&mut lens);
+                assert!(
+                    matches!(stopped, Err(ShapeEditError::Incomplete(_))),
+                    "{:?}",
+                    stopped.map(|step| step.view_delta)
+                );
+                assert_eq!(glued_view(&lens, &sealed.partition), view);
+                assert_eq!(glued_source(&lens, &sealed.partition), table);
+                assert_eq!(lens.sequence(), 0);
+                fail_at.set(None);
+                let resumed = step(&mut lens).expect("the retried edit is admitted");
+                assert_eq!(resumed.view_delta, expected.view_delta);
+                assert_eq!(resumed.source_delta, expected.source_delta);
+                assert_eq!(
+                    glued_view(&lens, &sealed.partition),
+                    glued_view(&uninterrupted, &sealed.partition)
+                );
+                assert_eq!(
+                    glued_source(&lens, &sealed.partition),
+                    glued_source(&uninterrupted, &sealed.partition)
+                );
+                let run = lens.segmented_table_state().get_run();
+                assert_eq!(
+                    lens.segmented_table_state()
+                        .store()
+                        .staged_uncommitted(&run)
+                        .expect("the journal reads"),
+                    Vec::<ArtifactKey>::new()
+                );
+            }
+        }
+    }
+
+    /// A lens whose restriction carries a survival predicate is declined
+    /// when bound.
+    #[test]
+    fn a_table_lens_with_an_expression_is_declined_when_bound() {
+        let mut pair = lens(0);
+        pair.production.compiled.conditional_survival.insert(
+            "a".into(),
+            panproto_expr::Expr::Lit(panproto_expr::Literal::Bool(true)),
+        );
+        let partitions = segmented_table_put_partitions();
+        let tables = segmented_table_put_tables();
+        let sealed = sealed(tables.last().expect("a table"), &partitions[0]);
+        assert!(matches!(
+            bind(&pair, &sealed, MemoryStore::default()),
+            Err(ShapeEditError::Residual(
+                panproto_inst::segment::Residual::Global { .. }
+            ))
+        ));
+    }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(64))]
+
+        /// Generated tables of up to eight rows with up to twelve pairs,
+        /// under generated partitions into up to three segments, by every
+        /// lens of the carrier: one generated source letter and one
+        /// generated view letter against the reference and the whole-state
+        /// lens.
+        #[test]
+        fn segmented_table_edit_lens_agrees_with_the_reference_on_generated_tables(
+            rows in proptest::collection::vec(0_u8..3, 1..9),
+            pairs in proptest::collection::vec((0_u8..8, 0_u8..8), 0..12),
+            owners in proptest::collection::vec(0_u8..3, 8),
+            lens_index in 0_usize..LENSES.len(),
+            choice in (0_usize..64, 0_usize..64),
+        ) {
+            let table = super::segmented_table_get::generated_table(&rows, &pairs);
+            let partition =
+                super::segmented_table_get::generated_partition(&owners[..rows.len()]);
+            let pair = lens(lens_index);
+            let sources = letters(&source_schema(&pair), &table).len();
+            let mut tally = Tally::default();
+            check_letters(
+                &pair,
+                &table,
+                &partition,
+                &|at| at == choice.0 % sources || (at >= sources && at - sources == choice.1),
+                &mut tally,
+            );
+        }
+    }
+}
+
+mod segment_collection {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use panproto_inst::identity::Digest;
+    use panproto_inst::segment::{
+        ArtifactKey, ArtifactKind, Budget, CollectableStore, MemoryStore, Phase, RunStatus,
+        SegmentId, SegmentManifest, SegmentStore, Stored, TaskKey, TaskRecord, collect_garbage,
+        read_emitted_segment,
+    };
+    use panproto_reference::enumerate::segments::{
+        segmented_table_restrict_partitions, segmented_table_restrict_tables,
+    };
+    use panproto_reference::segment as reference;
+
+    use super::segmented_table_get::{LENSES, input, lens, run};
+
+    /// The three runs of the exhaustive carrier.
+    const RUNS: [Digest; 3] = [Digest([1; 32]), Digest([2; 32]), Digest([3; 32])];
+
+    /// The two artifacts each run of the carrier may store.
+    const KEYS: [(TaskKey, ArtifactKind); 2] = [
+        (
+            TaskKey {
+                phase: Phase::Validate,
+                segment: Some(SegmentId(0)),
+            },
+            ArtifactKind::Segment,
+        ),
+        (
+            TaskKey {
+                phase: Phase::Assemble,
+                segment: None,
+            },
+            ArtifactKind::Assembly,
+        ),
+    ];
+
+    const fn reference_phase(phase: Phase) -> reference::Phase {
+        match phase {
+            Phase::Validate => reference::Phase::Validate,
+            Phase::Export => reference::Phase::Export,
+            Phase::Summarize => reference::Phase::Summarize,
+            Phase::Assemble => reference::Phase::Assemble,
+            Phase::Emit => reference::Phase::Emit,
+            Phase::Seal => reference::Phase::Seal,
+        }
+    }
+
+    const fn reference_kind(kind: ArtifactKind) -> reference::ArtifactKind {
+        match kind {
+            ArtifactKind::Segment => reference::ArtifactKind::Segment,
+            ArtifactKind::ComplementSegment => reference::ArtifactKind::ComplementSegment,
+            ArtifactKind::Export => reference::ArtifactKind::Export,
+            ArtifactKind::Summary => reference::ArtifactKind::Summary,
+            ArtifactKind::Assembly => reference::ArtifactKind::Assembly,
+            ArtifactKind::Manifest => reference::ArtifactKind::Manifest,
+            ArtifactKind::EdgeIdRun => reference::ArtifactKind::EdgeIdRun,
+        }
+    }
+
+    fn reference_task(task: TaskKey) -> reference::TaskKey {
+        reference::TaskKey {
+            phase: reference_phase(task.phase),
+            segment: task.segment.map(|segment| reference::SegmentId(segment.0)),
+        }
+    }
+
+    fn reference_key(key: &ArtifactKey) -> reference::ArtifactKey {
+        reference::ArtifactKey {
+            run: reference::Digest(key.run.0),
+            task: reference_task(key.task),
+            kind: reference_kind(key.kind),
+        }
+    }
+
+    /// What `store` holds, in the reference's terms.
+    fn contents(store: &MemoryStore) -> reference::StoreContents {
+        let Ok(stored) = store.stored();
+        let Ok(journaled) = store.journaled();
+        reference::StoreContents {
+            artifacts: stored
+                .iter()
+                .map(|(key, state)| {
+                    (
+                        reference_key(key),
+                        match state {
+                            Stored::Staged => reference::StoredState::Staged,
+                            Stored::Committed => reference::StoredState::Committed,
+                        },
+                    )
+                })
+                .collect(),
+            journals: journaled
+                .iter()
+                .map(|run| {
+                    let Ok(journal) = store.journal(run);
+                    (
+                        reference::Digest(run.0),
+                        journal.tasks.keys().copied().map(reference_task).collect(),
+                    )
+                })
+                .collect(),
+        }
+    }
+
+    /// The store of carrier code `code`: for each run and key, two bits, the
+    /// first committing the artifact and the second staging it (again).
+    fn store_of(code: u32) -> MemoryStore {
+        let mut store = MemoryStore::default();
+        let mut bits = code;
+        for (r, run) in RUNS.iter().enumerate() {
+            for (k, (task, kind)) in KEYS.iter().enumerate() {
+                let key = ArtifactKey {
+                    run: *run,
+                    task: *task,
+                    kind: *kind,
+                };
+                let tag = u8::try_from(r * 2 + k).expect("small");
+                if bits & 1 == 1 {
+                    let Ok(()) = store.stage(&key, vec![tag]);
+                    let Ok(()) = store.commit(
+                        &key,
+                        &TaskRecord {
+                            inputs: Digest([tag; 32]),
+                            output: Digest([tag; 32]),
+                            bytes: 1,
+                        },
+                    );
+                }
+                if bits & 2 == 2 {
+                    let Ok(()) = store.stage(&key, vec![tag, tag]);
+                }
+                bits >>= 2;
+            }
+        }
+        store
+    }
+
+    /// Every store of the carrier under every set of roots: collection
+    /// leaves exactly the reference's contents, reports what it removed,
+    /// leaves every reachable artifact's bytes, and a second collection
+    /// removes nothing.
+    #[test]
+    fn collection_keeps_exactly_what_the_roots_reach_on_every_bounded_store() {
+        let mut cases = 0_u64;
+        let mut removed = 0_u64;
+        for code in 0..(1_u32 << 12) {
+            for mask in 0..8_u32 {
+                let roots: BTreeSet<Digest> = RUNS
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| mask & (1 << i) != 0)
+                    .map(|(_, run)| *run)
+                    .collect();
+                let reference_roots: BTreeSet<reference::Digest> =
+                    roots.iter().map(|run| reference::Digest(run.0)).collect();
+                let mut store = store_of(code);
+                let before = contents(&store);
+                let reads: BTreeMap<ArtifactKey, Option<Vec<u8>>> = KEYS
+                    .iter()
+                    .flat_map(|(task, kind)| {
+                        RUNS.iter().map(move |run| ArtifactKey {
+                            run: *run,
+                            task: *task,
+                            kind: *kind,
+                        })
+                    })
+                    .map(|key| {
+                        let Ok(bytes) = store.read(&key);
+                        (key, bytes)
+                    })
+                    .collect();
+                let Ok(collection) = collect_garbage(&mut store, &roots);
+                let after = contents(&store);
+                let expected = reference::collected(&before, &reference_roots);
+                assert_eq!(after, expected, "store {code:#x} under roots {mask:#b}");
+                assert_eq!(
+                    collection
+                        .journals
+                        .iter()
+                        .map(|run| reference::Digest(run.0))
+                        .collect::<BTreeSet<_>>(),
+                    before
+                        .journals
+                        .keys()
+                        .filter(|run| !expected.journals.contains_key(*run))
+                        .copied()
+                        .collect::<BTreeSet<_>>()
+                );
+                assert_eq!(
+                    u64::try_from(collection.removed.len()).expect("count"),
+                    u64::try_from(before.artifacts.len() - after.artifacts.len()).expect("count")
+                );
+                assert_eq!(collection.kept, after.artifacts.len());
+                for (key, bytes) in &reads {
+                    let Ok(now) = store.read(key);
+                    if roots.contains(&key.run) {
+                        assert_eq!(&now, bytes, "a reachable artifact keeps its bytes");
+                    } else {
+                        assert_eq!(now, None);
+                    }
+                }
+                let Ok(again) = collect_garbage(&mut store, &roots);
+                assert!(again.journals.is_empty() && again.removed.is_empty());
+                cases += 1;
+                removed += u64::try_from(collection.removed.len()).expect("count");
+            }
+        }
+        println!("segment collection: cases={cases} removed={removed}");
+        assert_eq!(cases, COLLECTION_CASES);
+        assert_eq!(removed, COLLECTION_REMOVED);
+    }
+
+    /// The carrier's case count: `4^2` states of the two keys of each of
+    /// three runs, under each of the `2^3` sets of roots.
+    const COLLECTION_CASES: u64 = 16 * 16 * 16 * 8;
+
+    /// The artifacts the carrier's collections remove, derived apart from
+    /// it: a key in one of its four states holds `0`, `1`, `1` or `2`
+    /// artifacts (none, staged, committed, both), `4` over the states; under
+    /// a root its staged copy is removed (`2` over the states), and otherwise
+    /// all are (`4`). Each of the `3 * 2 = 6` keys, over the `4^5` states of
+    /// the other keys and the `4` root sets containing its run and the `4`
+    /// that do not: `6 * 4^5 * (4 * 2 + 4 * 4) = 147,456`.
+    const COLLECTION_REMOVED: u64 = 6 * 1024 * (4 * 2 + 4 * 4);
+
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(256))]
+
+        /// Generated sequences of stages and commits over three runs and two
+        /// artifacts each, under generated roots, collect to the reference's
+        /// contents.
+        #[test]
+        fn collection_keeps_exactly_what_the_roots_reach_on_generated_stores(
+            ops in proptest::collection::vec((0_usize..3, 0_usize..2, proptest::bool::ANY, 0_u8..4), 0..24),
+            mask in 0_u32..8,
+        ) {
+            let mut store = MemoryStore::default();
+            for (run, key, commit, byte) in ops {
+                let (task, kind) = KEYS[key];
+                let key = ArtifactKey { run: RUNS[run], task, kind };
+                if commit {
+                    let Ok(()) = store.commit(
+                        &key,
+                        &TaskRecord {
+                            inputs: Digest([byte; 32]),
+                            output: Digest([byte; 32]),
+                            bytes: 1,
+                        },
+                    );
+                } else {
+                    let Ok(()) = store.stage(&key, vec![byte]);
+                }
+            }
+            let roots: BTreeSet<Digest> = RUNS
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| mask & (1 << i) != 0)
+                .map(|(_, run)| *run)
+                .collect();
+            let reference_roots: BTreeSet<reference::Digest> =
+                roots.iter().map(|run| reference::Digest(run.0)).collect();
+            let before = contents(&store);
+            let Ok(_) = collect_garbage(&mut store, &roots);
+            proptest::prop_assert_eq!(contents(&store), reference::collected(&before, &reference_roots));
+        }
+    }
+
+    /// A run stopped at each cancellation point, beside a complete run of
+    /// another lens, resumes after collection from its own run alone to
+    /// the uninterrupted run, reusing every task it committed, while the
+    /// other run's journal and artifacts are gone; collected from no root,
+    /// it recomputes every task and ends the same.
+    #[test]
+    fn a_stopped_run_resumes_after_collection_from_its_own_run() {
+        let tables = segmented_table_restrict_tables();
+        let partitions = segmented_table_restrict_partitions();
+        let (mut cases, mut points) = (0_u64, 0_u64);
+        let mut index = 0_usize;
+        for lens_index in 0..LENSES.len() {
+            let pair = lens(lens_index);
+            let other = lens((lens_index + 1) % LENSES.len());
+            for table in &tables {
+                for partition in &partitions {
+                    index += 1;
+                    if !index.is_multiple_of(389) {
+                        continue;
+                    }
+                    cases += 1;
+                    let input = input(table, partition);
+                    let mut fresh = MemoryStore::default();
+                    let baseline = run(&pair, &input, Budget::unlimited(), &mut fresh, None);
+                    let finished = baseline.report.progress.tasks_done;
+                    for cancel in 0..=baseline.report.progress.tasks_total {
+                        points += 1;
+                        for keep in [true, false] {
+                            let mut store = MemoryStore::default();
+                            let stopped =
+                                run(&pair, &input, Budget::unlimited(), &mut store, Some(cancel));
+                            let junk = run(&other, &input, Budget::unlimited(), &mut store, None);
+                            let roots: BTreeSet<Digest> = if keep {
+                                stopped.run.into_iter().collect()
+                            } else {
+                                BTreeSet::new()
+                            };
+                            let Ok(_) = collect_garbage(&mut store, &roots);
+                            if let Some(junk) = junk.run {
+                                let Ok(journal) = store.journal(&junk);
+                                assert!(journal.tasks.is_empty());
+                            }
+                            let resumed = run(&pair, &input, Budget::unlimited(), &mut store, None);
+                            assert_eq!(
+                                resumed.report.tasks_reused,
+                                if keep { cancel.min(finished) } else { 0 }
+                            );
+                            assert_eq!(
+                                format!("{:?}", resumed.report.status),
+                                format!("{:?}", baseline.report.status)
+                            );
+                            assert_eq!(
+                                resumed.manifest.as_ref().map(SegmentManifest::digest),
+                                baseline.manifest.as_ref().map(SegmentManifest::digest)
+                            );
+                            if let (RunStatus::Complete { .. }, Some(identity)) =
+                                (&resumed.report.status, resumed.run)
+                            {
+                                let Ok(_) =
+                                    collect_garbage(&mut store, &BTreeSet::from([identity]));
+                                for spec in input.partition.specs() {
+                                    assert_eq!(
+                                        read_emitted_segment(
+                                            &store,
+                                            identity,
+                                            &input.partition,
+                                            spec.id
+                                        )
+                                        .expect("a root's emitted segment survives")
+                                        .1,
+                                        read_emitted_segment(
+                                            &fresh,
+                                            baseline.run.expect("a run"),
+                                            &input.partition,
+                                            spec.id
+                                        )
+                                        .expect("emitted")
+                                        .1
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        println!("collection resumption: cases={cases} points={points}");
+        assert_eq!(cases, 741 * 15 * 6 / 389);
+    }
+}
+
+/// The segmented graph edit lens after its store is collected from its live
+/// runs translates as the uncollected lens does.
+mod segmented_graph_edit_lens_collection {
+    use std::collections::BTreeSet;
+
+    use panproto_inst::identity::ComplementShape;
+    use panproto_inst::segment::CollectableStore;
+    use panproto_reference::enumerate::edits::graph_edit_lens_letters;
+    use panproto_reference::enumerate::segments::segmented_restrict_cases;
+
+    use super::graph_edit_lens_differential::prod_delta;
+    use super::segmented_graph_edit_lens::{Case, bind, production_state, with_spare};
+    use super::{BOUNDED_LENS_FIELD, BOUNDED_LENS_VALUE};
+
+    /// Every 97th case of the segmented restriction carrier, bound, takes
+    /// up to three admitted source letters in turn on two copies of the
+    /// lens, one collected after every step: each step translates alike,
+    /// every segment of the two is byte for byte the same, and the collected
+    /// store holds journals and artifacts of the live runs only.
+    #[test]
+    fn a_collected_segmented_graph_edit_lens_translates_as_the_uncollected_one() {
+        let (mut cases, mut steps) = (0_u64, 0_u64);
+        for case in segmented_restrict_cases().step_by(97) {
+            let partition = with_spare(&case.partition, 3);
+            let edit_case = Case {
+                schema: &case.schema,
+                migration: &case.migration,
+                partition: &partition,
+            };
+            let Some((production, _, _)) = bind(&edit_case, &case.graph) else {
+                continue;
+            };
+            cases += 1;
+            let view_schema = edit_case
+                .lens()
+                .identity(ComplementShape::Graph)
+                .target_schema;
+            let (mut kept, mut collected) = (production.clone(), production);
+            let letters = graph_edit_lens_letters(
+                &case.schema,
+                &case.graph,
+                BOUNDED_LENS_FIELD,
+                &BOUNDED_LENS_VALUE,
+            );
+            let mut taken = 0;
+            for letter in &letters {
+                if taken == 3 {
+                    break;
+                }
+                let edit = prod_delta(letter);
+                let mut trial = kept.clone();
+                let Ok(expected) = trial.get_edit(&edit) else {
+                    continue;
+                };
+                let produced = collected
+                    .get_edit(&edit)
+                    .expect("the collected lens admits what the uncollected one does");
+                assert_eq!(produced, expected);
+                kept = trial;
+                collected
+                    .segmented_state()
+                    .collect_garbage()
+                    .expect("the memory store collects");
+                assert_eq!(
+                    production_state(&collected, view_schema),
+                    production_state(&kept, view_schema)
+                );
+                let state = collected.segmented_state();
+                let live = state.live_runs();
+                let store = state.store();
+                let Ok(journaled) = store.journaled();
+                let Ok(stored) = store.stored();
+                assert!(journaled.iter().all(|run| live.contains(run)));
+                assert!(
+                    stored
+                        .iter()
+                        .map(|(key, _)| key.run)
+                        .collect::<BTreeSet<_>>()
+                        .is_subset(&live)
+                );
+                taken += 1;
+                steps += 1;
+            }
+        }
+        println!("collected edit lens: cases={cases} steps={steps}");
+        assert_eq!(cases, 1_163);
+        assert!(steps > 0);
+    }
+}
+
+/// Segmented tree get against its reference definition and whole-state
+/// tree get.
+mod segmented_tree_get {
+    use std::collections::{BTreeMap, BTreeSet, HashMap};
+
+    use panproto_inst::identity::{ComplementShape, Digest};
+    use panproto_inst::segment::{
+        AnySegment, Budget, EdgeIdRun, IdRange, ManifestHeader, ManifestRole, MemoryStore,
+        Partition, RecordSource, Residual, RunIncompleteReason, RunStatus, SegmentId,
+        SegmentManifest, SegmentRecord, SegmentSpec, SegmentedRestrictError, SegmentedRun,
+        TreeComplementSegment, TreeSegment, assemble_tree, partition_tree, read_emitted_segment,
+        seal_full,
+    };
+    use panproto_inst::{
+        EdgeId, FanEmbedding, InstanceShapeKind, SynthKey, TreeEmbedding, WInstance,
+    };
+    use panproto_lens::tree_lens;
+    use panproto_reference::encode::TreeEmbedding as RefTreeEmbedding;
+    use panproto_reference::enumerate::segments::{
+        segmented_tree_restrict_case_counts, segmented_tree_restrict_lenses,
+        segmented_tree_restrict_partitions, segmented_tree_restrict_schema,
+        segmented_tree_restrict_trees,
+    };
+    use panproto_reference::model::Tree as RefTree;
+    use panproto_reference::segment as reference;
+    use proptest::prelude::*;
+
+    use super::{
+        Pair, Reason, TreeResidue, lens_reason, prod_tree, ref_edge, ref_fields, ref_node,
+        ref_presence, ref_restrict_reason, ref_synth_key, ref_tree, restrict_reason,
+    };
+
+    /// The schema digest of a sealed source family.
+    const SOURCE_SCHEMA: [u8; 32] = [13; 32];
+
+    /// The lens of the carrier at `index`.
+    fn lens(index: usize) -> Pair {
+        let (_, target, migration) = segmented_tree_restrict_lenses().swap_remove(index);
+        Pair::new(segmented_tree_restrict_schema(), target, migration)
+    }
+
+    /// The production partition of a reference tree partition.
+    fn prod_partition(partition: &reference::Partition) -> Partition {
+        let range = |r: &reference::IdRange| IdRange { lo: r.lo, hi: r.hi };
+        Partition::new(
+            InstanceShapeKind::Tree,
+            partition
+                .specs
+                .iter()
+                .map(|spec| SegmentSpec {
+                    id: SegmentId(spec.id.0),
+                    nodes: spec.nodes.iter().map(range).collect(),
+                    alloc_nodes: spec.alloc_nodes.as_ref().map(range),
+                    alloc_edges: spec.alloc_edges.as_ref().map(range),
+                })
+                .collect(),
+        )
+    }
+
+    /// The production embedding of a reference embedding.
+    fn prod_embedding(embedding: &RefTreeEmbedding) -> TreeEmbedding {
+        TreeEmbedding {
+            arcs: embedding
+                .arcs
+                .iter()
+                .map(|(child, id)| (*child, EdgeId(*id)))
+                .collect(),
+            fans: embedding
+                .fans
+                .iter()
+                .map(|(node, parent, children)| FanEmbedding {
+                    node: *node,
+                    parent_edge: EdgeId(*parent),
+                    child_edges: children
+                        .iter()
+                        .map(|(label, id)| (label.clone(), EdgeId(*id)))
+                        .collect(),
+                })
+                .collect(),
+            next_node: embedding.next_node,
+            next_edge: embedding.next_edge,
+        }
+    }
+
+    /// A sealed source family.
+    struct Input {
+        manifest: SegmentManifest,
+        bytes: BTreeMap<SegmentId, Vec<u8>>,
+        partition: Partition,
+        tree: WInstance,
+        embedding: TreeEmbedding,
+    }
+
+    fn input(
+        (tree, embedding): (&RefTree, &RefTreeEmbedding),
+        partition: &reference::Partition,
+    ) -> Input {
+        let partition = prod_partition(partition);
+        let tree = prod_tree(tree);
+        let embedding = prod_embedding(embedding);
+        let segments: Vec<AnySegment> = partition_tree(&tree, &embedding, &partition)
+            .expect("production split")
+            .into_iter()
+            .map(AnySegment::Tree)
+            .collect();
+        let schema = Digest(SOURCE_SCHEMA);
+        let records = segments
+            .iter()
+            .zip(partition.specs())
+            .map(|(segment, spec)| SegmentRecord::of(segment, spec, &schema))
+            .collect();
+        let runs: Vec<EdgeIdRun<'_>> = segments
+            .iter()
+            .map(|segment| {
+                (
+                    segment.segment(),
+                    Box::new(segment.edge_id_run().into_iter()) as Box<dyn Iterator<Item = EdgeId>>,
+                )
+            })
+            .collect();
+        let sources = segments
+            .iter()
+            .map(|segment| Box::new(segment.records()) as Box<dyn RecordSource + '_>)
+            .collect();
+        let manifest = seal_full(
+            records,
+            ManifestHeader {
+                shape: InstanceShapeKind::Tree,
+                schema,
+                role: ManifestRole::Source,
+                binding: None,
+            },
+            runs,
+            sources,
+        )
+        .expect("the carrier seals");
+        let bytes = segments
+            .iter()
+            .map(|segment| {
+                (
+                    segment.segment(),
+                    segment
+                        .canonical_bytes(&schema, &partition)
+                        .expect("canonical bytes"),
+                )
+            })
+            .collect();
+        Input {
+            manifest,
+            bytes,
+            partition,
+            tree,
+            embedding,
+        }
+    }
+
+    fn run(
+        pair: &Pair,
+        input: &Input,
+        store: &mut MemoryStore,
+        cancel: Option<u32>,
+    ) -> SegmentedRun<SegmentedRestrictError> {
+        tree_lens::get_segmented(
+            &pair.production,
+            (&input.manifest, input.manifest.digest()),
+            &input.bytes,
+            Budget::unlimited(),
+            store,
+            cancel,
+        )
+        .expect("the lens's plan compiles")
+    }
+
+    /// The outcome census of the carrier.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    struct Counts {
+        complete: u64,
+        refused: u64,
+        contracted: u64,
+        expanded: u64,
+        outside: u64,
+    }
+
+    /// The whole-state tree key of a graph-form key: an expanded arc named
+    /// by its position in the source's arc order rather than its edge id.
+    fn tree_key(key: &SynthKey, embedding: &TreeEmbedding, tree: &WInstance) -> SynthKey {
+        match key {
+            SynthKey::Expand { source_edge, hop } => {
+                let index = tree
+                    .arcs
+                    .iter()
+                    .position(|(_, child, _)| embedding.arcs.get(child) == Some(source_edge))
+                    .expect("an expanded arc of the source");
+                SynthKey::Expand {
+                    source_edge: EdgeId(u32::try_from(index).expect("an arc index")),
+                    hop: *hop,
+                }
+            }
+            other => other.clone(),
+        }
+    }
+
+    /// Glue a complete run's views and complements and compare them, with
+    /// the synthesized nodes renamed by key as whole-state get numbers them,
+    /// with whole-state tree get of the glued source.
+    fn compare_whole(
+        pair: &Pair,
+        input: &Input,
+        views: Vec<TreeSegment>,
+        complements: &[TreeComplementSegment],
+    ) -> (bool, bool) {
+        let (whole_view, whole) =
+            panproto_lens::get(&pair.production, &input.tree).expect("whole-state get accepts");
+        let view_arcs: BTreeMap<EdgeId, (u32, u32)> = views
+            .iter()
+            .flat_map(|view| {
+                view.arcs
+                    .iter()
+                    .map(|(id, (src, tgt, _))| (*id, (*src, *tgt)))
+            })
+            .collect();
+        let (glued, _) = assemble_tree(views, &input.partition).expect("the views assemble");
+        let by_key: BTreeMap<SynthKey, u32> = whole
+            .synthesized_keys
+            .iter()
+            .map(|(id, key)| (key.clone(), *id))
+            .collect();
+        let mut rename: HashMap<u32, u32> = HashMap::new();
+        let mut synthesized = BTreeMap::new();
+        let mut edge_keys: BTreeMap<(u32, u32), SynthKey> = BTreeMap::new();
+        for complement in complements {
+            for (id, key) in &complement.graph.synthesized_nodes {
+                let key = tree_key(key, &input.embedding, &input.tree);
+                let whole_id = by_key[&key];
+                rename.insert(*id, whole_id);
+                synthesized.insert(whole_id, ref_synth_key(&key));
+            }
+        }
+        let node = |id: u32| rename.get(&id).copied().unwrap_or(id);
+        for complement in complements {
+            for (id, key) in &complement.graph.synthesized_edges {
+                let (src, tgt) = view_arcs[id];
+                edge_keys.insert(
+                    (node(src), node(tgt)),
+                    tree_key(key, &input.embedding, &input.tree),
+                );
+            }
+        }
+        let renamed = WInstance::new(
+            glued
+                .nodes
+                .iter()
+                .map(|(id, held)| {
+                    let mut held = held.clone();
+                    held.id = node(*id);
+                    (node(*id), held)
+                })
+                .collect(),
+            {
+                let mut arcs: Vec<(Option<SynthKey>, u32, u32, panproto_schema::Edge)> = glued
+                    .arcs
+                    .iter()
+                    .map(|(p, c, e)| {
+                        let pair = (node(*p), node(*c));
+                        (edge_keys.get(&pair).cloned(), pair.0, pair.1, e.clone())
+                    })
+                    .collect();
+                arcs.sort_by(|a, b| match (&a.0, &b.0) {
+                    (None, None) => std::cmp::Ordering::Equal,
+                    (None, Some(_)) => std::cmp::Ordering::Less,
+                    (Some(_), None) => std::cmp::Ordering::Greater,
+                    (Some(x), Some(y)) => x.cmp(y),
+                });
+                arcs.into_iter().map(|(_, p, c, e)| (p, c, e)).collect()
+            },
+            glued.fans.clone(),
+            glued.root,
+            glued.schema_root.clone(),
+        );
+        assert_eq!(ref_tree(&renamed), ref_tree(&whole_view), "the glued view");
+        let source_pairs: BTreeSet<(u32, u32)> =
+            input.tree.arcs.iter().map(|(p, c, _)| (*p, *c)).collect();
+        let child_of: BTreeMap<EdgeId, (u32, u32)> = input
+            .tree
+            .arcs
+            .iter()
+            .map(|(p, c, _)| (input.embedding.arcs[c], (*p, *c)))
+            .collect();
+        let mut dropped_arcs = Vec::new();
+        let mut dropped_nodes = BTreeMap::new();
+        let mut arc_order = BTreeMap::new();
+        let mut residue = TreeResidue {
+            dropped_nodes: BTreeMap::new(),
+            dropped_arcs: Vec::new(),
+            contraction_choices: renamed
+                .arcs
+                .iter()
+                .filter(|(p, c, _)| !source_pairs.contains(&(*p, *c)))
+                .map(|(p, c, e)| ((*p, *c), ref_edge(e)))
+                .collect(),
+            arc_order: Vec::new(),
+            original_anchors: BTreeMap::new(),
+            original_fields: BTreeMap::new(),
+            original_values: BTreeMap::new(),
+            synthesized,
+            floor: whole.id_floor,
+        };
+        for complement in complements {
+            let graph = &complement.graph;
+            for (id, held) in &graph.dropped_nodes {
+                if held.shape != panproto_inst::NodeShape::HyperEdge {
+                    dropped_nodes.insert(*id, ref_node(held));
+                }
+            }
+            for edge in graph.dropped_edges.values() {
+                // A tree complement lists a dropped arc only when an
+                // endpoint is dropped; the graph form also drops the
+                // source arc an expansion replaces.
+                let expanded =
+                    renamed.nodes.contains_key(&edge.src) && renamed.nodes.contains_key(&edge.tgt);
+                if edge.edge.kind != panproto_inst::HYPER_PARENT_KIND
+                    && edge.edge.kind != panproto_inst::HYPER_LABEL_KIND
+                    && !expanded
+                {
+                    dropped_arcs.push((edge.src, edge.tgt, ref_edge(&edge.edge)));
+                }
+            }
+            for id in &complement.arc_order {
+                arc_order.insert(*id, child_of[id]);
+            }
+            for (id, anchor) in &graph.original_anchors {
+                residue.original_anchors.insert(*id, anchor.to_string());
+            }
+            for (id, fields) in &graph.original_extra_fields {
+                let fields: HashMap<String, panproto_inst::Value> =
+                    fields.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+                residue.original_fields.insert(*id, ref_fields(&fields));
+            }
+            for (id, value) in &graph.original_values {
+                residue
+                    .original_values
+                    .insert(*id, value.as_ref().map(ref_presence));
+            }
+        }
+        dropped_arcs.sort();
+        residue.dropped_nodes = dropped_nodes;
+        residue.dropped_arcs = dropped_arcs;
+        residue.arc_order = arc_order.into_values().collect();
+        assert_eq!(
+            residue,
+            super::production_tree_residue(&whole),
+            "the glued complement"
+        );
+        let original_arcs: BTreeSet<(u32, u32)> = complements
+            .iter()
+            .flat_map(|complement| {
+                complement
+                    .graph
+                    .original_edges
+                    .values()
+                    .map(|edge| (edge.src, edge.tgt))
+            })
+            .collect();
+        let kept: BTreeSet<(u32, u32)> = whole
+            .arc_edges
+            .keys()
+            .copied()
+            .filter(|pair| !whole.contraction_choices.contains_key(pair))
+            .filter(|pair| renamed.arcs.iter().any(|(p, c, _)| (*p, *c) == *pair))
+            .collect();
+        assert_eq!(original_arcs, kept, "the recorded arc labels");
+        (
+            whole
+                .synthesized_keys
+                .values()
+                .any(|key| matches!(key, SynthKey::Expand { .. })),
+            complements.iter().any(|complement| {
+                complement
+                    .graph
+                    .synthesized_edges
+                    .values()
+                    .any(|key| matches!(key, SynthKey::Contract { .. }))
+            }),
+        )
+    }
+
+    fn emitted(
+        store: &MemoryStore,
+        run: &SegmentedRun<SegmentedRestrictError>,
+        partition: &Partition,
+    ) -> Vec<(AnySegment, Vec<u8>)> {
+        let identity = run.run.expect("a run identity");
+        partition
+            .specs()
+            .iter()
+            .map(|spec| {
+                read_emitted_segment(store, identity, partition, spec.id).expect("emitted segment")
+            })
+            .collect()
+    }
+
+    /// Check the law on one case: a complete run's segments are, byte for
+    /// byte, the reference definition's, and glued they are whole-state
+    /// tree get; a refusal is whole-state get's, in the segment the
+    /// reference names.
+    fn check_case(
+        pair: &Pair,
+        (tree, embedding): (&RefTree, &RefTreeEmbedding),
+        partition: &reference::Partition,
+        counts: &mut Counts,
+    ) -> SegmentedRun<SegmentedRestrictError> {
+        let input = input((tree, embedding), partition);
+        let mut store = MemoryStore::default();
+        let baseline = run(pair, &input, &mut store, None);
+        let segments =
+            reference::partition_tree(tree, embedding, partition).expect("reference split");
+        let expected = pair.with_reference(|lens| {
+            reference::restrict_tree_segmented(
+                lens.expect("the plan compiles"),
+                &segments,
+                partition,
+            )
+        });
+        let whole = panproto_lens::get(&pair.production, &input.tree);
+        let view_schema = pair
+            .production
+            .identity(ComplementShape::WType)
+            .target_schema;
+        match (&baseline.report.status, expected) {
+            (RunStatus::Complete { manifest }, expected) => {
+                assert_eq!(
+                    Some(*manifest),
+                    baseline.manifest.as_ref().map(SegmentManifest::digest)
+                );
+                let output = emitted(&store, &baseline, &input.partition);
+                let outside = matches!(
+                    expected,
+                    Err(reference::SegmentedTreeRestrictRefusal::OutsideDomain)
+                );
+                let expected = if outside {
+                    None
+                } else {
+                    Some(expected.unwrap_or_else(|refusal| {
+                        panic!("the reference refuses {tree:?} under {partition:?}: {refusal:?}")
+                    }))
+                };
+                let mut views = Vec::new();
+                let mut complements = Vec::new();
+                for (position, (spec, (view, bytes))) in
+                    input.partition.specs().iter().zip(&output).enumerate()
+                {
+                    let decoded = TreeComplementSegment::from_canonical_bytes(bytes, spec.id)
+                        .expect("the emitted complement decodes");
+                    assert_eq!(&decoded.canonical_bytes().expect("bytes"), bytes);
+                    if let Some(expected) = &expected {
+                        let (expected_view, expected_complement) = &expected[position];
+                        assert_eq!(
+                            view.canonical_bytes(&view_schema, &input.partition)
+                                .expect("view bytes"),
+                            reference::canonical_segment_bytes(
+                                &reference::AnySegment::Tree(expected_view.clone()),
+                                reference::Digest(view_schema.0),
+                                partition,
+                            )
+                            .expect("reference view bytes"),
+                            "view segment {position} of {tree:?} under {partition:?} by {:?}",
+                            pair.production.compiled
+                        );
+                        assert_eq!(
+                            *bytes,
+                            reference::canonical_complement_segment_bytes(
+                                &reference::AnyComplementSegment::Tree(expected_complement.clone()),
+                            )
+                            .expect("reference complement bytes"),
+                            "complement segment {position} of {tree:?} under {partition:?} by {:?}",
+                            pair.production.compiled
+                        );
+                    }
+                    let AnySegment::Tree(view) = view.clone() else {
+                        panic!("a tree view segment");
+                    };
+                    views.push(view);
+                    complements.push(decoded);
+                }
+                let (expanded, contracted) = compare_whole(pair, &input, views, &complements);
+                counts.complete += 1;
+                counts.outside += u64::from(outside);
+                counts.expanded += u64::from(expanded);
+                counts.contracted += u64::from(contracted);
+            }
+            (
+                RunStatus::Failed(SegmentedRestrictError::Restrict { segment, error }),
+                Err(reference::SegmentedTreeRestrictRefusal::Restrict {
+                    segment: expected_segment,
+                    error: expected,
+                }),
+            ) => {
+                let expected = match &expected {
+                    super::RefRestrictError::At { error, .. } => super::ref_engine_reason(error),
+                    other => ref_restrict_reason(other),
+                };
+                assert_eq!(
+                    restrict_reason(error),
+                    expected,
+                    "refusal of {tree:?} under {partition:?}"
+                );
+                assert_eq!(
+                    whole.map(|_| ()).map_err(|refusal| lens_reason(&refusal)),
+                    Err(Reason::Restrict(expected))
+                );
+                assert_eq!(segment.0, expected_segment.0, "the refusing segment");
+                counts.refused += 1;
+            }
+            (status, expected) => panic!(
+                "segmented tree get disagrees on {tree:?} under {partition:?}: {status:?} / {expected:?}"
+            ),
+        }
+        baseline
+    }
+
+    /// Stopping the run at every cancellation point and resuming it against
+    /// the same store ends as `baseline`, reusing every committed task.
+    fn check_resumption(
+        pair: &Pair,
+        input: &Input,
+        baseline: &SegmentedRun<SegmentedRestrictError>,
+    ) -> u64 {
+        let finished = baseline.report.progress.tasks_done;
+        let mut points = 0;
+        for cancel in 0..=baseline.report.progress.tasks_total {
+            points += 1;
+            let mut store = MemoryStore::default();
+            let stopped = run(pair, input, &mut store, Some(cancel));
+            assert_eq!(stopped.run, baseline.run, "run identity");
+            if cancel < finished {
+                assert!(
+                    matches!(
+                        stopped.report.status,
+                        RunStatus::Incomplete {
+                            reason: RunIncompleteReason::Cancelled
+                        }
+                    ),
+                    "{:?}",
+                    stopped.report.status
+                );
+            }
+            let resumed = run(pair, input, &mut store, None);
+            assert_eq!(resumed.report.tasks_reused, cancel.min(finished));
+            assert_eq!(
+                format!("{:?}", resumed.report.status),
+                format!("{:?}", baseline.report.status)
+            );
+            assert_eq!(
+                resumed.manifest.as_ref().map(SegmentManifest::digest),
+                baseline.manifest.as_ref().map(SegmentManifest::digest)
+            );
+        }
+        points
+    }
+
+    /// The carrier census is the closed form.
+    #[test]
+    fn segmented_tree_get_carrier_census_is_the_closed_form() {
+        let (trees, partitions, lenses, cases) = segmented_tree_restrict_case_counts();
+        assert_eq!(
+            u64::try_from(segmented_tree_restrict_trees().len()).expect("count"),
+            trees
+        );
+        assert_eq!(trees, 42);
+        assert_eq!(
+            u64::try_from(segmented_tree_restrict_partitions().len()).expect("count"),
+            partitions
+        );
+        assert_eq!(
+            u64::try_from(segmented_tree_restrict_lenses().len()).expect("count"),
+            lenses
+        );
+        assert_eq!(cases, 3_780);
+    }
+
+    /// The pinned outcome census of the exhaustive differential, derived
+    /// apart from it. Of the `42` trees, `21` are rooted at `b` and `21` at
+    /// `a`. The identity, the lens dropping the edge `ab` (which removes the
+    /// subtree below each such arc and lies outside the reference's tree
+    /// lens domain) and the expanding lens complete on every tree; the
+    /// lenses dropping `b` refuse the `21` trees rooted at `b` with
+    /// `RootPruned`, and the lens dropping `a` the `21` rooted at `a`. A
+    /// contraction needs the chain `0 -> 1 -> 2` anchored `a, b, a` (or `b,
+    /// a, b` when `a` is dropped), two trees with and without the fan: the
+    /// lenses resolving the pair contract them, and the lens with two `aa`
+    /// edges refuses them as ambiguous. An expansion needs an arc from `a`
+    /// to `b`: one anchoring of `0 -> 1`, three of the star and four of the
+    /// chain, each with and without the fan, `16` trees. Under `15`
+    /// partitions: `(42 * 3 + 21 * 2 + 19) * 15 = 2,805` complete,
+    /// `(21 * 2 + 23) * 15 = 975` refused, `4 * 15 = 60` contracted,
+    /// `16 * 15 = 240` expanded and `42 * 15 = 630` outside the reference's
+    /// domain.
+    const SEGMENTED_TREE_GET_COUNTS: Counts = Counts {
+        complete: 2_805,
+        refused: 975,
+        contracted: 60,
+        expanded: 240,
+        outside: 630,
+    };
+
+    /// Every case of the carrier agrees with the reference definition
+    /// segment by segment and glues to whole-state tree get, or refuses as
+    /// it does in the segment the reference names.
+    #[test]
+    fn segmented_tree_get_agrees_with_the_reference_on_every_case() {
+        let trees = segmented_tree_restrict_trees();
+        let partitions = segmented_tree_restrict_partitions();
+        let mut counts = Counts::default();
+        for index in 0..segmented_tree_restrict_lenses().len() {
+            let pair = lens(index);
+            for (tree, embedding) in &trees {
+                for partition in &partitions {
+                    check_case(&pair, (tree, embedding), partition, &mut counts);
+                }
+            }
+        }
+        println!("segmented tree get: {counts:?}");
+        assert_eq!(
+            counts.complete + counts.refused,
+            segmented_tree_restrict_case_counts().3
+        );
+        assert_eq!(counts, SEGMENTED_TREE_GET_COUNTS);
+    }
+
+    /// Every 17th case of the carrier, stopped at each cancellation point
+    /// and resumed, ends as the uninterrupted run.
+    #[test]
+    fn segmented_tree_get_resumes_from_every_cancellation_point() {
+        let trees = segmented_tree_restrict_trees();
+        let partitions = segmented_tree_restrict_partitions();
+        let mut cases = 0_u64;
+        let mut points = 0_u64;
+        let mut counts = Counts::default();
+        let mut index = 0_usize;
+        for lens_index in 0..segmented_tree_restrict_lenses().len() {
+            let pair = lens(lens_index);
+            for (tree, embedding) in &trees {
+                for partition in &partitions {
+                    index += 1;
+                    if !index.is_multiple_of(17) {
+                        continue;
+                    }
+                    let baseline = check_case(&pair, (tree, embedding), partition, &mut counts);
+                    points +=
+                        check_resumption(&pair, &input((tree, embedding), partition), &baseline);
+                    cases += 1;
+                }
+            }
+        }
+        println!("segmented tree get resumption: cases={cases} points={points}");
+        assert_eq!(cases, 3_780 / 17);
+    }
+
+    /// A lens whose survival carries a predicate is declined with a global
+    /// residual before any task.
+    #[test]
+    fn segmented_tree_get_declines_an_expression_before_any_task() {
+        let mut pair = lens(0);
+        pair.production.compiled.conditional_survival.insert(
+            "a".into(),
+            panproto_expr::Expr::Lit(panproto_expr::Literal::Bool(true)),
+        );
+        let trees = segmented_tree_restrict_trees();
+        let (tree, embedding) = trees.last().expect("a tree");
+        let partitions = segmented_tree_restrict_partitions();
+        let input = input((tree, embedding), &partitions[partitions.len() - 1]);
+        let mut store = MemoryStore::default();
+        let declined = run(&pair, &input, &mut store, None);
+        assert!(
+            matches!(
+                declined.report.status,
+                RunStatus::Residual(Residual::Global { .. })
+            ),
+            "{:?}",
+            declined.report.status
+        );
+        assert_eq!(declined.report.progress.tasks_done, 0);
+    }
+
+    /// A generated tree: node `i` below node `parents[i - 1] % i`, anchored
+    /// at `b` when `anchors[i]` is odd, with the fan of `h` from the root to
+    /// the last node when `fan` holds and the tree has two nodes or more.
+    fn generated_tree(parents: &[u8], anchors: &[bool], fan: bool) -> RefTree {
+        use panproto_reference::enumerate::lenses::bounded_lens_edge;
+        let n = u32::try_from(parents.len()).expect("small") + 1;
+        let anchor = |id: u32| if anchors[id as usize] { "b" } else { "a" };
+        RefTree {
+            nodes: (0..n)
+                .map(|id| (id, panproto_reference::model::Node::new(id, anchor(id))))
+                .collect(),
+            arcs: (1..n)
+                .map(|child| {
+                    let parent = u32::from(parents[(child - 1) as usize]) % child;
+                    (
+                        parent,
+                        child,
+                        bounded_lens_edge(anchor(parent), anchor(child)),
+                    )
+                })
+                .collect(),
+            fans: if fan && n > 1 {
+                vec![panproto_reference::model::Fan {
+                    parent: 0,
+                    hyper_edge: "h".to_owned(),
+                    children: BTreeMap::from([("l".to_owned(), n - 1)]),
+                }]
+            } else {
+                Vec::new()
+            },
+            root: 0,
+        }
+    }
+
+    /// A generated partition of the ids `0` to `7` into up to three
+    /// segments, each allocating from its own range above them.
+    fn generated_partition(owners: &[u8]) -> reference::Partition {
+        let segments = owners
+            .iter()
+            .map(|owner| u32::from(*owner % 3))
+            .max()
+            .unwrap_or(0)
+            + 1;
+        reference::Partition {
+            shape: reference::InstanceShapeKind::Tree,
+            specs: (0..segments)
+                .map(|segment| {
+                    let range = reference::IdRange {
+                        lo: 10 + 10 * segment,
+                        hi: 19 + 10 * segment,
+                    };
+                    reference::SegmentSpec {
+                        id: reference::SegmentId(segment),
+                        nodes: (0_u32..)
+                            .zip(owners)
+                            .filter(|(_, owner)| u32::from(**owner % 3) == segment)
+                            .map(|(id, _)| reference::IdRange { lo: id, hi: id })
+                            .chain(std::iter::once(range))
+                            .collect(),
+                        alloc_nodes: Some(range),
+                        alloc_edges: Some(range),
+                    }
+                })
+                .collect(),
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        /// Generated trees of up to seven nodes, with and without a fan,
+        /// under generated partitions into up to three segments, by every
+        /// lens of the carrier.
+        #[test]
+        fn segmented_tree_get_agrees_with_the_reference_on_generated_trees(
+            parents in prop::collection::vec(0_u8..8, 0..7),
+            anchors in prop::collection::vec(any::<bool>(), 7),
+            fan in any::<bool>(),
+            owners in prop::collection::vec(0_u8..3, 8),
+            lens_index in 0_usize..6,
+        ) {
+            let tree = generated_tree(&parents, &anchors, fan);
+            let (_, embedding) = panproto_reference::encode::tree_to_graph(&tree, None)
+                .expect("a generated tree encodes");
+            let partition = generated_partition(&owners);
+            let mut counts = Counts::default();
+            check_case(&lens(lens_index), (&tree, &embedding), &partition, &mut counts);
         }
     }
 }

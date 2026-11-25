@@ -9,7 +9,11 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use panproto_gat::Name;
 use panproto_inst::identity::{
-    ComplementShape, IdentityCarrier, IdentityPolicy, IdentityStatus, compose_identities,
+    ComplementShape, Digest, IdentityCarrier, IdentityPolicy, IdentityStatus, compose_identities,
+};
+use panproto_inst::segment::{
+    Budget, RunSpec, SegmentManifest, SegmentSource, SegmentStore, SegmentedRestrictError,
+    SegmentedRun, TableRestrict, run_segmented,
 };
 use panproto_inst::{
     BoundaryProtocols, CellFate, CellPlan, CheckKind, EntityFunctor, FInstance, FieldTransform,
@@ -26,6 +30,10 @@ use crate::compose::{check_boundary, duplicate, tree_fusion};
 use crate::graph_lens::{GraphComposite, SequentialGraphLens};
 use crate::{Lens, LensError};
 
+mod segmented;
+
+pub use segmented::{TABLE_PUT_OP, TablePut, put_segmented, table_put_locality};
+
 /// Forward table-lens direction.
 ///
 /// The table restrict plan is compiled once for this call and retained by a
@@ -40,6 +48,61 @@ pub fn get(
     protocols: BoundaryProtocols<'_>,
 ) -> Result<(FInstance, TableComplement), LensError> {
     Bound::compile(lens, protocols)?.get(source)
+}
+
+/// Forward table-lens direction over a table held as segments, as a
+/// checkpointed run.
+///
+/// The table plan of `lens` is compiled once and run as [`TableRestrict`]
+/// over the table the manifest `manifest` seals, whose trusted digest is
+/// `input`, reading its segments from `source` and committing every task to
+/// `store` under `budget`. The run's lens identity and view schema are those
+/// of the table identity of `lens` ([`Lens::identity`] at
+/// [`ComplementShape::Functor`]); it stops once `cancel_after_tasks` tasks
+/// are done, and a later call against the same store resumes it. A complete
+/// run emits each segment's view and table complement segment, read back
+/// with [`read_emitted_segment`](panproto_inst::segment::read_emitted_segment)
+/// and [`TableComplementSegment::from_canonical_bytes`](panproto_inst::segment::TableComplementSegment::from_canonical_bytes);
+/// glued, they are [`get`] of the glued table without its identity stamp.
+///
+/// A lens whose restriction carries an expression is declined by the run
+/// with a global residual before any segment is read; budgets, refusals and
+/// store failures are reported in the run's report.
+///
+/// # Errors
+///
+/// Returns the plan compilation error.
+pub fn get_segmented<Src: SegmentSource, St: SegmentStore>(
+    lens: &Lens,
+    protocols: BoundaryProtocols<'_>,
+    (manifest, input): (&SegmentManifest, Digest),
+    source: &Src,
+    budget: Budget,
+    store: &mut St,
+    cancel_after_tasks: Option<u32>,
+) -> Result<SegmentedRun<SegmentedRestrictError>, LensError> {
+    let plan = RestrictPlan::compile_for_tables(
+        &lens.src_schema,
+        &lens.tgt_schema,
+        &lens.compiled,
+        protocols,
+    )?;
+    let identity = lens.identity(ComplementShape::Functor);
+    Ok(run_segmented(
+        &TableRestrict { plan: &plan },
+        manifest,
+        source,
+        RunSpec {
+            lens: identity.lens,
+            input,
+            output_schema: identity.target_schema,
+            cancel_after_tasks,
+            reuse: None,
+        },
+        budget,
+        store,
+        &mut |_| {},
+    ))
 }
 
 /// A table lens paired with the restrict plan compiled for one boundary.
@@ -1828,7 +1891,6 @@ fn forward_stability(
         Ok((regenerated, _)) => regenerated,
         Err(error) => return refusal_from_restrict(error),
     };
-    let mut found = Vec::new();
     let mut traces = if let Some(boundary) = &plan.boundary
         && let (Some(functor), Some(cells)) = (&boundary.table, &boundary.cells)
     {
@@ -1857,6 +1919,23 @@ fn forward_stability(
         }
         Err(error) => return refusal_from_restrict(error),
     }
+    stability_findings(view, complement, &regenerated, source, plan, &traces)
+}
+
+/// The forward-stability violations of `view` against `regenerated`, the
+/// get of the restored `source`: each view row the regenerated view does
+/// not hold, or holds with another cell, classified by the row's traces
+/// `traces`, and each view pair it does not hold that `complement` does not
+/// record as synthesized.
+fn stability_findings(
+    view: &FInstance,
+    complement: &TableComplement,
+    regenerated: &FInstance,
+    source: &FInstance,
+    plan: &RestrictPlan,
+    traces: &BTreeMap<RowId, Vec<FieldTransform>>,
+) -> Vec<PutDomainError> {
+    let mut found = Vec::new();
     for id in view.row_ids() {
         let Some(expected) = view.row(id) else {
             continue;

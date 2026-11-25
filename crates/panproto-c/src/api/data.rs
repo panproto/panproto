@@ -77,6 +77,7 @@ pub fn pp_data_store_dataset(
             record_count,
             // This FFI stages raw bytes with no caller path or key.
             key: None,
+            encoding: vcs::PayloadEncoding::TREE,
         };
 
         *out_handle = handle::alloc(Resource::DataSet(Box::new(ds)));
@@ -161,6 +162,7 @@ pub fn pp_data_migrate_forward(
             record_count: migrated_count,
             // The key identifies the record, so it survives migration.
             key: ds.key.clone(),
+            encoding: vcs::PayloadEncoding::TREE,
         };
 
         // The complement carrier rides in a DataSet resource whose `data`
@@ -174,6 +176,7 @@ pub fn pp_data_migrate_forward(
             record_count: complement_count,
             // A complement carrier holds no record, so it carries no key.
             key: None,
+            encoding: vcs::PayloadEncoding::TREE,
         };
 
         // Both encodes succeeded; the allocations below are infallible.
@@ -252,6 +255,7 @@ pub fn pp_data_migrate_backward(
             data: crate::canonical::encode(&restored)?,
             record_count: restored_count,
             key: ds.key,
+            encoding: vcs::PayloadEncoding::TREE,
         };
 
         *out_handle = handle::alloc(Resource::DataSet(Box::new(restored_ds)));

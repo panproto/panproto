@@ -418,3 +418,52 @@ fn a_fan_without_its_embedding_records_is_not_a_tree_segment() -> TestResult {
     );
     Ok(())
 }
+
+/// Four table pairs and four tree arcs whose labels use one-letter names
+/// are as short as a pair or an arc record gets: the counts of a segment's
+/// pairs and arcs admit them with no boundary entry after them.
+#[test]
+fn segments_of_short_pairs_and_arcs_decode() -> TestResult {
+    use crate::segment::{Boundary, IdRange, SegmentSpec, TableSegment, TreeSegment};
+    use crate::view_ref::RowId;
+    let schema = Digest([3; 32]);
+    let spec = SegmentSpec {
+        id: SegmentId(0),
+        nodes: vec![IdRange { lo: 0, hi: 9 }],
+        alloc_nodes: None,
+        alloc_edges: None,
+    };
+    let short = label("a", "a", "e", None);
+    let table = AnySegment::Table(TableSegment {
+        segment: SegmentId(0),
+        rows: (0..4)
+            .map(|id| (RowId(id), ("a".into(), HashMap::new())))
+            .collect(),
+        pairs: (0..4)
+            .map(|id| (short.clone(), RowId(id), RowId((id + 1) % 4)))
+            .collect(),
+        boundary: Boundary::default(),
+    });
+    let tree = AnySegment::Tree(TreeSegment {
+        segment: SegmentId(0),
+        nodes: (0..5).map(|id| (id, Node::new(id, "a"))).collect(),
+        arcs: (0..4)
+            .map(|id| (EdgeId(id), (id, id + 1, short.clone())))
+            .collect(),
+        fans: Vec::new(),
+        root: Some(0),
+        next_node: Some(5),
+        next_edge: Some(4),
+        boundary: Boundary::default(),
+    });
+    for (segment, shape) in [
+        (table, InstanceShapeKind::Table),
+        (tree, InstanceShapeKind::Tree),
+    ] {
+        let p = Partition::new(shape, vec![spec.clone()]);
+        let bytes = segment.canonical_bytes(&schema, &p)?;
+        let (back, _) = AnySegment::from_canonical_bytes(&bytes, &p)?;
+        assert_eq!(back.canonical_bytes(&schema, &p)?, bytes);
+    }
+    Ok(())
+}

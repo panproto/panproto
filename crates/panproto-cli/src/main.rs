@@ -1235,6 +1235,13 @@ enum DataAction {
         /// Data directory.
         data_dir: PathBuf,
     },
+    /// Migrate stale tracked instances to HEAD's schema along the migrations
+    /// first-parent history records, and stage them.
+    Upgrade {
+        /// Keys of the tracked instances to migrate (default: every stale
+        /// tracked instance).
+        keys: Vec<String>,
+    },
 }
 
 /// Parse sub-operations.
@@ -1897,6 +1904,7 @@ fn dispatch_data_commands(action: DataAction, verbose: bool) -> Result<()> {
             target,
         } => cmd::data::cmd_data_sync(&data_dir, edits, target.as_deref(), verbose),
         DataAction::Status { data_dir } => cmd::data::cmd_data_status(&data_dir, verbose),
+        DataAction::Upgrade { keys } => cmd::data::cmd_data_upgrade(&keys, verbose),
     }
 }
 

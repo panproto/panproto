@@ -9,10 +9,11 @@
 //!
 //! ## Architecture
 //!
-//! - **Object store**: [`hash`], [`object`], [`store`], [`fs_store`], [`mem_store`]
+//! - **Object store**: [`hash`], [`object`], [`payload`], [`store`], [`fs_store`],
+//!   [`mem_store`]
 //! - **Refs + DAG**: [`refs`], [`dag`], [`blame`], [`bisect`]
-//! - **Staging + commit**: [`index`], [`auto_mig`], [`status`]
-//! - **Merge + rewrite**: [`merge`], [`rebase`], [`cherry_pick`], [`reset`], [`stash`]
+//! - **Staging + commit**: [`index`], [`auto_mig`], [`status`], [`instance_vc`]
+//! - **Merge + rewrite**: [`merge`], [`instance_merge`], [`rebase`], [`cherry_pick`], [`reset`], [`stash`]
 //! - **Orchestration**: [`repo`] (composes all of the above), [`gc`]
 //!
 //! ## Quick Start
@@ -38,9 +39,12 @@ pub mod gat_validate;
 pub mod gc;
 pub mod hash;
 pub mod index;
+pub mod instance_merge;
+pub mod instance_vc;
 pub mod mem_store;
 pub mod merge;
 pub mod object;
+pub mod payload;
 pub mod rebase;
 pub mod refs;
 pub mod rename_detect;
@@ -54,7 +58,9 @@ pub mod tree;
 
 // Re-exports for convenience.
 pub use data_mig::{
-    StaleData, detect_staleness, lift_commit_data, migrate_backward, migrate_forward,
+    MergeMigration, MergeSide, MigratedAlong, MigrationConflict, StaleData, StoredMigration,
+    detect_staleness, lift_commit_data, load_migration, migrate_along, migrate_backward,
+    migrate_forward, migration_path, resolve_schema, schema_identity, store_migration,
 };
 pub use edit_mig::{decode_edit_log, encode_edit_log, incremental_migrate};
 pub use error::VcsError;
@@ -62,12 +68,21 @@ pub use expr::{load_expr, store_expr};
 pub use fs_store::{FsStore, REPOSITORY_FORMAT_VERSION};
 pub use hash::ObjectId;
 pub use index::Index;
+pub use instance_merge::{
+    InstanceConflict, MergedEntry, RecordConflict, RecordDelta, ReplayTarget, ToMerged,
+    TrackedMerge, TrackingConflict, Version,
+};
+pub use instance_vc::{InstanceChange, InstanceDelta, TreeRecordsDelta};
 pub use mem_store::MemStore;
 pub use object::{
     CommitObject, CommitObjectBuilder, ComplementObject, DataSetObject, EditLogObject,
-    FileSchemaObject, Object, SchemaTreeEntry, SchemaTreeObject, TagObject,
+    FileSchemaObject, InstanceShape, Object, PayloadEncoding, SchemaTreeEntry, SchemaTreeObject,
+    TagObject,
 };
-pub use repo::{AddDataOptions, AddOptions, CommitOptions, DecodedDataSet, Repository};
+pub use payload::{ComplementPayload, EditLogPayload, Instance};
+pub use repo::{
+    AddDataOptions, AddOptions, CommitOptions, CommittedInstance, DecodedDataSet, Repository,
+};
 pub use store::{HeadState, ReflogEntry, Store};
 pub use tree::{
     assemble_from_files, assemble_schema, build_schema_tree, build_tree_from_leaves,

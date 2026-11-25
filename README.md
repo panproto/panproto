@@ -29,7 +29,7 @@ The tree-sitter layer can compile as many as 262 vendored grammars. The grammars
 
 Schema search either finds a map covering every source element (a total morphism) or a partial overlap (a span). It may return no total map or an empty overlap; bounded results include a certificate stating whether optimality was proved. A generated lens saves discarded source information in a complement for reconstruction. Law checks cover only the supplied or generated cases. See [The vocabulary in plain terms](book/src/explanation/decoder-ring.md).
 
-The VCS crate stores schemas, migrations, data, commits, refs, and reflog entries in a content-addressed repository. Its merge is structural and may report conflicts that require an explicit resolution.
+The VCS crate stores schemas, migrations, data, commits, refs, and reflog entries in a content-addressed repository. Its merge is structural and may report conflicts that require an explicit resolution. Tracked instances of every shape are merged, rebased and cherry-picked by their deltas, after migrating each version to the merged schema when the schema changed, and a stale tracked instance migrates along the migrations its history records (`schema data upgrade`).
 
 ## Installation
 

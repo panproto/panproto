@@ -50,7 +50,7 @@ use crate::identity::{
 };
 use crate::metadata::Node;
 use crate::value::FieldPresence;
-use crate::view_ref::{RowId, ViewRef};
+use crate::view_ref::ViewRef;
 
 /// Write an element reference: a one-byte tag and its fields.
 pub fn write_view_ref<S: CanonicalSink + ?Sized>(sink: &mut S, elem: &ViewRef) {
@@ -118,7 +118,7 @@ pub fn payload_bytes(segment: &AnySegment) -> u64 {
 
 /// Write the boundary: ghosts ascending by node, then in-stubs ascending by
 /// element.
-fn write_boundary<S: CanonicalSink + ?Sized>(sink: &mut S, boundary: &Boundary) {
+pub fn write_boundary<S: CanonicalSink + ?Sized>(sink: &mut S, boundary: &Boundary) {
     sink.len(boundary.ghosts.len());
     for ghost in boundary.ghosts.values() {
         sink.u32(ghost.node);
@@ -231,7 +231,7 @@ fn spec_of<'p>(
 }
 
 /// Fail unless `key` is strictly above the previous key.
-fn ascending<K: Ord + Clone>(
+pub(super) fn ascending<K: Ord + Clone>(
     reader: &Reader<'_>,
     last: &mut Option<K>,
     key: &K,
@@ -243,8 +243,8 @@ fn ascending<K: Ord + Clone>(
     Ok(())
 }
 
-/// Read the node records of a graph or tree body.
-fn read_nodes(r: &mut Reader<'_>) -> Result<BTreeMap<u32, Node>, SegmentError> {
+/// Read counted node records, refused unless their ids strictly ascend.
+pub(super) fn read_nodes(r: &mut Reader<'_>) -> Result<BTreeMap<u32, Node>, SegmentError> {
     let n = r.count(20)?;
     let mut nodes = BTreeMap::new();
     let mut last = None;
@@ -256,8 +256,26 @@ fn read_nodes(r: &mut Reader<'_>) -> Result<BTreeMap<u32, Node>, SegmentError> {
     Ok(nodes)
 }
 
-/// Read a boundary.
-fn read_boundary(r: &mut Reader<'_>) -> Result<Boundary, SegmentError> {
+/// Read counted edge records, refused unless their ids strictly ascend.
+pub(super) fn read_edges(r: &mut Reader<'_>) -> Result<BTreeMap<EdgeId, GEdge>, SegmentError> {
+    let n = r.count(32)?;
+    let mut edges = BTreeMap::new();
+    let mut last = None;
+    for _ in 0..n {
+        let (id, edge) = r.edge_record()?;
+        ascending(r, &mut last, &id)?;
+        edges.insert(id, edge);
+    }
+    Ok(edges)
+}
+
+/// Read a boundary written by [`write_boundary`].
+///
+/// # Errors
+///
+/// [`SegmentError::Decode`] when the bytes are malformed or the ghosts or
+/// in-stubs do not strictly ascend.
+pub fn read_boundary(r: &mut Reader<'_>) -> Result<Boundary, SegmentError> {
     let mut boundary = Boundary::default();
     let n = r.count(16)?;
     let mut last = None;
@@ -352,20 +370,7 @@ fn read_body(
     match shape_tag {
         2 => {
             let nodes = read_nodes(r)?;
-            let n = r.count(32)?;
-            let mut edges = BTreeMap::new();
-            let mut last = None;
-            for _ in 0..n {
-                let id = EdgeId(r.u32()?);
-                let edge = GEdge {
-                    src: r.u32()?,
-                    tgt: r.u32()?,
-                    edge: r.edge()?,
-                    position: r.opt_u32()?,
-                };
-                ascending(r, &mut last, &id)?;
-                edges.insert(id, edge);
-            }
+            let edges = read_edges(r)?;
             let boundary = read_boundary(r)?;
             Ok(AnySegment::Graph(GraphSegment {
                 segment,
@@ -379,17 +384,15 @@ fn read_body(
             let mut rows = BTreeMap::new();
             let mut last = None;
             for _ in 0..n {
-                let id = RowId(r.u32()?);
-                let table = r.name()?;
-                let row = r.value_map(0)?;
+                let (id, table, row) = r.row_record()?;
                 ascending(r, &mut last, &id)?;
                 rows.insert(id, (table, row));
             }
-            let n = r.count(41)?;
+            let n = r.count(33)?;
             let mut pairs = BTreeSet::new();
             let mut last = None;
             for _ in 0..n {
-                let pair = (r.edge()?, RowId(r.u32()?), RowId(r.u32()?));
+                let pair = r.pair_record()?;
                 ascending(r, &mut last, &pair)?;
                 pairs.insert(pair);
             }
@@ -406,12 +409,12 @@ fn read_body(
             let next_node = r.opt_u32()?;
             let next_edge = r.opt_u32()?;
             let nodes = read_nodes(r)?;
-            let n = r.count(45)?;
+            let n = r.count(37)?;
             let mut arcs = BTreeMap::new();
             let mut last = None;
             for _ in 0..n {
                 let id = EdgeId(r.u32()?);
-                let arc = (r.u32()?, r.u32()?, r.edge()?);
+                let arc = r.arc_record()?;
                 ascending(r, &mut last, &id)?;
                 arcs.insert(id, arc);
             }

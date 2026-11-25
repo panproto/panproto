@@ -4144,3 +4144,91 @@ fn verify_rejects_an_unknown_format() {
         .failure()
         .stderr(predicate::str::contains("unknown --format"));
 }
+
+#[test]
+fn cli_data_upgrade_migrates_a_stale_tracked_instance_and_stages_it() {
+    use panproto_core::vcs::Repository;
+
+    let tmp = tempfile::tempdir().unwrap();
+    init_repo(tmp.path());
+    write_record_schema(tmp.path(), "v1.json");
+    let data_dir = tmp.path().join("records");
+    std::fs::create_dir(&data_dir).unwrap();
+    std::fs::write(data_dir.join("one.json"), br#"[{"a": 1}]"#).unwrap();
+    schema_cmd()
+        .args(["add", "v1.json", "--data", "records"])
+        .current_dir(tmp.path())
+        .assert()
+        .success();
+    schema_cmd()
+        .args(["commit", "-m", "schema and data"])
+        .current_dir(tmp.path())
+        .assert()
+        .success();
+
+    // The schema gains a vertex; the committed records are now stale.
+    let protocol = panproto_core::protocols::data_schema::json_schema::protocol();
+    let extended = panproto_core::schema::SchemaBuilder::new(&protocol)
+        .vertex("a", "object", None)
+        .unwrap()
+        .vertex("a.a", "integer", None)
+        .unwrap()
+        .vertex("b", "object", None)
+        .unwrap()
+        .edge("a", "a.a", "prop", Some("a"))
+        .unwrap()
+        .entry("a")
+        .build()
+        .unwrap();
+    std::fs::write(
+        tmp.path().join("v1.json"),
+        serde_json::to_string_pretty(&extended).unwrap(),
+    )
+    .unwrap();
+    schema_cmd()
+        .args(["add", "v1.json"])
+        .current_dir(tmp.path())
+        .assert()
+        .success();
+    schema_cmd()
+        .args(["commit", "-m", "add b"])
+        .current_dir(tmp.path())
+        .assert()
+        .success();
+    let repo = Repository::open(tmp.path()).unwrap();
+    assert_eq!(
+        repo.stale_instances().unwrap(),
+        vec!["records/one.json".to_owned()]
+    );
+
+    schema_cmd()
+        .args(["data", "upgrade"])
+        .current_dir(tmp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "records/one.json: migrated and staged",
+        ));
+    schema_cmd()
+        .args(["commit", "-m", "upgrade data"])
+        .current_dir(tmp.path())
+        .assert()
+        .success();
+    let repo = Repository::open(tmp.path()).unwrap();
+    assert_eq!(repo.stale_instances().unwrap(), Vec::<String>::new());
+    let committed = repo.committed_instance("HEAD", "records/one.json").unwrap();
+    assert!(!committed.stale);
+
+    // Nothing is stale now, and an untracked key is refused.
+    schema_cmd()
+        .args(["data", "upgrade"])
+        .current_dir(tmp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No tracked instance is stale."));
+    schema_cmd()
+        .args(["data", "upgrade", "absent"])
+        .current_dir(tmp.path())
+        .assert()
+        .failure();
+}
