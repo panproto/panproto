@@ -777,7 +777,8 @@ pub(crate) fn put_with_identity(
     {
         return Err(LensError::PutDomain(Box::new(first)));
     }
-    let source = reassemble(lens, view, complement)?;
+    let plan = RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, &lens.compiled)?;
+    let source = reassemble(lens, view, complement, &plan)?;
     Ok((source, status))
 }
 
@@ -1033,11 +1034,14 @@ pub fn check_put_domain(
     view: &WInstance,
     complement: &Complement,
 ) -> Result<(), Vec<PutDomainError>> {
-    if let Err(error) = RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, &lens.compiled) {
-        return Err(vec![PutDomainError::PlanCompilation {
-            detail: error.to_string(),
-        }]);
-    }
+    let plan = match RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, &lens.compiled) {
+        Ok(plan) => plan,
+        Err(error) => {
+            return Err(vec![PutDomainError::PlanCompilation {
+                detail: error.to_string(),
+            }]);
+        }
+    };
     let mut found = structural_violations(lens, view, complement);
     let restorable = if found.is_empty() {
         None
@@ -1047,8 +1051,8 @@ pub fn check_put_domain(
     let (view, complement) = restorable
         .as_ref()
         .map_or((view, complement), |(view, complement)| (view, complement));
-    match reassemble(lens, view, complement) {
-        Ok(source) => found.extend(value_violations(lens, view, complement, &source)),
+    match reassemble(lens, view, complement, &plan) {
+        Ok(source) => found.extend(value_violations(lens, view, complement, &source, &plan)),
         Err(LensError::PutDomain(error)) => found.push(*error),
         Err(LensError::Restrict(error)) => {
             found.extend(put_refusal_from_restrict(lens, view, error));
@@ -1563,6 +1567,7 @@ fn value_violations(
     view: &WInstance,
     complement: &Complement,
     source: &WInstance,
+    plan: &RestrictPlan,
 ) -> Vec<PutDomainError> {
     let compiled = &lens.compiled;
     let mut found = tree_schema_violations(source, &lens.src_schema, view);
@@ -1597,7 +1602,7 @@ fn value_violations(
     };
     // Reassembly already validated this baseline; report any discrepancy
     // instead of treating a failed trace as an empty footprint.
-    let baseline = match reassemble_baseline(lens, view, complement) {
+    let (baseline, mut writes) = match reassemble_baseline(lens, view, complement, plan) {
         Ok(baseline) => baseline,
         Err(error) => {
             found.push(PutDomainError::SurvivalPredicateRefused {
@@ -1609,9 +1614,26 @@ fn value_violations(
             return in_report_order(found);
         }
     };
+    // A child's value that the baseline run or the replay writes is a
+    // coordinate of the child, written by its parent's rewrites.
+    let parents = view.nodes.keys().copied().collect();
+    match panproto_inst::tree_child_writes(source, plan, &parents) {
+        Ok(replayed) => writes.extend(replayed),
+        Err(error) => found.extend(put_refusal_from_restrict(lens, source, error)),
+    }
     for (&id, view_node) in &view.nodes {
         if complement.synthesized_nodes.contains(&id) {
             continue;
+        }
+        if writes.contains_key(&id)
+            && recomputed.nodes.get(&id).is_some_and(|again| {
+                !presence_equiv(view_node.value.as_ref(), again.value.as_ref())
+            })
+        {
+            found.push(PutDomainError::TransformNotInvertible {
+                elem: ViewRef::Node(id),
+                field: TransformCoordinate::OwnValue.label().to_owned(),
+            });
         }
         let (Some(_), Some(again)) = (source.nodes.get(&id), recomputed.nodes.get(&id)) else {
             continue;
@@ -2275,8 +2297,9 @@ fn reassemble(
     lens: &Lens,
     view: &WInstance,
     complement: &Complement,
+    plan: &RestrictPlan,
 ) -> Result<WInstance, LensError> {
-    let baseline = reassemble_baseline(lens, view, complement)?;
+    let (baseline, writes) = reassemble_baseline(lens, view, complement, plan)?;
     let mut source = baseline.clone();
     let mut traces = HashMap::new();
     let mut ids: Vec<_> = view.nodes.keys().copied().collect();
@@ -2294,10 +2317,79 @@ fn reassemble(
                 complement.original_extra_fields.contains_key(&id) || complement.identity.is_some(),
             );
         }
-        traces.insert(id, trace.operations);
+        traces.insert(id, trace);
     }
-    invert_computations_on_child_scalars(view, &traces, &mut source.nodes);
+    invert_computations_on_child_scalars(view, &traces, &baseline, &writes, &mut source.nodes);
+    for (child, write) in &writes {
+        if let (Some(shown), Some(original)) = (view.nodes.get(child), baseline.nodes.get(child))
+            && let Some(node) = source.nodes.get_mut(child)
+        {
+            node.value = restored_child_value(view, write, shown, original);
+        }
+    }
     Ok(source)
+}
+
+/// The source value of a child whose value the baseline run of its parent
+/// wrote.
+///
+/// An unchanged output keeps the original value exactly, even when an
+/// inverse chooses a different representative of its fiber. A changed one is
+/// carried through the inverses of the parent's rewrites in reverse order.
+/// When a rewrite has no inverse, or an inverse does not evaluate, the
+/// original value remains, and the forward replay decides whether the view
+/// is admitted.
+fn restored_child_value(
+    view: &WInstance,
+    write: &panproto_inst::ChildWrite,
+    shown: &Node,
+    original: &Node,
+) -> Option<panproto_inst::FieldPresence> {
+    use panproto_inst::FieldPresence;
+
+    let output = Some(FieldPresence::Present(write.value.clone()));
+    if same_canonical_presence(shown.value.as_ref(), output.as_ref()) {
+        return original.value.clone();
+    }
+    let Some(FieldPresence::Present(shown)) = &shown.value else {
+        return original.value.clone();
+    };
+    // The scalars the view shows beside the child, under which an inverse
+    // is evaluated.
+    let mut scalars: HashMap<String, panproto_inst::Value> = view
+        .arcs
+        .iter()
+        .filter(|(parent, _, _)| *parent == write.parent)
+        .filter_map(
+            |(_, child, edge)| match view.nodes.get(child)?.value.as_ref()? {
+                FieldPresence::Present(value) => Some((
+                    edge.name.as_deref().unwrap_or(&edge.tgt).to_owned(),
+                    value.clone(),
+                )),
+                _ => None,
+            },
+        )
+        .collect();
+    scalars.insert(write.key.clone(), shown.clone());
+    for rewrite in write.rewrites.iter().rev() {
+        let panproto_inst::FieldTransform::ApplyExpr {
+            inverse: Some(inverse),
+            ..
+        } = rewrite
+        else {
+            return original.value.clone();
+        };
+        let env = panproto_inst::build_env_from_extra_fields(&scalars);
+        let Ok(value) = panproto_expr::eval(inverse, &env, &panproto_expr::EvalConfig::default())
+        else {
+            return original.value.clone();
+        };
+        scalars.insert(
+            write.key.clone(),
+            panproto_inst::expr_literal_to_value(&value),
+        );
+    }
+    scalars.remove(&write.key).map(FieldPresence::Present)
 }
 
 #[derive(Default)]
@@ -2416,10 +2508,48 @@ pub(crate) fn restore_traced_fields(
     node.value = working;
 }
 
+/// The values get writes onto children of a tree, by the child written.
+type ChildWrites = BTreeMap<u32, panproto_inst::ChildWrite>;
+
+/// The baseline source, and the writes its get makes onto children.
+///
+/// The baseline holds the recorded source value of every node whose value
+/// get wrote: by the node's own transforms, or by its parent's. Which
+/// children a parent writes depends on the values it reads, so a recorded
+/// child is taken first and given up again when the baseline's get does not
+/// write it, until none is left to give up; its value is then the view's,
+/// as that of any coordinate no operation writes.
 fn reassemble_baseline(
     lens: &Lens,
     view: &WInstance,
     complement: &Complement,
+    plan: &RestrictPlan,
+) -> Result<(WInstance, ChildWrites), LensError> {
+    let parents: BTreeSet<u32> = view
+        .nodes
+        .keys()
+        .copied()
+        .filter(|id| !complement.synthesized_nodes.contains(id))
+        .collect();
+    let mut recorded: BTreeSet<u32> = complement.original_values.keys().copied().collect();
+    loop {
+        let baseline = baseline_with(lens, view, complement, &recorded)?;
+        let writes = panproto_inst::tree_child_writes(&baseline, plan, &parents)?;
+        let before = recorded.len();
+        recorded.retain(|id| writes.contains_key(id));
+        if recorded.len() == before {
+            return Ok((baseline, writes));
+        }
+    }
+}
+
+/// The baseline source in which the nodes `recorded` names, beside those
+/// whose own transforms write their value, hold their recorded values.
+fn baseline_with(
+    lens: &Lens,
+    view: &WInstance,
+    complement: &Complement,
+    recorded: &BTreeSet<u32>,
 ) -> Result<WInstance, LensError> {
     // Start with all nodes from the view (un-remap anchors back to source).
     // Skip nodes that were synthesized during forward eval by the
@@ -2465,11 +2595,11 @@ fn reassemble_baseline(
             restored_node.extra_fields.clone_from(original_fields);
             seed_new_baseline_inputs(&mut restored_node, node, &transforms);
         }
-        // Restore original node.value for __value__ coercions
+        // Restore the value the node's own transforms or its parent's wrote.
         if let Some(original_val) = complement
             .original_values
             .get(&id)
-            .filter(|_| transforms.iter().any(transforms_node_value))
+            .filter(|_| recorded.contains(&id) || transforms.iter().any(transforms_node_value))
         {
             restored_node.value.clone_from(original_val);
         }
@@ -2779,18 +2909,15 @@ fn rebuild_source_arcs(
 /// Undo an invertible computation whose result sits on a child node
 /// rather than in the parent's `extra_fields`.
 ///
-/// The result reaches the child in two ways. A field-level `ApplyExpr`
-/// whose key names a child scalar, the node having no field of that name,
-/// writes its result onto that child in the forward pass: the attribute
-/// lives there, and the view holds one value for it. A `ComputeField`
-/// writes into `extra_fields`, where serialization lets it shadow the child
-/// that supplied it; crossing the JSON boundary (serialize the view, parse
-/// it back, then `put`, which is exactly what the WASM `put_json` does)
-/// moves the value onto the child node, so the parent's `extra_fields`
-/// comes back empty and the child holds the *computed* value. Either way
-/// `propagate_view_edits_through_inverse` looks only at `extra_fields`,
-/// finds nothing to invert, and the computed value would survive into the
-/// reconstruction.
+/// A computation writes into `extra_fields`, where serialization lets it
+/// shadow the child that supplied it; crossing the JSON boundary (serialize
+/// the view, parse it back, then `put`, which is exactly what the WASM
+/// `put_json` does) moves the value onto the child node, so the parent's
+/// `extra_fields` comes back empty and the child holds the *computed*
+/// value. `propagate_view_edits_through_inverse` looks only at
+/// `extra_fields`, finds nothing to invert, and the computed value would
+/// survive into the reconstruction. A child that get itself writes
+/// (`writes`) is restored from its baseline instead.
 ///
 /// This pass covers that shape. For each `ComputeField` or field-level
 /// `ApplyExpr` carrying an inverse whose output names a child scalar and
@@ -2800,13 +2927,15 @@ fn rebuild_source_arcs(
 /// as the view shows it.
 fn invert_computations_on_child_scalars(
     view: &WInstance,
-    traces: &HashMap<u32, Vec<panproto_inst::FieldTransform>>,
+    traces: &HashMap<u32, TransformTrace>,
+    baseline: &WInstance,
+    writes: &ChildWrites,
     nodes: &mut HashMap<u32, Node>,
 ) {
     use panproto_inst::value::{FieldPresence, Value};
 
     for (&parent_id, parent) in &view.nodes {
-        let Some(transforms) = traces.get(&parent_id) else {
+        let Some(trace) = traces.get(&parent_id) else {
             continue;
         };
 
@@ -2832,10 +2961,14 @@ fn invert_computations_on_child_scalars(
             .map(|(k, (_, v))| (k.clone(), v.clone()))
             .collect();
 
-        for transform in transforms {
+        for transform in &trace.operations {
             let Some((target_key, expr, inv_expr)) = invertible_field_output(transform) else {
                 continue;
             };
+            // A result the program moved or dropped is on no child.
+            if !trace.fields.contains_key(target_key) {
+                continue;
+            }
             // Only when the computed value actually landed on the child.
             //
             // A computed field held in the parent's `extra_fields` shadows
@@ -2859,6 +2992,18 @@ fn invert_computations_on_child_scalars(
             let Some(&(target_child, _)) = child_of.get(&source_key) else {
                 continue;
             };
+            // A value get writes onto the child is restored with its own
+            // baseline. A rewrite whose result get leaves on the node read
+            // the child without writing it, unless the node held the field.
+            let rewrites_a_child =
+                matches!(transform, panproto_inst::FieldTransform::ApplyExpr { .. })
+                    && baseline
+                        .nodes
+                        .get(&parent_id)
+                        .is_none_or(|node| !node.extra_fields.contains_key(target_key));
+            if rewrites_a_child || writes.contains_key(&target_child) {
+                continue;
+            }
 
             let env = panproto_inst::build_env_from_extra_fields(&env_fields);
             let config = panproto_expr::EvalConfig::default();

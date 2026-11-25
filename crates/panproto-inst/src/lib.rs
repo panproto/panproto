@@ -240,7 +240,7 @@ pub use wtype::{
     wtype_restrict,
 };
 pub use wtype::{
-    InstanceRef, NotExpressible, TreeSynthesis, tree_survival_verdicts, wtype_extend_engine,
-    wtype_extend_validated, wtype_restrict_validated, wtype_restrict_with_plan,
-    wtype_restrict_with_synthesis,
+    ChildWrite, InstanceRef, NotExpressible, TreeSynthesis, tree_child_writes,
+    tree_survival_verdicts, wtype_extend_engine, wtype_extend_validated, wtype_restrict_validated,
+    wtype_restrict_with_plan, wtype_restrict_with_synthesis,
 };
