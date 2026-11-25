@@ -265,7 +265,7 @@ fn a_view_through_json_puts_back_the_expected_source() {
             puts += 1;
         }
     }
-    assert_eq!(puts, 253);
+    assert_eq!(puts, 258);
     report(&failures);
 }
 
@@ -312,7 +312,7 @@ fn a_view_edited_in_memory_puts_back_the_expected_source() {
             );
         }
     }
-    assert_eq!((edited_in_memory, other), (194, 59));
+    assert_eq!((edited_in_memory, other), (196, 62));
     report(&failures);
 }
 
