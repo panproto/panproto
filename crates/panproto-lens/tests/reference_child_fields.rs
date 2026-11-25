@@ -17,7 +17,7 @@ use panproto_gat::CoercionClass;
 use panproto_inst::value::FieldPresence;
 use panproto_inst::{CaseBranch, CompiledMigration, FieldTransform, Node, Value, WInstance};
 use panproto_lens::{Complement, Lens, LensError, get, put};
-use panproto_reference::pages::lenses::{
+use panproto_reference::lens::{
     Bindings, ChildComplement, Content, Function, Operation, Predicate, Record, child_get,
     child_put, child_put_solutions,
 };
@@ -903,8 +903,8 @@ fn put_agrees_with_the_reference_on_fields_of_children_1() {
         check_part(0, 4),
         counts(
             [2, 1450, 701],
-            [20_513, 374, 16_125, 0],
-            [19_585, 374, 17_053, 0],
+            [20_657, 77, 16_278, 0],
+            [19_734, 77, 17_201, 0],
         )
     );
 }
@@ -915,8 +915,8 @@ fn put_agrees_with_the_reference_on_fields_of_children_2() {
         check_part(1, 4),
         counts(
             [15, 1178, 577],
-            [18_000, 290, 11_219, 4],
-            [17_517, 290, 11_702, 4],
+            [18_025, 87, 11_397, 4],
+            [17_547, 87, 11_875, 4],
         )
     );
 }
@@ -927,8 +927,8 @@ fn put_agrees_with_the_reference_on_fields_of_children_3() {
         check_part(2, 4),
         counts(
             [3, 1384, 479],
-            [22_280, 390, 16_997, 4],
-            [20_813, 390, 18_464, 4],
+            [22_295, 108, 17_264, 4],
+            [20_828, 108, 18_731, 4],
         )
     );
 }
@@ -939,8 +939,8 @@ fn put_agrees_with_the_reference_on_fields_of_children_4() {
         check_part(3, 4),
         counts(
             [4, 1371, 483],
-            [17_873, 329, 16_777, 0],
-            [17_488, 329, 17_162, 0],
+            [17_873, 158, 16_948, 0],
+            [17_488, 158, 17_333, 0],
         )
     );
 }

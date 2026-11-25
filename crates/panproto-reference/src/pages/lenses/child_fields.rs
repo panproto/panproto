@@ -331,16 +331,21 @@ fn shown_fields(view: &Record) -> Bindings {
 }
 
 /// Definition: the shown value of `key` carried back: through the inverses
-/// of the operations `by`, last first, one without an inverse passing it on.
-/// `None` when an inverse does not evaluate.
-fn carried_back(by: &[Option<Function>], key: &str, view: &Record) -> Option<Value> {
+/// of the operations `by`, last first, one without an inverse or whose
+/// inverse is not defined passing it on; with whether every inverse is
+/// defined.
+fn carried_back(by: &[Option<Function>], key: &str, view: &Record) -> Option<(Value, bool)> {
     let mut fields = shown_fields(view);
     let mut value = view.shown(key)?;
+    let mut defined = true;
     for inverse in by.iter().rev().flatten() {
-        fields.insert(key.to_owned(), value);
-        value = inverse(&fields)?;
+        fields.insert(key.to_owned(), value.clone());
+        match inverse(&fields) {
+            Some(result) => value = result,
+            None => defined = false,
+        }
     }
-    Some(value)
+    Some((value, defined))
 }
 
 /// What get keeps of a source besides its view.
@@ -365,7 +370,7 @@ pub struct ChildComplement {
 ///    own fields; or
 /// 3. a rewrite ran on the field, and the value the view shows there,
 ///    carried back through the inverses of the operations that made it, is
-///    another value or is not defined.
+///    another value, or one of the inverses is not defined.
 ///
 /// `None` outside the domain: the source holds a field of its own, or an
 /// operation does not evaluate.
@@ -388,7 +393,8 @@ pub fn child_get(program: &[Operation], source: &Record) -> Option<(Record, Chil
         let shadowed = ran && outcome.left == Left::OnRecord;
         let lost = ran
             && outcome.left == Left::OnChild
-            && carried_back(&outcome.by, key, &view) != view.shown(key);
+            && carried_back(&outcome.by, key, &view)
+                .is_none_or(|(value, defined)| !defined || Some(value) != view.shown(key));
         if another || shadowed || lost {
             complement.recorded.insert(key.clone(), content.clone());
         }
@@ -519,25 +525,87 @@ impl<'a> Put<'a> {
         self.view.children[key].clone()
     }
 
-    /// Definition: the first candidate for `key` after a tried source: the
-    /// shown value carried back through the inverses of the operations that
-    /// made its value there, and the shown value where that is not defined.
-    fn first(&self, tried: &Try, key: &str) -> Content {
+    /// Definition: the candidates for `key` after a tried source, without
+    /// repeats: the shown value carried back through the inverses of the
+    /// operations that made its value there; the content the view holds;
+    /// the shown value carried back through each of those inverses alone,
+    /// the last first, where it is defined.
+    fn candidates(&self, tried: &Try, key: &str) -> Vec<Content> {
         let on_child = self.on_child(key);
-        match carried_back(&tried.outcomes[key].by, key, self.view) {
-            Some(value) if Some(&value) != self.view.shown(key).as_ref() => {
-                let fielded = matches!(
-                    self.complement.recorded.get(key).unwrap_or(&on_child),
-                    Content::Fields(_)
-                );
-                match value {
-                    Value::Null => Content::Value(Presence::Null),
-                    Value::Unknown(fields) if fielded => Content::Fields(fields),
-                    value => Content::Value(Presence::Present(value)),
-                }
+        let shown = self.view.shown(key);
+        let fielded = matches!(
+            self.complement.recorded.get(key).unwrap_or(&on_child),
+            Content::Fields(_)
+        );
+        let content = |value: Value| {
+            if Some(&value) == shown.as_ref() {
+                return on_child.clone();
             }
-            _ => on_child,
+            match value {
+                Value::Null => Content::Value(Presence::Null),
+                Value::Unknown(fields) if fielded => Content::Fields(fields),
+                value => Content::Value(Presence::Present(value)),
+            }
+        };
+        let by = &tried.outcomes[key].by;
+        let mut candidates = Vec::new();
+        let mut offer = |candidate: Content| {
+            if !candidates.contains(&candidate) {
+                candidates.push(candidate);
+            }
+        };
+        if let Some((value, _)) = carried_back(by, key, self.view) {
+            offer(content(value));
         }
+        offer(on_child.clone());
+        for inverse in by.iter().rev() {
+            if inverse.is_some()
+                && let Some((value, true)) =
+                    carried_back(std::slice::from_ref(inverse), key, self.view)
+            {
+                offer(content(value));
+            }
+        }
+        candidates
+    }
+
+    /// Definition: the candidate after `holding`: the first when it holds
+    /// none or the last.
+    fn next(&self, tried: &Try, key: &str, holding: &Content) -> Content {
+        let candidates = self.candidates(tried, key);
+        let after = candidates
+            .iter()
+            .position(|candidate| candidate == holding)
+            .map_or(0, |held| held + 1);
+        candidates.get(after).unwrap_or(&candidates[0]).clone()
+    }
+
+    /// The inverses of operations of the program, in any branch, that write
+    /// `key`, and two.
+    fn widest(&self, key: &str) -> usize {
+        fn count(program: &[Operation], key: &str) -> usize {
+            program
+                .iter()
+                .map(|operation| match operation {
+                    Operation::Rewrite {
+                        key: written,
+                        from: Some(_),
+                        ..
+                    }
+                    | Operation::Compute {
+                        key: written,
+                        from: Some(_),
+                        ..
+                    } => usize::from(written == key),
+                    Operation::Case(branches) => branches
+                        .iter()
+                        .map(|(_, operations)| count(operations, key))
+                        .sum(),
+                    _ => 0,
+                })
+                .sum()
+        }
+        count(self.program, key) + 2
     }
 
     /// Definition: each coordinate at its recorded content, else as the view
@@ -563,11 +631,12 @@ impl<'a> Put<'a> {
         let tried = self.attempt(base);
         let mut last = base.clone();
         for key in edited {
-            last.insert(key.clone(), self.first(&tried, key));
+            last.insert(key.clone(), self.candidates(&tried, key)[0].clone());
         }
         let mut before: Option<Assignment> = None;
         let mut others = BTreeSet::new();
-        for _ in 0..2 * edited.len() + 2 {
+        let widest = edited.iter().map(|key| self.widest(key)).max().unwrap_or(2);
+        for _ in 0..widest * edited.len() + 2 {
             let tried = self.attempt(&last);
             if self.admits(&tried, &last) {
                 return Ok(tried.source);
@@ -580,12 +649,7 @@ impl<'a> Put<'a> {
             }
             let mut next = last.clone();
             for key in moving {
-                let first = self.first(&tried, &key);
-                let content = if last[&key] == first {
-                    self.on_child(&key)
-                } else {
-                    first
-                };
+                let content = self.next(&tried, &key, &last[&key]);
                 next.insert(key, content);
             }
             if next == last || Some(&next) == before.as_ref() {
@@ -693,9 +757,10 @@ pub fn child_put_solutions(
         for assignment in Put::assignments(&candidates) {
             let tried = put.attempt(&assignment);
             for (key, contents) in &mut candidates {
-                let first = put.first(&tried, key);
-                if !contents.contains(&first) {
-                    contents.push(first);
+                for candidate in put.candidates(&tried, key) {
+                    if !contents.contains(&candidate) {
+                        contents.push(candidate);
+                    }
                 }
             }
         }

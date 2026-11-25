@@ -2295,6 +2295,8 @@ pub(crate) struct TransformTrace {
     pub(crate) operations: Vec<panproto_inst::FieldTransform>,
     pub(crate) fields: HashMap<String, panproto_inst::value::Value>,
     pub(crate) value: Option<panproto_inst::FieldPresence>,
+    /// The names of the node's children in the baseline.
+    pub(crate) columns: BTreeSet<String>,
 }
 
 /// Inputs newly supplied by the edited view can seed a baseline when no
@@ -2325,7 +2327,12 @@ pub(crate) fn restore_traced_fields(
 ) {
     let transforms = &trace.operations;
     if stamped {
-        propagate_field_differences(node, &shown.extra_fields, transforms, Some(&trace.fields));
+        propagate_field_differences(
+            node,
+            &shown.extra_fields,
+            transforms,
+            Some((&trace.fields, &trace.columns)),
+        );
     } else {
         apply_inverse_transforms(node, transforms);
     }
@@ -2947,9 +2954,14 @@ fn propagate_field_differences(
     node: &mut Node,
     view_fields: &HashMap<String, panproto_inst::value::Value>,
     transforms: &[panproto_inst::FieldTransform],
-    baseline_fields: Option<&HashMap<String, panproto_inst::value::Value>>,
+    baseline: Option<(
+        &HashMap<String, panproto_inst::value::Value>,
+        &BTreeSet<String>,
+    )>,
 ) {
     use panproto_inst::FieldTransform;
+
+    let (baseline_fields, columns) = baseline.unzip();
 
     let mut changed = baseline_fields.map(|baseline| {
         baseline
@@ -2986,7 +2998,13 @@ fn propagate_field_differences(
                 if changed.as_ref().is_none_or(|keys| keys.contains(new_key)) =>
             {
                 if let Some(val) = working.remove(new_key) {
-                    node.extra_fields.insert(old_key.clone(), val.clone());
+                    // A value a child of that name held is the child's: a
+                    // field of the node would shadow it.
+                    if node.extra_fields.contains_key(old_key)
+                        || !columns.is_some_and(|columns| columns.contains(old_key))
+                    {
+                        node.extra_fields.insert(old_key.clone(), val.clone());
+                    }
                     working.insert(old_key.clone(), val);
                     if let Some(keys) = &mut changed {
                         keys.remove(new_key);

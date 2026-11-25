@@ -230,17 +230,23 @@ fn sequences<T: Copy>(alphabet: &[T], longest: usize) -> Vec<Vec<T>> {
 }
 
 /// The reference's put of `shown` over the source value `original`: the
-/// original when its image is `shown`, else the first of `shown` carried back
-/// through the inverses (a rewrite without one passing it on) and `shown`
-/// itself whose image is `shown`, else a refusal.
+/// first whose image is `shown` of the original; `shown` carried back
+/// through the inverses, a rewrite without one passing it on; `shown`
+/// itself; and `shown` carried back through each inverse alone, the last
+/// first. A refusal when there is none.
 fn reference_put(program: &[Rewrite], original: i64, shown: i64) -> Option<i64> {
     let forward = |x: i64| program.iter().fold(x, |x, rewrite| rewrite.forward(x));
     let carried = program
         .iter()
         .rev()
         .fold(shown, |x, rewrite| rewrite.backward(x).unwrap_or(x));
+    let alone = program
+        .iter()
+        .rev()
+        .filter_map(|rewrite| rewrite.backward(shown));
     [original, carried, shown]
         .into_iter()
+        .chain(alone)
         .find(|&source| forward(source) == shown)
 }
 

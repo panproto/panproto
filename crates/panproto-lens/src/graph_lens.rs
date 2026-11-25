@@ -1192,16 +1192,29 @@ fn graph_transform_trace(
             operations: Vec::new(),
             fields: HashMap::new(),
             value: node.value.clone(),
+            columns: BTreeSet::new(),
         });
     }
     let mut node = node.clone();
     let ctx =
         panproto_inst::TransformContext::for_graph(Some(&lens.src_schema), source, id, &transforms);
     let operations = panproto_inst::apply_field_transforms_traced(&mut node, &transforms, &ctx)?;
+    let columns = source
+        .out_edges(id)
+        .iter()
+        .filter_map(|edge| source.edge(*edge))
+        .map(|edge| {
+            edge.edge
+                .name
+                .as_ref()
+                .map_or_else(|| edge.edge.tgt.to_string(), ToString::to_string)
+        })
+        .collect();
     Ok(crate::asymmetric::TransformTrace {
         operations,
         fields: node.extra_fields,
         value: node.value,
+        columns,
     })
 }
 

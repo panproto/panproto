@@ -104,15 +104,17 @@ fn shown_fields(view: &WInstance, arcs: &Arcs<'_>, parent: u32) -> HashMap<Strin
 
 /// `shown`, the value of `key`, carried back through the inverses of
 /// `rewrites` in reverse order, each evaluated with `key` bound to the value
-/// so far beside `fields`. A rewrite without an inverse passes the value on.
-/// Nothing when an inverse does not evaluate.
+/// so far beside `fields`, with whether every inverse evaluated. A rewrite
+/// without an inverse, or whose inverse does not evaluate, passes the value
+/// on.
 fn carried_back(
     rewrites: &[&FieldTransform],
     key: &str,
     shown: &Value,
     mut fields: HashMap<String, Value>,
-) -> Option<Value> {
+) -> (Value, bool) {
     let mut value = shown.clone();
+    let mut evaluated = true;
     for rewrite in rewrites.iter().rev() {
         let (FieldTransform::ApplyExpr {
             inverse: Some(inverse),
@@ -125,13 +127,14 @@ fn carried_back(
         else {
             continue;
         };
-        fields.insert(key.to_owned(), value);
+        fields.insert(key.to_owned(), value.clone());
         let env = panproto_inst::build_env_from_extra_fields(&fields);
-        let result =
-            panproto_expr::eval(inverse, &env, &panproto_expr::EvalConfig::default()).ok()?;
-        value = panproto_inst::expr_literal_to_value(&result);
+        match panproto_expr::eval(inverse, &env, &panproto_expr::EvalConfig::default()) {
+            Ok(result) => value = panproto_inst::expr_literal_to_value(&result),
+            Err(_) => evaluated = false,
+        }
     }
-    Some(value)
+    (value, evaluated)
 }
 
 /// Record the source content of each child of `fields` that put could not
@@ -188,8 +191,8 @@ pub(crate) fn record(
             && (rewrites.is_empty() || {
                 let shown = presented(after);
                 let beside = shown_fields(view, &arcs, field.parent);
-                carried_back(rewrites, &field.key, &shown, beside)
-                    .is_some_and(|value| same(&value, &shown))
+                let (value, evaluated) = carried_back(rewrites, &field.key, &shown, beside);
+                evaluated && same(&value, &shown)
             });
         if determined {
             continue;
@@ -317,6 +320,36 @@ struct Coordinate {
     on_child: Content,
     /// The recorded source content of a child the view has not moved.
     recorded: Option<Content>,
+    /// How many candidates the coordinate can have.
+    candidates_at_most: usize,
+}
+
+/// How many operations of `program`, in any branch, with an inverse write
+/// `key`.
+fn inverses_of(program: &[FieldTransform], key: &str) -> usize {
+    program
+        .iter()
+        .map(|transform| match transform {
+            FieldTransform::ApplyExpr {
+                key: written,
+                inverse: Some(_),
+                ..
+            }
+            | FieldTransform::ComputeField {
+                target_key: written,
+                inverse: Some(_),
+                ..
+            } => usize::from(written == key),
+            FieldTransform::PathTransform { path, inner } if path.is_empty() => {
+                inverses_of(std::slice::from_ref(inner), key)
+            }
+            FieldTransform::Case { branches } => branches
+                .iter()
+                .map(|branch| inverses_of(&branch.transforms, key))
+                .sum(),
+            _ => 0,
+        })
+        .sum()
 }
 
 /// The keys the `ApplyExpr` operations of `program` rewrite, in any branch.
@@ -444,6 +477,10 @@ fn coordinates(
                 shown: presented(node),
                 on_child: Content::of(node),
                 recorded: recorded_content(complement, arcs, parent, child, node),
+                candidates_at_most: inverses_of(
+                    plan.program(&structure.nodes[&parent].anchor),
+                    key,
+                ) + 2,
             });
         }
     }
@@ -553,6 +590,8 @@ pub(crate) struct Search<'a> {
     /// The source with its recorded fields, each coordinate's child as the
     /// view holds it.
     structure: WInstance,
+    /// The names of each node's children in the source structure.
+    columns: HashMap<u32, BTreeSet<String>>,
     coordinates: Vec<Coordinate>,
 }
 
@@ -570,6 +609,13 @@ impl<'a> Search<'a> {
     ) -> Result<Self, LensError> {
         let structure = asymmetric::restored_structure(lens, view, complement)?;
         let arcs = Arcs::new(view);
+        let mut columns: HashMap<u32, BTreeSet<String>> = HashMap::new();
+        for (parent, _, edge) in &structure.arcs {
+            columns
+                .entry(*parent)
+                .or_default()
+                .insert(column(edge).to_owned());
+        }
         let coordinates = coordinates(view, complement, plan, &structure, &arcs);
         Ok(Self {
             lens,
@@ -578,6 +624,7 @@ impl<'a> Search<'a> {
             plan,
             arcs,
             structure,
+            columns,
             coordinates,
         })
     }
@@ -602,6 +649,7 @@ impl<'a> Search<'a> {
                 operations: run.operations,
                 fields: run.fields,
                 value: run.value,
+                columns: self.columns.get(&id).cloned().unwrap_or_default(),
             };
             if let Some(node) = source.nodes.get_mut(&id) {
                 asymmetric::restore_traced_fields(
@@ -678,37 +726,80 @@ impl<'a> Search<'a> {
             })
     }
 
-    /// The first candidate for coordinate `at` after `attempt`: the value
-    /// the view shows, carried back through the inverses of the rewrites
-    /// that ran, and that value itself where an inverse does not evaluate.
-    fn first_candidate(&self, at: usize, attempt: &Attempt<'_>) -> Content {
+    /// The candidates for coordinate `at` after `attempt`, in order:
+    ///
+    /// 1. the value the view shows, carried back through the inverses of the
+    ///    rewrites that ran;
+    /// 2. the content the view holds;
+    /// 3. the value the view shows carried back through one of those
+    ///    inverses alone, the last first.
+    ///
+    /// A child whose own transforms write its value, and whose value the
+    /// parent did not write, takes the value their rule restores in place of
+    /// the first. Candidates equal to an earlier one are left out.
+    fn candidates(&self, at: usize, attempt: &Attempt<'_>) -> Vec<Content> {
         let coordinate = &self.coordinates[at];
         let outcome = &attempt.outcomes[at];
+        let mut candidates: Vec<Content> = Vec::new();
+        let mut offer = |content: Content| {
+            if !candidates.iter().any(|known| known.same(&content)) {
+                candidates.push(content);
+            }
+        };
         if coordinate.own && !outcome.written {
-            return outcome.restored.clone();
+            offer(outcome.restored.clone());
+            offer(coordinate.on_child.clone());
+            return candidates;
         }
-        if outcome.rewrites.is_empty() {
-            return coordinate.on_child.clone();
-        }
+        let fielded = coordinate
+            .recorded
+            .as_ref()
+            .map_or(coordinate.on_child.value.is_none(), |recorded| {
+                recorded.value.is_none()
+            });
+        let content = |value: Value| {
+            if same(&value, &coordinate.shown) {
+                coordinate.on_child.clone()
+            } else {
+                Content::presenting(value, fielded)
+            }
+        };
         let beside = shown_fields(self.view, &self.arcs, coordinate.parent);
-        let carried = carried_back(
+        let (carried, _) = carried_back(
             &outcome.rewrites,
             &coordinate.key,
             &coordinate.shown,
-            beside,
+            beside.clone(),
         );
-        match carried {
-            Some(value) if !same(&value, &coordinate.shown) => {
-                let fielded = coordinate
-                    .recorded
-                    .as_ref()
-                    .map_or(coordinate.on_child.value.is_none(), |recorded| {
-                        recorded.value.is_none()
-                    });
-                Content::presenting(value, fielded)
+        offer(content(carried));
+        offer(coordinate.on_child.clone());
+        for rewrite in outcome.rewrites.iter().rev() {
+            let (alone, evaluated) = carried_back(
+                std::slice::from_ref(rewrite),
+                &coordinate.key,
+                &coordinate.shown,
+                beside.clone(),
+            );
+            if evaluated {
+                offer(content(alone));
             }
-            _ => coordinate.on_child.clone(),
         }
+        candidates
+    }
+
+    /// The candidate after `holding` among those of coordinate `at`: the
+    /// first when it holds none of them or the last.
+    fn next_candidate(&self, at: usize, attempt: &Attempt<'_>, holding: &Content) -> Content {
+        let candidates = self.candidates(at, attempt);
+        let next = candidates
+            .iter()
+            .position(|candidate| candidate.same(holding))
+            .map_or(0, |held| held + 1);
+        candidates
+            .get(next)
+            .or_else(|| candidates.first())
+            .cloned()
+            .unwrap_or_else(|| self.coordinates[at].on_child.clone())
     }
 
     /// The put-domain violations of `attempt`, in discovery order.
@@ -821,13 +912,19 @@ impl<'a> Search<'a> {
         refusal: &mut Option<Vec<PutDomainError>>,
     ) -> Option<WInstance> {
         let first: Vec<Content> = self.contents(base, |at| {
-            edited
-                .contains(&at)
-                .then(|| self.first_candidate(at, &base.attempt))
+            edited.contains(&at).then(|| {
+                let candidates = self.candidates(at, &base.attempt);
+                candidates[0].clone()
+            })
         });
         let mut last = self.tried(first);
         let mut before: Option<Vec<Content>> = None;
-        for _ in 0..2 * edited.len() + 2 {
+        let widest = edited
+            .iter()
+            .map(|&at| self.coordinates[at].candidates_at_most)
+            .max()
+            .unwrap_or(2);
+        for _ in 0..widest * edited.len() + 2 {
             let missed = self.missed(&last);
             if missed.is_empty() && last.attempt.error.is_none() {
                 let found = self.violations(&last);
@@ -846,14 +943,9 @@ impl<'a> Search<'a> {
                 moving.clone_from(edited);
             }
             let next = self.contents(&last, |at| {
-                moving.contains(&at).then(|| {
-                    let first = self.first_candidate(at, &last.attempt);
-                    if last.contents[at].same(&first) {
-                        self.coordinates[at].on_child.clone()
-                    } else {
-                        first
-                    }
-                })
+                moving
+                    .contains(&at)
+                    .then(|| self.next_candidate(at, &last.attempt, &last.contents[at]))
             });
             let repeats = |contents: &[Content]| contents.iter().zip(&next).all(|(a, b)| a.same(b));
             if repeats(&last.contents) || before.as_deref().is_some_and(repeats) {

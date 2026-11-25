@@ -319,6 +319,10 @@ pub fn compose_complement(
 pub use super::alignment::{
     ViewAlignmentRefusal, ViewPosition, align_tree_view, tree_view_positions,
 };
+pub use super::child_fields::{
+    Assignment, Bindings, ChildComplement, Content, Function, Operation, Predicate, Record,
+    child_get, child_put, child_put_solutions,
+};
 pub use super::constructions::{
     ConstructionFeature, ConstructionObstruction, ConstructionShape, construction_obstruction,
     span_has_shared_middle,
