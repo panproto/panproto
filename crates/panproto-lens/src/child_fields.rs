@@ -660,17 +660,17 @@ impl<'a> Search<'a> {
     /// Whether get of the tried source shows what the view shows at
     /// coordinate `at`.
     ///
-    /// A record that the source held on a child as fields, and of which the
-    /// complement has no record, may have held a discriminator besides,
-    /// which no field shows; a view that presents it on the child is not
-    /// taken for what get left among the parent's fields.
+    /// A field left among the parent's fields does not determine the child
+    /// it shadows when the child is the source's, nothing of it is recorded,
+    /// and the field was not made of the child's value or the child holds a
+    /// record as its fields, which may have had a discriminator besides.
     fn reproduced(&self, at: usize, tried: &Tried<'_>) -> bool {
         let coordinate = &self.coordinates[at];
         let outcome = &tried.attempt.outcomes[at];
         let undetermined = outcome.on_parent
             && coordinate.held
             && coordinate.recorded.is_none()
-            && tried.contents[at].value.is_none();
+            && (outcome.rewrites.is_empty() || tried.contents[at].value.is_none());
         !undetermined
             && outcome.value.as_ref().is_some_and(|value| {
                 same(value, &coordinate.shown)

@@ -1647,15 +1647,16 @@ fn take_child_fields<'p>(
     let KeyTrack {
         on_child,
         mut rewrites,
-        rewritten,
+        rewritten: mut keys,
         ..
     } = track;
-    if rewritten.is_empty() {
+    keys.extend(rewrites.keys().cloned());
+    if keys.is_empty() {
         return Vec::new();
     }
     let candidates = children.children_of(parent);
-    let mut fields = Vec::with_capacity(rewritten.len());
-    for key in rewritten {
+    let mut fields = Vec::with_capacity(keys.len());
+    for key in keys {
         let mut named = candidates.iter().filter(|child| child.column() == key);
         let (Some(child), None) = (named.next(), named.next()) else {
             continue;
@@ -1743,8 +1744,9 @@ pub struct NodeRun<'p> {
     pub value: Option<crate::value::FieldPresence>,
     /// The node's fields in the view.
     pub shown: HashMap<String, Value>,
-    /// What the run made of each field an `ApplyExpr` ran on and one child
-    /// holds, in ascending key.
+    /// What the run made of each field that one child holds and that an
+    /// `ApplyExpr` ran on, or a `ComputeField` with an inverse computed from
+    /// its own value, in ascending key.
     pub child_fields: Vec<ChildField<'p>>,
     /// The keys on which an `ApplyExpr` did not evaluate.
     pub failing: BTreeSet<String>,

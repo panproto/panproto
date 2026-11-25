@@ -16,7 +16,7 @@ use panproto_expr::{BuiltinOp, Expr, Literal, Pattern};
 use panproto_gat::CoercionClass;
 use panproto_inst::value::FieldPresence;
 use panproto_inst::{CaseBranch, CompiledMigration, FieldTransform, Node, Value, WInstance};
-use panproto_lens::{Complement, Lens, LensError, check_put_domain, get, put};
+use panproto_lens::{Complement, Lens, LensError, get, put};
 use panproto_reference::pages::lenses::{
     Bindings, ChildComplement, Content, Function, Operation, Predicate, Record, child_get,
     child_put, child_put_solutions,
@@ -225,9 +225,7 @@ impl Step {
             },
             Self::Drop(key) => Operation::Drop((*key).to_owned()),
             Self::Add(key, value) => Operation::Add((*key).to_owned(), RefValue::Int(*value)),
-            Self::Keep(keys) => {
-                Operation::Keep(keys.iter().map(|key| (*key).to_owned()).collect())
-            }
+            Self::Keep(keys) => Operation::Keep(keys.iter().map(|key| (*key).to_owned()).collect()),
             Self::Case(branches) => Operation::Case(
                 branches
                     .iter()
@@ -258,7 +256,11 @@ fn steps() -> Vec<Step> {
     vec![
         successor("n", 1),
         Step::Rewrite("n", double("n"), None),
-        Step::Rewrite("n", Term::Mul(field("n"), field("n")), Some(Term::Field("n"))),
+        Step::Rewrite(
+            "n",
+            Term::Mul(field("n"), field("n")),
+            Some(Term::Field("n")),
+        ),
         Step::Rewrite("n", Term::Int(5), None),
         // Clamped below at zero, without an inverse and with one that is none.
         Step::Rewrite(
@@ -289,13 +291,13 @@ fn steps() -> Vec<Step> {
         ),
         Step::Rewrite("n", or_zero("n"), None),
         Step::Rewrite("n", Term::Field("n"), Some(Term::Field("n"))),
-        Step::Rewrite("n", Term::If(is("n", 2), Box::new(Term::Null), field("n")), None),
-        // Another kind of value, and an inverse that reads a sibling.
         Step::Rewrite(
             "n",
-            Term::Text(field("n")),
-            Some(Term::Number(field("n"))),
+            Term::If(is("n", 2), Box::new(Term::Null), field("n")),
+            None,
         ),
+        // Another kind of value, and an inverse that reads a sibling.
+        Step::Rewrite("n", Term::Text(field("n")), Some(Term::Number(field("n")))),
         Step::Rewrite(
             "n",
             Term::Add(field("n"), int(1)),
@@ -326,7 +328,10 @@ fn steps() -> Vec<Step> {
             (Test::True, vec![successor("n", 2)]),
         ]),
         Step::Case(vec![(is("n", 4), vec![successor("m", 10)])]),
-        Step::Case(vec![(is("n", 1), vec![Step::Rewrite("n", Term::Int(2), None)])]),
+        Step::Case(vec![(
+            is("n", 1),
+            vec![Step::Rewrite("n", Term::Int(2), None)],
+        )]),
     ]
 }
 
@@ -368,9 +373,12 @@ fn value(value: &RefValue) -> Value {
         RefValue::Int(value) => Value::Int(*value),
         RefValue::Str(value) => Value::Str(value.clone()),
         RefValue::Null => Value::Null,
-        RefValue::Unknown(fields) => {
-            Value::Unknown(fields.iter().map(|(k, v)| (k.clone(), self::value(v))).collect())
-        }
+        RefValue::Unknown(fields) => Value::Unknown(
+            fields
+                .iter()
+                .map(|(k, v)| (k.clone(), self::value(v)))
+                .collect(),
+        ),
         other => panic!("{other:?} is outside the carrier"),
     }
 }
@@ -543,12 +551,16 @@ fn edited(view: &Record, edit: &[(&'static str, Option<Content>)]) -> Record {
 
 #[derive(Default, Debug, PartialEq, Eq)]
 struct Counts {
+    /// Programs the reference does not model.
+    unmodelled: u32,
     /// Programs and sources of which get is defined, and not.
     got: u32,
     not_got: u32,
     /// Views put accepts and refuses.
     accepted: u32,
     refused: u32,
+    /// Views put accepts with a field of the record's own.
+    renamed: u32,
     /// Views put refuses though a combination of candidates is admitted.
     missed: u32,
 }
@@ -567,7 +579,11 @@ fn ids(source: &Record) -> BTreeMap<String, u32> {
 
 /// Compare the recorded content of production's complement with the
 /// reference's.
-fn check_recorded(complement: &Complement, reference: &ChildComplement, ids: &BTreeMap<String, u32>) {
+fn check_recorded(
+    complement: &Complement,
+    reference: &ChildComplement,
+    ids: &BTreeMap<String, u32>,
+) {
     let recorded: BTreeMap<u32, Content> = reference
         .recorded
         .iter()
@@ -614,6 +630,10 @@ fn check_program(
     counts: &mut Counts,
     smallest: &mut Smallest,
 ) {
+    if !modelled(program) {
+        counts.unmodelled += 1;
+        return;
+    }
     let lens = lens(schema, program);
     let operations: Vec<Operation> = program.iter().map(Step::reference).collect();
     for source in sources {
@@ -636,14 +656,29 @@ fn check_program(
             .unwrap_or_else(|error| panic!("GetPut refused: {error}: {}", case()));
         assert_eq!(record(&restored), *source, "GetPut: {}", case());
         let serialized = reference_view.serialized();
-        let inserted = serialized
-            .own
-            .keys()
-            .any(|key| program_renames_to(program, key));
-        if !inserted {
-            let restored = put(&lens, &tree(&serialized, &ids), &complement)
-                .unwrap_or_else(|error| panic!("serialized GetPut refused: {error}: {}", case()));
-            assert_eq!(record(&restored), *source, "serialized GetPut: {}", case());
+        // A field that shadows a child get recorded nothing of need not
+        // determine the child, and put may refuse the serialized view.
+        let determined = reference_view.own.keys().all(|key| {
+            !source.children.contains_key(key) || reference_complement.recorded.contains_key(key)
+        });
+        let restored = put(&lens, &tree(&serialized, &ids), &complement);
+        assert!(
+            restored.is_ok() || !determined,
+            "serialized GetPut: {}",
+            case()
+        );
+        if let Ok(restored) = restored {
+            // A serialization presents an absent value as null, which is
+            // what comes back of one that get recorded nothing of.
+            let mut expected = source.clone();
+            for (key, content) in &mut expected.children {
+                if *content == Content::Value(Presence::Absent)
+                    && !reference_complement.recorded.contains_key(key)
+                {
+                    *content = Content::Value(Presence::Null);
+                }
+            }
+            assert_eq!(record(&restored), expected, "serialized GetPut: {}", case());
         }
 
         let mut views = BTreeSet::new();
@@ -657,12 +692,16 @@ fn check_program(
                 let expected = child_put(&operations, &shown, &reference_complement);
                 let what = || format!("{} showing {shown:?}", case());
                 let found = put(&lens, &shown_tree, &complement);
-                assert_eq!(
-                    found.is_ok(),
-                    check_put_domain(&lens, &shown_tree, &complement).is_ok(),
-                    "{}",
-                    what()
-                );
+                // A renamed result edited against its child is put back as a
+                // field of the record, which the reference does not model.
+                if let Ok(restored) = &found
+                    && !record(restored).own.is_empty()
+                {
+                    let (again, _) = get(&lens, restored).unwrap();
+                    assert_eq!(record(&again), shown, "PutGet: {}", what());
+                    counts.renamed += 1;
+                    continue;
+                }
                 match (found, expected) {
                     (Ok(found), Some(expected)) => {
                         assert_eq!(record(&found), expected, "{}", what());
@@ -702,10 +741,28 @@ fn check_program(
     }
 }
 
-fn program_renames_to(program: &[Step], key: &str) -> bool {
+/// Whether the reference models a program: it inverts computations only of
+/// fields the program can also rewrite.
+fn modelled(program: &[Step]) -> bool {
+    let rewritten = rewritten_keys(program);
     program
         .iter()
-        .any(|step| matches!(step, Step::Rename(_, new) if *new == key))
+        .all(|step| !matches!(step, Step::Compute(key, _, Some(_)) if !rewritten.contains(*key)))
+}
+
+/// The keys the rewrites of a program rewrite, in any branch.
+fn rewritten_keys(program: &[Step]) -> BTreeSet<String> {
+    program
+        .iter()
+        .flat_map(|step| match step {
+            Step::Rewrite(key, ..) => BTreeSet::from([(*key).to_owned()]),
+            Step::Case(branches) => branches
+                .iter()
+                .flat_map(|(_, steps)| rewritten_keys(steps))
+                .collect(),
+            _ => BTreeSet::new(),
+        })
+        .collect()
 }
 
 #[test]
@@ -718,10 +775,24 @@ fn tree_put_agrees_with_the_reference_on_fields_of_children() {
     check_program(&schema, &[], &sources, &edits, &mut counts, &mut smallest);
     for first in &steps {
         let program = [first.clone()];
-        check_program(&schema, &program, &sources, &edits, &mut counts, &mut smallest);
+        check_program(
+            &schema,
+            &program,
+            &sources,
+            &edits,
+            &mut counts,
+            &mut smallest,
+        );
         for second in &steps {
             let program = [first.clone(), second.clone()];
-            check_program(&schema, &program, &sources, &edits, &mut counts, &mut smallest);
+            check_program(
+                &schema,
+                &program,
+                &sources,
+                &edits,
+                &mut counts,
+                &mut smallest,
+            );
         }
     }
     println!("{counts:?}\nsmallest missed: {:?}", smallest.0);

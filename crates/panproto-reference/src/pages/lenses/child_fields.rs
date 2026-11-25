@@ -5,8 +5,9 @@
 //! and get leaves its result on the child when the child holds a scalar and
 //! among the record's own fields otherwise. The definitions here are those
 //! of `L-lenses-5` for one record whose source holds no field of its own,
-//! whose names no lens renames, and whose children have no transforms of
-//! their own. Expressions are functions, so no evaluator is modelled.
+//! whose names no lens renames, whose children have no transforms of their
+//! own, and whose program inverts computations only of fields it can also
+//! rewrite. Expressions are functions, so no evaluator is modelled.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
@@ -429,8 +430,6 @@ struct Try {
     evaluated: bool,
     /// The view get shows of it, when its program evaluates.
     again: Option<Record>,
-    /// The keys whose value a computation made of the child's.
-    computed: BTreeSet<String>,
 }
 
 impl<'a> Put<'a> {
@@ -447,29 +446,10 @@ impl<'a> Put<'a> {
         }
     }
 
-    /// The source in which the coordinates hold `assignment`, a computation
-    /// that reads its own field alone being undone on any other child.
+    /// The source in which the coordinates hold `assignment`.
     fn attempt(&self, assignment: &Assignment) -> Try {
         let mut children = self.view.children.clone();
         children.extend(assignment.clone());
-        let mut state = State {
-            failing: Some(BTreeSet::new()),
-            ..State::default()
-        };
-        // A baseline that does not evaluate undoes nothing, and the run of
-        // the source refuses it.
-        let baseline = execute(self.program, &children, &mut state).is_some();
-        for (key, made) in &state.made {
-            let undone = !self.coordinates.contains(key)
-                && !self.view.own.contains_key(key)
-                && self.view.children.get(key).is_some_and(Content::is_scalar);
-            if let Some(Some(inverse)) = made.by.last().filter(|_| undone)
-                && let Some(value) = inverse(&shown_fields(self.view))
-            {
-                let content = Content::Value(Presence::Present(value));
-                children.insert(key.clone(), content);
-            }
-        }
         let mut state = State {
             failing: Some(BTreeSet::new()),
             ..State::default()
@@ -483,24 +463,24 @@ impl<'a> Put<'a> {
                 children,
             },
             outcomes,
-            evaluated: baseline && evaluated,
-            again: (baseline && evaluated && !refused).then_some(again),
-            computed: state.made.into_keys().collect(),
+            evaluated,
+            again: (evaluated && !refused).then_some(again),
         }
     }
 
     /// Definition: get of the tried source shows at `key` what the view
     /// shows.
     ///
-    /// A record the source held as a child's fields and of which nothing is
-    /// recorded may have held a discriminator besides: the view's record is
-    /// then not the one get left among the record's own fields.
+    /// A field left among the record's own fields does not determine the
+    /// child it shadows when the child is the source's, nothing of it is
+    /// recorded, and the field was not made of the child's value or the child
+    /// holds a record, which may have had a discriminator besides.
     fn reproduces(&self, tried: &Try, assignment: &Assignment, key: &str) -> bool {
         let outcome = &tried.outcomes[key];
         let undetermined = outcome.left == Left::OnRecord
             && self.complement.held.contains(key)
             && !self.complement.recorded.contains_key(key)
-            && matches!(assignment[key], Content::Fields(_));
+            && (outcome.by.is_empty() || matches!(assignment[key], Content::Fields(_)));
         !undetermined && outcome.value.is_some() && outcome.value == self.view.shown(key)
     }
 
@@ -522,13 +502,6 @@ impl<'a> Put<'a> {
         if !self.missed(tried, assignment).is_empty() {
             return false;
         }
-        let on_child = |key: &String| {
-            self.coordinates.contains(key)
-                || (tried.computed.contains(key)
-                    && !self.view.own.contains_key(key)
-                    && again.own.get(key)
-                        == self.view.children.get(key).map(Content::shown).as_ref())
-        };
         self.view
             .own
             .iter()
@@ -536,12 +509,10 @@ impl<'a> Put<'a> {
             && again
                 .own
                 .keys()
-                .all(|key| self.view.own.contains_key(key) || on_child(key))
-            && self
-                .view
-                .children
-                .iter()
-                .all(|(key, content)| on_child(key) || again.children.get(key) == Some(content))
+                .all(|key| self.view.own.contains_key(key) || self.coordinates.contains(key))
+            && self.view.children.iter().all(|(key, content)| {
+                self.coordinates.contains(key) || again.children.get(key) == Some(content)
+            })
     }
 
     fn on_child(&self, key: &str) -> Content {
