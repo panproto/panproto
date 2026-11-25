@@ -133,7 +133,7 @@ fn presented(tree: &WInstance) -> Vec<(String, String)> {
     out.into_iter().collect()
 }
 
-fn int(value: i64) -> Expr {
+const fn int(value: i64) -> Expr {
     Expr::Lit(Literal::Int(value))
 }
 
@@ -447,7 +447,7 @@ fn edits(view: &WInstance) -> Vec<(bool, WInstance)> {
     out
 }
 
-/// Check GetPut, and PutGet on every edit of the view put accepts, for each
+/// Check the two round-trip laws, the second on every edit put accepts, for each
 /// program over each record and each program of the child's own value.
 fn check_laws(
     programs: impl IntoIterator<Item = Vec<Operation>>,
