@@ -158,6 +158,8 @@ struct State {
     own: Bindings,
     made: BTreeMap<String, Made>,
     rewritten: BTreeSet<String>,
+    /// Every operation with an inverse that ran on a key, in order.
+    inverted: BTreeMap<String, Vec<Function>>,
     /// The rewrites that did not evaluate, where the run passes over them.
     failing: Option<BTreeSet<String>>,
 }
@@ -198,6 +200,10 @@ fn execute(
                 };
                 state.own.insert(key.clone(), result);
                 state.rewritten.insert(key.clone());
+                if let Some(from) = from {
+                    let inverted = state.inverted.entry(key.clone()).or_default();
+                    inverted.push(from.clone());
+                }
                 if from_child {
                     let made = Made {
                         by: vec![from.clone()],
@@ -212,6 +218,10 @@ fn execute(
                 let from_child = !state.own.contains_key(key) && children.contains_key(key);
                 let result = to(&bindings(&state.own, children))?;
                 state.own.insert(key.clone(), result);
+                if let Some(from) = from {
+                    let inverted = state.inverted.entry(key.clone()).or_default();
+                    inverted.push(from.clone());
+                }
                 let mut made = state.made.remove(key).unwrap_or_default();
                 if from.is_some() && (from_child || !made.by.is_empty()) {
                     made.by.push(from.clone());
@@ -268,6 +278,8 @@ struct Outcome {
     value: Option<Value>,
     /// The operations that made it of the child's value.
     by: Vec<Option<Function>>,
+    /// Every operation with an inverse that ran on the key.
+    inverted: Vec<Function>,
 }
 
 /// The view of a run that has ended, and what it made of each child's field.
@@ -310,6 +322,7 @@ fn finish(
                 left,
                 value: view.shown(key).filter(|_| evaluates),
                 by,
+                inverted: state.inverted.get(key).cloned().unwrap_or_default(),
             },
         );
     }
@@ -528,8 +541,8 @@ impl<'a> Put<'a> {
     /// Definition: the candidates for `key` after a tried source, without
     /// repeats: the shown value carried back through the inverses of the
     /// operations that made its value there; the content the view holds;
-    /// the shown value carried back through each of those inverses alone,
-    /// the last first, where it is defined.
+    /// the shown value carried back through the inverse of each operation
+    /// that ran on the key alone, the last first, where it is defined.
     fn candidates(&self, tried: &Try, key: &str) -> Vec<Content> {
         let on_child = self.on_child(key);
         let shown = self.view.shown(key);
@@ -547,7 +560,8 @@ impl<'a> Put<'a> {
                 value => Content::Value(Presence::Present(value)),
             }
         };
-        let by = &tried.outcomes[key].by;
+        let outcome = &tried.outcomes[key];
+        let by = &outcome.by;
         let mut candidates = Vec::new();
         let mut offer = |candidate: Content| {
             if !candidates.contains(&candidate) {
@@ -558,11 +572,8 @@ impl<'a> Put<'a> {
             offer(content(value));
         }
         offer(on_child.clone());
-        for inverse in by.iter().rev() {
-            if inverse.is_some()
-                && let Some((value, true)) =
-                    carried_back(std::slice::from_ref(inverse), key, self.view)
-            {
+        for inverse in outcome.inverted.iter().rev() {
+            if let Some((value, true)) = carried_back(&[Some(inverse.clone())], key, self.view) {
                 offer(content(value));
             }
         }
@@ -627,6 +638,7 @@ impl<'a> Put<'a> {
         &self,
         base: &Assignment,
         edited: &BTreeSet<String>,
+        one_at_a_time: bool,
     ) -> Result<Record, BTreeSet<String>> {
         let tried = self.attempt(base);
         let mut last = base.clone();
@@ -636,7 +648,8 @@ impl<'a> Put<'a> {
         let mut before: Option<Assignment> = None;
         let mut others = BTreeSet::new();
         let widest = edited.iter().map(|key| self.widest(key)).max().unwrap_or(2);
-        for _ in 0..widest * edited.len() + 2 {
+        let rounds = widest * edited.len() * if one_at_a_time { edited.len() + 1 } else { 1 } + 2;
+        for _ in 0..rounds {
             let tried = self.attempt(&last);
             if self.admits(&tried, &last) {
                 return Ok(tried.source);
@@ -646,6 +659,9 @@ impl<'a> Put<'a> {
             let mut moving: BTreeSet<String> = missed.intersection(edited).cloned().collect();
             if moving.is_empty() {
                 moving.clone_from(edited);
+            }
+            if one_at_a_time {
+                moving = moving.into_iter().take(1).collect();
             }
             let mut next = last.clone();
             for key in moving {
@@ -715,11 +731,17 @@ pub fn child_put(
         return put.admits(&tried, &base).then_some(tried.source);
     }
     loop {
-        match put.search(&base, &edited) {
-            Ok(source) => return Some(source),
-            Err(others) if others.is_empty() => return None,
-            Err(others) => edited.extend(others),
+        let mut others = BTreeSet::new();
+        for one_at_a_time in [false, true] {
+            match put.search(&base, &edited, one_at_a_time) {
+                Ok(source) => return Some(source),
+                Err(missed) => others.extend(missed),
+            }
         }
+        if others.is_empty() {
+            return None;
+        }
+        edited.extend(others);
     }
 }
 

@@ -1613,6 +1613,10 @@ pub struct ChildField<'p> {
     /// inverse that computes the key from its own value. Empty when the
     /// result is not made of the child's value.
     pub rewrites: Vec<&'p FieldTransform>,
+    /// In a run of [`TreeRuns`], every operation with an inverse that ran on
+    /// the key, in order, whether or not the result is made of the child's
+    /// value.
+    pub inverted: Vec<&'p FieldTransform>,
 }
 
 /// What a run of a node's value transforms makes of a field one of the
@@ -1648,9 +1652,11 @@ fn take_child_fields<'p>(
         on_child,
         mut rewrites,
         rewritten: mut keys,
+        mut inverted,
         ..
     } = track;
     keys.extend(rewrites.keys().cloned());
+    keys.extend(inverted.keys().cloned());
     if keys.is_empty() {
         return Vec::new();
     }
@@ -1676,10 +1682,11 @@ fn take_child_fields<'p>(
         };
         fields.push(ChildField {
             parent,
-            key,
             child: child.target,
             result,
             rewrites,
+            inverted: inverted.remove(&key).unwrap_or_default(),
+            key,
         });
     }
     fields
@@ -2245,6 +2252,9 @@ pub(crate) struct KeyTrack<'t> {
     pub(crate) rewrites: BTreeMap<String, Vec<&'t FieldTransform>>,
     /// Every key an `ApplyExpr` ran on.
     pub(crate) rewritten: BTreeSet<String>,
+    /// In a run that passes over failures, every operation with an inverse
+    /// that ran on a key, in order.
+    pub(crate) inverted: BTreeMap<String, Vec<&'t FieldTransform>>,
     /// The keys on which an `ApplyExpr` of a value a child holds did not
     /// evaluate, when the run passes over such an operation; `None` when the
     /// operation's error ends the run.
@@ -2299,6 +2309,27 @@ impl<'t> KeyTrack<'t> {
         self.forget_child(key);
     }
 
+    /// Note `operation`, which ran on `key`, when it has an inverse and the
+    /// run passes over failures.
+    fn ran_with_inverse(&mut self, key: &str, operation: &'t FieldTransform) {
+        let inverse = matches!(
+            operation,
+            FieldTransform::ApplyExpr {
+                inverse: Some(_),
+                ..
+            } | FieldTransform::ComputeField {
+                inverse: Some(_),
+                ..
+            }
+        );
+        if inverse && self.failing.is_some() {
+            self.inverted
+                .entry(key.to_owned())
+                .or_default()
+                .push(operation);
+        }
+    }
+
     /// The value under `key` is no longer made of the value of a child.
     fn forget_child(&mut self, key: &str) {
         self.on_child.remove(key);
@@ -2326,6 +2357,7 @@ impl<'t> KeyTrack<'t> {
     ) {
         let mut rewrites = self.rewrites.remove(key);
         self.wrote(key);
+        self.ran_with_inverse(key, computation);
         if reads != Some(key) {
             return;
         }
@@ -2344,6 +2376,7 @@ impl<'t> KeyTrack<'t> {
     fn rewrote(&mut self, key: &str, rewrite: &'t FieldTransform, from_child: bool) {
         self.written.insert(key.to_owned());
         self.rewritten.insert(key.to_owned());
+        self.ran_with_inverse(key, rewrite);
         if from_child {
             self.on_child.insert(key.to_owned());
             self.rewrites.insert(key.to_owned(), vec![rewrite]);

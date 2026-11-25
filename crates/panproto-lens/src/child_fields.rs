@@ -497,6 +497,8 @@ struct Outcome<'p> {
     on_parent: bool,
     /// The operations that made the value out of the child's.
     rewrites: Vec<&'p FieldTransform>,
+    /// Every operation with an inverse that ran on the key.
+    inverted: Vec<&'p FieldTransform>,
     /// The child as the rule for its own transforms restores it.
     restored: Content,
 }
@@ -575,6 +577,9 @@ fn outcome<'p>(
         written,
         on_parent,
         rewrites,
+        inverted: field
+            .map(|field| field.inverted.clone())
+            .unwrap_or_default(),
         restored,
     }
 }
@@ -731,8 +736,8 @@ impl<'a> Search<'a> {
     /// 1. the value the view shows, carried back through the inverses of the
     ///    rewrites that ran;
     /// 2. the content the view holds;
-    /// 3. the value the view shows carried back through one of those
-    ///    inverses alone, the last first.
+    /// 3. the value the view shows carried back through the inverse of one
+    ///    operation that ran on the key alone, the last first.
     ///
     /// A child whose own transforms write its value, and whose value the
     /// parent did not write, takes the value their rule restores in place of
@@ -773,7 +778,7 @@ impl<'a> Search<'a> {
         );
         offer(content(carried));
         offer(coordinate.on_child.clone());
-        for rewrite in outcome.rewrites.iter().rev() {
+        for rewrite in outcome.inverted.iter().rev() {
             let (alone, evaluated) = carried_back(
                 std::slice::from_ref(rewrite),
                 &coordinate.key,
@@ -853,7 +858,9 @@ impl<'a> Search<'a> {
     /// after `(m + 2) e + 2` sources, for `e` edited coordinates and at most
     /// `m` operations with an inverse writing one key. Coordinates that a tried
     /// source did not reproduce and that were not counted as edited are then
-    /// counted so, and the search starts again, until there are none.
+    /// counted so, and the search starts again, until there are none. A search
+    /// that admits nothing is followed by one that moves one coordinate a
+    /// round, before the restart.
     ///
     /// # Errors
     ///
@@ -891,17 +898,25 @@ impl<'a> Search<'a> {
         let mut refusal = None;
         loop {
             let mut others = BTreeSet::new();
-            match self.search(&base, &edited, &mut others, &mut refusal) {
-                Some(source) => return Ok(source),
-                None if others.is_empty() => break,
-                None => edited.extend(others),
+            for one_at_a_time in [false, true] {
+                let found = self.search(&base, &edited, one_at_a_time, &mut others, &mut refusal);
+                if let Some(source) = found {
+                    return Ok(source);
+                }
             }
+            if others.is_empty() {
+                break;
+            }
+            edited.extend(others);
         }
         Err(refusal.unwrap_or_else(|| self.violations(&base)))
     }
 
     /// One search over the candidates of `edited`, from `base`: the source
-    /// admitted, if there is one. `others` takes the coordinates outside
+    /// admitted, if there is one. With `one_at_a_time`, a round moves only
+    /// the first coordinate that would move, in the order of the coordinates
+    /// (ascending parent and key), and the search may take `e + 1` times as
+    /// many rounds. `others` takes the coordinates outside
     /// `edited` that a tried source did not reproduce, and `refusal` the
     /// violations of the first source of the first search, where its
     /// transforms evaluate.
@@ -909,6 +924,7 @@ impl<'a> Search<'a> {
         &self,
         base: &Tried<'a>,
         edited: &BTreeSet<usize>,
+        one_at_a_time: bool,
         others: &mut BTreeSet<usize>,
         refusal: &mut Option<Vec<PutDomainError>>,
     ) -> Option<WInstance> {
@@ -925,7 +941,8 @@ impl<'a> Search<'a> {
             .map(|&at| self.coordinates[at].candidates_at_most)
             .max()
             .unwrap_or(2);
-        for _ in 0..widest * edited.len() + 2 {
+        let rounds = widest * edited.len() * if one_at_a_time { edited.len() + 1 } else { 1 } + 2;
+        for _ in 0..rounds {
             let missed = self.missed(&last);
             if missed.is_empty() && last.attempt.error.is_none() {
                 let found = self.violations(&last);
@@ -942,6 +959,9 @@ impl<'a> Search<'a> {
             let mut moving: BTreeSet<usize> = missed.intersection(edited).copied().collect();
             if moving.is_empty() {
                 moving.clone_from(edited);
+            }
+            if one_at_a_time {
+                moving = moving.into_iter().take(1).collect();
             }
             let next = self.contents(&last, |at| {
                 moving
