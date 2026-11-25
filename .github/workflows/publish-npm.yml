@@ -18,8 +18,15 @@ permissions:
   contents: read
 
 jobs:
+  verified:
+    uses: ./.github/workflows/require-verified.yml
+    permissions:
+      checks: read
+      contents: read
+
   publish:
     name: Publish @panproto/core
+    needs: verified
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
