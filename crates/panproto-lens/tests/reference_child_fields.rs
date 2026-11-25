@@ -549,20 +549,31 @@ fn edited(view: &Record, edit: &[(&'static str, Option<Content>)]) -> Record {
     edited
 }
 
+/// What put does with the views of some cases.
+#[derive(Default, Debug, PartialEq, Eq)]
+struct Views {
+    /// Views put accepts.
+    accepted: u32,
+    /// Views put accepts with a field of the record's own.
+    renamed: u32,
+    /// Views put refuses.
+    refused: u32,
+    /// Views put refuses though a combination of candidates is admitted.
+    missed: u32,
+}
+
 #[derive(Default, Debug, PartialEq, Eq)]
 struct Counts {
     /// Programs the reference does not model.
     unmodelled: u32,
-    /// Programs and sources of which get is defined, and not.
+    /// Programs and sources of which get is defined.
     got: u32,
+    /// Programs and sources of which get is not.
     not_got: u32,
-    /// Views put accepts and refuses.
-    accepted: u32,
-    refused: u32,
-    /// Views put accepts with a field of the record's own.
-    renamed: u32,
-    /// Views put refuses though a combination of candidates is admitted.
-    missed: u32,
+    /// Views put with the complement get takes.
+    recorded: Views,
+    /// Views put with the complement releases up to 0.78.0 took.
+    earlier: Views,
 }
 
 /// The ids of a source's children, and fresh ids for any the view adds.
@@ -681,6 +692,13 @@ fn check_program(
             assert_eq!(record(&restored), expected, "serialized GetPut: {}", case());
         }
 
+        let earlier_complements = earlier(
+            &complement,
+            &reference_complement,
+            source,
+            &reference_view,
+            &ids,
+        );
         let mut views = BTreeSet::new();
         for form in [reference_view.clone(), serialized] {
             for edit in edits {
@@ -688,55 +706,113 @@ fn check_program(
                 if !views.insert(format!("{shown:?}")) {
                     continue;
                 }
-                let shown_tree = tree(&shown, &ids);
-                let expected = child_put(&operations, &shown, &reference_complement);
-                let what = || format!("{} showing {shown:?}", case());
-                let found = put(&lens, &shown_tree, &complement);
-                // A renamed result edited against its child is put back as a
-                // field of the record, which the reference does not model.
-                if let Ok(restored) = &found
-                    && !record(restored).own.is_empty()
-                {
-                    let (again, _) = get(&lens, restored).unwrap();
-                    assert_eq!(record(&again), shown, "PutGet: {}", what());
-                    counts.renamed += 1;
-                    continue;
+                let put = Put {
+                    lens: &lens,
+                    operations: &operations,
+                    shown: &shown,
+                    ids: &ids,
+                    case: &case,
+                };
+                put.check(
+                    &complement,
+                    &reference_complement,
+                    &mut counts.recorded,
+                    smallest,
+                );
+                put.check(
+                    &earlier_complements.0,
+                    &earlier_complements.1,
+                    &mut counts.earlier,
+                    smallest,
+                );
+            }
+        }
+    }
+}
+
+/// The complement of the same source without the records of children whose
+/// content the view holds, as releases up to 0.78.0 took it.
+fn earlier(
+    complement: &Complement,
+    reference: &ChildComplement,
+    source: &Record,
+    view: &Record,
+    ids: &BTreeMap<String, u32>,
+) -> (Complement, ChildComplement) {
+    let (mut complement, mut reference) = (complement.clone(), reference.clone());
+    for (key, content) in &source.children {
+        if view.children.get(key) == Some(content) && reference.recorded.remove(key).is_some() {
+            complement.original_values.remove(&ids[key]);
+            complement.original_extra_fields.remove(&ids[key]);
+        }
+    }
+    (complement, reference)
+}
+
+/// A view to put in both.
+struct Put<'a> {
+    lens: &'a Lens,
+    operations: &'a [Operation],
+    shown: &'a Record,
+    ids: &'a BTreeMap<String, u32>,
+    case: &'a dyn Fn() -> String,
+}
+
+impl Put<'_> {
+    /// Compare the two puts, and check `PutGet` of what production gives.
+    fn check(
+        &self,
+        complement: &Complement,
+        reference_complement: &ChildComplement,
+        counts: &mut Views,
+        smallest: &mut Smallest,
+    ) {
+        let shown = self.shown;
+        let what = || format!("{} showing {shown:?}", (self.case)());
+        let found = put(self.lens, &tree(shown, self.ids), complement);
+        // A renamed result edited against its child is put back as a field
+        // of the record, which the reference does not model.
+        if let Ok(restored) = &found
+            && !record(restored).own.is_empty()
+        {
+            let (again, _) = get(self.lens, restored).unwrap();
+            assert_eq!(record(&again), *shown, "PutGet: {}", what());
+            counts.renamed += 1;
+            return;
+        }
+        match (
+            found,
+            child_put(self.operations, shown, reference_complement),
+        ) {
+            (Ok(found), Some(expected)) => {
+                assert_eq!(record(&found), expected, "{}", what());
+                // PutGet: get shows the view, up to where a field that a
+                // child alone holds is held.
+                let (again, _) = get(self.lens, &found).unwrap();
+                let again = record(&again);
+                assert!(again.presents(shown), "PutGet: {} shows {again:?}", what());
+                for (key, held) in &shown.own {
+                    assert_eq!(again.own.get(key), Some(held), "{}", what());
+                    assert_eq!(
+                        again.children.get(key),
+                        shown.children.get(key),
+                        "{}",
+                        what()
+                    );
                 }
-                match (found, expected) {
-                    (Ok(found), Some(expected)) => {
-                        assert_eq!(record(&found), expected, "{}", what());
-                        // PutGet: get shows the view, up to where a field
-                        // that a child alone holds is held.
-                        let (again, _) = get(&lens, &found).unwrap();
-                        let again = record(&again);
-                        assert!(again.presents(&shown), "PutGet: {} shows {again:?}", what());
-                        for (key, held) in &shown.own {
-                            assert_eq!(again.own.get(key), Some(held), "{}", what());
-                            assert_eq!(
-                                again.children.get(key),
-                                shown.children.get(key),
-                                "{}",
-                                what()
-                            );
-                        }
-                        counts.accepted += 1;
-                    }
-                    (Err(LensError::PutDomain(_)), None) => {
-                        counts.refused += 1;
-                        let sources =
-                            child_put_solutions(&operations, &shown, &reference_complement);
-                        if let Some(solution) = sources.first() {
-                            counts.missed += 1;
-                            smallest.offer(program.len() * 1000 + source.children.len(), || {
-                                format!("{}, admitted: {solution:?}", what())
-                            });
-                        }
-                    }
-                    (found, expected) => {
-                        panic!("{}: {found:?} against {expected:?}", what())
-                    }
+                counts.accepted += 1;
+            }
+            (Err(LensError::PutDomain(_)), None) => {
+                counts.refused += 1;
+                let sources = child_put_solutions(self.operations, shown, reference_complement);
+                if let Some(solution) = sources.first() {
+                    counts.missed += 1;
+                    smallest.offer(what().len(), || {
+                        format!("{}, admitted: {solution:?}", what())
+                    });
                 }
             }
+            (found, expected) => panic!("{}: {found:?} against {expected:?}", what()),
         }
     }
 }
@@ -765,36 +841,106 @@ fn rewritten_keys(program: &[Step]) -> BTreeSet<String> {
         .collect()
 }
 
-#[test]
-fn tree_put_agrees_with_the_reference_on_fields_of_children() {
+/// Check the programs of at most two operations whose first is every
+/// `parts`-th from `part` on.
+fn check_part(part: usize, parts: usize) -> Counts {
     let schema = schema();
     let steps = steps();
     let (sources, edits) = (sources(), edits());
     let mut counts = Counts::default();
     let mut smallest = Smallest(None);
-    check_program(&schema, &[], &sources, &edits, &mut counts, &mut smallest);
-    for first in &steps {
-        let program = [first.clone()];
+    let mut check = |program: &[Step]| {
         check_program(
             &schema,
-            &program,
+            program,
             &sources,
             &edits,
             &mut counts,
             &mut smallest,
         );
+    };
+    if part == 0 {
+        check(&[]);
+    }
+    for first in steps.iter().skip(part).step_by(parts) {
+        check(std::slice::from_ref(first));
         for second in &steps {
-            let program = [first.clone(), second.clone()];
-            check_program(
-                &schema,
-                &program,
-                &sources,
-                &edits,
-                &mut counts,
-                &mut smallest,
-            );
+            check(&[first.clone(), second.clone()]);
         }
     }
-    println!("{counts:?}\nsmallest missed: {:?}", smallest.0);
-    assert_eq!(counts, Counts::default());
+    println!("smallest missed: {:?}", smallest.0);
+    counts
+}
+
+/// The counts of a part: the programs outside the reference, the sources get
+/// is and is not defined of, and the views put accepts, accepts with a field
+/// of the record's own, refuses and misses, with either complement.
+const fn counts(
+    [unmodelled, got, not_got]: [u32; 3],
+    recorded: [u32; 4],
+    earlier: [u32; 4],
+) -> Counts {
+    const fn views([accepted, renamed, refused, missed]: [u32; 4]) -> Views {
+        Views {
+            accepted,
+            renamed,
+            refused,
+            missed,
+        }
+    }
+    Counts {
+        unmodelled,
+        got,
+        not_got,
+        recorded: views(recorded),
+        earlier: views(earlier),
+    }
+}
+
+#[test]
+fn put_agrees_with_the_reference_on_fields_of_children_1() {
+    assert_eq!(
+        check_part(0, 4),
+        counts(
+            [2, 1450, 701],
+            [20_513, 374, 16_125, 0],
+            [19_585, 374, 17_053, 0],
+        )
+    );
+}
+
+#[test]
+fn put_agrees_with_the_reference_on_fields_of_children_2() {
+    assert_eq!(
+        check_part(1, 4),
+        counts(
+            [15, 1178, 577],
+            [18_000, 290, 11_219, 4],
+            [17_517, 290, 11_702, 4],
+        )
+    );
+}
+
+#[test]
+fn put_agrees_with_the_reference_on_fields_of_children_3() {
+    assert_eq!(
+        check_part(2, 4),
+        counts(
+            [3, 1384, 479],
+            [22_280, 390, 16_997, 4],
+            [20_813, 390, 18_464, 4],
+        )
+    );
+}
+
+#[test]
+fn put_agrees_with_the_reference_on_fields_of_children_4() {
+    assert_eq!(
+        check_part(3, 4),
+        counts(
+            [4, 1371, 483],
+            [17_873, 329, 16_777, 0],
+            [17_488, 329, 17_162, 0],
+        )
+    );
 }
