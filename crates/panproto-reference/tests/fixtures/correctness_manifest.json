@@ -5088,7 +5088,10 @@
             "panproto_reference::lens::put",
             "panproto_reference::lens::tree_get",
             "panproto_reference::lens::tree_put",
-            "panproto_reference::lens::align_tree_view"
+            "panproto_reference::lens::align_tree_view",
+            "panproto_reference::lens::child_get",
+            "panproto_reference::lens::child_put",
+            "panproto_reference::lens::child_put_solutions"
           ],
           "consumers": [
             {
@@ -5144,6 +5147,60 @@
               "crate": "panproto-lens",
               "binary": "panproto-lens::tree_put_restores_rewritten_children",
               "test": "the_round_trip_laws_hold_on_graphs_for_every_program_of_two_operations"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_child_fields",
+              "test": "put_agrees_with_the_reference_on_fields_of_children_1"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_child_fields",
+              "test": "put_agrees_with_the_reference_on_fields_of_children_2"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_child_fields",
+              "test": "put_agrees_with_the_reference_on_fields_of_children_3"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::reference_child_fields",
+              "test": "put_agrees_with_the_reference_on_fields_of_children_4"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::tree_put_of_fields_that_children_hold",
+              "test": "a_child_moved_to_another_record_is_put_back_through_its_new_parents_rewrites"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::tree_put_of_fields_that_children_hold",
+              "test": "children_exchanged_between_two_fields_are_put_back_as_the_view_shows_them"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::tree_put_of_fields_that_children_hold",
+              "test": "a_field_that_get_leaves_on_the_record_is_one_with_the_child_of_its_name"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::tree_put_of_fields_that_children_hold",
+              "test": "an_iso_rewrite_has_the_optic_laws_where_it_leaves_a_value_unchanged"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::tree_put_of_fields_that_children_hold",
+              "test": "complements_with_and_without_the_new_records_put_alike_through_the_graph"
             }
           ]
         },

@@ -843,14 +843,15 @@ impl<'a> Search<'a> {
     /// edited when it has no record or get of that source does not reproduce
     /// it. With none edited, that source is the only one tried.
     ///
-    /// Otherwise every edited coordinate takes its first candidate. Then, in
-    /// rounds, each edited coordinate that get of the last source does not
-    /// reproduce takes its first candidate under the rewrites that ran in
-    /// that round, or the shown value when it holds that candidate already;
-    /// when get reproduces them all and the source is refused for another
-    /// reason, they all do. A search ends with the first source admitted,
-    /// when a round repeats one of the last two sources, or after two rounds
-    /// for each edited coordinate and two more. Coordinates that a tried
+    /// Otherwise every edited coordinate takes its first candidate
+    /// ([`Self::candidates`]). Then, in rounds, each edited coordinate that
+    /// get of the last source does not reproduce takes its candidate under
+    /// the rewrites that ran in that round after the one it holds (the first
+    /// after the last); when get reproduces them all and the source is
+    /// refused for another reason, they all do. A search ends with the first
+    /// source admitted, when a round repeats one of the last two sources, or
+    /// after `(m + 2) e + 2` sources, for `e` edited coordinates and at most
+    /// `m` operations with an inverse writing one key. Coordinates that a tried
     /// source did not reproduce and that were not counted as edited are then
     /// counted so, and the search starts again, until there are none.
     ///

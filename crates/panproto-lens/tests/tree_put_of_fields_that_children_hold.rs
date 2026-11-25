@@ -323,3 +323,35 @@ fn complements_with_and_without_the_new_records_put_alike_through_the_graph() {
     let merged = complement.compose(&complement).unwrap();
     assert_eq!(merged.original_values, complement.original_values);
 }
+
+#[test]
+fn the_edit_lens_inserts_a_child_whose_field_a_rewrite_writes() {
+    use panproto_inst::TreeEdit;
+    use panproto_lens::EditLens;
+
+    let lens = lens(vec![successor("n")]);
+    let mut edits = EditLens::from_lens(lens, Protocol::default());
+    edits.initialize(&source(int(3), 7)).unwrap();
+    let inserted = |value: i64| TreeEdit::InsertNode {
+        parent: 2,
+        child_id: 9,
+        node: Node::new(9, "r.n").with_value(FieldPresence::Present(Value::Int(value))),
+        edge: edge("r", "r.n", "prop", Some("n")),
+    };
+
+    // The view gains an `n` showing 5: the source gains one holding 4.
+    let translated = edits.put_edit(inserted(5)).unwrap();
+    let TreeEdit::InsertNode { node, .. } = translated else {
+        panic!("{translated:?}");
+    };
+    assert_eq!(node.value, int(4));
+
+    // A source that gains an `n` holding 6 shows 7.
+    let mut edits = EditLens::from_lens(self::lens(vec![successor("n")]), Protocol::default());
+    edits.initialize(&source(int(3), 7)).unwrap();
+    let translated = edits.get_edit(inserted(6)).unwrap();
+    let TreeEdit::InsertNode { node, .. } = translated else {
+        panic!("{translated:?}");
+    };
+    assert_eq!(node.value, int(7));
+}

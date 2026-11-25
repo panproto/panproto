@@ -224,6 +224,54 @@ fn preserve_input_replacements(
         .map_err(|error| EditLensError::TranslationFailed(error.to_string()))
 }
 
+/// `word` with each node it inserts holding the value and fields `target`
+/// gives it, where no later step of the word sets or removes one of its
+/// fields and `target` holds it under the same anchor.
+fn with_payloads_of(word: TreeEdit, target: &WInstance) -> TreeEdit {
+    fn edited_later(steps: &[TreeEdit], id: u32) -> bool {
+        steps.iter().any(|step| match step {
+            TreeEdit::SetField { node_id, .. } | TreeEdit::RemoveField { node_id, .. } => {
+                *node_id == id
+            }
+            TreeEdit::Sequence(inner) => edited_later(inner, id),
+            _ => false,
+        })
+    }
+    fn walk(step: TreeEdit, later: &[TreeEdit], target: &WInstance) -> TreeEdit {
+        match step {
+            TreeEdit::InsertNode {
+                parent,
+                child_id,
+                mut node,
+                edge,
+            } => {
+                if let Some(held) = target.nodes.get(&child_id)
+                    && held.anchor == node.anchor
+                    && !edited_later(later, child_id)
+                {
+                    node.value.clone_from(&held.value);
+                    node.extra_fields.clone_from(&held.extra_fields);
+                }
+                TreeEdit::InsertNode {
+                    parent,
+                    child_id,
+                    node,
+                    edge,
+                }
+            }
+            TreeEdit::Sequence(steps) => {
+                let mut out = Vec::with_capacity(steps.len());
+                for (at, step) in steps.iter().enumerate() {
+                    out.push(walk(step.clone(), &steps[at + 1..], target));
+                }
+                TreeEdit::Sequence(out)
+            }
+            other => other,
+        }
+    }
+    walk(word, &[], target)
+}
+
 pub(crate) fn whole_state_error(error: crate::LensError) -> EditLensError {
     match error {
         crate::LensError::Restrict(error) => EditLensError::Restrict(error),
@@ -760,8 +808,11 @@ impl EditLens {
         let (mut actual_view, _) = crate::get(&lens, &source).map_err(whole_state_error)?;
         let mut staged = self.staged();
         let translated = staged.get_edit_inner(edit)?;
-        translated.apply(&mut actual_view)?;
         let (expected_view, complement) = crate::get(&lens, &after).map_err(whole_state_error)?;
+        // A node inserted under a parent whose rewrites write its value
+        // shows the value they write, which the node alone does not give.
+        let translated = with_payloads_of(translated, &expected_view);
+        translated.apply(&mut actual_view)?;
         if !crate::laws::tree_identical(&actual_view, &expected_view) {
             return Err(EditLensError::TranslationFailed(
                 "the translated tree edit does not produce the whole-state get view".to_owned(),
@@ -1428,7 +1479,9 @@ impl EditLens {
         let expected_source =
             crate::put(&lens, &edited_view, &self.complement).map_err(whole_state_error)?;
         let mut staged = self.staged();
-        let translated = staged.put_edit_work(edit)?;
+        // A node inserted under a parent whose rewrites write its value holds
+        // the value put carries back through them.
+        let translated = with_payloads_of(staged.put_edit_work(edit)?, &expected_source);
         let mut actual_source = source;
         translated.apply(&mut actual_source)?;
         if !crate::laws::tree_identical(&actual_source, &expected_source) {

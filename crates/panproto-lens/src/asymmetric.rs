@@ -1624,6 +1624,12 @@ pub(crate) fn value_violations(
     }
     let runs = panproto_inst::TreeRuns::new(source, plan);
     let none = BTreeMap::new();
+    let mut below: HashMap<u32, Vec<(&Edge, &Node)>> = HashMap::new();
+    for (parent, child, edge) in &view.arcs {
+        if let Some(node) = view.nodes.get(child) {
+            below.entry(*parent).or_default().push((edge, node));
+        }
+    }
     for (&id, view_node) in &view.nodes {
         if complement.synthesized_nodes.contains(&id) {
             continue;
@@ -1642,8 +1648,8 @@ pub(crate) fn value_violations(
         transforms.extend(run.operations);
         let on_children = replay.on_children.get(&id).unwrap_or(&none);
         found.extend(replay_disagreements(
-            view,
             id,
+            below.get(&id).map_or(&[], Vec::as_slice),
             view_node,
             again,
             &transforms,
@@ -1658,8 +1664,8 @@ pub(crate) fn value_violations(
 /// last transform writing it. `on_children` says of each field that the view
 /// holds on a child alone whether the replay shows the same.
 fn replay_disagreements(
-    view: &WInstance,
     id: u32,
+    children: &[(&Edge, &Node)],
     view_node: &Node,
     again: &Node,
     transforms: &[panproto_inst::FieldTransform],
@@ -1684,16 +1690,8 @@ fn replay_disagreements(
                     (Some(shown), Some(recomputed)) => !value_equiv(shown, recomputed),
                     (None, Some(recomputed)) => on_children.get(key).map_or_else(
                         || {
-                            inverse_child_output(
-                                transform,
-                                key,
-                                view.arcs.iter().filter_map(|(parent, child, edge)| {
-                                    (*parent == id)
-                                        .then(|| view.nodes.get(child).map(|node| (edge, node)))
-                                        .flatten()
-                                }),
-                            )
-                            .is_none_or(|shown| !value_equiv(shown, recomputed))
+                            inverse_child_output(transform, key, children.iter().copied())
+                                .is_none_or(|shown| !value_equiv(shown, recomputed))
                         },
                         |reproduced| !reproduced,
                     ),
