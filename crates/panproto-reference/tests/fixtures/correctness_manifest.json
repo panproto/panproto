@@ -5120,6 +5120,30 @@
               "crate": "panproto-lens",
               "binary": "panproto-lens::reference_lenses",
               "test": "tree_aligned_put_agrees_with_the_reference"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::tree_put_restores_rewritten_children",
+              "test": "every_program_of_rewrites_puts_back_as_the_reference_on_integers"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::tree_put_restores_rewritten_children",
+              "test": "the_round_trip_laws_hold_for_every_program_of_two_operations"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::tree_put_restores_rewritten_children",
+              "test": "the_round_trip_laws_hold_for_every_program_of_three_operations"
+            },
+            {
+              "role": "differential",
+              "crate": "panproto-lens",
+              "binary": "panproto-lens::tree_put_restores_rewritten_children",
+              "test": "the_round_trip_laws_hold_on_graphs_for_every_program_of_two_operations"
             }
           ]
         },
