@@ -1593,91 +1593,122 @@ fn refuse_merged_fields(
     }
 }
 
-/// A value the transforms of a node write onto one of its children: the
-/// attribute is the child's own value, so the rewritten value is too.
+/// A field of a tree node that one child of the node holds, as a run of the
+/// node's value transforms leaves it: the coordinate `(parent, key)`, with
+/// the child whose column the key names.
 #[derive(Clone, Debug)]
-pub struct ChildWrite {
-    /// The node whose transforms write the child.
+pub struct ChildField<'p> {
+    /// The node whose transforms ran.
     pub parent: u32,
-    /// The key the transforms rewrite, which names the child's column.
+    /// The key, which names the child's column.
     pub key: String,
-    /// The value written.
-    pub value: Value,
-    /// The `ApplyExpr` operations that ran on the key from the one that read
-    /// the child's value on, in order; the last one's result is `value`,
-    /// before any coercion to a declared column.
-    pub rewrites: Vec<FieldTransform>,
+    /// The child.
+    pub child: u32,
+    /// What the run made of the field.
+    pub result: ChildFieldResult,
+    /// The operations that made a [`Written`](ChildFieldResult::Written) or
+    /// [`OnParent`](ChildFieldResult::OnParent) result out of the child's
+    /// value, in order, from the one that read it on: every `ApplyExpr` on
+    /// the key and, in a run of [`TreeRuns`], every `ComputeField` with an
+    /// inverse that computes the key from its own value. Empty when the
+    /// result is not made of the child's value.
+    pub rewrites: Vec<&'p FieldTransform>,
 }
 
-/// Take off `node` the values its transforms rewrote from a child scalar
-/// (`on_child`, the keys [`RestrictPlan::transform`] reports), each with the
-/// id of the one child of `parent` whose column the key names and whose
-/// value is a present scalar. Such an attribute lives on that child, not in
-/// the parent's fields, so the computed value is written there
-/// ([`write_back_to_children`]) and the node keeps no second value for it.
-/// A key whose child holds no scalar stays a field of the node.
+/// What a run of a node's value transforms makes of a field one of the
+/// node's children holds.
+#[derive(Clone, Debug)]
+pub enum ChildFieldResult {
+    /// The value is written onto the child, which holds a scalar.
+    Written(Value),
+    /// The value is left among the node's own fields, where it shadows the
+    /// child.
+    OnParent(Value),
+    /// Neither: the result was renamed or dropped, and the child alone shows
+    /// the field.
+    Passed,
+}
+
+/// Take off `node`, a node the value transforms of `parent` have run on, the
+/// values they rewrote from a child scalar, and report what they made of
+/// each field that an `ApplyExpr` ran on and one child holds.
 ///
-/// [`RestrictPlan::transform`]: crate::restrict_plan::RestrictPlan
-fn take_child_writes(
+/// A value rewritten from a child whose column the key names and whose value
+/// is a present scalar lives on that child, not in the parent's fields, so
+/// it is written there ([`write_back_to_children`]) and the node keeps no
+/// second value for it. A key whose child holds no scalar stays a field of
+/// the node.
+fn take_child_fields<'p>(
     node: &mut Node,
     children: &TreeChildren<'_>,
     parent: u32,
-    on_child: BTreeMap<String, Vec<FieldTransform>>,
-) -> Vec<(u32, ChildWrite)> {
-    if on_child.is_empty() {
+    track: KeyTrack<'p>,
+) -> Vec<ChildField<'p>> {
+    let KeyTrack {
+        on_child,
+        mut rewrites,
+        rewritten,
+        ..
+    } = track;
+    if rewritten.is_empty() {
         return Vec::new();
     }
     let candidates = children.children_of(parent);
-    let mut writes = Vec::with_capacity(on_child.len());
-    for (key, rewrites) in on_child {
+    let mut fields = Vec::with_capacity(rewritten.len());
+    for key in rewritten {
         let mut named = candidates.iter().filter(|child| child.column() == key);
         let (Some(child), None) = (named.next(), named.next()) else {
             continue;
         };
-        if !matches!(
+        let scalar = matches!(
             children.presence(child.target),
             Some(crate::value::FieldPresence::Present(_))
-        ) {
-            continue;
-        }
-        if let Some(value) = node.extra_fields.remove(&key) {
-            writes.push((
-                child.target,
-                ChildWrite {
-                    parent,
-                    key,
-                    value,
-                    rewrites,
-                },
-            ));
-        }
+        );
+        let rewrites = rewrites.remove(&key).unwrap_or_default();
+        let result = match node.extra_fields.get(&key).cloned() {
+            None => ChildFieldResult::Passed,
+            Some(value) if scalar && on_child.contains(&key) => {
+                node.extra_fields.remove(&key);
+                ChildFieldResult::Written(value)
+            }
+            Some(value) => ChildFieldResult::OnParent(value),
+        };
+        fields.push(ChildField {
+            parent,
+            key,
+            child: child.target,
+            result,
+            rewrites,
+        });
     }
-    writes
+    fields
 }
 
 /// Write each computed attribute value onto its child, when that child is
 /// in the view. A child the restrict dropped takes nothing: its value is
 /// gone from the view with it.
-fn write_back_to_children(nodes: &mut HashMap<u32, Node>, writes: Vec<(u32, ChildWrite)>) {
-    for (child, write) in writes {
-        if let Some(node) = nodes.get_mut(&child) {
-            node.value = Some(crate::value::FieldPresence::Present(write.value));
+fn write_back_to_children(nodes: &mut HashMap<u32, Node>, fields: &[ChildField<'_>]) {
+    for field in fields {
+        if let ChildFieldResult::Written(value) = &field.result
+            && let Some(node) = nodes.get_mut(&field.child)
+        {
+            node.value = Some(crate::value::FieldPresence::Present(value.clone()));
         }
     }
 }
 
 /// The node `id` of `instance` as the plan's transforms leave it, under its
-/// target anchor, with the writes they make onto its children.
-fn transformed_tree_node(
+/// target anchor, with what they made of the fields its children hold.
+fn transformed_tree_node<'p>(
     instance: &WInstance,
-    plan: &crate::restrict_plan::RestrictPlan,
+    plan: &'p crate::restrict_plan::RestrictPlan,
     children: &TreeChildren<'_>,
     id: u32,
-) -> Result<(Node, Vec<(u32, ChildWrite)>), RestrictError> {
+) -> Result<(Node, Vec<ChildField<'p>>), RestrictError> {
     let source = &instance.nodes[&id];
     let mut node = source.clone();
     node.anchor.clone_from(plan.target_anchor(&source.anchor));
-    if plan.migration().value_transforms(&source.anchor).is_empty() {
+    if plan.program(&source.anchor).is_empty() {
         return Ok((node, Vec::new()));
     }
     let ctx = TransformContext::bound(
@@ -1686,34 +1717,108 @@ fn transformed_tree_node(
         InstanceRef::Tree(instance, id),
         &plan.demand(&source.anchor),
     );
-    let on_child = plan.transform(&mut node, &source.anchor, &ctx, false)?;
-    let writes = take_child_writes(&mut node, children, id, on_child);
-    Ok((node, writes))
+    let mut track = KeyTrack::default();
+    plan.transform_tracked(&mut node, &source.anchor, &ctx, false, &mut track, None)?;
+    let fields = take_child_fields(&mut node, children, id, track);
+    Ok((node, fields))
 }
 
-/// The writes that restricting `instance` along `plan` makes onto the
-/// children of the nodes `parents` names, by the child written. A node of
-/// `parents` that `instance` does not hold writes none.
-///
-/// # Errors
-///
-/// The refusal of the first of `parents`, in ascending order, whose
-/// transforms refuse, located at that node.
-pub fn tree_child_writes(
-    instance: &WInstance,
-    plan: &crate::restrict_plan::RestrictPlan,
-    parents: &BTreeSet<u32>,
-) -> Result<BTreeMap<u32, ChildWrite>, RestrictError> {
-    let children = TreeChildren::new(instance);
-    let mut writes = BTreeMap::new();
-    for &id in parents {
-        if instance.nodes.contains_key(&id) {
-            let (_, written) = transformed_tree_node(instance, plan, &children, id)
-                .map_err(|error| error.at(0, id, 0))?;
-            writes.extend(written);
+/// Runs of the value transforms of a tree's nodes, with the tree's arcs
+/// indexed once for all of them.
+pub struct TreeRuns<'t, 'p> {
+    plan: &'p crate::restrict_plan::RestrictPlan,
+    children: TreeChildren<'t>,
+}
+
+/// One run of a node's value transforms.
+#[derive(Debug, Default)]
+pub struct NodeRun<'p> {
+    /// The operations that executed, in order, as
+    /// [`apply_field_transforms_traced`] reports them.
+    pub operations: Vec<FieldTransform>,
+    /// The node's fields as the transforms left them, before the coercion to
+    /// declared columns and with the values taken from children in place.
+    pub fields: HashMap<String, Value>,
+    /// The node's own value as the transforms left it.
+    pub value: Option<crate::value::FieldPresence>,
+    /// The node's fields in the view.
+    pub shown: HashMap<String, Value>,
+    /// What the run made of each field an `ApplyExpr` ran on and one child
+    /// holds, in ascending key.
+    pub child_fields: Vec<ChildField<'p>>,
+    /// The keys on which an `ApplyExpr` did not evaluate.
+    pub failing: BTreeSet<String>,
+    /// Why the run ended before its last operation, if it did.
+    pub error: Option<RestrictError>,
+}
+
+impl<'t, 'p> TreeRuns<'t, 'p> {
+    /// The runs of `plan`'s transforms on the nodes of `instance`.
+    #[must_use]
+    pub fn new(instance: &'t WInstance, plan: &'p crate::restrict_plan::RestrictPlan) -> Self {
+        Self {
+            plan,
+            children: TreeChildren::new(instance),
         }
     }
-    Ok(writes)
+
+    /// The run of the transforms of node `id` (no operation for a node the
+    /// tree does not hold), without regard to whether the node survives.
+    ///
+    /// An `ApplyExpr` that does not evaluate on a value a child holds is
+    /// listed in [`NodeRun::failing`], counts as having run and leaves the
+    /// value as it is. Any other operation that fails ends the run with its
+    /// error, located at the node, and the rest of the result is what the
+    /// run left so far.
+    #[must_use]
+    pub fn run(&self, id: u32) -> NodeRun<'p> {
+        let instance = self.children.tree();
+        let Some(source) = instance.nodes.get(&id) else {
+            return NodeRun::default();
+        };
+        if self.plan.program(&source.anchor).is_empty() {
+            return NodeRun {
+                fields: source.extra_fields.clone(),
+                value: source.value.clone(),
+                shown: source.extra_fields.clone(),
+                ..NodeRun::default()
+            };
+        }
+        let mut node = source.clone();
+        node.anchor
+            .clone_from(self.plan.target_anchor(&source.anchor));
+        let ctx = TransformContext::bound(
+            Some(self.plan.source()),
+            &self.children,
+            InstanceRef::Tree(instance, id),
+            &self.plan.demand(&source.anchor),
+        );
+        let mut track = KeyTrack {
+            failing: Some(BTreeSet::new()),
+            ..KeyTrack::default()
+        };
+        let mut trace = TransformTrace::default();
+        let outcome = self.plan.transform_tracked(
+            &mut node,
+            &source.anchor,
+            &ctx,
+            false,
+            &mut track,
+            Some(&mut trace),
+        );
+        let failing = track.failing.take().unwrap_or_default();
+        let fields = trace.fields.unwrap_or_else(|| node.extra_fields.clone());
+        let child_fields = take_child_fields(&mut node, &self.children, id, track);
+        NodeRun {
+            operations: trace.operations,
+            fields,
+            value: node.value,
+            shown: node.extra_fields,
+            child_fields,
+            failing,
+            error: outcome.err().map(|error| error.at(0, id, 0)),
+        }
+    }
 }
 
 /// The path joining a surviving node to its nearest surviving ancestor
@@ -1799,6 +1904,21 @@ pub fn wtype_restrict_with_plan(
     instance: &WInstance,
     plan: &crate::restrict_plan::RestrictPlan,
 ) -> Result<(WInstance, TreeSynthesis), RestrictError> {
+    wtype_restrict_with_child_fields(instance, plan)
+        .map(|(view, synthesis, _)| (view, synthesis))
+}
+
+/// [`wtype_restrict_with_plan`], with what the transforms of each surviving
+/// node made of the fields that an `ApplyExpr` ran on and one child of the
+/// node holds, in ascending node id and key.
+///
+/// # Errors
+///
+/// As [`wtype_restrict_with_plan`].
+pub fn wtype_restrict_with_child_fields<'p>(
+    instance: &WInstance,
+    plan: &'p crate::restrict_plan::RestrictPlan,
+) -> Result<(WInstance, TreeSynthesis, Vec<ChildField<'p>>), RestrictError> {
     use crate::view_ref::SynthKey;
 
     let migration = plan.migration();
@@ -1835,13 +1955,13 @@ pub fn wtype_restrict_with_plan(
 
     // The surviving nodes, re-anchored and transformed, in ascending id.
     let mut new_nodes: HashMap<u32, Node> = HashMap::with_capacity(surviving.len());
-    let mut child_writes = Vec::new();
+    let mut child_fields = Vec::new();
     for &id in &surviving {
-        let (node, writes) = transformed_tree_node(instance, plan, &children, id)?;
-        child_writes.extend(writes);
+        let (node, fields) = transformed_tree_node(instance, plan, &children, id)?;
+        child_fields.extend(fields);
         new_nodes.insert(id, node);
     }
-    write_back_to_children(&mut new_nodes, child_writes);
+    write_back_to_children(&mut new_nodes, &child_fields);
     let mut synthesized_keys = BTreeMap::new();
     for (key, anchor) in &synthesized_anchors {
         let id = synthesized_ids[key];
@@ -1883,6 +2003,7 @@ pub fn wtype_restrict_with_plan(
             id_floor,
             synthesized_keys,
         },
+        child_fields,
     ))
 }
 
@@ -2110,15 +2231,31 @@ pub fn apply_field_transforms_traced(
 /// and a rename itself writes its new key. The empty track (`KeyTrack::default()`) is that of a run
 /// that touched no key.
 #[derive(Clone, Debug, Default)]
-pub(crate) struct KeyTrack {
+pub(crate) struct KeyTrack<'t> {
     /// The keys a transform wrote.
     pub(crate) written: BTreeSet<String>,
     /// The written keys whose value an `ApplyExpr` read from a child the
     /// key names, not from the node's own fields: the attribute lives on
     /// that child, so the engine writes the result back there rather than
-    /// leave it as a second value for the field on the node. Each has the
-    /// rewrites that ran on it, from the one that read the child on.
-    pub(crate) on_child: BTreeMap<String, Vec<FieldTransform>>,
+    /// leave it as a second value for the field on the node.
+    pub(crate) on_child: BTreeSet<String>,
+    /// The operations that made the value of a key out of the value of the
+    /// child the key names, in order, while it is still under that key.
+    pub(crate) rewrites: BTreeMap<String, Vec<&'t FieldTransform>>,
+    /// Every key an `ApplyExpr` ran on.
+    pub(crate) rewritten: BTreeSet<String>,
+    /// The keys on which an `ApplyExpr` of a value a child holds did not
+    /// evaluate, when the run passes over such an operation; `None` when the
+    /// operation's error ends the run.
+    pub(crate) failing: Option<BTreeSet<String>>,
+}
+
+/// What a traced run records: the operations that executed, in order, and
+/// the fields they left, before any coercion to declared columns.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct TransformTrace {
+    pub(crate) operations: Vec<FieldTransform>,
+    pub(crate) fields: Option<HashMap<String, Value>>,
 }
 
 /// A key's state taken off a [`KeyTrack`] when its value moves: whether a
@@ -2128,11 +2265,11 @@ pub(crate) struct KeyState {
     written: bool,
 }
 
-impl KeyTrack {
+impl<'t> KeyTrack<'t> {
     /// Take the state of `key`, whose value is leaving it: afterwards the
     /// key is unwritten.
     pub(crate) fn take(&mut self, key: &str) -> KeyState {
-        self.on_child.remove(key);
+        self.forget_child(key);
         KeyState {
             written: self.written.remove(key),
         }
@@ -2141,7 +2278,7 @@ impl KeyTrack {
     /// Put a taken state on `to`, whose value is now the one the state was
     /// taken with, replacing what `to` held.
     pub(crate) fn put(&mut self, to: &str, state: KeyState) {
-        self.on_child.remove(to);
+        self.forget_child(to);
         if state.written {
             self.written.insert(to.to_owned());
         } else {
@@ -2158,52 +2295,128 @@ impl KeyTrack {
     /// The key was removed.
     pub(crate) fn removed(&mut self, key: &str) {
         self.written.remove(key);
+        self.forget_child(key);
+    }
+
+    /// The value under `key` is no longer made of the value of a child.
+    fn forget_child(&mut self, key: &str) {
         self.on_child.remove(key);
+        self.rewrites.remove(key);
     }
 
     /// The key was written: with a fresh value, or changed in place. The
     /// value is the node's own field from here on.
     fn wrote(&mut self, key: &str) {
         self.written.insert(key.to_owned());
-        self.on_child.remove(key);
+        self.forget_child(key);
+    }
+
+    /// The key was written by `computation`, with a value that becomes the
+    /// node's own field. `reads` is the one name the expression reads, when
+    /// it has an inverse and reads one name, and `from_child` says that the
+    /// node had no field of that name. A computation of a key from its own
+    /// value keeps what its value was made of.
+    fn computed(
+        &mut self,
+        key: &str,
+        computation: &'t FieldTransform,
+        reads: Option<&str>,
+        from_child: bool,
+    ) {
+        let mut rewrites = self.rewrites.remove(key);
+        self.wrote(key);
+        if reads != Some(key) {
+            return;
+        }
+        if from_child {
+            rewrites = Some(Vec::new());
+        }
+        if let Some(mut rewrites) = rewrites {
+            rewrites.push(computation);
+            self.rewrites.insert(key.to_owned(), rewrites);
+        }
     }
 
     /// The key was rewritten in place by `rewrite`, an expression over its
     /// own value, which `from_child` says was read from the child the key
     /// names. A key already living on its child stays there.
-    fn rewrote(&mut self, key: &str, rewrite: &FieldTransform, from_child: bool) {
+    fn rewrote(&mut self, key: &str, rewrite: &'t FieldTransform, from_child: bool) {
         self.written.insert(key.to_owned());
+        self.rewritten.insert(key.to_owned());
         if from_child {
-            self.on_child.insert(key.to_owned(), vec![rewrite.clone()]);
-        } else if let Some(rewrites) = self.on_child.get_mut(key) {
-            rewrites.push(rewrite.clone());
+            self.on_child.insert(key.to_owned());
+            self.rewrites.insert(key.to_owned(), vec![rewrite]);
+        } else if let Some(rewrites) = self.rewrites.get_mut(key) {
+            rewrites.push(rewrite);
         }
+    }
+
+    /// Pass over an `ApplyExpr` on `key` that failed with `error`, its
+    /// rewritten value being one a child holds: the value stays as it is and
+    /// the operation counts as having run.
+    ///
+    /// # Errors
+    ///
+    /// `error`, when the run does not pass over it: the operation does not
+    /// rewrite a value a child holds, the value could not be read, or the
+    /// run ends at the first error.
+    fn pass_over(
+        &mut self,
+        node: &mut Node,
+        key: &str,
+        rewrite: &'t FieldTransform,
+        ctx: &TransformContext<'_>,
+        error: RestrictError,
+    ) -> Result<(), RestrictError> {
+        let from_child = !node.extra_fields.contains_key(key);
+        let held = match (from_child, ctx.child_values.get(key)) {
+            (true, Some(value)) => Some(value),
+            (true, None) => return Err(error),
+            (false, _) => None,
+        };
+        let Some(failing) = self.failing.as_mut().filter(|_| {
+            (from_child || self.rewrites.contains_key(key))
+                && matches!(
+                    error,
+                    RestrictError::FieldTransformFailed { .. }
+                        | RestrictError::ValueNotExpressible { .. }
+                )
+        }) else {
+            return Err(error);
+        };
+        failing.insert(key.to_owned());
+        if let Some(value) = held {
+            node.extra_fields.insert(key.to_owned(), value.clone());
+        }
+        self.rewrote(key, rewrite, from_child);
+        Ok(())
     }
 
     /// Only the keys in `keys` were kept.
     fn kept(&mut self, keys: &HashSet<&str>) {
         self.written.retain(|k| keys.contains(k.as_str()));
-        self.on_child.retain(|k, _| keys.contains(k.as_str()));
+        self.on_child.retain(|k| keys.contains(k.as_str()));
+        self.rewrites.retain(|k, _| keys.contains(k.as_str()));
     }
 }
 
 /// [`apply_field_transforms`], recording in `track` what each transform
 /// did to the node's keys.
-pub(crate) fn apply_transforms_tracked(
+pub(crate) fn apply_transforms_tracked<'t>(
     node: &mut Node,
-    transforms: &[FieldTransform],
+    transforms: &'t [FieldTransform],
     ctx: &TransformContext<'_>,
-    track: &mut KeyTrack,
+    track: &mut KeyTrack<'t>,
 ) -> Result<(), RestrictError> {
     apply_transforms_observed(node, transforms, ctx, track, None)
 }
 
 /// Execute transforms, optionally recording the operations that actually ran.
-fn apply_transforms_observed(
+pub(crate) fn apply_transforms_observed<'t>(
     node: &mut Node,
-    transforms: &[FieldTransform],
+    transforms: &'t [FieldTransform],
     ctx: &TransformContext<'_>,
-    written_keys: &mut KeyTrack,
+    written_keys: &mut KeyTrack<'t>,
     mut trace: Option<&mut Vec<FieldTransform>>,
 ) -> Result<(), RestrictError> {
     for transform in transforms {
@@ -2240,13 +2453,23 @@ fn apply_transforms_observed(
             FieldTransform::ApplyExpr { key, expr, .. } => {
                 executed = key == "__value__"
                     && matches!(node.value, Some(crate::value::FieldPresence::Present(_)));
-                if let Some(read) = apply_expr_transform(node, key, expr, ctx)? {
-                    executed = true;
-                    written_keys.rewrote(key, transform, read == ExprRead::Child);
+                match apply_expr_transform(node, key, expr, ctx) {
+                    Ok(Some(read)) => {
+                        executed = true;
+                        written_keys.rewrote(key, transform, read == ExprRead::Child);
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        written_keys.pass_over(node, key, transform, ctx, error)?;
+                        executed = true;
+                    }
                 }
             }
             FieldTransform::ComputeField {
-                target_key, expr, ..
+                target_key,
+                expr,
+                inverse,
+                ..
             } => {
                 let env = ctx.environment(expr, &node.extra_fields)?;
                 let config = panproto_expr::EvalConfig::default();
@@ -2256,9 +2479,15 @@ fn apply_transforms_observed(
                         source,
                     }
                 })?;
+                let reads = (inverse.is_some() && written_keys.failing.is_some())
+                    .then(|| panproto_expr::free_vars(expr))
+                    .filter(|names| names.len() == 1)
+                    .and_then(|names| names.into_iter().next());
+                let from_child = !node.extra_fields.contains_key(target_key)
+                    && ctx.child_values.contains_key(target_key);
                 node.extra_fields
                     .insert(target_key.clone(), expr_literal_to_value(&result));
-                written_keys.wrote(target_key);
+                written_keys.computed(target_key, transform, reads.as_deref(), from_child);
                 executed = true;
             }
             FieldTransform::PathTransform { path, inner } => {
@@ -2311,11 +2540,11 @@ fn apply_transforms_observed(
 }
 
 /// Execute the first matching case branch in the current full fiber.
-fn apply_case_observed(
+fn apply_case_observed<'t>(
     node: &mut Node,
-    branches: &[CaseBranch],
+    branches: &'t [CaseBranch],
     ctx: &TransformContext<'_>,
-    written_keys: &mut KeyTrack,
+    written_keys: &mut KeyTrack<'t>,
     trace: Option<&mut Vec<FieldTransform>>,
 ) -> Result<(), RestrictError> {
     // Case predicates see extra fields and schema-defined child values.
@@ -4040,7 +4269,7 @@ fn wtype_extend_inner(
 
     let children = TreeChildren::new(instance);
     let mut new_nodes: HashMap<u32, Node> = HashMap::with_capacity(instance.nodes.len());
-    let mut child_writes = Vec::new();
+    let mut child_fields = Vec::new();
     let mut ids: Vec<u32> = instance.nodes.keys().copied().collect();
     ids.sort_unstable();
     for id in ids {
@@ -4057,7 +4286,7 @@ fn wtype_extend_inner(
             });
         };
         new_node.anchor = image;
-        let transforms = migration.value_transforms(&node.anchor);
+        let transforms = plan.program(&node.anchor);
         let ctx = if transforms.is_empty() {
             TransformContext::detached()
         } else {
@@ -4065,14 +4294,15 @@ fn wtype_extend_inner(
                 Some(plan.source()),
                 &children,
                 InstanceRef::Tree(instance, id),
-                &transform_demand(&transforms),
+                &transform_demand(transforms),
             )
         };
-        let on_child = plan.transform(&mut new_node, &node.anchor, &ctx, true)?;
-        child_writes.extend(take_child_writes(&mut new_node, &children, id, on_child));
+        let mut track = KeyTrack::default();
+        plan.transform_tracked(&mut new_node, &node.anchor, &ctx, true, &mut track, None)?;
+        child_fields.extend(take_child_fields(&mut new_node, &children, id, track));
         new_nodes.insert(id, new_node);
     }
-    write_back_to_children(&mut new_nodes, child_writes);
+    write_back_to_children(&mut new_nodes, &child_fields);
 
     let mut new_arcs: Vec<(u32, u32, Edge)> = Vec::with_capacity(instance.arcs.len());
     for &(parent, child, ref edge) in &instance.arcs {

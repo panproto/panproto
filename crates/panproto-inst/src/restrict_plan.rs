@@ -36,7 +36,8 @@ use crate::value::coerce::coerce_value;
 use crate::value::{Value, ValueSite};
 use crate::view_ref::SynthKey;
 use crate::wtype::{
-    CompiledMigration, FieldTransform, KeyTrack, TransformContext, apply_transforms_tracked,
+    CompiledMigration, FieldTransform, KeyTrack, TransformContext, TransformTrace,
+    apply_transforms_observed, apply_transforms_tracked,
     check_expansion, direct_source_edge_image,
 };
 
@@ -267,6 +268,8 @@ pub struct RestrictPlan {
     tgt: Schema,
     /// The migration.
     migration: CompiledMigration,
+    /// The value transforms of each source anchor that has any.
+    programs: HashMap<Name, Vec<FieldTransform>>,
 }
 
 impl RestrictPlan {
@@ -308,6 +311,12 @@ impl RestrictPlan {
             boundary: None,
             src: src.clone(),
             tgt: tgt.clone(),
+            programs: migration
+                .field_transforms
+                .keys()
+                .chain(migration.op_term_assignments.keys())
+                .map(|anchor| (anchor.clone(), migration.value_transforms(anchor)))
+                .collect(),
             migration: migration.clone(),
         };
         validate_transform_outputs(tgt, migration, protocol)?;
@@ -843,11 +852,18 @@ impl RestrictPlan {
         survives(&self.migration, anchor)
     }
 
+    /// The value transforms of the elements anchored at `anchor`, the
+    /// migration's [`value_transforms`](CompiledMigration::value_transforms).
+    #[must_use]
+    pub fn program(&self, anchor: &Name) -> &[FieldTransform] {
+        self.programs.get(anchor).map_or(&[], Vec::as_slice)
+    }
+
     /// Every name the survival predicate and the value transforms of
     /// `anchor` read.
     pub(crate) fn demand(&self, anchor: &Name) -> crate::wtype::Demand {
         let mut names: BTreeSet<String> =
-            crate::wtype::referenced_names(&self.migration.value_transforms(anchor))
+            crate::wtype::referenced_names(self.program(anchor))
                 .into_iter()
                 .collect();
         if let Some(predicate) = self.migration.conditional_survival.get(anchor) {
@@ -934,37 +950,67 @@ impl RestrictPlan {
     /// key (an identity read, say) is not coerced: it carries the source
     /// cell unchanged, as it would under no transform.
     ///
-    /// Returns the keys an `ApplyExpr` rewrote from the value of the child
-    /// the key names, the element having no field of that name: the result
-    /// is left in `node.extra_fields` and the attribute lives on the child,
-    /// so a tree engine moves it back there. Each key has the rewrites that
-    /// ran on it, from the one that read the child on.
-    ///
     /// # Errors
     ///
     /// The errors of the transforms ([`apply_field_transforms`]), and
     /// [`RestrictError::ValueFidelity`] for the least written key whose
     /// value the column cannot hold exactly.
+    ///
+    /// [`apply_field_transforms`]: crate::wtype::apply_field_transforms
     pub(crate) fn transform(
         &self,
         node: &mut Node,
         source_anchor: &Name,
         ctx: &TransformContext<'_>,
         cells: bool,
-    ) -> Result<BTreeMap<String, Vec<FieldTransform>>, RestrictError> {
-        let transforms = self.migration.value_transforms(source_anchor);
+    ) -> Result<(), RestrictError> {
+        self.transform_tracked(
+            node,
+            source_anchor,
+            ctx,
+            cells,
+            &mut KeyTrack::default(),
+            None,
+        )
+    }
+
+    /// [`Self::transform`], recording in `track` what the transforms did to
+    /// the element's keys. The result of an `ApplyExpr` that read the child
+    /// its key names is left in `node.extra_fields`; the attribute lives on
+    /// the child, so a tree engine moves it back there. `trace`, when given,
+    /// records the operations that executed and the fields they left before
+    /// the coercion.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::transform`].
+    pub(crate) fn transform_tracked<'p>(
+        &'p self,
+        node: &mut Node,
+        source_anchor: &Name,
+        ctx: &TransformContext<'_>,
+        cells: bool,
+        track: &mut KeyTrack<'p>,
+        trace: Option<&mut TransformTrace>,
+    ) -> Result<(), RestrictError> {
+        let transforms = self.program(source_anchor);
         let layer = self.cells();
         let fates = layer
             .filter(|_| cells)
             .and_then(|layer| layer.fates.get(source_anchor));
         if transforms.is_empty() && fates.is_none() {
             // Nothing moves, writes or drops a key, so nothing is coerced.
-            return Ok(BTreeMap::new());
+            return Ok(());
         }
-        let mut track = KeyTrack::default();
         if !transforms.is_empty() {
             let before = layer.map(|_| node.extra_fields.clone());
-            apply_transforms_tracked(node, &transforms, ctx, &mut track)?;
+            if let Some(trace) = trace {
+                let operations = &mut trace.operations;
+                apply_transforms_observed(node, transforms, ctx, track, Some(operations))?;
+                trace.fields = Some(node.extra_fields.clone());
+            } else {
+                apply_transforms_tracked(node, transforms, ctx, track)?;
+            }
             if let Some(before) = before {
                 track
                     .written
@@ -975,19 +1021,19 @@ impl RestrictPlan {
             }
         }
         let Some(layer) = layer else {
-            return Ok(track.on_child);
+            return Ok(());
         };
         if let Some(fates) = fates {
             let transformed =
                 (!transforms.is_empty()).then(|| (node.extra_fields.clone(), track.clone()));
-            apply_cell_fates(&mut node.extra_fields, fates, &mut track);
+            apply_cell_fates(&mut node.extra_fields, fates, track);
             if let Some((transformed, mut before)) = transformed {
                 overwrite_with_outputs(
                     &mut node.extra_fields,
                     &transformed,
-                    &transforms,
+                    transforms,
                     &mut before,
-                    &mut track,
+                    track,
                 );
             }
         }
@@ -1006,7 +1052,7 @@ impl RestrictPlan {
                 })?;
             node.extra_fields.insert(key, coerced);
         }
-        Ok(track.on_child)
+        Ok(())
     }
 
     /// The value vertex of `column` of the target table `table`.
@@ -1040,7 +1086,7 @@ impl RestrictPlan {
 /// column is read from the cells as they were, so a rename onto a column
 /// that is itself renamed or dropped moves the right value. A renamed value
 /// carries whether a transform wrote it.
-fn apply_cell_fates(fields: &mut HashMap<String, Value>, fates: &[CellFate], track: &mut KeyTrack) {
+fn apply_cell_fates(fields: &mut HashMap<String, Value>, fates: &[CellFate], track: &mut KeyTrack<'_>) {
     let mut moved = Vec::new();
     for fate in fates {
         match fate {
@@ -1071,8 +1117,8 @@ fn overwrite_with_outputs(
     fields: &mut HashMap<String, Value>,
     transformed: &HashMap<String, Value>,
     transforms: &[FieldTransform],
-    before: &mut KeyTrack,
-    track: &mut KeyTrack,
+    before: &mut KeyTrack<'_>,
+    track: &mut KeyTrack<'_>,
 ) {
     let mut outputs = Vec::new();
     for transform in transforms {
