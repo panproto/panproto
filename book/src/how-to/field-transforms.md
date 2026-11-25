@@ -37,7 +37,7 @@ const { view, complement } = lens.getJson(
 const restored = lens.putJson(view, complement, 'record:body');
 ```
 
-`apply_expr` evaluates its expression with the named field bound in the expression environment. An inverse is required only when edits must propagate backward through the transform. Declare `coercion: 'iso'` only when the forward and inverse expressions round-trip for every accepted value.
+`apply_expr` evaluates its expression with the named field bound in the expression environment. An inverse is required only when edits must propagate backward through the transform: without one, `put` restores the original value as long as the view still shows the transformed one, and refuses an edit of it. Declare `coercion: 'iso'` only when the forward and inverse expressions round-trip for every accepted value.
 
 ## Compute a field from its parent record
 

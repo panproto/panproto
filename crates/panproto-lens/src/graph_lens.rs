@@ -1153,7 +1153,7 @@ fn restore_with_plan(
                             || complement.identity.is_some(),
                     );
                 }
-                traces.insert(id, trace.operations);
+                traces.insert(id, trace);
             }
             Err(error) => errors.extend(trace_refusal(id, error)),
         }
@@ -1207,7 +1207,7 @@ fn graph_transform_trace(
 
 fn invert_graph_child_scalars(
     view: &GInstance,
-    traces: &HashMap<u32, Vec<panproto_inst::FieldTransform>>,
+    traces: &HashMap<u32, crate::asymmetric::TransformTrace>,
     source: &mut GInstance,
 ) {
     use panproto_inst::{FieldPresence, FieldTransform};
@@ -1218,7 +1218,7 @@ fn invert_graph_child_scalars(
         let Some(parent) = view.node(parent_id) else {
             continue;
         };
-        let Some(transforms) = traces.get(&parent_id) else {
+        let Some(trace) = traces.get(&parent_id) else {
             continue;
         };
         let child_of: HashMap<String, (u32, panproto_inst::Value)> = view
@@ -1242,7 +1242,7 @@ fn invert_graph_child_scalars(
             .iter()
             .map(|(name, (_, value))| (name.clone(), value.clone()))
             .collect();
-        for transform in transforms {
+        for transform in &trace.operations {
             let FieldTransform::ComputeField {
                 target_key,
                 expr,
@@ -1252,6 +1252,10 @@ fn invert_graph_child_scalars(
             else {
                 continue;
             };
+            // A result the program moved or dropped is on no child.
+            if !trace.fields.contains_key(target_key) {
+                continue;
+            }
             if parent.extra_fields.contains_key(target_key) || !child_of.contains_key(target_key) {
                 continue;
             }

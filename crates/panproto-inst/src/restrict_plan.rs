@@ -937,7 +937,8 @@ impl RestrictPlan {
     /// Returns the keys an `ApplyExpr` rewrote from the value of the child
     /// the key names, the element having no field of that name: the result
     /// is left in `node.extra_fields` and the attribute lives on the child,
-    /// so a tree engine moves it back there.
+    /// so a tree engine moves it back there. Each key has the rewrites that
+    /// ran on it, from the one that read the child on.
     ///
     /// # Errors
     ///
@@ -950,7 +951,7 @@ impl RestrictPlan {
         source_anchor: &Name,
         ctx: &TransformContext<'_>,
         cells: bool,
-    ) -> Result<BTreeSet<String>, RestrictError> {
+    ) -> Result<BTreeMap<String, Vec<FieldTransform>>, RestrictError> {
         let transforms = self.migration.value_transforms(source_anchor);
         let layer = self.cells();
         let fates = layer
@@ -958,7 +959,7 @@ impl RestrictPlan {
             .and_then(|layer| layer.fates.get(source_anchor));
         if transforms.is_empty() && fates.is_none() {
             // Nothing moves, writes or drops a key, so nothing is coerced.
-            return Ok(BTreeSet::new());
+            return Ok(BTreeMap::new());
         }
         let mut track = KeyTrack::default();
         if !transforms.is_empty() {

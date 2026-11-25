@@ -2,6 +2,17 @@
 
 All notable changes to panproto will be documented in this file.
 
+## [0.78.1] - 2026-11-25
+
+### Added
+
+- **The values get writes onto children** (`panproto-inst`): `tree_child_writes` gives each value that restricting a tree writes onto a child, as a `ChildWrite` with the rewrites behind it. ([#399](https://github.com/panproto/panproto/issues/399))
+
+### Fixed
+
+- **Tree put restores the value a rewrite without an inverse wrote** (`panproto-lens`): putting back an unedited view of an `apply_expr` step on a field of a record read from JSON returned the transformed value in place of the original, and an edit of such a field was accepted where get does not show it. Chains of rewrites with inverses were restored through the inverses even when unedited, and through one of them only. A field's original value is now restored exactly while the view shows the transformed one, carried back through every inverse when it was edited, and refused with `TransformNotInvertible` otherwise. This began in 0.77.0. ([#399](https://github.com/panproto/panproto/issues/399))
+- **Put leaves a child alone when the result of a rewrite or computation is renamed or dropped** (`panproto-lens`): tree and graph put refused an unedited view of such a lens, or changed the child of that name. ([#399](https://github.com/panproto/panproto/issues/399))
+
 ## [0.78.0] - 2026-11-24
 
 Breaking changes are described with their replacements in [Upgrade from 0.77 to 0.78](https://panproto.dev/book/how-to/upgrade-0.78.html).

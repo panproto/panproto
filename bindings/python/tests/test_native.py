@@ -718,6 +718,33 @@ class TestProtolensChain:
         restored = panproto.ProtolensChain.from_json(encoded)
         self._assert_compute_transform(restored)
 
+    @pytest.mark.parametrize(
+        "step",
+        [
+            {"expr": "count + 1", "coercion": "projection"},
+            {"expr": "count + 1", "coercion": "opaque"},
+            {"expr": "count + 1"},
+            {"expr": "count + 1", "inverse": "count - 1", "coercion": "iso"},
+        ],
+    )
+    def test_put_restores_a_rewritten_field(self, step: dict[str, str]) -> None:
+        proto, schema, instance = self._value_transform_context()
+        document = {
+            "id": "rewrite",
+            "source": "s",
+            "target": "t",
+            "steps": [{"apply_expr": {"field": "count", **step}}],
+        }
+        chain = panproto.ProtolensChain.from_dsl_json(json.dumps(document), "r:body")
+        lens = chain.instantiate(schema, proto)
+
+        view, complement = lens.get(instance)
+        assert view.to_json() != instance.to_json()
+        restored = lens.put(view, complement)
+
+        assert json.loads(restored.to_json()) == json.loads(instance.to_json())
+        lens.check_get_put(instance)
+
     def test_from_dsl_yaml_retains_compute_field(self) -> None:
         source = """
         id: test-compute
