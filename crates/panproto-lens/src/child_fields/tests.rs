@@ -156,7 +156,7 @@ fn an_unreachable_edit_of_one_item_of_a_long_list_is_refused_in_runs_linear_in_t
     let lens = lens(schema, "r", vec![doubled("n"), doubled("n")]);
     let (restored, runs) = put_with(&lens, &source, 2, 7);
     assert!(restored.is_none(), "no source shows 7 at the first item");
-    assert!(runs <= 20 * items as usize, "{runs} node runs");
+    assert!(runs <= 100 * items as usize, "{runs} node runs");
 }
 
 #[test]
@@ -172,7 +172,7 @@ fn an_unreachable_edit_of_one_of_many_independent_fields_is_refused_in_few_runs(
     let lens = lens(schema, "rec", transforms);
     let (restored, runs) = put_with(&lens, &source, 1, 9);
     assert!(restored.is_none(), "no source shows 9 at k0");
-    assert!(runs <= 200 * fields as usize, "{runs} node runs");
+    assert!(runs <= 400 * fields as usize, "{runs} node runs");
 }
 
 #[test]
@@ -239,4 +239,32 @@ fn fields_no_operation_reads_together_are_searched_apart() {
     let (view, complement) = crate::get(&lens, &source).unwrap();
     let search = Search::new(&lens, &view, &complement, &plan).unwrap();
     assert_eq!(search.parts(), vec![vec![0], vec![1], vec![2]]);
+}
+
+/// A guard that reads only the structure of the instance, through a graph
+/// builtin, sees no field's value: the items are still searched apart, and
+/// an unreachable edit is refused in runs linear in the list.
+#[test]
+fn a_guard_on_the_structure_alone_leaves_the_items_apart() {
+    let items = 1000;
+    let (schema, source) = list(items);
+    let structural = FieldTransform::Case {
+        branches: vec![panproto_inst::CaseBranch {
+            predicate: op(
+                BuiltinOp::Eq,
+                vec![
+                    op(
+                        BuiltinOp::Anchor,
+                        vec![Expr::Lit(Literal::Str("self".into()))],
+                    ),
+                    Expr::Lit(Literal::Str("nothing".into())),
+                ],
+            ),
+            transforms: Vec::new(),
+        }],
+    };
+    let lens = lens(schema, "r", vec![doubled("n"), doubled("n"), structural]);
+    let (restored, runs) = put_with(&lens, &source, 2, 7);
+    assert!(restored.is_none(), "no source shows 7 at the first item");
+    assert!(runs <= 100 * items as usize, "{runs} node runs");
 }

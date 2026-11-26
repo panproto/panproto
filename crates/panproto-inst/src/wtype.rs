@@ -3673,6 +3673,23 @@ pub struct FieldFootprint {
 }
 
 impl FieldFootprint {
+    /// What a survival predicate reads at the element it is evaluated at.
+    #[must_use]
+    pub fn of_predicate(predicate: &panproto_expr::Expr) -> Self {
+        Self::default().reading(predicate)
+    }
+
+    /// The fields of an element holding the fields `present` says it holds
+    /// that the names this operation reads bind.
+    #[must_use]
+    pub fn fields_read(&self, present: &dyn Fn(&str) -> bool) -> BTreeSet<String> {
+        self.reads
+            .iter()
+            .filter(|name| present(name))
+            .cloned()
+            .collect()
+    }
+
     fn reading(mut self, expr: &panproto_expr::Expr) -> Self {
         for name in panproto_expr::free_vars(expr) {
             if &*name == "self" {
@@ -3776,6 +3793,147 @@ pub fn reads_the_instance(expr: &panproto_expr::Expr) -> bool {
                     | BuiltinOp::Edges
             ) || arguments.iter().any(reads_the_instance)
         }
+    }
+}
+
+#[cfg(test)]
+mod footprint_routes {
+    //! Every route by which an expression of a program reads the element it
+    //! runs at, and what the footprint makes of it.
+
+    use std::sync::Arc;
+
+    use panproto_expr::{BuiltinOp, Expr, Literal};
+
+    use super::{CaseBranch, FieldFootprint, FieldTransform};
+
+    fn var(name: &str) -> Expr {
+        Expr::Var(Arc::from(name))
+    }
+
+    fn is_one(expr: Expr) -> Expr {
+        Expr::Builtin(BuiltinOp::Eq, vec![expr, Expr::Lit(Literal::Int(1))])
+    }
+
+    /// The footprint of a guard reading `predicate` that rewrites `a`.
+    fn guarded(predicate: Expr) -> FieldFootprint {
+        FieldTransform::Case {
+            branches: vec![CaseBranch {
+                predicate,
+                transforms: vec![FieldTransform::ApplyExpr {
+                    key: "a".into(),
+                    expr: var("a"),
+                    inverse: Some(var("a")),
+                    coercion_class: panproto_gat::CoercionClass::Iso,
+                }],
+            }],
+        }
+        .footprint()
+    }
+
+    /// The fields `footprint` reads at an element holding `fields`.
+    fn read(footprint: &FieldFootprint, fields: &[&str]) -> Vec<String> {
+        footprint
+            .fields_read(&|name| fields.contains(&name))
+            .into_iter()
+            .collect()
+    }
+
+    #[test]
+    fn a_name_reads_the_field_of_that_name() {
+        let footprint = guarded(is_one(var("b")));
+        assert_eq!(read(&footprint, &["a", "b", "c"]), ["a", "b"]);
+        assert!(footprint.writes.contains("a"));
+        assert!(!footprint.reads_instance && !footprint.reads_element);
+    }
+
+    #[test]
+    fn a_qualified_name_reads_the_field_it_qualifies() {
+        let footprint = guarded(is_one(var("attrs.b")));
+        assert_eq!(read(&footprint, &["a", "b"]), ["a", "b"]);
+        assert_eq!(read(&footprint, &["a", "attrs"]), ["a", "attrs"]);
+    }
+
+    #[test]
+    fn a_name_may_read_an_entry_of_the_attrs_field() {
+        let footprint = guarded(is_one(var("level")));
+        assert_eq!(read(&footprint, &["a", "level"]), ["a", "level"]);
+        assert_eq!(read(&footprint, &["a", "attrs"]), ["a", "attrs"]);
+    }
+
+    #[test]
+    fn a_name_reserved_from_qualification_reads_only_itself_qualified() {
+        let footprint = guarded(is_one(var("attrs.name")));
+        assert_eq!(read(&footprint, &["a", "name"]), ["a"]);
+        assert_eq!(read(&footprint, &["a", "name", "attrs"]), ["a", "attrs"]);
+    }
+
+    #[test]
+    fn self_reads_the_whole_element() {
+        assert!(guarded(is_one(var("self"))).reads_element);
+        assert!(guarded(is_one(Expr::Field(Box::new(var("self")), Arc::from("b")))).reads_element);
+    }
+
+    #[test]
+    fn a_projection_reads_the_field_it_projects_from() {
+        let footprint = guarded(is_one(Expr::Field(Box::new(var("r")), Arc::from("b"))));
+        assert_eq!(read(&footprint, &["a", "b", "r"]), ["a", "r"]);
+        let indexed = guarded(is_one(Expr::Index(
+            Box::new(var("xs")),
+            Box::new(Expr::Lit(Literal::Int(0))),
+        )));
+        assert_eq!(read(&indexed, &["a", "xs"]), ["a", "xs"]);
+    }
+
+    #[test]
+    fn a_name_bound_in_the_expression_reads_nothing() {
+        let bound = Expr::Let {
+            name: Arc::from("x"),
+            value: Box::new(var("b")),
+            body: Box::new(is_one(var("x"))),
+        };
+        let footprint = guarded(bound);
+        assert_eq!(read(&footprint, &["a", "b", "x"]), ["a", "b"]);
+        let shadowed = Expr::Let {
+            name: Arc::from("edge"),
+            value: Box::new(Expr::Lit(Literal::Int(1))),
+            body: Box::new(is_one(var("edge"))),
+        };
+        assert!(!guarded(shadowed).reads_instance);
+    }
+
+    #[test]
+    fn a_graph_builtin_applied_reads_the_instance() {
+        let anchor = Expr::Builtin(
+            BuiltinOp::Anchor,
+            vec![Expr::Lit(Literal::Str("self".into()))],
+        );
+        assert!(guarded(is_one(anchor)).reads_instance);
+    }
+
+    #[test]
+    fn a_graph_builtin_named_as_a_value_reads_the_instance() {
+        let applied = Expr::Let {
+            name: Arc::from("f"),
+            value: Box::new(var("edge")),
+            body: Box::new(is_one(Expr::App(
+                Box::new(Expr::App(
+                    Box::new(var("f")),
+                    Box::new(Expr::Lit(Literal::Str("self".into()))),
+                )),
+                Box::new(Expr::Lit(Literal::Str("b".into()))),
+            ))),
+        };
+        let footprint = guarded(applied);
+        assert!(footprint.reads_instance, "{footprint:?}");
+        assert!(guarded(is_one(var("children"))).reads_instance);
+    }
+
+    #[test]
+    fn a_survival_predicate_reads_by_the_same_routes() {
+        let footprint = FieldFootprint::of_predicate(&is_one(var("attrs.b")));
+        assert_eq!(read(&footprint, &["b"]), ["b"]);
+        assert!(FieldFootprint::of_predicate(&is_one(var("edge_count"))).reads_instance);
     }
 }
 

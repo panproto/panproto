@@ -10,7 +10,7 @@
 use std::collections::HashSet;
 
 use panproto_core::expr::Expr;
-use panproto_core::gat::CoercionClass;
+use panproto_core::gat::{CoercionClass, Name};
 use panproto_core::inst::value::FieldPresence;
 use panproto_core::inst::{
     CaseBranch, CompiledMigration, FieldTransform, PutDomainError, Value, WInstance, parse_json,
@@ -33,8 +33,12 @@ fn cases() -> Vec<Json> {
     serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
 }
 
+/// An expression written as source text, or as the expression itself.
 fn expr(source: &Json) -> Expr {
-    let tokens = panproto_expr_parser::tokenize(source.as_str().unwrap()).unwrap();
+    let Some(text) = source.as_str() else {
+        return serde_json::from_value(source.clone()).unwrap();
+    };
+    let tokens = panproto_expr_parser::tokenize(text).unwrap();
     panproto_expr_parser::parse(&tokens).unwrap()
 }
 
@@ -111,26 +115,39 @@ impl Case {
     }
 
     fn new(json: Json) -> Self {
-        let lexicon = serde_json::json!({
-            "lexicon": 1,
-            "id": "com.example.note",
-            "defs": {"main": {"type": "record", "key": "any", "record": {
-                "type": "object", "properties": json["properties"],
-            }}},
-        });
+        let mut defs = serde_json::json!({"main": {"type": "record", "key": "any", "record": {
+            "type": "object", "properties": json["properties"],
+        }}});
+        if let Some(more) = json.get("defs").and_then(Json::as_object) {
+            for (name, def) in more {
+                defs[name] = def.clone();
+            }
+        }
+        let lexicon = serde_json::json!({"lexicon": 1, "id": "com.example.note", "defs": defs});
         let schema: Schema =
             panproto_protocols::parse_schema_bundle("atproto", &[lexicon]).unwrap();
-        let transforms: Vec<FieldTransform> = json["transforms"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(transform)
-            .collect();
+        let program = |transforms: &Json| -> Vec<FieldTransform> {
+            transforms
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(transform)
+                .collect()
+        };
+        let programs: Vec<(Name, Vec<FieldTransform>)> = match json.get("programs") {
+            Some(programs) => programs
+                .as_object()
+                .unwrap()
+                .iter()
+                .map(|(anchor, transforms)| (anchor.as_str().into(), program(transforms)))
+                .collect(),
+            None => vec![(text(&json["at"]).into(), program(&json["transforms"]))],
+        };
         let lens = Lens {
             compiled: CompiledMigration {
                 surviving_verts: schema.vertices.keys().cloned().collect::<HashSet<_>>(),
                 surviving_edges: schema.edges.keys().cloned().collect(),
-                field_transforms: [(text(&json["at"]).into(), transforms)].into(),
+                field_transforms: programs.into_iter().collect(),
                 ..CompiledMigration::default()
             },
             src_schema: schema.clone(),
@@ -524,4 +541,122 @@ fn an_edit_of_a_rewritten_default_is_refused_as_derived() {
             found => panic!("{edited}: {found:?}"),
         }
     }
+}
+
+/// The put of each edited view of `case` through `put_json`, against the
+/// sources given, `"refused"` where put refuses.
+fn check_puts(case: &Case, puts: &[(Json, Json)]) {
+    let (view, complement) = get(&case.lens, &case.source()).unwrap();
+    let mut failures = Vec::new();
+    let unedited = case.write(&view);
+    let found = case
+        .put_json(&unedited, &complement)
+        .map_err(|error| error.to_string());
+    check(
+        &mut failures,
+        &format!("{} unedited", case.name()),
+        &case.json["source"],
+        &found,
+    );
+    for (edited, expected) in puts {
+        let found = case
+            .put_json(edited, &complement)
+            .map_err(|error| error.to_string());
+        if let Ok(found) = &found {
+            let (again, _) = get(&case.lens, &case.read(found)).unwrap();
+            if case.write(&again) != *edited {
+                failures.push(format!(
+                    "{} at {edited}: put {found}, which shows {}",
+                    case.name(),
+                    case.write(&again)
+                ));
+            }
+        }
+        check(
+            &mut failures,
+            &format!("{} at {edited}", case.name()),
+            expected,
+            &found,
+        );
+    }
+    report(&failures);
+}
+
+/// A guard of the record's program reads a field of a nested record, which
+/// that record's own program rewrites: the two fields are read together.
+#[test]
+fn a_guard_on_a_field_of_a_nested_record_is_searched_with_that_field() {
+    let case = Case::new(serde_json::json!({
+        "name": "guard through a nested record",
+        "properties": {
+            "a": {"type": "string"},
+            "r": {"type": "object", "properties": {"b": {"type": "string"}}},
+        },
+        "programs": {
+            ROOT: [{"case": [["r.b == \"XY\"", [
+                {"rewrite": "a", "to": "concat a \"!\"", "from": "replace a \"!\" \"\""},
+            ]]]}],
+            "com.example.note:body.r": [{"rewrite": "b", "to": "lower b", "from": "upper b"}],
+        },
+        "source": {"a": "A", "r": {"b": "XY"}},
+    }));
+    let (view, _) = get(&case.lens, &case.source()).unwrap();
+    assert_eq!(
+        case.write(&view),
+        serde_json::json!({"a": "A!", "r": {"b": "xy"}})
+    );
+    check_puts(
+        &case,
+        &[
+            (
+                serde_json::json!({"a": "B", "r": {"b": "cd"}}),
+                serde_json::json!({"a": "B", "r": {"b": "CD"}}),
+            ),
+            (
+                serde_json::json!({"a": "A!", "r": {"b": "cd"}}),
+                serde_json::json!({"a": "A!", "r": {"b": "CD"}}),
+            ),
+            (
+                serde_json::json!({"a": "B!", "r": {"b": "xy"}}),
+                serde_json::json!({"a": "B", "r": {"b": "XY"}}),
+            ),
+        ],
+    );
+}
+
+/// A guard reading a field by its qualified name `attrs.b` reads `b`.
+#[test]
+fn a_guard_on_a_qualified_name_is_searched_with_the_field_it_names() {
+    let case = Case::new(serde_json::json!({
+        "name": "guard through a qualified name",
+        "at": ROOT,
+        "properties": {"a": {"type": "string"}, "b": {"type": "string"}},
+        "transforms": [
+            {"rewrite": "b", "to": "lower b", "from": "upper b"},
+            {"case": [[
+                {"Builtin": ["Eq", [{"Var": "attrs.b"}, {"Lit": {"Str": "xy"}}]]},
+                [{"rewrite": "a", "to": "concat a \"!\"", "from": "replace a \"!\" \"\""}],
+            ]]},
+        ],
+        "source": {"a": "A", "b": "XY"},
+    }));
+    let (view, _) = get(&case.lens, &case.source()).unwrap();
+    assert_eq!(case.write(&view), serde_json::json!({"a": "A!", "b": "xy"}));
+    check_puts(
+        &case,
+        &[
+            (
+                serde_json::json!({"a": "B", "b": "cd"}),
+                serde_json::json!({"a": "B", "b": "CD"}),
+            ),
+            (
+                serde_json::json!({"a": "A!", "b": "cd"}),
+                serde_json::json!({"a": "A!", "b": "CD"}),
+            ),
+            (
+                serde_json::json!({"a": "B!", "b": "xy"}),
+                serde_json::json!({"a": "B", "b": "XY"}),
+            ),
+        ],
+    );
 }
