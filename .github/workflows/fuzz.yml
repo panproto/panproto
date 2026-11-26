@@ -235,7 +235,7 @@ jobs:
           PROPTEST_CASES: "4"
         run: |
           cargo miri setup
-          cargo miri nextest run --no-fail-fast --partition "hash:${{ matrix.partition }}/6" \
+          cargo miri nextest run --profile miri --no-fail-fast --partition "hash:${{ matrix.partition }}/6" \
             -p panproto-expr -p panproto-gat -p panproto-schema
       # nextest does not run doctests; the first partition runs them.
       - name: Run Miri on the doctests
