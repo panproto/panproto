@@ -76,7 +76,24 @@ fn leaf(nodes: &mut HashMap<u32, Node>, id: u32, anchor: &str, value: i64) {
 /// A list `s` of `items` records, record `i` holding `n` and `m` equal to
 /// `i`; the record of item `i` is node `3 i + 1`, its `n` node `3 i + 2`.
 fn list(items: u32) -> (Schema, WInstance) {
+    list_keyed(items, false)
+}
+
+/// [`list`], with `m` a unique key of the records where `keyed` says so.
+fn list_keyed(items: u32, keyed: bool) -> (Schema, WInstance) {
     let protocol = Protocol::default();
+    let key = panproto_schema::Key {
+        id: "m".into(),
+        parts: vec![panproto_schema::KeyPart::Path(vec![edge(
+            "r",
+            "r.m",
+            "prop",
+            Some("m"),
+        )])],
+        role: panproto_schema::KeyRole::Unique,
+        scope: panproto_schema::KeyScope::Document,
+        equality: Vec::new(),
+    };
     let schema = SchemaBuilder::new(&protocol)
         .vertex("s", "object", None)
         .and_then(|b| b.vertex("r", "object", None))
@@ -85,6 +102,7 @@ fn list(items: u32) -> (Schema, WInstance) {
         .and_then(|b| b.edge("s", "r", "item", None))
         .and_then(|b| b.edge("r", "r.n", "prop", Some("n")))
         .and_then(|b| b.edge("r", "r.m", "prop", Some("m")))
+        .map(|b| if keyed { b.key("r", key) } else { b })
         .and_then(SchemaBuilder::build)
         .unwrap();
     let mut nodes = HashMap::from([(0, Node::new(0, "s"))]);
@@ -267,4 +285,22 @@ fn a_guard_on_the_structure_alone_leaves_the_items_apart() {
     let (restored, runs) = put_with(&lens, &source, 2, 7);
     assert!(restored.is_none(), "no source shows 7 at the first item");
     assert!(runs <= 100 * items as usize, "{runs} node runs");
+}
+
+/// A unique key compares the records, so every coordinate is in one part
+/// and an unreachable edit is refused by the search of every coordinate
+/// together, which ends at the first source it would try again: the runs
+/// grow with the list as a single search of it does.
+#[test]
+fn an_unreachable_edit_under_a_unique_key_is_refused_by_one_search() {
+    for items in [32, 64, 128] {
+        let (schema, source) = list_keyed(items, true);
+        let lens = lens(schema, "r", vec![doubled("n"), doubled("n")]);
+        let (restored, runs) = put_with(&lens, &source, 2, 7);
+        assert!(restored.is_none(), "no source shows 7 at the first item");
+        assert!(
+            runs <= 100 * items as usize,
+            "{items} items: {runs} node runs"
+        );
+    }
 }

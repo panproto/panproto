@@ -39,6 +39,8 @@ enum Term {
     Add(Box<Self>, Box<Self>),
     Sub(Box<Self>, Box<Self>),
     Mul(Box<Self>, Box<Self>),
+    Div(Box<Self>, Box<Self>),
+    Rem(Box<Self>, Box<Self>),
     Text(Box<Self>),
     Number(Box<Self>),
     If(Test, Box<Self>, Box<Self>),
@@ -117,6 +119,8 @@ impl Term {
             Self::Add(a, b) => builtin(BuiltinOp::Add, vec![a.expr(), b.expr()]),
             Self::Sub(a, b) => builtin(BuiltinOp::Sub, vec![a.expr(), b.expr()]),
             Self::Mul(a, b) => builtin(BuiltinOp::Mul, vec![a.expr(), b.expr()]),
+            Self::Div(a, b) => builtin(BuiltinOp::Div, vec![a.expr(), b.expr()]),
+            Self::Rem(a, b) => builtin(BuiltinOp::Mod, vec![a.expr(), b.expr()]),
             Self::Text(a) => builtin(BuiltinOp::IntToStr, vec![a.expr()]),
             Self::Number(a) => builtin(BuiltinOp::StrToInt, vec![a.expr()]),
             Self::If(test, then, or) => Expr::Match {
@@ -141,6 +145,10 @@ impl Term {
             Self::Add(a, b) => RefValue::Int(ints(a, b).map(|(a, b)| a + b)?),
             Self::Sub(a, b) => RefValue::Int(ints(a, b).map(|(a, b)| a - b)?),
             Self::Mul(a, b) => RefValue::Int(ints(a, b).map(|(a, b)| a * b)?),
+            Self::Div(a, b) => RefValue::Int(ints(a, b).and_then(|(a, b)| a.checked_div(b))?),
+            Self::Rem(a, b) => {
+                RefValue::Int(ints(a, b).and_then(|(a, b)| (b != 0).then(|| a.wrapping_rem(b)))?)
+            }
             Self::Text(a) => match a.eval(fields)? {
                 RefValue::Int(a) => RefValue::Str(a.to_string()),
                 _ => return None,
@@ -167,7 +175,11 @@ impl Term {
             Self::Field(name) => {
                 into.insert((*name).to_owned());
             }
-            Self::Add(a, b) | Self::Sub(a, b) | Self::Mul(a, b) => {
+            Self::Add(a, b)
+            | Self::Sub(a, b)
+            | Self::Mul(a, b)
+            | Self::Div(a, b)
+            | Self::Rem(a, b) => {
                 a.names(into);
                 b.names(into);
             }
@@ -396,11 +408,16 @@ fn steps() -> Vec<Step> {
 // ---------------------------------------------------------------------------
 
 fn schema() -> Schema {
+    schema_of(&FIELDS)
+}
+
+/// A record `r` holding the integer fields `fields`.
+fn schema_of(fields: &[&str]) -> Schema {
     let protocol = Protocol::default();
     let mut builder = SchemaBuilder::new(&protocol)
         .vertex("r", "object", None)
         .unwrap();
-    for name in FIELDS {
+    for name in fields {
         let leaf = format!("r.{name}");
         builder = builder
             .vertex(&leaf, "integer", None)
@@ -941,7 +958,7 @@ fn check_part(part: usize, parts: usize) -> Counts {
 /// is and is not defined of, and the views put accepts, accepts with a field
 /// of the record's own, refuses and misses, and those on which the reference's
 /// two searches differ, with either complement.
-const fn counts(
+const fn counts_of(
     [unmodelled, got, not_got]: [u32; 3],
     recorded: [u32; 5],
     earlier: [u32; 5],
@@ -968,7 +985,7 @@ const fn counts(
 fn put_agrees_with_the_reference_on_fields_of_children_1() {
     assert_eq!(
         check_part(0, 4),
-        counts(
+        counts_of(
             [2, 1450, 701],
             [20_704, 77, 16_231, 0, 0],
             [19_734, 77, 17_201, 0, 0],
@@ -980,7 +997,7 @@ fn put_agrees_with_the_reference_on_fields_of_children_1() {
 fn put_agrees_with_the_reference_on_fields_of_children_2() {
     assert_eq!(
         check_part(1, 4),
-        counts(
+        counts_of(
             [15, 1178, 577],
             [18_025, 87, 11_397, 4, 0],
             [17_547, 87, 11_875, 4, 0],
@@ -992,7 +1009,7 @@ fn put_agrees_with_the_reference_on_fields_of_children_2() {
 fn put_agrees_with_the_reference_on_fields_of_children_3() {
     assert_eq!(
         check_part(2, 4),
-        counts(
+        counts_of(
             [3, 1384, 479],
             [22_295, 108, 17_264, 4, 0],
             [20_828, 108, 18_731, 4, 0],
@@ -1004,10 +1021,115 @@ fn put_agrees_with_the_reference_on_fields_of_children_3() {
 fn put_agrees_with_the_reference_on_fields_of_children_4() {
     assert_eq!(
         check_part(3, 4),
-        counts(
+        counts_of(
             [4, 1371, 483],
             [17_873, 158, 16_948, 0, 0],
             [17_488, 158, 17_333, 0, 0],
         )
+    );
+}
+
+/// Two programs on two pairs of fields, `a` with `b` and `c` with `d`, each
+/// of operations from `pool`: a successor, a clamp of the other field, a
+/// doubling under a guard on the other field's parity, and a remainder.
+fn paired_steps(x: &'static str, y: &'static str) -> Vec<Step> {
+    let clamp = Term::If(
+        Test::Below(Box::new(int(5)), Box::new(field(y))),
+        Box::new(int(5)),
+        Box::new(field(y)),
+    );
+    vec![
+        Step::Rewrite(
+            x,
+            Term::Add(Box::new(field(x)), Box::new(int(1))),
+            Some(Term::Sub(Box::new(field(x)), Box::new(int(1)))),
+        ),
+        Step::Rewrite(y, clamp, Some(field(y))),
+        Step::Case(vec![(
+            Test::Is(
+                Box::new(Term::Rem(Box::new(field(y)), Box::new(int(2)))),
+                Box::new(int(0)),
+            ),
+            vec![Step::Rewrite(
+                x,
+                Term::Mul(Box::new(field(x)), Box::new(int(2))),
+                Some(Term::Div(Box::new(field(x)), Box::new(int(2)))),
+            )],
+        )]),
+        Step::Rewrite(x, Term::Rem(Box::new(field(x)), Box::new(int(3))), None),
+    ]
+}
+
+/// On records of four fields whose programs pair them in two parts, the
+/// reference's search by parts and its search of every coordinate together
+/// differ on some views (a part found in its first search is moved by the
+/// search of every coordinate when another part needs more), and put agrees
+/// with the search by parts on every view.
+#[test]
+fn put_agrees_with_the_reference_where_its_two_searches_differ() {
+    let fields = ["a", "b", "c", "d"];
+    let schema = schema_of(&fields);
+    let record = |values: [i64; 4]| Record {
+        own: Bindings::new(),
+        children: fields
+            .iter()
+            .zip(values)
+            .map(|(key, held)| {
+                (
+                    (*key).to_owned(),
+                    Content::Value(Presence::Present(RefValue::Int(held))),
+                )
+            })
+            .collect(),
+    };
+    let sources = [
+        record([3, 6, 1, 8]),
+        record([3, 3, 7, 6]),
+        record([1, 7, 2, 6]),
+    ];
+    let set = |pairs: &[(&'static str, i64)]| -> Vec<(&'static str, Option<Content>)> {
+        pairs
+            .iter()
+            .map(|(key, held)| {
+                (
+                    *key,
+                    Some(Content::Value(Presence::Present(RefValue::Int(*held)))),
+                )
+            })
+            .collect()
+    };
+    let edits = vec![
+        set(&[]),
+        set(&[("a", 6), ("c", -1)]),
+        set(&[("a", 5), ("c", 5)]),
+        set(&[("a", 4), ("c", -1)]),
+        set(&[("a", 1), ("c", 1), ("d", 3)]),
+        set(&[("c", 5)]),
+        set(&[("a", 6)]),
+        set(&[("a", 1), ("d", 12)]),
+    ];
+    let (first, second) = (paired_steps("a", "b"), paired_steps("c", "d"));
+    let mut counts = Counts::default();
+    let mut smallest = Smallest(None);
+    for one in &first {
+        for two in &first {
+            for three in &second {
+                for four in &second {
+                    let program = [one.clone(), two.clone(), three.clone(), four.clone()];
+                    check_program(
+                        &schema,
+                        &program,
+                        &sources,
+                        &edits,
+                        &mut counts,
+                        &mut smallest,
+                    );
+                }
+            }
+        }
+    }
+    assert_eq!(
+        counts,
+        counts_of([0, 768, 0], [3357, 0, 2723, 0, 59], [3357, 0, 2723, 0, 59])
     );
 }
