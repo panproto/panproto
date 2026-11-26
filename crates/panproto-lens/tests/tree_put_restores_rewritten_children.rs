@@ -229,30 +229,25 @@ fn sequences<T: Copy>(alphabet: &[T], longest: usize) -> Vec<Vec<T>> {
     out
 }
 
-/// The reference's put of `shown` over the source value `original`.
-///
-/// The baseline is the original where get recorded it, that is, where get
-/// changed it, and the view's value elsewhere. Put gives the baseline when
-/// the view shows its image, else `shown` carried back through every
-/// inverse, else the baseline; it refuses when the image of what it gives is
-/// not `shown`.
+/// The reference's put of `shown` over the source value `original`: the
+/// first whose image is `shown` of the original; `shown` carried back
+/// through the inverses, a rewrite without one passing it on; `shown`
+/// itself; and `shown` carried back through each inverse alone, the last
+/// first. A refusal when there is none.
 fn reference_put(program: &[Rewrite], original: i64, shown: i64) -> Option<i64> {
     let forward = |x: i64| program.iter().fold(x, |x, rewrite| rewrite.forward(x));
-    let baseline = if forward(original) == original {
-        shown
-    } else {
-        original
-    };
-    let source = if forward(baseline) == shown {
-        baseline
-    } else {
-        program
-            .iter()
-            .rev()
-            .try_fold(shown, |x, rewrite| rewrite.backward(x))
-            .unwrap_or(baseline)
-    };
-    (forward(source) == shown).then_some(source)
+    let carried = program
+        .iter()
+        .rev()
+        .fold(shown, |x, rewrite| rewrite.backward(x).unwrap_or(x));
+    let alone = program
+        .iter()
+        .rev()
+        .filter_map(|rewrite| rewrite.backward(shown));
+    [original, carried, shown]
+        .into_iter()
+        .chain(alone)
+        .find(|&source| forward(source) == shown)
 }
 
 #[test]

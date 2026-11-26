@@ -2,6 +2,8 @@
 
 // Structural alignment of a tree view read from a serialization.
 mod alignment;
+// Fields of a record that its children hold.
+mod child_fields;
 mod constructions;
 // Shared put-domain machinery and graph restoration.
 mod domain;

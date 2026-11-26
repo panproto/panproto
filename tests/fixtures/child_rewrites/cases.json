@@ -1,0 +1,1196 @@
+[
+{
+ "name": "rename of a value, shown changed",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "string"}, "m": {"type": "string"}},
+ "transforms": [{"rewrite": "n", "to": "if n == \"old\" then \"new\" else n", "from": "if n == \"new\" then \"old\" else n"}],
+ "source": {"n": "old", "m": "x"},
+ "view": {"n": "new", "m": "x"},
+ "puts": [
+  {"view": {"n": "new", "m": "x"}, "source": {"n": "old", "m": "x"}},
+  {"view": {"n": null, "m": "x"}, "source": {"n": null, "m": "x"}},
+  {"view": {"n": "zz", "m": "x"}, "source": {"n": "zz", "m": "x"}},
+  {"view": {"n": "new", "m": "y"}, "source": {"n": "old", "m": "y"}},
+  {"view": {"n": "foo", "m": "y"}, "source": {"n": "foo", "m": "y"}},
+  {"view": {"n": "old", "m": "x"}, "source": "refused"},
+  {"view": {"m": "x"}, "source": {"m": "x"}}
+ ],
+ "undo": true,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {"2": {"Present": {"Str": "old"}}}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "28e79d9787d0ec46725ef5323c485cb2522ef1e9a21563ba0a3235ccdaafe43d", "target_schema": "28e79d9787d0ec46725ef5323c485cb2522ef1e9a21563ba0a3235ccdaafe43d", "lens": "e31c02f4e809d057f4c6a24b1cde146187bea9619e6c5b19f3d4c6673ecb5181", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "rename of a value, shown unchanged",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "string"}, "m": {"type": "string"}},
+ "transforms": [{"rewrite": "n", "to": "if n == \"old\" then \"new\" else n", "from": "if n == \"new\" then \"old\" else n"}],
+ "source": {"n": "foo", "m": "x"},
+ "view": {"n": "foo", "m": "x"},
+ "puts": [
+  {"view": {"n": "foo", "m": "x"}, "source": {"n": "foo", "m": "x"}},
+  {"view": {"n": "new", "m": "x"}, "source": {"n": "old", "m": "x"}},
+  {"view": {"n": "old", "m": "x"}, "source": "refused"},
+  {"view": {"n": "bar", "m": "x"}, "source": {"n": "bar", "m": "x"}},
+  {"view": {"n": "foo", "m": "y"}, "source": {"n": "foo", "m": "y"}},
+  {"view": {"n": null, "m": "x"}, "source": {"n": null, "m": "x"}}
+ ],
+ "undo": true,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "28e79d9787d0ec46725ef5323c485cb2522ef1e9a21563ba0a3235ccdaafe43d", "target_schema": "28e79d9787d0ec46725ef5323c485cb2522ef1e9a21563ba0a3235ccdaafe43d", "lens": "e31c02f4e809d057f4c6a24b1cde146187bea9619e6c5b19f3d4c6673ecb5181", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "rename of a value, null",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "string"}, "m": {"type": "string"}},
+ "transforms": [{"rewrite": "n", "to": "if n == \"old\" then \"new\" else n", "from": "if n == \"new\" then \"old\" else n"}],
+ "source": {"n": null, "m": "x"},
+ "view": {"n": null, "m": "x"},
+ "puts": [
+  {"view": {"n": null, "m": "x"}, "source": {"n": null, "m": "x"}},
+  {"view": {"n": "new", "m": "x"}, "source": {"n": "old", "m": "x"}},
+  {"view": {"n": null, "m": "y"}, "source": {"n": null, "m": "y"}},
+  {"view": {"m": "x"}, "source": {"m": "x"}}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {"0": {}}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "28e79d9787d0ec46725ef5323c485cb2522ef1e9a21563ba0a3235ccdaafe43d", "target_schema": "28e79d9787d0ec46725ef5323c485cb2522ef1e9a21563ba0a3235ccdaafe43d", "lens": "e31c02f4e809d057f4c6a24b1cde146187bea9619e6c5b19f3d4c6673ecb5181", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": false
+},
+{
+ "name": "rename of a value, absent",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "string"}, "m": {"type": "string"}},
+ "transforms": [{"rewrite": "n", "to": "if n == \"old\" then \"new\" else n", "from": "if n == \"new\" then \"old\" else n"}],
+ "source": {"m": "x"},
+ "view": {"m": "x"},
+ "puts": [
+  {"view": {"m": "x"}, "source": {"m": "x"}},
+  {"view": {"m": "x", "n": "new"}, "source": {"n": "old", "m": "x"}},
+  {"view": {"m": "x", "n": "zz"}, "source": {"n": "zz", "m": "x"}},
+  {"view": {"m": "x", "n": "old"}, "source": "refused"},
+  {"view": {"m": "x", "n": null}, "source": {"n": null, "m": "x"}}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1]], "original_values": {}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 2, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "28e79d9787d0ec46725ef5323c485cb2522ef1e9a21563ba0a3235ccdaafe43d", "target_schema": "28e79d9787d0ec46725ef5323c485cb2522ef1e9a21563ba0a3235ccdaafe43d", "lens": "e31c02f4e809d057f4c6a24b1cde146187bea9619e6c5b19f3d4c6673ecb5181", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "rename of a value, the source already at the new value",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "string"}, "m": {"type": "string"}},
+ "transforms": [{"rewrite": "n", "to": "if n == \"old\" then \"new\" else n", "from": "if n == \"new\" then \"old\" else n"}],
+ "source": {"n": "new", "m": "x"},
+ "view": {"n": "new", "m": "x"},
+ "puts": [
+  {"view": {"n": "new", "m": "x"}, "source": {"n": "new", "m": "x"}},
+  {"view": {"n": "foo", "m": "x"}, "source": {"n": "foo", "m": "x"}},
+  {"view": {"n": "new", "m": "y"}, "source": {"n": "new", "m": "y"}}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "28e79d9787d0ec46725ef5323c485cb2522ef1e9a21563ba0a3235ccdaafe43d", "target_schema": "28e79d9787d0ec46725ef5323c485cb2522ef1e9a21563ba0a3235ccdaafe43d", "lens": "e31c02f4e809d057f4c6a24b1cde146187bea9619e6c5b19f3d4c6673ecb5181", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": false
+},
+{
+ "name": "rename of a value, enum source",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "string", "enum": ["old", "foo"]}},
+ "transforms": [{"rewrite": "n", "to": "if n == \"old\" then \"new\" else n", "from": "if n == \"new\" then \"old\" else n"}],
+ "source": {"n": "foo"},
+ "view": {"n": "foo"},
+ "puts": [
+  {"view": {"n": "foo"}, "source": {"n": "foo"}},
+  {"view": {"n": "new"}, "source": {"n": "old"}}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0}, "source_fingerprint": 11875203015347107758, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1]], "original_values": {}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 2, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "357d87a040a1a01e6495dc1d67dd7b584589ba0e0f94e84fb671374734db85ac", "target_schema": "357d87a040a1a01e6495dc1d67dd7b584589ba0e0f94e84fb671374734db85ac", "lens": "136f631858e4ef4aec548c0bb9884a9e7340e675ea45d071c0169f9a1c4ed874", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "rename of a value, no inverse",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "string"}, "m": {"type": "string"}},
+ "transforms": [{"rewrite": "n", "to": "if n == \"old\" then \"new\" else n"}],
+ "source": {"n": "old", "m": "x"},
+ "view": {"n": "new", "m": "x"},
+ "puts": [
+  {"view": {"n": "new", "m": "x"}, "source": {"n": "old", "m": "x"}},
+  {"view": {"n": null, "m": "x"}, "source": {"n": null, "m": "x"}},
+  {"view": {"n": "zz", "m": "x"}, "source": {"n": "zz", "m": "x"}},
+  {"view": {"n": "new", "m": "y"}, "source": {"n": "old", "m": "y"}},
+  {"view": {"n": "old", "m": "x"}, "source": "refused"},
+  {"view": {"m": "x"}, "source": {"m": "x"}}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {"2": {"Present": {"Str": "old"}}}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "28e79d9787d0ec46725ef5323c485cb2522ef1e9a21563ba0a3235ccdaafe43d", "target_schema": "28e79d9787d0ec46725ef5323c485cb2522ef1e9a21563ba0a3235ccdaafe43d", "lens": "dab5964856f31548bc0dd28f56723cc9ba6561f86e9b281ebe2229b0b2c2f7b1", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "rename of a value, no inverse, shown unchanged",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "string"}, "m": {"type": "string"}},
+ "transforms": [{"rewrite": "n", "to": "if n == \"old\" then \"new\" else n"}],
+ "source": {"n": "foo", "m": "x"},
+ "view": {"n": "foo", "m": "x"},
+ "puts": [
+  {"view": {"n": "foo", "m": "x"}, "source": {"n": "foo", "m": "x"}},
+  {"view": {"n": "new", "m": "x"}, "source": {"n": "new", "m": "x"}},
+  {"view": {"n": "old", "m": "x"}, "source": "refused"}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "28e79d9787d0ec46725ef5323c485cb2522ef1e9a21563ba0a3235ccdaafe43d", "target_schema": "28e79d9787d0ec46725ef5323c485cb2522ef1e9a21563ba0a3235ccdaafe43d", "lens": "dab5964856f31548bc0dd28f56723cc9ba6561f86e9b281ebe2229b0b2c2f7b1", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "null as a value",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "string"}, "m": {"type": "string"}},
+ "transforms": [{"rewrite": "n", "to": "if is_null n then \"none\" else n", "from": "if n == \"none\" then Nothing else n"}],
+ "source": {"n": null, "m": "x"},
+ "view": {"n": "none", "m": "x"},
+ "puts": [
+  {"view": {"n": "none", "m": "x"}, "source": {"n": null, "m": "x"}},
+  {"view": {"n": "none", "m": "y"}, "source": {"n": null, "m": "y"}},
+  {"view": {"n": "abc", "m": "x"}, "source": {"n": "abc", "m": "x"}},
+  {"view": {"n": null, "m": "x"}, "source": "refused"},
+  {"view": {"m": "x"}, "source": {"m": "x"}}
+ ],
+ "undo": true,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {"0": {}}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "28e79d9787d0ec46725ef5323c485cb2522ef1e9a21563ba0a3235ccdaafe43d", "target_schema": "28e79d9787d0ec46725ef5323c485cb2522ef1e9a21563ba0a3235ccdaafe43d", "lens": "f141f5e40d94d2002584f680b6d251833b269e74e0c9a5de621646ec73777c50", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": false
+},
+{
+ "name": "null as a value, present source",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "string"}, "m": {"type": "string"}},
+ "transforms": [{"rewrite": "n", "to": "if is_null n then \"none\" else n", "from": "if n == \"none\" then Nothing else n"}],
+ "source": {"n": "abc", "m": "x"},
+ "view": {"n": "abc", "m": "x"},
+ "puts": [
+  {"view": {"n": "abc", "m": "x"}, "source": {"n": "abc", "m": "x"}},
+  {"view": {"n": "none", "m": "x"}, "source": {"n": null, "m": "x"}},
+  {"view": {"n": "d", "m": "x"}, "source": {"n": "d", "m": "x"}}
+ ],
+ "undo": true,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "28e79d9787d0ec46725ef5323c485cb2522ef1e9a21563ba0a3235ccdaafe43d", "target_schema": "28e79d9787d0ec46725ef5323c485cb2522ef1e9a21563ba0a3235ccdaafe43d", "lens": "f141f5e40d94d2002584f680b6d251833b269e74e0c9a5de621646ec73777c50", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "null as a value, absent source",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "string"}, "m": {"type": "string"}},
+ "transforms": [{"rewrite": "n", "to": "if is_null n then \"none\" else n", "from": "if n == \"none\" then Nothing else n"}],
+ "source": {"m": "x"},
+ "view": {"m": "x"},
+ "puts": [
+  {"view": {"m": "x"}, "source": {"m": "x"}},
+  {"view": {"m": "x", "n": "none"}, "source": {"n": null, "m": "x"}},
+  {"view": {"m": "x", "n": "d"}, "source": {"n": "d", "m": "x"}},
+  {"view": {"m": "x", "n": null}, "source": "refused"}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1]], "original_values": {}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 2, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "28e79d9787d0ec46725ef5323c485cb2522ef1e9a21563ba0a3235ccdaafe43d", "target_schema": "28e79d9787d0ec46725ef5323c485cb2522ef1e9a21563ba0a3235ccdaafe43d", "lens": "f141f5e40d94d2002584f680b6d251833b269e74e0c9a5de621646ec73777c50", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "null as a value, no inverse",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "string"}, "m": {"type": "string"}},
+ "transforms": [{"rewrite": "n", "to": "if is_null n then \"none\" else n"}],
+ "source": {"n": null, "m": "x"},
+ "view": {"n": "none", "m": "x"},
+ "puts": [
+  {"view": {"n": "none", "m": "x"}, "source": {"n": null, "m": "x"}},
+  {"view": {"n": "none", "m": "y"}, "source": {"n": null, "m": "y"}},
+  {"view": {"n": "x", "m": "x"}, "source": {"n": "x", "m": "x"}},
+  {"view": {"n": null, "m": "x"}, "source": "refused"}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {"0": {}}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "28e79d9787d0ec46725ef5323c485cb2522ef1e9a21563ba0a3235ccdaafe43d", "target_schema": "28e79d9787d0ec46725ef5323c485cb2522ef1e9a21563ba0a3235ccdaafe43d", "lens": "f9af66abfd4495190b658ae91a22d201ee1383fcab59363e97d8bd8511980b17", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": false
+},
+{
+ "name": "null as zero",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "integer"}, "m": {"type": "integer"}},
+ "transforms": [{"rewrite": "n", "to": "if is_null n then 0 else n", "from": "if n == 0 then Nothing else n"}],
+ "source": {"n": null, "m": 1},
+ "view": {"n": 0, "m": 1},
+ "puts": [
+  {"view": {"n": 0, "m": 1}, "source": {"n": null, "m": 1}},
+  {"view": {"n": 0, "m": 2}, "source": {"n": null, "m": 2}},
+  {"view": {"n": 5, "m": 1}, "source": {"n": 5, "m": 1}}
+ ],
+ "undo": true,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {"0": {}}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "50d47c7cb9bca0a7eedcf256f1fcadb3b105133f4454eec0c5a0c808373f8466", "target_schema": "50d47c7cb9bca0a7eedcf256f1fcadb3b105133f4454eec0c5a0c808373f8466", "lens": "40d884e687aa2aacce7cce32974eb3d43bcffd20434883b9ffb8366ad95a394a", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": false
+},
+{
+ "name": "identity of a null",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "string"}, "m": {"type": "string"}},
+ "transforms": [{"rewrite": "n", "to": "n", "from": "n"}],
+ "source": {"n": null, "m": "x"},
+ "view": {"n": null, "m": "x"},
+ "puts": [
+  {"view": {"n": null, "m": "x"}, "source": {"n": null, "m": "x"}},
+  {"view": {"n": null, "m": "y"}, "source": {"n": null, "m": "y"}},
+  {"view": {"n": "a", "m": "x"}, "source": {"n": "a", "m": "x"}}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {"0": {}}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "28e79d9787d0ec46725ef5323c485cb2522ef1e9a21563ba0a3235ccdaafe43d", "target_schema": "28e79d9787d0ec46725ef5323c485cb2522ef1e9a21563ba0a3235ccdaafe43d", "lens": "ed2591999d169cb99bab6b3dc0afa5d7ca37ada7e1040d50518fb5332e4fc6b1", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": false
+},
+{
+ "name": "identity of a null, no inverse",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "string"}, "m": {"type": "string"}},
+ "transforms": [{"rewrite": "n", "to": "n"}],
+ "source": {"n": null, "m": "x"},
+ "view": {"n": null, "m": "x"},
+ "puts": [
+  {"view": {"n": null, "m": "x"}, "source": {"n": null, "m": "x"}},
+  {"view": {"n": null, "m": "y"}, "source": {"n": null, "m": "y"}},
+  {"view": {"n": "a", "m": "x"}, "source": {"n": "a", "m": "x"}}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {"0": {}}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "28e79d9787d0ec46725ef5323c485cb2522ef1e9a21563ba0a3235ccdaafe43d", "target_schema": "28e79d9787d0ec46725ef5323c485cb2522ef1e9a21563ba0a3235ccdaafe43d", "lens": "9dead71ecd9e3644bcc9ae3784b18ba712a62056cf8fdeef23e0528960a99798", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": false
+},
+{
+ "name": "a value to null, no inverse",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "string"}, "m": {"type": "string"}},
+ "transforms": [{"rewrite": "n", "to": "if n == \"3\" then Nothing else n"}],
+ "source": {"n": "3", "m": "x"},
+ "view": {"n": null, "m": "x"},
+ "puts": [
+  {"view": {"n": null, "m": "x"}, "source": {"n": "3", "m": "x"}},
+  {"view": {"n": null, "m": "y"}, "source": {"n": "3", "m": "y"}},
+  {"view": {"n": "4", "m": "x"}, "source": {"n": "4", "m": "x"}},
+  {"view": {"n": "3", "m": "x"}, "source": "refused"}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {"2": {"Present": {"Str": "3"}}}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "28e79d9787d0ec46725ef5323c485cb2522ef1e9a21563ba0a3235ccdaafe43d", "target_schema": "28e79d9787d0ec46725ef5323c485cb2522ef1e9a21563ba0a3235ccdaafe43d", "lens": "ef2134d911a91dd364df839ad79f3844402c71ca4671f297a6903ac5e7949e87", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "case folding, upper source",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "string"}, "m": {"type": "string"}},
+ "transforms": [{"rewrite": "n", "to": "lower n", "from": "upper n"}],
+ "source": {"n": "ABC", "m": "x"},
+ "view": {"n": "abc", "m": "x"},
+ "puts": [
+  {"view": {"n": "abc", "m": "x"}, "source": {"n": "ABC", "m": "x"}},
+  {"view": {"n": "xyz", "m": "x"}, "source": {"n": "XYZ", "m": "x"}},
+  {"view": {"n": "abc", "m": "y"}, "source": {"n": "ABC", "m": "y"}},
+  {"view": {"n": "Xy", "m": "x"}, "source": "refused"}
+ ],
+ "undo": true,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {"2": {"Present": {"Str": "ABC"}}}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "28e79d9787d0ec46725ef5323c485cb2522ef1e9a21563ba0a3235ccdaafe43d", "target_schema": "28e79d9787d0ec46725ef5323c485cb2522ef1e9a21563ba0a3235ccdaafe43d", "lens": "927b6c582f8200374838c8e4025bd91f1776b4735a051ae8dc59a332b2161ff4", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "case folding, lower source",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "string"}, "m": {"type": "string"}},
+ "transforms": [{"rewrite": "n", "to": "lower n", "from": "upper n"}],
+ "source": {"n": "abc", "m": "x"},
+ "view": {"n": "abc", "m": "x"},
+ "puts": [
+  {"view": {"n": "abc", "m": "x"}, "source": {"n": "abc", "m": "x"}},
+  {"view": {"n": "xyz", "m": "x"}, "source": {"n": "XYZ", "m": "x"}},
+  {"view": {"n": "abc", "m": "y"}, "source": {"n": "abc", "m": "y"}}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "28e79d9787d0ec46725ef5323c485cb2522ef1e9a21563ba0a3235ccdaafe43d", "target_schema": "28e79d9787d0ec46725ef5323c485cb2522ef1e9a21563ba0a3235ccdaafe43d", "lens": "927b6c582f8200374838c8e4025bd91f1776b4735a051ae8dc59a332b2161ff4", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": false
+},
+{
+ "name": "exchange of two values",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "integer"}},
+ "transforms": [{"rewrite": "n", "to": "if n == 1 then 2 else if n == 2 then 1 else n", "from": "if n == 1 then 2 else if n == 2 then 1 else n"}],
+ "source": {"n": 2},
+ "view": {"n": 1},
+ "puts": [
+  {"view": {"n": 1}, "source": {"n": 2}},
+  {"view": {"n": 2}, "source": {"n": 1}},
+  {"view": {"n": 3}, "source": {"n": 3}}
+ ],
+ "undo": true,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0}, "source_fingerprint": 11875203015347107758, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1]], "original_values": {"1": {"Present": {"Int": 2}}}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 2, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "e457f7f6271ae8390d1dcf1ecf7dc06ae635eee65edf56f6ca12e42d876366e2", "target_schema": "e457f7f6271ae8390d1dcf1ecf7dc06ae635eee65edf56f6ca12e42d876366e2", "lens": "0bb8229f54029096d78c74cec1e044c8eccebccef4efafa70e31a34d80000295", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "integer shown as a string",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "integer"}, "m": {"type": "integer"}},
+ "transforms": [{"rewrite": "n", "to": "int_to_str n", "from": "str_to_int n"}],
+ "source": {"n": 3, "m": 1},
+ "view": {"n": "3", "m": 1},
+ "puts": [
+  {"view": {"n": "3", "m": 1}, "source": {"n": 3, "m": 1}},
+  {"view": {"n": "5", "m": 1}, "source": {"n": 5, "m": 1}},
+  {"view": {"n": "3", "m": 2}, "source": {"n": 3, "m": 2}},
+  {"view": {"n": "abc", "m": 1}, "source": "refused"},
+  {"view": {"m": 1}, "source": {"m": 1}}
+ ],
+ "undo": true,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {"2": {"Present": {"Int": 3}}}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "50d47c7cb9bca0a7eedcf256f1fcadb3b105133f4454eec0c5a0c808373f8466", "target_schema": "50d47c7cb9bca0a7eedcf256f1fcadb3b105133f4454eec0c5a0c808373f8466", "lens": "606b5b6d27c3e74cc96a935d1ac3df14656ccdb75a5931d1c42358409d32961b", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "integer shown as a string, absent",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "integer"}, "m": {"type": "integer"}},
+ "transforms": [{"rewrite": "n", "to": "int_to_str n", "from": "str_to_int n"}],
+ "source": {"m": 1},
+ "view": {"m": 1},
+ "puts": [
+  {"view": {"m": 1}, "source": {"m": 1}},
+  {"view": {"m": 1, "n": "5"}, "source": {"n": 5, "m": 1}},
+  {"view": {"m": 1, "n": "abc"}, "source": "refused"}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1]], "original_values": {}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 2, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "50d47c7cb9bca0a7eedcf256f1fcadb3b105133f4454eec0c5a0c808373f8466", "target_schema": "50d47c7cb9bca0a7eedcf256f1fcadb3b105133f4454eec0c5a0c808373f8466", "lens": "606b5b6d27c3e74cc96a935d1ac3df14656ccdb75a5931d1c42358409d32961b", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "integer shown as a float",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "integer"}, "m": {"type": "integer"}},
+ "transforms": [{"rewrite": "n", "to": "int_to_float n", "from": "float_to_int n"}],
+ "source": {"n": 3, "m": 1},
+ "view": {"n": 3.0, "m": 1},
+ "puts": [
+  {"view": {"n": 3.0, "m": 1}, "source": {"n": 3, "m": 1}},
+  {"view": {"n": 4.0, "m": 1}, "source": {"n": 4, "m": 1}},
+  {"view": {"n": 3.0, "m": 2}, "source": {"n": 3, "m": 2}}
+ ],
+ "undo": true,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {"2": {"Present": {"Int": 3}}}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "50d47c7cb9bca0a7eedcf256f1fcadb3b105133f4454eec0c5a0c808373f8466", "target_schema": "50d47c7cb9bca0a7eedcf256f1fcadb3b105133f4454eec0c5a0c808373f8466", "lens": "68296f1224b9fe813a35bf8622640cf6505f44046fb1fdbebec871f72415b84a", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "string shown as an integer",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "string"}, "m": {"type": "integer"}},
+ "transforms": [{"rewrite": "n", "to": "str_to_int n", "from": "int_to_str n"}],
+ "source": {"n": "3", "m": 1},
+ "view": {"n": 3, "m": 1},
+ "puts": [
+  {"view": {"n": 3, "m": 1}, "source": {"n": "3", "m": 1}},
+  {"view": {"n": 5, "m": 1}, "source": {"n": "5", "m": 1}},
+  {"view": {"n": 3, "m": 2}, "source": {"n": "3", "m": 2}}
+ ],
+ "undo": true,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {"2": {"Present": {"Str": "3"}}}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "b31adfcc148a2fef62356db059a410f4176358247be48f227f85dd3d52916dc9", "target_schema": "b31adfcc148a2fef62356db059a410f4176358247be48f227f85dd3d52916dc9", "lens": "12e4e804127e35c8dbf8e4bc889886aaafd065d86f3cafc2cc91c39cf44e0ee0", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "string shown as an integer, absent",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "string"}, "m": {"type": "integer"}},
+ "transforms": [{"rewrite": "n", "to": "str_to_int n", "from": "int_to_str n"}],
+ "source": {"m": 1},
+ "view": {"m": 1},
+ "puts": [
+  {"view": {"m": 1}, "source": {"m": 1}},
+  {"view": {"m": 1, "n": 5}, "source": {"n": "5", "m": 1}}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1]], "original_values": {}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 2, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "b31adfcc148a2fef62356db059a410f4176358247be48f227f85dd3d52916dc9", "target_schema": "b31adfcc148a2fef62356db059a410f4176358247be48f227f85dd3d52916dc9", "lens": "12e4e804127e35c8dbf8e4bc889886aaafd065d86f3cafc2cc91c39cf44e0ee0", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "boolean",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "boolean"}},
+ "transforms": [{"rewrite": "n", "to": "not n", "from": "not n"}],
+ "source": {"n": true},
+ "view": {"n": false},
+ "puts": [
+  {"view": {"n": false}, "source": {"n": true}},
+  {"view": {"n": true}, "source": {"n": false}}
+ ],
+ "undo": true,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0}, "source_fingerprint": 11875203015347107758, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1]], "original_values": {"1": {"Present": {"Bool": true}}}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 2, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "511f9dabb3cfadb652ded925aea057ea8ef7ec996b202c881409d1317b24247b", "target_schema": "511f9dabb3cfadb652ded925aea057ea8ef7ec996b202c881409d1317b24247b", "lens": "c0abc74454b10e74605bfcbf75981679dd73a7b3f0f15a7d074a4ee83fed858d", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "integer shown as a boolean",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "integer"}},
+ "transforms": [{"rewrite": "n", "to": "n == 3", "from": "if n then 3 else 4"}],
+ "source": {"n": 7},
+ "view": {"n": false},
+ "puts": [
+  {"view": {"n": false}, "source": {"n": 7}},
+  {"view": {"n": true}, "source": {"n": 3}}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0}, "source_fingerprint": 11875203015347107758, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1]], "original_values": {"1": {"Present": {"Int": 7}}}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 2, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "e457f7f6271ae8390d1dcf1ecf7dc06ae635eee65edf56f6ca12e42d876366e2", "target_schema": "e457f7f6271ae8390d1dcf1ecf7dc06ae635eee65edf56f6ca12e42d876366e2", "lens": "643c1ee683f2a09e709db39a762b6d7bd7eec73ae2bc18266abddf3dfce01c90", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "string shown as a list",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "string"}, "m": {"type": "integer"}},
+ "transforms": [{"rewrite": "n", "to": "[n]", "from": "head n"}],
+ "source": {"n": "a", "m": 1},
+ "view": {"n": ["a"], "m": 1},
+ "puts": [
+  {"view": {"n": ["a"], "m": 1}, "source": {"n": "a", "m": 1}},
+  {"view": {"n": ["b"], "m": 1}, "source": {"n": "b", "m": 1}},
+  {"view": {"n": ["a"], "m": 2}, "source": {"n": "a", "m": 2}}
+ ],
+ "undo": true,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {"2": {"Present": {"Str": "a"}}}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "b31adfcc148a2fef62356db059a410f4176358247be48f227f85dd3d52916dc9", "target_schema": "b31adfcc148a2fef62356db059a410f4176358247be48f227f85dd3d52916dc9", "lens": "fe72749b5edf254edc74d8965ad883723aca0c016a7b2b20ce2621377a868ba7", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "string shown as a record",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "string"}, "m": {"type": "integer"}},
+ "transforms": [{"rewrite": "n", "to": "{ v = n }", "from": "n.v"}],
+ "source": {"n": "a", "m": 1},
+ "view": {"n": {"v": "a"}, "m": 1},
+ "puts": [
+  {"view": {"n": {"v": "a"}, "m": 1}, "source": {"n": "a", "m": 1}},
+  {"view": {"n": {"v": "b"}, "m": 1}, "source": {"n": "b", "m": 1}},
+  {"view": {"n": {"v": "a"}, "m": 2}, "source": {"n": "a", "m": 2}}
+ ],
+ "undo": true,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {"2": {"Present": {"Str": "a"}}}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "b31adfcc148a2fef62356db059a410f4176358247be48f227f85dd3d52916dc9", "target_schema": "b31adfcc148a2fef62356db059a410f4176358247be48f227f85dd3d52916dc9", "lens": "2bc0a9bea0962c5635bc7520e408e51acf25375513f89670f9d52c1a4c22ced1", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "string shown as a record, absent",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "string"}, "m": {"type": "integer"}},
+ "transforms": [{"rewrite": "n", "to": "{ v = n }", "from": "n.v"}],
+ "source": {"m": 1},
+ "view": {"m": 1},
+ "puts": [
+  {"view": {"m": 1}, "source": {"m": 1}},
+  {"view": {"m": 1, "n": {"v": "b"}}, "source": {"n": "b", "m": 1}}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1]], "original_values": {}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 2, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "b31adfcc148a2fef62356db059a410f4176358247be48f227f85dd3d52916dc9", "target_schema": "b31adfcc148a2fef62356db059a410f4176358247be48f227f85dd3d52916dc9", "lens": "2bc0a9bea0962c5635bc7520e408e51acf25375513f89670f9d52c1a4c22ced1", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "string shown as a list with a failing inverse",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "string"}, "m": {"type": "integer"}},
+ "transforms": [{"rewrite": "n", "to": "split \",\" n", "from": "join \",\" n"}],
+ "source": {"n": "a,b", "m": 1},
+ "view": {"n": [","], "m": 1},
+ "puts": [
+  {"view": {"n": [","], "m": 1}, "source": {"n": "a,b", "m": 1}},
+  {"view": {"n": [","], "m": 2}, "source": {"n": "a,b", "m": 2}}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {"2": {"Present": {"Str": "a,b"}}}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "b31adfcc148a2fef62356db059a410f4176358247be48f227f85dd3d52916dc9", "target_schema": "b31adfcc148a2fef62356db059a410f4176358247be48f227f85dd3d52916dc9", "lens": "0176a4ffea060146956083329d052480b8c76e17c28930de6804c9687421c24a", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "string extended, no inverse",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "string"}, "m": {"type": "integer"}},
+ "transforms": [{"rewrite": "n", "to": "n ++ \"x\""}],
+ "source": {"n": "3", "m": 1},
+ "view": {"n": "3x", "m": 1},
+ "puts": [
+  {"view": {"n": "3x", "m": 1}, "source": {"n": "3", "m": 1}},
+  {"view": {"n": "3x", "m": 2}, "source": {"n": "3", "m": 2}},
+  {"view": {"n": "4x", "m": 1}, "source": "refused"}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {"2": {"Present": {"Str": "3"}}}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "b31adfcc148a2fef62356db059a410f4176358247be48f227f85dd3d52916dc9", "target_schema": "b31adfcc148a2fef62356db059a410f4176358247be48f227f85dd3d52916dc9", "lens": "2f07284d52e13692f1861d4781f1247f62c4d716fc3f73adda1835f642a7e8a8", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "enum exchange",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "string", "enum": ["a", "b"]}},
+ "transforms": [{"rewrite": "n", "to": "if n == \"a\" then \"b\" else \"a\"", "from": "if n == \"a\" then \"b\" else \"a\""}],
+ "source": {"n": "a"},
+ "view": {"n": "b"},
+ "puts": [
+  {"view": {"n": "b"}, "source": {"n": "a"}},
+  {"view": {"n": "a"}, "source": {"n": "b"}}
+ ],
+ "undo": true,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0}, "source_fingerprint": 11875203015347107758, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1]], "original_values": {"1": {"Present": {"Str": "a"}}}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 2, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "ab63572d1763d42abf0963b8fea2f2d362a4db6944f92073f8c17eae03848d69", "target_schema": "ab63572d1763d42abf0963b8fea2f2d362a4db6944f92073f8c17eae03848d69", "lens": "43c9a5b2b3d289fd990550f157948de986e1625aef0a2c08333a74a7f6158e53", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "large integer",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "integer"}},
+ "transforms": [{"rewrite": "n", "to": "n + 1", "from": "n - 1"}],
+ "source": {"n": 9007199254740993},
+ "view": {"n": 9007199254740994},
+ "puts": [
+  {"view": {"n": 9007199254740994}, "source": {"n": 9007199254740993}},
+  {"view": {"n": 9007199254740996}, "source": {"n": 9007199254740995}}
+ ],
+ "undo": true,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0}, "source_fingerprint": 11875203015347107758, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1]], "original_values": {"1": {"Present": {"Int": 9007199254740993}}}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 2, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "e457f7f6271ae8390d1dcf1ecf7dc06ae635eee65edf56f6ca12e42d876366e2", "target_schema": "e457f7f6271ae8390d1dcf1ecf7dc06ae635eee65edf56f6ca12e42d876366e2", "lens": "956277b1ad6b110513978db8fb63a8c2233461efb2e9780845cba1f62db7a24b", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "any value",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "unknown"}, "m": {"type": "integer"}},
+ "transforms": [{"rewrite": "n", "to": "n"}],
+ "source": {"n": {"a": 1}, "m": 1},
+ "view": {"n": {"a": 1}, "m": 1},
+ "puts": [
+  {"view": {"n": {"a": 1}, "m": 1}, "source": {"n": {"a": 1}, "m": 1}},
+  {"view": {"n": {"a": 1}, "m": 2}, "source": {"n": {"a": 1}, "m": 2}},
+  {"view": {"n": {"a": 2}, "m": 1}, "source": {"n": {"a": 2}, "m": 1}}
+ ],
+ "undo": true,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "22fbbf7e78ec8884038374e7042f8fb837d3eb77bf5393971792fbc04465c132", "target_schema": "22fbbf7e78ec8884038374e7042f8fb837d3eb77bf5393971792fbc04465c132", "lens": "2d32ca883fa36d108f0bdde6b3ed7e5d0e8691eaefd0b1dd8401118a79638498", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "cid-link",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "cid-link"}, "m": {"type": "integer"}},
+ "transforms": [{"rewrite": "n", "to": "n"}],
+ "source": {"n": {"$link": "bafyreidfayvfuwqa7qlnopdjiqrxzs6blmoeu4rujcjtnci5beludirz2a"}, "m": 1},
+ "view": {"n": {"$link": "bafyreidfayvfuwqa7qlnopdjiqrxzs6blmoeu4rujcjtnci5beludirz2a"}, "m": 1},
+ "puts": [
+  {"view": {"n": {"$link": "bafyreidfayvfuwqa7qlnopdjiqrxzs6blmoeu4rujcjtnci5beludirz2a"}, "m": 1}, "source": {"n": {"$link": "bafyreidfayvfuwqa7qlnopdjiqrxzs6blmoeu4rujcjtnci5beludirz2a"}, "m": 1}},
+  {"view": {"n": {"$link": "bafyreidfayvfuwqa7qlnopdjiqrxzs6blmoeu4rujcjtnci5beludirz2a"}, "m": 2}, "source": {"n": {"$link": "bafyreidfayvfuwqa7qlnopdjiqrxzs6blmoeu4rujcjtnci5beludirz2a"}, "m": 2}},
+  {"view": {"n": {"$link": "bafyreigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi"}, "m": 1}, "source": {"n": {"$link": "bafyreigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi"}, "m": 1}},
+  {"view": {"m": 1}, "source": {"m": 1}}
+ ],
+ "undo": true,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {"0": {}}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "4b2af8553c435087a7dc10082f4a4b232f65e837ed2bc7cc88e9beea92d6a9fa", "target_schema": "4b2af8553c435087a7dc10082f4a4b232f65e837ed2bc7cc88e9beea92d6a9fa", "lens": "6f40d5670dd80949952ae78d8a113eb37d4dbb94acb11f8ab3a59fefc2532d66", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": false
+},
+{
+ "name": "cid-link with an inverse",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "cid-link"}, "m": {"type": "integer"}},
+ "transforms": [{"rewrite": "n", "to": "n", "from": "n"}],
+ "source": {"n": {"$link": "bafyreidfayvfuwqa7qlnopdjiqrxzs6blmoeu4rujcjtnci5beludirz2a"}, "m": 1},
+ "view": {"n": {"$link": "bafyreidfayvfuwqa7qlnopdjiqrxzs6blmoeu4rujcjtnci5beludirz2a"}, "m": 1},
+ "puts": [
+  {"view": {"n": {"$link": "bafyreidfayvfuwqa7qlnopdjiqrxzs6blmoeu4rujcjtnci5beludirz2a"}, "m": 1}, "source": {"n": {"$link": "bafyreidfayvfuwqa7qlnopdjiqrxzs6blmoeu4rujcjtnci5beludirz2a"}, "m": 1}},
+  {"view": {"n": {"$link": "bafyreidfayvfuwqa7qlnopdjiqrxzs6blmoeu4rujcjtnci5beludirz2a"}, "m": 2}, "source": {"n": {"$link": "bafyreidfayvfuwqa7qlnopdjiqrxzs6blmoeu4rujcjtnci5beludirz2a"}, "m": 2}},
+  {"view": {"n": {"$link": "bafyreigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi"}, "m": 1}, "source": {"n": {"$link": "bafyreigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi"}, "m": 1}},
+  {"view": {"m": 1}, "source": {"m": 1}}
+ ],
+ "undo": true,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {"0": {}}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "4b2af8553c435087a7dc10082f4a4b232f65e837ed2bc7cc88e9beea92d6a9fa", "target_schema": "4b2af8553c435087a7dc10082f4a4b232f65e837ed2bc7cc88e9beea92d6a9fa", "lens": "13ead02c2fab16b2ba8ba730e5965c5eb3e81047702e397a726fd5c50d96c839", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": false
+},
+{
+ "name": "cid-link, absent",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "cid-link"}, "m": {"type": "integer"}},
+ "transforms": [{"rewrite": "n", "to": "n"}],
+ "source": {"m": 1},
+ "view": {"m": 1},
+ "puts": [
+  {"view": {"m": 1}, "source": {"m": 1}},
+  {"view": {"m": 1, "n": {"$link": "bafyreigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi"}}, "source": {"n": {"$link": "bafyreigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi"}, "m": 1}}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1]], "original_values": {}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 2, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "4b2af8553c435087a7dc10082f4a4b232f65e837ed2bc7cc88e9beea92d6a9fa", "target_schema": "4b2af8553c435087a7dc10082f4a4b232f65e837ed2bc7cc88e9beea92d6a9fa", "lens": "6f40d5670dd80949952ae78d8a113eb37d4dbb94acb11f8ab3a59fefc2532d66", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "bytes",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "bytes"}, "m": {"type": "integer"}},
+ "transforms": [{"rewrite": "n", "to": "n"}],
+ "source": {"n": {"$bytes": "aGk"}, "m": 1},
+ "view": {"n": {"$bytes": "aGk"}, "m": 1},
+ "puts": [
+  {"view": {"n": {"$bytes": "aGk"}, "m": 1}, "source": {"n": {"$bytes": "aGk"}, "m": 1}},
+  {"view": {"n": {"$bytes": "aGk"}, "m": 2}, "source": {"n": {"$bytes": "aGk"}, "m": 2}},
+  {"view": {"n": {"$bytes": "aGV5"}, "m": 1}, "source": {"n": {"$bytes": "aGV5"}, "m": 1}},
+  {"view": {"m": 1}, "source": {"m": 1}}
+ ],
+ "undo": true,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {"0": {}}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "9593f0a162a8e083ad1cabd2677f3a382a0d732231546ad76d0cc15d89b1881d", "target_schema": "9593f0a162a8e083ad1cabd2677f3a382a0d732231546ad76d0cc15d89b1881d", "lens": "255ebbd2f14dcec6fb997de23dc647be67bd5798239b2c321807393ee33f44e7", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": false
+},
+{
+ "name": "bytes with an inverse",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "bytes"}, "m": {"type": "integer"}},
+ "transforms": [{"rewrite": "n", "to": "n", "from": "n"}],
+ "source": {"n": {"$bytes": "aGk"}, "m": 1},
+ "view": {"n": {"$bytes": "aGk"}, "m": 1},
+ "puts": [
+  {"view": {"n": {"$bytes": "aGk"}, "m": 1}, "source": {"n": {"$bytes": "aGk"}, "m": 1}},
+  {"view": {"n": {"$bytes": "aGk"}, "m": 2}, "source": {"n": {"$bytes": "aGk"}, "m": 2}},
+  {"view": {"n": {"$bytes": "aGV5"}, "m": 1}, "source": {"n": {"$bytes": "aGV5"}, "m": 1}},
+  {"view": {"m": 1}, "source": {"m": 1}}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {"0": {}}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "9593f0a162a8e083ad1cabd2677f3a382a0d732231546ad76d0cc15d89b1881d", "target_schema": "9593f0a162a8e083ad1cabd2677f3a382a0d732231546ad76d0cc15d89b1881d", "lens": "8f221e85b0d705a9ba4acb78612edc591ee865b9699b8218cf6ab3e12499c756", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": false
+},
+{
+ "name": "bytes, absent",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "bytes"}, "m": {"type": "integer"}},
+ "transforms": [{"rewrite": "n", "to": "n"}],
+ "source": {"m": 1},
+ "view": {"m": 1},
+ "puts": [
+  {"view": {"m": 1}, "source": {"m": 1}},
+  {"view": {"m": 1, "n": {"$bytes": "aGV5"}}, "source": {"n": {"$bytes": "aGV5"}, "m": 1}}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1]], "original_values": {}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 2, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "9593f0a162a8e083ad1cabd2677f3a382a0d732231546ad76d0cc15d89b1881d", "target_schema": "9593f0a162a8e083ad1cabd2677f3a382a0d732231546ad76d0cc15d89b1881d", "lens": "255ebbd2f14dcec6fb997de23dc647be67bd5798239b2c321807393ee33f44e7", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "blob",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "blob"}, "m": {"type": "integer"}},
+ "transforms": [{"rewrite": "n", "to": "n"}],
+ "source": {"n": {"$type": "blob", "ref": {"$link": "bafyreidfayvfuwqa7qlnopdjiqrxzs6blmoeu4rujcjtnci5beludirz2a"}, "mimeType": "a/b", "size": 3}, "m": 1},
+ "view": {"n": {"ref": {"$link": "bafyreidfayvfuwqa7qlnopdjiqrxzs6blmoeu4rujcjtnci5beludirz2a"}, "mimeType": "a/b", "size": 3}, "m": 1},
+ "puts": [
+  {"view": {"n": {"ref": {"$link": "bafyreidfayvfuwqa7qlnopdjiqrxzs6blmoeu4rujcjtnci5beludirz2a"}, "mimeType": "a/b", "size": 3}, "m": 1}, "source": "refused"},
+  {"view": {"n": {"ref": {"$link": "bafyreidfayvfuwqa7qlnopdjiqrxzs6blmoeu4rujcjtnci5beludirz2a"}, "mimeType": "a/b", "size": 3}, "m": 2}, "source": "refused", "memory": {"n": {"$type": "blob", "ref": {"$link": "bafyreidfayvfuwqa7qlnopdjiqrxzs6blmoeu4rujcjtnci5beludirz2a"}, "mimeType": "a/b", "size": 3}, "m": 2}}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {"0": {}}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "16f9aab4f99c8deef2989520d137bb7e2814fee301aab7be4f972dcf811f520c", "target_schema": "16f9aab4f99c8deef2989520d137bb7e2814fee301aab7be4f972dcf811f520c", "lens": "dad24eda15a0a1b127b2a9032b213bb45ce61a0be53a90ae2bfd149b7d0cba20", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "record with a discriminator",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "cid-link"}, "m": {"type": "integer"}},
+ "transforms": [{"rewrite": "n", "to": "n"}],
+ "source": {"n": {"$type": "t", "$link": "bafyreidfayvfuwqa7qlnopdjiqrxzs6blmoeu4rujcjtnci5beludirz2a"}, "m": 1},
+ "view": {"n": {"$link": "bafyreidfayvfuwqa7qlnopdjiqrxzs6blmoeu4rujcjtnci5beludirz2a"}, "m": 1},
+ "puts": [
+  {"view": {"n": {"$link": "bafyreidfayvfuwqa7qlnopdjiqrxzs6blmoeu4rujcjtnci5beludirz2a"}, "m": 1}, "source": "refused"},
+  {"view": {"n": {"$link": "bafyreidfayvfuwqa7qlnopdjiqrxzs6blmoeu4rujcjtnci5beludirz2a"}, "m": 2}, "source": "refused", "memory": {"n": {"$type": "t", "$link": "bafyreidfayvfuwqa7qlnopdjiqrxzs6blmoeu4rujcjtnci5beludirz2a"}, "m": 2}},
+  {"view": {"n": {"$link": "bafyreigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi"}, "m": 1}, "source": "refused"},
+  {"view": {"m": 1}, "source": {"m": 1}}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {"0": {}}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "4b2af8553c435087a7dc10082f4a4b232f65e837ed2bc7cc88e9beea92d6a9fa", "target_schema": "4b2af8553c435087a7dc10082f4a4b232f65e837ed2bc7cc88e9beea92d6a9fa", "lens": "6f40d5670dd80949952ae78d8a113eb37d4dbb94acb11f8ab3a59fefc2532d66", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "clamp, then successor",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "integer"}, "m": {"type": "integer"}},
+ "transforms": [{"rewrite": "n", "to": "if n < 0 then 0 else n"}, {"rewrite": "n", "to": "n + 1", "from": "n - 1"}],
+ "source": {"n": -2, "m": 1},
+ "view": {"n": 1, "m": 1},
+ "puts": [
+  {"view": {"n": 1, "m": 1}, "source": {"n": -2, "m": 1}},
+  {"view": {"n": 7, "m": 1}, "source": {"n": 6, "m": 1}},
+  {"view": {"n": 0, "m": 1}, "source": "refused"},
+  {"view": {"n": 1, "m": 5}, "source": {"n": -2, "m": 5}}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {"2": {"Present": {"Int": -2}}}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "50d47c7cb9bca0a7eedcf256f1fcadb3b105133f4454eec0c5a0c808373f8466", "target_schema": "50d47c7cb9bca0a7eedcf256f1fcadb3b105133f4454eec0c5a0c808373f8466", "lens": "cecf54773ea20f6e78cb385ea49b5cd22ae91db8c095608f519f19f41cf01689", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "successor, then clamp",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "integer"}, "m": {"type": "integer"}},
+ "transforms": [{"rewrite": "n", "to": "n + 1", "from": "n - 1"}, {"rewrite": "n", "to": "if n < 0 then 0 else n"}],
+ "source": {"n": 3, "m": 1},
+ "view": {"n": 4, "m": 1},
+ "puts": [
+  {"view": {"n": 4, "m": 1}, "source": {"n": 3, "m": 1}},
+  {"view": {"n": 7, "m": 1}, "source": {"n": 6, "m": 1}},
+  {"view": {"n": -5, "m": 1}, "source": "refused"},
+  {"view": {"n": 4, "m": 5}, "source": {"n": 3, "m": 5}}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {"2": {"Present": {"Int": 3}}}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "50d47c7cb9bca0a7eedcf256f1fcadb3b105133f4454eec0c5a0c808373f8466", "target_schema": "50d47c7cb9bca0a7eedcf256f1fcadb3b105133f4454eec0c5a0c808373f8466", "lens": "e1318b69d01402a7f3deafc938c8558f8f49e91b6c9180dbe6800eb4cb280474", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "lower case, then suffix",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "string"}},
+ "transforms": [{"rewrite": "n", "to": "lower n"}, {"rewrite": "n", "to": "n ++ \"x\"", "from": "replace n \"x\" \"\""}],
+ "source": {"n": "ab"},
+ "view": {"n": "abx"},
+ "puts": [
+  {"view": {"n": "abx"}, "source": {"n": "ab"}},
+  {"view": {"n": "cdx"}, "source": {"n": "cd"}},
+  {"view": {"n": "CDx"}, "source": "refused"}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0}, "source_fingerprint": 11875203015347107758, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1]], "original_values": {"1": {"Present": {"Str": "ab"}}}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 2, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "3242dcc87780bcd46fe766739057082a92325dc92cb2c82ead3d7c45af528f09", "target_schema": "3242dcc87780bcd46fe766739057082a92325dc92cb2c82ead3d7c45af528f09", "lens": "098697db64c6199f506386393609ca2d035cfcffef30dc4677d65316dad45570", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "successor, then double",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "integer"}, "m": {"type": "integer"}},
+ "transforms": [{"rewrite": "n", "to": "n + 1", "from": "n - 1"}, {"rewrite": "n", "to": "n * 2"}],
+ "source": {"n": 3, "m": 1},
+ "view": {"n": 8, "m": 1},
+ "puts": [
+  {"view": {"n": 8, "m": 1}, "source": {"n": 3, "m": 1}},
+  {"view": {"n": 10, "m": 1}, "source": "refused"},
+  {"view": {"n": 8, "m": 5}, "source": {"n": 3, "m": 5}}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {"2": {"Present": {"Int": 3}}}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "50d47c7cb9bca0a7eedcf256f1fcadb3b105133f4454eec0c5a0c808373f8466", "target_schema": "50d47c7cb9bca0a7eedcf256f1fcadb3b105133f4454eec0c5a0c808373f8466", "lens": "583d318da2be7db4eddccbeaa12a88d0460e3da631d086f4b6726a63551b8587", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "successor, then double with inverses",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "integer"}, "m": {"type": "integer"}},
+ "transforms": [{"rewrite": "n", "to": "n + 1", "from": "n - 1"}, {"rewrite": "n", "to": "n * 2", "from": "n / 2"}],
+ "source": {"n": 3, "m": 1},
+ "view": {"n": 8, "m": 1},
+ "puts": [
+  {"view": {"n": 8, "m": 1}, "source": {"n": 3, "m": 1}},
+  {"view": {"n": 10, "m": 1}, "source": {"n": 4, "m": 1}},
+  {"view": {"n": 9, "m": 1}, "source": "refused"},
+  {"view": {"n": 8, "m": 5}, "source": {"n": 3, "m": 5}}
+ ],
+ "undo": true,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {"2": {"Present": {"Int": 3}}}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "50d47c7cb9bca0a7eedcf256f1fcadb3b105133f4454eec0c5a0c808373f8466", "target_schema": "50d47c7cb9bca0a7eedcf256f1fcadb3b105133f4454eec0c5a0c808373f8466", "lens": "fe2bc1aa73668c6f02a9b2404186645346d7767bd3c83cc11ff80e007547e8bc", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "two keys",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "integer"}, "m": {"type": "integer"}},
+ "transforms": [{"rewrite": "n", "to": "n + 1", "from": "n - 1"}, {"rewrite": "m", "to": "m * 2"}],
+ "source": {"n": 3, "m": 4},
+ "view": {"n": 4, "m": 8},
+ "puts": [
+  {"view": {"n": 4, "m": 8}, "source": {"n": 3, "m": 4}},
+  {"view": {"n": 9, "m": 8}, "source": {"n": 8, "m": 4}},
+  {"view": {"n": 4, "m": 10}, "source": "refused"}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {"1": {"Present": {"Int": 4}}, "2": {"Present": {"Int": 3}}}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "50d47c7cb9bca0a7eedcf256f1fcadb3b105133f4454eec0c5a0c808373f8466", "target_schema": "50d47c7cb9bca0a7eedcf256f1fcadb3b105133f4454eec0c5a0c808373f8466", "lens": "81e89d9d8c2ab2cb6a38781c7ad41c450283d8db2ffc51e6c7f10a0a096c8980", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "guarded by its own value",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "string"}, "m": {"type": "string"}},
+ "transforms": [{"case": [["n == \"old\"", [{"rewrite": "n", "to": "\"new\"", "from": "\"old\""}]]]}],
+ "source": {"n": "old", "m": "x"},
+ "view": {"n": "new", "m": "x"},
+ "puts": [
+  {"view": {"n": "new", "m": "x"}, "source": {"n": "old", "m": "x"}},
+  {"view": {"n": "zz", "m": "x"}, "source": {"n": "zz", "m": "x"}},
+  {"view": {"n": null, "m": "x"}, "source": {"n": null, "m": "x"}},
+  {"view": {"m": "x"}, "source": "refused"},
+  {"view": {"n": "new", "m": "y"}, "source": {"n": "old", "m": "y"}},
+  {"view": {"n": "old", "m": "x"}, "source": "refused"}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {"2": {"Present": {"Str": "old"}}}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "28e79d9787d0ec46725ef5323c485cb2522ef1e9a21563ba0a3235ccdaafe43d", "target_schema": "28e79d9787d0ec46725ef5323c485cb2522ef1e9a21563ba0a3235ccdaafe43d", "lens": "fc1bfaa2b03a759d4db0d3fe96db3275b80636d97966a73b0f5dde5bb113d2b5", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "guarded by its own value, no inverse",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "string"}, "m": {"type": "string"}},
+ "transforms": [{"case": [["n == \"old\"", [{"rewrite": "n", "to": "\"new\""}]]]}],
+ "source": {"n": "old", "m": "x"},
+ "view": {"n": "new", "m": "x"},
+ "puts": [
+  {"view": {"n": "new", "m": "x"}, "source": {"n": "old", "m": "x"}},
+  {"view": {"n": "zz", "m": "x"}, "source": {"n": "zz", "m": "x"}},
+  {"view": {"n": null, "m": "x"}, "source": {"n": null, "m": "x"}},
+  {"view": {"m": "x"}, "source": "refused"},
+  {"view": {"n": "new", "m": "y"}, "source": {"n": "old", "m": "y"}},
+  {"view": {"n": "old", "m": "x"}, "source": "refused"}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {"2": {"Present": {"Str": "old"}}}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "28e79d9787d0ec46725ef5323c485cb2522ef1e9a21563ba0a3235ccdaafe43d", "target_schema": "28e79d9787d0ec46725ef5323c485cb2522ef1e9a21563ba0a3235ccdaafe43d", "lens": "31e71b2027b21d72ac78a9e26f9afe4eb1a786e196fba5184afb77a3869fd8b4", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "guarded by a sibling",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "integer"}, "m": {"type": "integer"}},
+ "transforms": [{"case": [["m == 1", [{"rewrite": "n", "to": "n + 1", "from": "n - 1"}]]]}],
+ "source": {"n": 3, "m": 1},
+ "view": {"n": 4, "m": 1},
+ "puts": [
+  {"view": {"n": 4, "m": 1}, "source": {"n": 3, "m": 1}},
+  {"view": {"n": 4, "m": 2}, "source": {"n": 4, "m": 2}},
+  {"view": {"n": 9, "m": 2}, "source": {"n": 9, "m": 2}},
+  {"view": {"n": 9, "m": 1}, "source": {"n": 8, "m": 1}},
+  {"view": {"n": null, "m": 1}, "source": "refused"}
+ ],
+ "undo": true,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {"2": {"Present": {"Int": 3}}}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "50d47c7cb9bca0a7eedcf256f1fcadb3b105133f4454eec0c5a0c808373f8466", "target_schema": "50d47c7cb9bca0a7eedcf256f1fcadb3b105133f4454eec0c5a0c808373f8466", "lens": "a49f8c9cadebf0bd85d715610a5623b157ec1f03688af827fe1bd78681b00d6a", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "guarded by a sibling, off",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "integer"}, "m": {"type": "integer"}},
+ "transforms": [{"case": [["m == 1", [{"rewrite": "n", "to": "n + 1", "from": "n - 1"}]]]}],
+ "source": {"n": 3, "m": 2},
+ "view": {"n": 3, "m": 2},
+ "puts": [
+  {"view": {"n": 3, "m": 2}, "source": {"n": 3, "m": 2}},
+  {"view": {"n": 3, "m": 1}, "source": {"n": 2, "m": 1}},
+  {"view": {"n": 9, "m": 1}, "source": {"n": 8, "m": 1}},
+  {"view": {"n": 9, "m": 2}, "source": {"n": 9, "m": 2}}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "50d47c7cb9bca0a7eedcf256f1fcadb3b105133f4454eec0c5a0c808373f8466", "target_schema": "50d47c7cb9bca0a7eedcf256f1fcadb3b105133f4454eec0c5a0c808373f8466", "lens": "a49f8c9cadebf0bd85d715610a5623b157ec1f03688af827fe1bd78681b00d6a", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "guarded by a sibling, no inverse",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "integer"}, "m": {"type": "integer"}},
+ "transforms": [{"case": [["m == 1", [{"rewrite": "n", "to": "n * 2"}]]]}],
+ "source": {"n": 3, "m": 1},
+ "view": {"n": 6, "m": 1},
+ "puts": [
+  {"view": {"n": 6, "m": 1}, "source": {"n": 3, "m": 1}},
+  {"view": {"n": 6, "m": 2}, "source": {"n": 6, "m": 2}},
+  {"view": {"n": 9, "m": 2}, "source": {"n": 9, "m": 2}},
+  {"view": {"n": 9, "m": 1}, "source": "refused"},
+  {"view": {"n": null, "m": 1}, "source": "refused"}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {"2": {"Present": {"Int": 3}}}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "50d47c7cb9bca0a7eedcf256f1fcadb3b105133f4454eec0c5a0c808373f8466", "target_schema": "50d47c7cb9bca0a7eedcf256f1fcadb3b105133f4454eec0c5a0c808373f8466", "lens": "21d931d5b3aa5f695674303fd790c78df3747d5e6fe1cb339d417b5a944f35b1", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "guarded by a rewritten sibling",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "integer"}, "m": {"type": "integer"}},
+ "transforms": [{"case": [["m == 1", [{"rewrite": "n", "to": "n + 1", "from": "n - 1"}]]]}, {"rewrite": "m", "to": "m", "from": "m"}],
+ "source": {"n": 3, "m": 1},
+ "view": {"n": 4, "m": 1},
+ "puts": [
+  {"view": {"n": 4, "m": 1}, "source": {"n": 3, "m": 1}},
+  {"view": {"n": 4, "m": 2}, "source": {"n": 4, "m": 2}},
+  {"view": {"n": 9, "m": 2}, "source": {"n": 9, "m": 2}},
+  {"view": {"n": 9, "m": 1}, "source": {"n": 8, "m": 1}},
+  {"view": {"n": 3, "m": 2}, "source": {"n": 3, "m": 2}}
+ ],
+ "undo": true,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {"2": {"Present": {"Int": 3}}}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "50d47c7cb9bca0a7eedcf256f1fcadb3b105133f4454eec0c5a0c808373f8466", "target_schema": "50d47c7cb9bca0a7eedcf256f1fcadb3b105133f4454eec0c5a0c808373f8466", "lens": "0c8aee18ba91d3f02fde865d685d38e9c527aa8272e6c200ce6e9d7abac6b13d", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "guarded by a moved sibling",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "integer"}, "m": {"type": "integer"}},
+ "transforms": [{"case": [["m == 1", [{"rewrite": "n", "to": "n + 1", "from": "n - 1"}]]]}, {"rewrite": "m", "to": "m + 10", "from": "m - 10"}],
+ "source": {"n": 3, "m": 1},
+ "view": {"n": 4, "m": 11},
+ "puts": [
+  {"view": {"n": 4, "m": 11}, "source": {"n": 3, "m": 1}},
+  {"view": {"n": 4, "m": 12}, "source": {"n": 4, "m": 2}},
+  {"view": {"n": 9, "m": 12}, "source": {"n": 9, "m": 2}},
+  {"view": {"n": 9, "m": 11}, "source": {"n": 8, "m": 1}}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {"1": {"Present": {"Int": 1}}, "2": {"Present": {"Int": 3}}}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "50d47c7cb9bca0a7eedcf256f1fcadb3b105133f4454eec0c5a0c808373f8466", "target_schema": "50d47c7cb9bca0a7eedcf256f1fcadb3b105133f4454eec0c5a0c808373f8466", "lens": "71b40954c7ce8352df7970387b161245c2affca725265044f880f583dad183ce", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "two steps chosen by a rewritten sibling",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "integer"}, "m": {"type": "integer"}},
+ "transforms": [{"case": [["m == 1", [{"rewrite": "n", "to": "n + 1", "from": "n - 1"}]], ["True", [{"rewrite": "n", "to": "n + 2", "from": "n - 2"}]]]}, {"rewrite": "m", "to": "m", "from": "m"}],
+ "source": {"n": 3, "m": 1},
+ "view": {"n": 4, "m": 1},
+ "puts": [
+  {"view": {"n": 4, "m": 1}, "source": {"n": 3, "m": 1}},
+  {"view": {"n": 8, "m": 2}, "source": {"n": 6, "m": 2}},
+  {"view": {"n": 4, "m": 2}, "source": {"n": 2, "m": 2}}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {"2": {"Present": {"Int": 3}}}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "50d47c7cb9bca0a7eedcf256f1fcadb3b105133f4454eec0c5a0c808373f8466", "target_schema": "50d47c7cb9bca0a7eedcf256f1fcadb3b105133f4454eec0c5a0c808373f8466", "lens": "42536c960de952f9f67ac71e4fda2beeea2604134ed144040512a062305facd0", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "guards that read each other",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "integer"}, "m": {"type": "integer"}},
+ "transforms": [{"case": [["m == 1", [{"rewrite": "n", "to": "n + 1", "from": "n - 1"}]]]}, {"case": [["n == 4", [{"rewrite": "m", "to": "m + 10", "from": "m - 10"}]]]}],
+ "source": {"n": 3, "m": 1},
+ "view": {"n": 4, "m": 11},
+ "puts": [
+  {"view": {"n": 4, "m": 11}, "source": {"n": 3, "m": 1}},
+  {"view": {"n": 9, "m": 11}, "source": {"n": 9, "m": 11}},
+  {"view": {"n": 4, "m": 12}, "source": {"n": 4, "m": 2}},
+  {"view": {"n": 9, "m": 1}, "source": {"n": 8, "m": 1}},
+  {"view": {"n": 4, "m": 5}, "source": {"n": 4, "m": -5}},
+  {"view": {"n": 9, "m": 5}, "source": {"n": 9, "m": 5}}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {"1": {"Present": {"Int": 1}}, "2": {"Present": {"Int": 3}}}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "50d47c7cb9bca0a7eedcf256f1fcadb3b105133f4454eec0c5a0c808373f8466", "target_schema": "50d47c7cb9bca0a7eedcf256f1fcadb3b105133f4454eec0c5a0c808373f8466", "lens": "16c93a7e8651883184126c7b487c9b913c94ef71d7e9c82c705ec9de6ba8e637", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "inverse that reads a sibling",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "integer"}, "m": {"type": "integer"}},
+ "transforms": [{"rewrite": "n", "to": "n + 1", "from": "n - m"}],
+ "source": {"n": 3, "m": 1},
+ "view": {"n": 4, "m": 1},
+ "puts": [
+  {"view": {"n": 4, "m": 1}, "source": {"n": 3, "m": 1}},
+  {"view": {"n": 9, "m": 1}, "source": {"n": 8, "m": 1}},
+  {"view": {"n": 4, "m": 2}, "source": {"n": 3, "m": 2}},
+  {"view": {"n": 9, "m": 2}, "source": "refused"}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {"2": {"Present": {"Int": 3}}}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "50d47c7cb9bca0a7eedcf256f1fcadb3b105133f4454eec0c5a0c808373f8466", "target_schema": "50d47c7cb9bca0a7eedcf256f1fcadb3b105133f4454eec0c5a0c808373f8466", "lens": "f7d53de895f021a5356a317a4c21fd31713b1fb3846f53cc0c3a8e71fd1ede5b", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "rewritten, then renamed",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "integer"}, "k": {"type": "integer"}},
+ "transforms": [{"rewrite": "n", "to": "n + 1", "from": "n - 1"}, {"rename": "n", "as": "k"}],
+ "source": {"n": 3},
+ "view": {"n": 3, "k": 4},
+ "puts": [
+  {"view": {"n": 3, "k": 4}, "source": "refused"}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0}, "source_fingerprint": 16476210525756103939, "original_extra_fields": {"0": {}}, "arc_edges": [], "arc_order": [[0, 1]], "original_values": {}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 2, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "0244daf855840fb5a96101d8604aeadb6aa1832eee8b628f521220cf2078e3a5", "target_schema": "0244daf855840fb5a96101d8604aeadb6aa1832eee8b628f521220cf2078e3a5", "lens": "7b3b40ead9b55e7a6055a4c858fda23e8a44915e8498068e1d05c553efb6b6f7", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "rewritten, then dropped",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "integer"}, "m": {"type": "integer"}},
+ "transforms": [{"rewrite": "n", "to": "n + 1", "from": "n - 1"}, {"drop": "n"}],
+ "source": {"n": 3, "m": 1},
+ "view": {"n": 3, "m": 1},
+ "puts": [
+  {"view": {"n": 3, "m": 1}, "source": {"n": 3, "m": 1}},
+  {"view": {"n": 20, "m": 1}, "source": {"n": 20, "m": 1}},
+  {"view": {"n": 3, "m": 2}, "source": {"n": 3, "m": 2}}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "50d47c7cb9bca0a7eedcf256f1fcadb3b105133f4454eec0c5a0c808373f8466", "target_schema": "50d47c7cb9bca0a7eedcf256f1fcadb3b105133f4454eec0c5a0c808373f8466", "lens": "8653299016414d9f369c24978db1dd5fefc23b496b21405a19918066fbebabed", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "rewritten, then computed",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "integer"}, "m": {"type": "integer"}},
+ "transforms": [{"rewrite": "n", "to": "n + 1", "from": "n - 1"}, {"compute": "n", "to": "n * 2", "from": "n / 2"}],
+ "source": {"n": 3, "m": 1},
+ "view": {"n": 8, "m": 1},
+ "puts": [
+  {"view": {"n": 8, "m": 1}, "source": {"n": 3, "m": 1}},
+  {"view": {"n": 20, "m": 1}, "source": {"n": 9, "m": 1}},
+  {"view": {"n": 21, "m": 1}, "source": "refused"},
+  {"view": {"n": 8, "m": 2}, "source": {"n": 3, "m": 2}}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {"0": {}}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "50d47c7cb9bca0a7eedcf256f1fcadb3b105133f4454eec0c5a0c808373f8466", "target_schema": "50d47c7cb9bca0a7eedcf256f1fcadb3b105133f4454eec0c5a0c808373f8466", "lens": "c6d3178349ba0ee31baa9676f27e313bd5cb036d32ea4438da2826f3eee366c5", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": false
+},
+{
+ "name": "computed in place",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "integer"}},
+ "transforms": [{"compute": "n", "to": "n + 1", "from": "n - 1"}],
+ "source": {"n": 3},
+ "view": {"n": 4},
+ "puts": [
+  {"view": {"n": 4}, "source": {"n": 3}},
+  {"view": {"n": 20}, "source": {"n": 19}}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0}, "source_fingerprint": 11875203015347107758, "original_extra_fields": {"0": {}}, "arc_edges": [], "arc_order": [[0, 1]], "original_values": {}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 2, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "e457f7f6271ae8390d1dcf1ecf7dc06ae635eee65edf56f6ca12e42d876366e2", "target_schema": "e457f7f6271ae8390d1dcf1ecf7dc06ae635eee65edf56f6ca12e42d876366e2", "lens": "d9b1c5f42294efb1c3940e2dd4264e42ec1f770829ec84e655c6deda2ebf00b3", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "rewritten, then read by a computation",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "integer"}, "k": {"type": "integer"}},
+ "transforms": [{"rewrite": "n", "to": "n + 1", "from": "n - 1"}, {"compute": "k", "to": "n * 2"}],
+ "source": {"n": 3},
+ "view": {"n": 4, "k": 8},
+ "puts": [
+  {"view": {"n": 4, "k": 8}, "source": {"n": 3}},
+  {"view": {"n": 20, "k": 8}, "source": "refused"},
+  {"view": {"n": 20, "k": 40}, "source": {"n": 19}}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0}, "source_fingerprint": 16476210525756103939, "original_extra_fields": {"0": {}}, "arc_edges": [], "arc_order": [[0, 1]], "original_values": {"1": {"Present": {"Int": 3}}}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 2, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "0244daf855840fb5a96101d8604aeadb6aa1832eee8b628f521220cf2078e3a5", "target_schema": "0244daf855840fb5a96101d8604aeadb6aa1832eee8b628f521220cf2078e3a5", "lens": "82299ae71d596baaa985e220b01a461ef3c8a1cefdc64f471887a83804fad7e0", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "computed over a child, then rewritten",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "integer"}, "m": {"type": "integer"}},
+ "transforms": [{"compute": "n", "to": "m + 1"}, {"rewrite": "n", "to": "n * 2", "from": "n / 2"}],
+ "source": {"n": 3, "m": 4},
+ "view": {"n": 10, "m": 4},
+ "puts": [
+  {"view": {"n": 10, "m": 4}, "source": {"n": 3, "m": 4}},
+  {"view": {"n": 10, "m": 7}, "source": "refused"},
+  {"view": {"n": 20, "m": 4}, "source": "refused"}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {"0": {}}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "50d47c7cb9bca0a7eedcf256f1fcadb3b105133f4454eec0c5a0c808373f8466", "target_schema": "50d47c7cb9bca0a7eedcf256f1fcadb3b105133f4454eec0c5a0c808373f8466", "lens": "3228da14107a67d65e4742b0f813efde9c4018d5db207e332ed4d3018d90d22a", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": false
+},
+{
+ "name": "reads the number of fields",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "integer"}, "m": {"type": "integer"}},
+ "transforms": [{"rewrite": "n", "to": "n + edge_count \"self\""}],
+ "source": {"n": 3, "m": 4},
+ "view": {"n": 5, "m": 4},
+ "puts": [
+  {"view": {"n": 5, "m": 4}, "source": {"n": 3, "m": 4}},
+  {"view": {"n": 5, "m": 7}, "source": {"n": 3, "m": 7}},
+  {"view": {"n": 5}, "source": "refused"}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {"2": {"Present": {"Int": 3}}}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "50d47c7cb9bca0a7eedcf256f1fcadb3b105133f4454eec0c5a0c808373f8466", "target_schema": "50d47c7cb9bca0a7eedcf256f1fcadb3b105133f4454eec0c5a0c808373f8466", "lens": "9b11806d515cf9fd92143fbf27bc28962a4fc120ff27fc95d3018d04d46b3503", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "defaulted after a rewrite of another key",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "string"}, "m": {"type": "string"}, "k": {"type": "string"}},
+ "transforms": [{"rewrite": "n", "to": "if n == \"old\" then \"new\" else n", "from": "if n == \"new\" then \"old\" else n"}, {"add": "k", "value": "d"}],
+ "source": {"n": "old", "m": "x"},
+ "view": {"n": "new", "m": "x", "k": "d"},
+ "puts": [
+  {"view": {"n": "new", "m": "x", "k": "d"}, "source": {"n": "old", "m": "x"}},
+  {"view": {"n": "zz", "m": "x", "k": "d"}, "source": {"n": "zz", "m": "x"}},
+  {"view": {"n": "new", "m": "y", "k": "d"}, "source": {"n": "old", "m": "y"}}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 3036052651216783655, "original_extra_fields": {"0": {}}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {"2": {"Present": {"Str": "old"}}}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "d0af5905556197ef9d049405d06fcf2ff26f301586e741bef4fc221dbabdb08b", "target_schema": "d0af5905556197ef9d049405d06fcf2ff26f301586e741bef4fc221dbabdb08b", "lens": "a8acc63698e8393ef41828887e946847e8772bd2e561a4afcbdf7ab3914a121b", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "kept keys",
+ "at": "com.example.note:body",
+ "properties": {"n": {"type": "string"}, "m": {"type": "string"}},
+ "transforms": [{"rewrite": "n", "to": "if n == \"old\" then \"new\" else n", "from": "if n == \"new\" then \"old\" else n"}, {"keep": ["n"]}],
+ "source": {"n": "old", "m": "x"},
+ "view": {"n": "new", "m": "x"},
+ "puts": [
+  {"view": {"n": "new", "m": "x"}, "source": {"n": "old", "m": "x"}},
+  {"view": {"n": "zz", "m": "x"}, "source": {"n": "zz", "m": "x"}},
+  {"view": {"n": "new", "m": "y"}, "source": {"n": "old", "m": "y"}}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 0}, "source_fingerprint": 13014168495954764734, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1], [0, 2]], "original_values": {"2": {"Present": {"Str": "old"}}}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 3, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.m", "kind": "prop", "name": "m"}, "index": 0}}, "2": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "28e79d9787d0ec46725ef5323c485cb2522ef1e9a21563ba0a3235ccdaafe43d", "target_schema": "28e79d9787d0ec46725ef5323c485cb2522ef1e9a21563ba0a3235ccdaafe43d", "lens": "171397c329e72cd5035f6cd0f86601adb15fb7a80aa62c60326338b7904749ee", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "nested record",
+ "at": "com.example.note:body.r",
+ "properties": {"r": {"type": "object", "properties": {"n": {"type": "string"}, "m": {"type": "string"}}}, "t": {"type": "string"}},
+ "transforms": [{"rewrite": "n", "to": "if n == \"old\" then \"new\" else n", "from": "if n == \"new\" then \"old\" else n"}],
+ "source": {"r": {"n": "old", "m": "x"}, "t": "q"},
+ "view": {"r": {"n": "new", "m": "x"}, "t": "q"},
+ "puts": [
+  {"view": {"r": {"n": "new", "m": "x"}, "t": "q"}, "source": {"r": {"n": "old", "m": "x"}, "t": "q"}},
+  {"view": {"r": {"n": "zz", "m": "x"}, "t": "q"}, "source": {"r": {"n": "zz", "m": "x"}, "t": "q"}},
+  {"view": {"r": {"n": "new", "m": "x"}, "t": "u"}, "source": {"r": {"n": "old", "m": "x"}, "t": "u"}},
+  {"view": {"r": {"m": "x"}, "t": "q"}, "source": {"r": {"m": "x"}, "t": "q"}}
+ ],
+ "undo": true,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 1, "3": 1, "4": 0}, "source_fingerprint": 8674050305651440632, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[1, 2], [1, 3], [0, 1], [0, 4]], "original_values": {"3": {"Present": {"Str": "old"}}}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 5, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.r", "kind": "prop", "name": "r"}, "index": 0}}, "2": {"child": {"parent": 1, "edge": {"src": "com.example.note:body.r", "tgt": "com.example.note:body.r.m", "kind": "prop", "name": "m"}, "index": 0}}, "3": {"child": {"parent": 1, "edge": {"src": "com.example.note:body.r", "tgt": "com.example.note:body.r.n", "kind": "prop", "name": "n"}, "index": 0}}, "4": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.t", "kind": "prop", "name": "t"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "4ad77f1adf44c6653fa457490b5a8def4c9606aad9d2009622b503986a3ba8d3", "target_schema": "4ad77f1adf44c6653fa457490b5a8def4c9606aad9d2009622b503986a3ba8d3", "lens": "1eb9fa7373e1ba285ab47559937a52d1f8422665a6f575dd6a14d442df4751c9", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "nested record, null child",
+ "at": "com.example.note:body.r",
+ "properties": {"r": {"type": "object", "properties": {"n": {"type": "string"}, "m": {"type": "string"}}}, "t": {"type": "string"}},
+ "transforms": [{"rewrite": "n", "to": "if is_null n then \"none\" else n", "from": "if n == \"none\" then Nothing else n"}],
+ "source": {"r": {"n": null, "m": "x"}, "t": "q"},
+ "view": {"r": {"n": "none", "m": "x"}, "t": "q"},
+ "puts": [
+  {"view": {"r": {"n": "none", "m": "x"}, "t": "q"}, "source": {"r": {"n": null, "m": "x"}, "t": "q"}},
+  {"view": {"r": {"n": "none", "m": "x"}, "t": "u"}, "source": {"r": {"n": null, "m": "x"}, "t": "u"}}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 1, "3": 1, "4": 0}, "source_fingerprint": 8674050305651440632, "original_extra_fields": {"1": {}}, "arc_edges": [], "arc_order": [[1, 2], [1, 3], [0, 1], [0, 4]], "original_values": {}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 5, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.r", "kind": "prop", "name": "r"}, "index": 0}}, "2": {"child": {"parent": 1, "edge": {"src": "com.example.note:body.r", "tgt": "com.example.note:body.r.m", "kind": "prop", "name": "m"}, "index": 0}}, "3": {"child": {"parent": 1, "edge": {"src": "com.example.note:body.r", "tgt": "com.example.note:body.r.n", "kind": "prop", "name": "n"}, "index": 0}}, "4": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.t", "kind": "prop", "name": "t"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "4ad77f1adf44c6653fa457490b5a8def4c9606aad9d2009622b503986a3ba8d3", "target_schema": "4ad77f1adf44c6653fa457490b5a8def4c9606aad9d2009622b503986a3ba8d3", "lens": "eb6674d947e8e60c2d050a58adcda8dc55a842ecb50ae57381523fb104608c0b", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": false
+},
+{
+ "name": "nested record the view adds",
+ "at": "com.example.note:body.r",
+ "properties": {"r": {"type": "object", "properties": {"n": {"type": "string"}, "m": {"type": "string"}}}, "t": {"type": "string"}},
+ "transforms": [{"rewrite": "n", "to": "if n == \"old\" then \"new\" else n", "from": "if n == \"new\" then \"old\" else n"}],
+ "source": {"t": "q"},
+ "view": {"t": "q"},
+ "puts": [
+  {"view": {"t": "q"}, "source": {"t": "q"}},
+  {"view": {"t": "q", "r": {"n": "new", "m": "x"}}, "source": {"r": {"n": "old", "m": "x"}, "t": "q"}}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0}, "source_fingerprint": 8674050305651440632, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[0, 1]], "original_values": {}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 2, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.t", "kind": "prop", "name": "t"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "4ad77f1adf44c6653fa457490b5a8def4c9606aad9d2009622b503986a3ba8d3", "target_schema": "4ad77f1adf44c6653fa457490b5a8def4c9606aad9d2009622b503986a3ba8d3", "lens": "1eb9fa7373e1ba285ab47559937a52d1f8422665a6f575dd6a14d442df4751c9", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "list of records",
+ "at": "com.example.note:body.items:items",
+ "properties": {"items": {"type": "array", "items": {"type": "object", "properties": {"n": {"type": "integer"}, "m": {"type": "integer"}}}}, "t": {"type": "string"}},
+ "transforms": [{"rewrite": "n", "to": "n + 1", "from": "n - 1"}],
+ "source": {"items": [{"n": 1, "m": 1}, {"n": 2, "m": 2}, {"n": 3, "m": 3}], "t": "x"},
+ "view": {"items": [{"n": 2, "m": 1}, {"n": 3, "m": 2}, {"n": 4, "m": 3}], "t": "x"},
+ "puts": [
+  {"view": {"items": [{"n": 2, "m": 1}, {"n": 3, "m": 2}, {"n": 4, "m": 3}], "t": "x"}, "source": {"items": [{"n": 1, "m": 1}, {"n": 2, "m": 2}, {"n": 3, "m": 3}], "t": "x"}},
+  {"view": {"items": [{"n": 4, "m": 3}, {"n": 3, "m": 2}, {"n": 2, "m": 1}], "t": "x"}, "source": {"items": [{"n": 3, "m": 3}, {"n": 2, "m": 2}, {"n": 1, "m": 1}], "t": "x"}},
+  {"view": {"items": [{"n": 3, "m": 2}, {"n": 4, "m": 3}], "t": "x"}, "source": {"items": [{"n": 2, "m": 2}, {"n": 3, "m": 3}], "t": "x"}},
+  {"view": {"items": [{"n": 2, "m": 1}, {"n": 3, "m": 2}], "t": "x"}, "source": {"items": [{"n": 1, "m": 1}, {"n": 2, "m": 2}], "t": "x"}},
+  {"view": {"items": [{"n": 2, "m": 1}, {"n": 3, "m": 2}, {"n": 4, "m": 3}, {"n": 9, "m": 9}], "t": "x"}, "source": {"items": [{"n": 1, "m": 1}, {"n": 2, "m": 2}, {"n": 3, "m": 3}, {"n": 8, "m": 9}], "t": "x"}},
+  {"view": {"items": [{"m": 1}, {"n": 3, "m": 2}, {"n": 4, "m": 3}], "t": "x"}, "source": {"items": [{"m": 1}, {"n": 2, "m": 2}, {"n": 3, "m": 3}], "t": "x"}},
+  {"view": {"items": [{"n": 2, "m": 1}, {"n": 3, "m": 2}, {"n": 4, "m": 3}], "t": "y"}, "source": {"items": [{"n": 1, "m": 1}, {"n": 2, "m": 2}, {"n": 3, "m": 3}], "t": "y"}}
+ ],
+ "undo": true,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 1, "3": 2, "4": 2, "5": 1, "6": 5, "7": 5, "8": 1, "9": 8, "10": 8, "11": 0}, "source_fingerprint": 493115176241053127, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[2, 3], [2, 4], [1, 2], [5, 6], [5, 7], [1, 5], [8, 9], [8, 10], [1, 8], [0, 1], [0, 11]], "original_values": {"4": {"Present": {"Int": 1}}, "7": {"Present": {"Int": 2}}, "10": {"Present": {"Int": 3}}}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 12, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.items", "kind": "prop", "name": "items"}, "index": 0}}, "2": {"child": {"parent": 1, "edge": {"src": "com.example.note:body.items", "tgt": "com.example.note:body.items:items", "kind": "items", "name": null}, "index": 0}}, "3": {"child": {"parent": 2, "edge": {"src": "com.example.note:body.items:items", "tgt": "com.example.note:body.items:items.m", "kind": "prop", "name": "m"}, "index": 0}}, "4": {"child": {"parent": 2, "edge": {"src": "com.example.note:body.items:items", "tgt": "com.example.note:body.items:items.n", "kind": "prop", "name": "n"}, "index": 0}}, "5": {"child": {"parent": 1, "edge": {"src": "com.example.note:body.items", "tgt": "com.example.note:body.items:items", "kind": "items", "name": null}, "index": 1}}, "6": {"child": {"parent": 5, "edge": {"src": "com.example.note:body.items:items", "tgt": "com.example.note:body.items:items.m", "kind": "prop", "name": "m"}, "index": 0}}, "7": {"child": {"parent": 5, "edge": {"src": "com.example.note:body.items:items", "tgt": "com.example.note:body.items:items.n", "kind": "prop", "name": "n"}, "index": 0}}, "8": {"child": {"parent": 1, "edge": {"src": "com.example.note:body.items", "tgt": "com.example.note:body.items:items", "kind": "items", "name": null}, "index": 2}}, "9": {"child": {"parent": 8, "edge": {"src": "com.example.note:body.items:items", "tgt": "com.example.note:body.items:items.m", "kind": "prop", "name": "m"}, "index": 0}}, "10": {"child": {"parent": 8, "edge": {"src": "com.example.note:body.items:items", "tgt": "com.example.note:body.items:items.n", "kind": "prop", "name": "n"}, "index": 0}}, "11": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.t", "kind": "prop", "name": "t"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "1120f7fc7c38035d8da4caff99a2fe0cd00f341ba4ee28a83f66b47624509aaf", "target_schema": "1120f7fc7c38035d8da4caff99a2fe0cd00f341ba4ee28a83f66b47624509aaf", "lens": "c2a004112260d92517a6d3bb78db484452dfb03eef0d0d4e8b92aee6cac8de27", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+},
+{
+ "name": "list of records, no inverse",
+ "at": "com.example.note:body.items:items",
+ "properties": {"items": {"type": "array", "items": {"type": "object", "properties": {"n": {"type": "integer"}, "m": {"type": "integer"}}}}, "t": {"type": "string"}},
+ "transforms": [{"rewrite": "n", "to": "n + 1"}],
+ "source": {"items": [{"n": 1, "m": 1}, {"n": 2, "m": 2}, {"n": 3, "m": 3}], "t": "x"},
+ "view": {"items": [{"n": 2, "m": 1}, {"n": 3, "m": 2}, {"n": 4, "m": 3}], "t": "x"},
+ "puts": [
+  {"view": {"items": [{"n": 2, "m": 1}, {"n": 3, "m": 2}, {"n": 4, "m": 3}], "t": "x"}, "source": {"items": [{"n": 1, "m": 1}, {"n": 2, "m": 2}, {"n": 3, "m": 3}], "t": "x"}},
+  {"view": {"items": [{"n": 4, "m": 3}, {"n": 3, "m": 2}, {"n": 2, "m": 1}], "t": "x"}, "source": "refused"},
+  {"view": {"items": [{"n": 3, "m": 2}, {"n": 4, "m": 3}], "t": "x"}, "source": "refused"},
+  {"view": {"items": [{"n": 2, "m": 1}, {"n": 3, "m": 2}], "t": "x"}, "source": {"items": [{"n": 1, "m": 1}, {"n": 2, "m": 2}], "t": "x"}},
+  {"view": {"items": [{"n": 2, "m": 1}, {"n": 3, "m": 2}, {"n": 4, "m": 3}, {"n": 9, "m": 9}], "t": "x"}, "source": "refused"},
+  {"view": {"items": [{"m": 1}, {"n": 3, "m": 2}, {"n": 4, "m": 3}], "t": "x"}, "source": {"items": [{"m": 1}, {"n": 2, "m": 2}, {"n": 3, "m": 3}], "t": "x"}},
+  {"view": {"items": [{"n": 2, "m": 5}, {"n": 3, "m": 6}, {"n": 4, "m": 7}], "t": "x"}, "source": {"items": [{"n": 1, "m": 5}, {"n": 2, "m": 6}, {"n": 3, "m": 7}], "t": "x"}},
+  {"view": {"items": [{"n": 2, "m": 1}, {"n": 3, "m": 2}, {"n": 4, "m": 3}, {"m": 9}], "t": "x"}, "source": {"items": [{"n": 1, "m": 1}, {"n": 2, "m": 2}, {"n": 3, "m": 3}, {"m": 9}], "t": "x"}}
+ ],
+ "undo": false,
+ "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0, "2": 1, "3": 2, "4": 2, "5": 1, "6": 5, "7": 5, "8": 1, "9": 8, "10": 8, "11": 0}, "source_fingerprint": 493115176241053127, "original_extra_fields": {}, "arc_edges": [], "arc_order": [[2, 3], [2, 4], [1, 2], [5, 6], [5, 7], [1, 5], [8, 9], [8, 10], [1, 8], [0, 1], [0, 11]], "original_values": {"4": {"Present": {"Int": 1}}, "7": {"Present": {"Int": 2}}, "10": {"Present": {"Int": 3}}}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 12, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.items", "kind": "prop", "name": "items"}, "index": 0}}, "2": {"child": {"parent": 1, "edge": {"src": "com.example.note:body.items", "tgt": "com.example.note:body.items:items", "kind": "items", "name": null}, "index": 0}}, "3": {"child": {"parent": 2, "edge": {"src": "com.example.note:body.items:items", "tgt": "com.example.note:body.items:items.m", "kind": "prop", "name": "m"}, "index": 0}}, "4": {"child": {"parent": 2, "edge": {"src": "com.example.note:body.items:items", "tgt": "com.example.note:body.items:items.n", "kind": "prop", "name": "n"}, "index": 0}}, "5": {"child": {"parent": 1, "edge": {"src": "com.example.note:body.items", "tgt": "com.example.note:body.items:items", "kind": "items", "name": null}, "index": 1}}, "6": {"child": {"parent": 5, "edge": {"src": "com.example.note:body.items:items", "tgt": "com.example.note:body.items:items.m", "kind": "prop", "name": "m"}, "index": 0}}, "7": {"child": {"parent": 5, "edge": {"src": "com.example.note:body.items:items", "tgt": "com.example.note:body.items:items.n", "kind": "prop", "name": "n"}, "index": 0}}, "8": {"child": {"parent": 1, "edge": {"src": "com.example.note:body.items", "tgt": "com.example.note:body.items:items", "kind": "items", "name": null}, "index": 2}}, "9": {"child": {"parent": 8, "edge": {"src": "com.example.note:body.items:items", "tgt": "com.example.note:body.items:items.m", "kind": "prop", "name": "m"}, "index": 0}}, "10": {"child": {"parent": 8, "edge": {"src": "com.example.note:body.items:items", "tgt": "com.example.note:body.items:items.n", "kind": "prop", "name": "n"}, "index": 0}}, "11": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.t", "kind": "prop", "name": "t"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "1120f7fc7c38035d8da4caff99a2fe0cd00f341ba4ee28a83f66b47624509aaf", "target_schema": "1120f7fc7c38035d8da4caff99a2fe0cd00f341ba4ee28a83f66b47624509aaf", "lens": "ad7c2755546136258cced98f04a535d9cabcd4266d4e94b797c0dd8b2e308d8c", "complement_format": {"shape": "wtype", "version": 1}}},
+ "same_complement": true
+}
+]

@@ -37,7 +37,15 @@ const { view, complement } = lens.getJson(
 const restored = lens.putJson(view, complement, 'record:body');
 ```
 
-`apply_expr` evaluates its expression with the named field bound in the expression environment. An inverse is required only when edits must propagate backward through the transform: without one, `put` restores the original value as long as the view still shows the transformed one, and refuses an edit of it. Declare `coercion: 'iso'` only when the forward and inverse expressions round-trip for every accepted value.
+`apply_expr` evaluates its expression with the named field bound in the expression environment. An inverse is required only when edits must propagate backward through the transform. Declare `coercion: 'iso'` only when the forward and inverse expressions round-trip for every accepted value.
+
+A record read from JSON holds each field as a child of the record, and `put` restores such a field as follows:
+
+- An unedited field gets back its original value, through `put` and `putJson` alike. The complement records the original value where the view does not determine it: where the transform changed the value, where the result stays on the record because the field held null or a record (a `cid-link` or `bytes` value), and where carrying the shown value back through the inverse does not give the original (the value `new` under a rename of `old` to `new`, say).
+- An edited field is tried with, in order: the shown value carried back through the inverses of every rewrite that ran on it, last first (a rewrite without an inverse passes it on); the shown value itself; and the shown value through each inverse alone. `put` keeps the first whose transform shows the edited value, and refuses the edit with `TransformNotInvertible` when none does.
+- A view that holds a field on the record, where `get` left it because the child held null, keeps the child as it is: an edit of that field is refused, since `get` would show it on the child.
+
+A complement taken by 0.78.0 or before lacks some of these records. Take it again with `get` when a rewrite's inverse is not an exact inverse (an inverse of `n * n` that returns `n`, or one that maps two values to one), since `put` cannot tell the original value from the shown one there.
 
 ## Compute a field from its parent record
 

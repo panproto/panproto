@@ -684,6 +684,6 @@ mod tests {
             }
             other => panic!("expected the exact boundary report, got {other:?}"),
         }
-        assert_eq!(report.coverage_ratio, 0.5);
+        assert!((report.coverage_ratio - 0.5).abs() < f64::EPSILON);
     }
 }

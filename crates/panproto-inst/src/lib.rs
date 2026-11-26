@@ -230,17 +230,17 @@ pub use value::{FidelityReason, ValueFidelityError, ValueSite};
 pub use value::{FieldPresence, Value};
 pub use view_ref::{IdFloor, RowId, SynthIndex, SynthKey, ViewRef};
 pub use wtype::{
-    CaseBranch, CompiledMigration, FanResolver, FanShape, FieldTransform, HyperResolverEntry,
-    HyperResolverTable, TermAssignment, TermBranch, TermScope, TransformContext, WInstance,
-    ancestor_contraction, anchor_surviving, apply_field_transforms_traced,
-    apply_term_assignments_to_row, build_env_from_extra_fields, build_env_with_children,
-    canonical_label_shape, collect_child_values, collect_scalar_child_values,
-    expr_literal_to_value, extend_env_from_extra_fields, node_to_value, reconstruct_fans,
-    referenced_names, resolve_edge, value_to_expr_literal, wtype_extend, wtype_extend_partial,
-    wtype_restrict,
+    CaseBranch, CompiledMigration, FanResolver, FanShape, FieldFootprint, FieldTransform,
+    HyperResolverEntry, HyperResolverTable, TermAssignment, TermBranch, TermScope,
+    TransformContext, WInstance, ancestor_contraction, anchor_surviving,
+    apply_field_transforms_traced, apply_term_assignments_to_row, build_env_from_extra_fields,
+    build_env_with_children, canonical_label_shape, collect_child_values,
+    collect_scalar_child_values, expr_literal_to_value, extend_env_from_extra_fields,
+    node_to_value, reads_the_instance, reconstruct_fans, referenced_names, resolve_edge,
+    value_to_expr_literal, wtype_extend, wtype_extend_partial, wtype_restrict,
 };
 pub use wtype::{
-    ChildWrite, InstanceRef, NotExpressible, TreeSynthesis, tree_child_writes,
+    ChildField, ChildFieldResult, InstanceRef, NodeRun, NotExpressible, TreeRuns, TreeSynthesis,
     tree_survival_verdicts, wtype_extend_engine, wtype_extend_validated, wtype_restrict_validated,
-    wtype_restrict_with_plan, wtype_restrict_with_synthesis,
+    wtype_restrict_with_child_fields, wtype_restrict_with_plan, wtype_restrict_with_synthesis,
 };

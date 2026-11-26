@@ -19,8 +19,9 @@ use crate::element_ops::ElementOps;
 use crate::value::Value;
 use crate::wtype::WInstance;
 
-/// Check if a builtin is a graph traversal operation.
-const fn is_graph_builtin(op: BuiltinOp) -> bool {
+/// Whether a builtin is a graph traversal operation, which the instance
+/// resolvers answer.
+pub(crate) const fn is_graph_builtin(op: BuiltinOp) -> bool {
     matches!(
         op,
         BuiltinOp::Edge
