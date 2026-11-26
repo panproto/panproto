@@ -3724,13 +3724,13 @@ impl FieldTransform {
             Self::ComputeField {
                 target_key, expr, ..
             } => named(&[], &[target_key]).reading(expr),
-            Self::PathTransform { path, inner } => match path.first() {
-                None => inner.footprint(),
-                Some(field) => FieldFootprint {
+            Self::PathTransform { path, inner } => path.first().map_or_else(
+                || inner.footprint(),
+                |field| FieldFootprint {
                     reads_instance: inner.footprint().reads_instance,
                     ..named(&[field], &[field])
                 },
-            },
+            ),
             Self::Case { branches } => {
                 branches
                     .iter()
