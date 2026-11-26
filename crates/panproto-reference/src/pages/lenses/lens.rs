@@ -321,7 +321,7 @@ pub use super::alignment::{
 };
 pub use super::child_fields::{
     Assignment, Bindings, ChildComplement, Content, Function, Operation, Predicate, Record,
-    child_get, child_put, child_put_solutions,
+    child_get, child_put, child_put_solutions, child_put_together,
 };
 pub use super::constructions::{
     ConstructionFeature, ConstructionObstruction, ConstructionShape, construction_obstruction,

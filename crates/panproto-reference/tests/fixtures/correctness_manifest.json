@@ -5091,6 +5091,7 @@
             "panproto_reference::lens::align_tree_view",
             "panproto_reference::lens::child_get",
             "panproto_reference::lens::child_put",
+            "panproto_reference::lens::child_put_together",
             "panproto_reference::lens::child_put_solutions"
           ],
           "consumers": [

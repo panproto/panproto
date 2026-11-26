@@ -629,46 +629,72 @@ struct Scope<'s, 'a> {
     admits: &'s dyn Fn(&Tried<'a>) -> bool,
 }
 
-/// The coordinates split into parts searched apart: no operation and no
-/// survival predicate reads a field of one part and writes or reads a field
-/// of another.
-struct Partition {
-    parts: Vec<Vec<usize>>,
-    /// For each parent and each field coupled to a coordinate of it, the
-    /// part of the coordinate.
-    of_field: HashMap<(u32, String), usize>,
-    /// The parents whose fields are all coupled, with their part.
-    whole: HashMap<u32, usize>,
-}
-
-/// Classes of names joined by the operations that read or write them
-/// together.
+/// Classes of slots, a slot being a field of an element, joined by the
+/// operations that read or write them together.
 #[derive(Default)]
 struct Classes {
-    class: HashMap<String, usize>,
-    next: usize,
+    slot: HashMap<(u32, String), usize>,
+    above: Vec<usize>,
 }
 
 impl Classes {
-    fn join<'n>(&mut self, names: impl IntoIterator<Item = &'n str>) {
-        let names: Vec<&str> = names.into_iter().collect();
-        let joined: BTreeSet<usize> = names
-            .iter()
-            .filter_map(|name| self.class.get(*name).copied())
-            .collect();
-        let target = joined.first().copied().unwrap_or_else(|| {
-            self.next += 1;
-            self.next
-        });
-        for class in self.class.values_mut() {
-            if joined.contains(class) {
-                *class = target;
-            }
+    fn index(&mut self, element: u32, field: &str) -> usize {
+        let key = (element, field.to_owned());
+        if let Some(&at) = self.slot.get(&key) {
+            return at;
         }
-        for name in names {
-            self.class.insert(name.to_owned(), target);
+        let at = self.above.len();
+        self.above.push(at);
+        self.slot.insert(key, at);
+        at
+    }
+
+    fn root(&mut self, mut at: usize) -> usize {
+        while self.above[at] != at {
+            self.above[at] = self.above[self.above[at]];
+            at = self.above[at];
+        }
+        at
+    }
+
+    fn join(&mut self, slots: impl IntoIterator<Item = usize>) {
+        let mut slots = slots.into_iter();
+        let Some(first) = slots.next() else {
+            return;
+        };
+        let first = self.root(first);
+        for slot in slots {
+            let slot = self.root(slot);
+            self.above[slot] = first;
         }
     }
+}
+
+impl Content {
+    /// A digest of the content, equal for contents that are the same up to
+    /// the order a map of fields is visited in.
+    fn digest(&self, into: &mut impl std::hash::Hasher) {
+        use std::hash::Hash;
+        format!("{:?}", self.value).hash(into);
+        let mut fields: Vec<(&String, String)> = self
+            .fields
+            .iter()
+            .map(|(key, value)| (key, format!("{value:?}")))
+            .collect();
+        fields.sort_unstable();
+        fields.hash(into);
+    }
+}
+
+/// A digest of `contents`, with which the sources a search has tried are
+/// found again.
+fn digest(contents: &[Content]) -> u64 {
+    use std::hash::Hasher;
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    for content in contents {
+        content.digest(&mut hasher);
+    }
+    hasher.finish()
 }
 
 /// The search for the source of a view.
@@ -745,10 +771,30 @@ impl<'a> Search<'a> {
         })
     }
 
-    /// Whether an operation or a survival predicate may read beyond the
-    /// element it runs at, or a uniqueness key compare elements: then the
-    /// fields of different elements depend on each other.
-    fn reads_across(&self) -> bool {
+    /// The coordinates split into parts searched apart.
+    ///
+    /// A slot is a field of an element of the source structure, a
+    /// coordinate's slot its key at its parent. The fields of an element are
+    /// those it and its children hold and those its program may write. An
+    /// operation of an element's program, or its survival predicate, joins
+    /// the slots of the fields its names bind
+    /// ([`panproto_inst::FieldFootprint::fields_read`]) with those it may write,
+    /// where it reads anything; one that reads `self`, or removes unnamed
+    /// fields depending on a field, joins every field of the element. A field
+    /// read that a structural child holds joins every coordinate below that
+    /// child, whose values the child's binding is made of. An operation that
+    /// reads the instance through a graph builtin sees the fields of
+    /// elements, not their values: it joins the coordinates whose children
+    /// hold a record as fields, and those of parents holding fields of their
+    /// own, which their restoration writes. Every coordinate is in one part
+    /// where the source schema declares a uniqueness key, which compares
+    /// elements. The parts are the classes of the coordinates' slots, each
+    /// ascending, in the order of their first coordinates.
+    fn partition(&self) -> Vec<Vec<usize>> {
+        let count = self.coordinates.len();
+        if count == 0 {
+            return Vec::new();
+        }
         let keyed = self.lens.src_schema.declarations.keys.values().any(|keys| {
             keys.iter().any(|key| {
                 matches!(
@@ -759,157 +805,135 @@ impl<'a> Search<'a> {
                 )
             })
         });
-        let anchors: BTreeSet<&Name> = self.structure.nodes.values().map(|n| &n.anchor).collect();
-        keyed
-            || anchors.into_iter().any(|anchor| {
-                self.plan
-                    .program(anchor)
-                    .iter()
-                    .any(|transform| transform.footprint().reads_instance)
+        if keyed {
+            return vec![(0..count).collect()];
+        }
+        let mut classes = Classes::default();
+        let slots: Vec<usize> = self
+            .coordinates
+            .iter()
+            .map(|coordinate| classes.index(coordinate.parent, &coordinate.key))
+            .collect();
+        let visible: Vec<usize> = (0..count)
+            .filter(|&at| {
+                let coordinate = &self.coordinates[at];
+                let fielded = coordinate
+                    .recorded
+                    .as_ref()
+                    .unwrap_or(&coordinate.on_child)
+                    .value
+                    .is_none();
+                let holding = |tree: &WInstance| {
+                    tree.nodes
+                        .get(&coordinate.parent)
+                        .is_some_and(|node| !node.extra_fields.is_empty())
+                };
+                fielded || holding(&self.structure) || holding(self.view)
             })
-            || self
-                .lens
-                .compiled
-                .conditional_survival
-                .values()
-                .any(panproto_inst::reads_the_instance)
-    }
-
-    /// The coordinates split into parts searched apart.
-    ///
-    /// Coordinates of different parents are apart: an operation runs at one
-    /// element and reads that element's fields and children alone
-    /// ([`Self::reads_across`] says where one may read further, and then
-    /// every coordinate is in one part). The coordinates of one parent are
-    /// in one part when the operations of its program, or its survival
-    /// predicate, join their keys: an operation joins the fields it reads
-    /// with those it writes ([`FieldTransform::footprint`]), and one that
-    /// reads `self`, or removes unnamed fields depending on a field, joins
-    /// every field of the parent.
-    fn partition(&self) -> Partition {
-        let count = self.coordinates.len();
-        let mut partition = Partition {
-            parts: Vec::new(),
-            of_field: HashMap::new(),
-            whole: HashMap::new(),
-        };
-        if count == 0 {
-            return partition;
-        }
-        if self.reads_across() {
-            partition.parts.push((0..count).collect());
-            return partition;
-        }
-        let mut start = 0;
-        while start < count {
-            let parent = self.coordinates[start].parent;
-            let end = (start..count)
-                .find(|&at| self.coordinates[at].parent != parent)
-                .unwrap_or(count);
-            let anchor = &self.structure.nodes[&parent].anchor;
-            let mut classes = Classes::default();
-            let mut whole = false;
-            for transform in self.plan.program(anchor) {
-                let footprint = transform.footprint();
-                whole |= footprint.reads_element
-                    || (footprint.writes_others && !footprint.reads.is_empty());
-                classes.join(
-                    footprint
-                        .reads
-                        .iter()
-                        .chain(&footprint.writes)
-                        .map(String::as_str),
-                );
-            }
-            if let Some(predicate) = self.lens.compiled.conditional_survival.get(anchor) {
-                let names = panproto_expr::free_vars(predicate);
-                whole |= names.iter().any(|name| &**name == "self");
-                classes.join(names.iter().map(|name| &**name));
-            }
-            if whole {
-                partition.whole.insert(parent, partition.parts.len());
-                partition.parts.push((start..end).collect());
-                start = end;
+            .map(|at| slots[at])
+            .collect();
+        let mut ids: Vec<u32> = self.structure.nodes.keys().copied().collect();
+        ids.sort_unstable();
+        for id in ids {
+            let node = &self.structure.nodes[&id];
+            let program = self.plan.program(&node.anchor);
+            let predicate = self.lens.compiled.conditional_survival.get(&node.anchor);
+            if program.is_empty() && predicate.is_none() {
                 continue;
             }
-            let mut part_of: BTreeMap<usize, usize> = BTreeMap::new();
-            for at in start..end {
-                let key = &self.coordinates[at].key;
-                if !classes.class.contains_key(key) {
-                    classes.join([key.as_str()]);
-                }
-                let class = classes.class[key];
-                let part = *part_of.entry(class).or_insert_with(|| {
-                    partition.parts.push(Vec::new());
-                    partition.parts.len() - 1
-                });
-                partition.parts[part].push(at);
-            }
-            for (name, class) in &classes.class {
-                if let Some(&part) = part_of.get(class) {
-                    partition.of_field.insert((parent, name.clone()), part);
+            let mut columns: BTreeMap<String, Vec<u32>> = BTreeMap::new();
+            for &at in self.structure_below.get(&id).map_or(&[][..], Vec::as_slice) {
+                let (_, child, edge) = &self.structure.arcs[at];
+                if *child != id {
+                    columns
+                        .entry(column(edge).to_owned())
+                        .or_default()
+                        .push(*child);
                 }
             }
-            start = end;
+            let footprints: Vec<panproto_inst::FieldFootprint> = program
+                .iter()
+                .map(FieldTransform::footprint)
+                .chain(predicate.map(panproto_inst::FieldFootprint::of_predicate))
+                .collect();
+            let written: BTreeSet<&String> = footprints.iter().flat_map(|f| &f.writes).collect();
+            let present = |name: &str| {
+                node.extra_fields.contains_key(name)
+                    || columns.contains_key(name)
+                    || written.contains(&name.to_owned())
+            };
+            for footprint in &footprints {
+                let everything = footprint.reads_element
+                    || (footprint.writes_others && !footprint.reads.is_empty());
+                let mut fields: BTreeSet<String> = if everything {
+                    node.extra_fields
+                        .keys()
+                        .chain(columns.keys())
+                        .cloned()
+                        .collect()
+                } else {
+                    footprint.fields_read(&present)
+                };
+                if fields.is_empty() && !footprint.reads_instance {
+                    continue;
+                }
+                let read = fields.clone();
+                fields.extend(footprint.writes.iter().cloned());
+                let mut joined: Vec<usize> = fields
+                    .iter()
+                    .map(|field| classes.index(id, field))
+                    .collect();
+                for field in &read {
+                    for &child in columns.get(field).map_or(&[][..], Vec::as_slice) {
+                        if self.structure_below.contains_key(&child) {
+                            joined.extend(self.coordinates_below(child, &slots));
+                        }
+                    }
+                }
+                if footprint.reads_instance {
+                    joined.extend(visible.iter().copied());
+                }
+                classes.join(joined);
+            }
         }
-        partition
+        let mut parts: Vec<Vec<usize>> = Vec::new();
+        let mut part_of: HashMap<usize, usize> = HashMap::new();
+        for (at, &slot) in slots.iter().enumerate() {
+            let root = classes.root(slot);
+            let part = *part_of.entry(root).or_insert_with(|| {
+                parts.push(Vec::new());
+                parts.len() - 1
+            });
+            parts[part].push(at);
+        }
+        parts
+    }
+
+    /// The slots of the coordinates whose children are below `node` in the
+    /// source structure.
+    fn coordinates_below(&self, node: u32, slots: &[usize]) -> Vec<usize> {
+        let mut below = BTreeSet::from([node]);
+        let mut pending = vec![node];
+        while let Some(id) = pending.pop() {
+            for &at in self.structure_below.get(&id).map_or(&[][..], Vec::as_slice) {
+                let child = self.structure.arcs[at].1;
+                if below.insert(child) {
+                    pending.push(child);
+                }
+            }
+        }
+        self.coordinates
+            .iter()
+            .zip(slots)
+            .filter(|(coordinate, _)| below.contains(&coordinate.child))
+            .map(|(_, &slot)| slot)
+            .collect()
     }
 
     /// The coordinates searched together, each part ascending.
     #[cfg(test)]
     fn parts(&self) -> Vec<Vec<usize>> {
-        self.partition().parts
-    }
-
-    /// The parts of `partition` whose contents a violation may depend on:
-    /// that of the coordinate whose child it is at, those of the parent it
-    /// is at that its field is coupled to (all of the parent's, for a
-    /// violation of no field), or none.
-    fn blame(&self, partition: &Partition, violation: &PutDomainError) -> BTreeSet<usize> {
-        let (id, field) = match violation {
-            PutDomainError::DerivedCellEdited {
-                elem: panproto_inst::ViewRef::Node(id),
-                field,
-            }
-            | PutDomainError::TransformNotInvertible {
-                elem: panproto_inst::ViewRef::Node(id),
-                field,
-            }
-            | PutDomainError::MissingRequiredCell {
-                elem: panproto_inst::ViewRef::Node(id),
-                field,
-            } => (*id, Some(field.as_str())),
-            PutDomainError::SurvivalPredicateFails {
-                elem: panproto_inst::ViewRef::Node(id),
-            }
-            | PutDomainError::SurvivalPredicateRefused {
-                elem: panproto_inst::ViewRef::Node(id),
-                ..
-            } => (*id, None),
-            _ => return BTreeSet::new(),
-        };
-        let mut blamed: BTreeSet<usize> = partition
-            .parts
-            .iter()
-            .enumerate()
-            .filter(|(_, part)| part.iter().any(|&at| self.coordinates[at].child == id))
-            .map(|(part, _)| part)
-            .collect();
-        if let Some(&part) = partition.whole.get(&id) {
-            blamed.insert(part);
-        }
-        match field {
-            Some(field) => blamed.extend(partition.of_field.get(&(id, field.to_owned()))),
-            None => blamed.extend(
-                partition
-                    .parts
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, part)| part.iter().any(|&at| self.coordinates[at].parent == id))
-                    .map(|(part, _)| part),
-            ),
-        }
-        blamed
+        self.partition()
     }
 
     /// The whole source structure and view.
@@ -1256,7 +1280,18 @@ impl<'a> Search<'a> {
         );
         let evaluates = first.attempt.error.is_none()
             && first.attempt.outcomes.iter().all(|o| o.value.is_some());
-        self.violations(if evaluates { &first } else { base })
+        let found = self.violations(if evaluates { &first } else { base });
+        if !found.is_empty() {
+            return found;
+        }
+        // Neither source names a violation of the clauses: name the first
+        // coordinate the first of them does not reproduce.
+        let missed = self.missed(&all, &first);
+        let at = missed.first().copied().unwrap_or(0);
+        vec![PutDomainError::TransformNotInvertible {
+            elem: panproto_inst::ViewRef::Node(self.coordinates[at].child),
+            field: self.coordinates[at].key.clone(),
+        }]
     }
 
     /// The source of the view.
@@ -1266,18 +1301,16 @@ impl<'a> Search<'a> {
     /// edited when it has no record or get of that source does not reproduce
     /// it. With none edited, that source is the only one tried.
     ///
-    /// Otherwise the coordinates are split into parts ([`Self::partition`])
-    /// and each part with an edited coordinate is searched alone
-    /// ([`Self::part_source`]), in the subtree of its parent, the other
-    /// coordinates holding their first contents. The source in which every
-    /// part holds what its search found is tried once more, whole; where it
-    /// shows a violation, the search of each part the violation may depend
-    /// on ([`Self::blame`]) goes on past what it found. A view is refused
-    /// when the search of one part admits nothing, when a violation depends
-    /// on no part, or when the search of all the coordinates together
-    /// admits nothing; that search is the one made where the parts cannot
-    /// be cut apart, or where the source the parts found together is not
-    /// reproduced.
+    /// Otherwise, with more than one part ([`Self::partition`]), each part
+    /// with an edited coordinate is searched alone ([`Self::part_source`]),
+    /// in the subtree of its parent where it has one parent, the other
+    /// coordinates holding their first contents, and a source is accepted
+    /// when the part's coordinates are reproduced. The source in which every
+    /// part holds what its search accepted is tried whole, and returned when
+    /// it is admitted. Where a part accepts nothing, where the parts cannot
+    /// be cut apart, or where the whole source is not admitted, and with one
+    /// part, the coordinates are searched together, and the view is refused
+    /// when that search admits nothing. The parts decide no refusal.
     ///
     /// # Errors
     ///
@@ -1315,11 +1348,11 @@ impl<'a> Search<'a> {
                 Err(found)
             };
         }
-        let partition = self.partition();
-        if partition.parts.len() > 1
-            && let Some(found) = self.source_by_parts(&partition, &base, &edited)
+        let parts = self.partition();
+        if parts.len() > 1
+            && let Some(found) = self.source_by_parts(&parts, &base, &edited)
         {
-            return found;
+            return Ok(found);
         }
         let admits = |tried: &Tried<'a>| self.violations(tried).is_empty();
         let whole = self.whole();
@@ -1335,92 +1368,56 @@ impl<'a> Search<'a> {
         }
     }
 
-    /// The source of the view found part by part, or none where the parts
-    /// cannot be searched apart.
+    /// The source of the view found part by part and admitted whole, or
+    /// none.
     fn source_by_parts(
         &self,
-        partition: &Partition,
+        parts: &[Vec<usize>],
         base: &Tried<'a>,
         edited: &BTreeSet<usize>,
-    ) -> Option<Result<WInstance, Vec<PutDomainError>>> {
+    ) -> Option<WInstance> {
         let all: Vec<usize> = (0..self.coordinates.len()).collect();
-        let parts = &partition.parts;
+        let whole = self.whole();
         let mut worlds: HashMap<u32, World<'_>> = HashMap::new();
-        let mut edited_in: Vec<BTreeSet<usize>> = parts
-            .iter()
-            .map(|part| {
-                part.iter()
-                    .copied()
-                    .filter(|at| edited.contains(at))
-                    .collect()
-            })
-            .collect();
-        let mut refused: Vec<Vec<Vec<Content>>> = vec![Vec::new(); parts.len()];
-        let mut found: Vec<Option<Vec<Content>>> = vec![None; parts.len()];
-        loop {
-            let mut contents = base.contents.clone();
-            for (index, part) in parts.iter().enumerate() {
-                if edited_in[index].is_empty() {
-                    continue;
-                }
-                if found[index].is_none() {
-                    let parent = self.coordinates[part[0]].parent;
-                    let world = match worlds.entry(parent) {
-                        std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
-                        std::collections::hash_map::Entry::Vacant(entry) => {
-                            entry.insert(self.world_below(parent, &base.contents)?)
-                        }
-                    };
-                    let known = &refused[index];
-                    let admits = |tried: &Tried<'a>| {
-                        !known
-                            .iter()
-                            .any(|state| same_contents(state, &tried.contents))
-                    };
-                    let scope = Scope {
-                        world,
-                        part,
-                        base,
-                        admits: &admits,
-                    };
-                    match self.part_source(&scope, &edited_in[index]) {
-                        Some(tried) => found[index] = Some(tried.contents),
-                        None => return Some(Err(self.refusal(base, edited))),
+        let mut contents = base.contents.clone();
+        let accepts = |_: &Tried<'a>| true;
+        for part in parts {
+            let edited_here: BTreeSet<usize> = part
+                .iter()
+                .copied()
+                .filter(|at| edited.contains(at))
+                .collect();
+            if edited_here.is_empty() {
+                continue;
+            }
+            let parent = self.coordinates[part[0]].parent;
+            let alone = part.iter().all(|&at| self.coordinates[at].parent == parent);
+            let world = if alone {
+                match worlds.entry(parent) {
+                    std::collections::hash_map::Entry::Occupied(entry) => &*entry.into_mut(),
+                    std::collections::hash_map::Entry::Vacant(entry) => {
+                        &*entry.insert(self.world_below(parent, &base.contents)?)
                     }
                 }
-                for (&at, content) in part.iter().zip(found[index].iter().flatten()) {
-                    contents[at] = content.clone();
-                }
-            }
-            let tried = self.tried(&self.whole(), &all, contents);
-            if tried.attempt.error.is_some() || !self.missed(&all, &tried).is_empty() {
-                return None;
-            }
-            let violations = self.violations(&tried);
-            if violations.is_empty() {
-                return Some(Ok(tried.attempt.source));
-            }
-            let mut blamed = BTreeSet::new();
-            for violation in &violations {
-                let parts_of = self.blame(partition, violation);
-                if parts_of.is_empty() {
-                    return Some(Err(self.refusal(base, edited)));
-                }
-                blamed.extend(parts_of);
-            }
-            for index in blamed {
-                let state = found[index].take().unwrap_or_else(|| {
-                    parts[index]
-                        .iter()
-                        .map(|&at| base.contents[at].clone())
-                        .collect()
-                });
-                if edited_in[index].is_empty() {
-                    edited_in[index] = parts[index].iter().copied().collect();
-                }
-                refused[index].push(state);
+            } else {
+                &whole
+            };
+            let scope = Scope {
+                world,
+                part,
+                base,
+                admits: &accepts,
+            };
+            let found = self.part_source(&scope, &edited_here)?;
+            for (&at, content) in part.iter().zip(found.contents) {
+                contents[at] = content;
             }
         }
+        let tried = self.tried(&whole, &all, contents);
+        let admitted = tried.attempt.error.is_none()
+            && self.missed(&all, &tried).is_empty()
+            && self.violations(&tried).is_empty();
+        admitted.then_some(tried.attempt.source)
     }
 
     /// The source of the coordinates of the part of `scope` that it admits,
@@ -1464,11 +1461,13 @@ impl<'a> Search<'a> {
     }
 
     /// One search over the candidates of `edited`, from the first source of
-    /// `scope`: the source admitted, if there is one. With `one_at_a_time`, a round moves only
-    /// the first coordinate that would move, in the order of the coordinates
-    /// (ascending parent and key), and the search may take `e + 1` times as
-    /// many rounds. `others` takes the coordinates outside `edited` that a
-    /// tried source did not reproduce.
+    /// `scope`: the source admitted, if there is one. With `one_at_a_time`, a
+    /// round moves only the first coordinate that would move, in the order
+    /// of the coordinates (ascending parent and key), and the search may take
+    /// `e + 1` times as many rounds. The search ends when a round would try
+    /// a source it has tried: the next source is a function of the last, so
+    /// it would try only sources it has tried. `others` takes the
+    /// coordinates outside `edited` that a tried source did not reproduce.
     fn search(
         &self,
         scope: &Scope<'_, 'a>,
@@ -1483,7 +1482,10 @@ impl<'a> Search<'a> {
             admits,
         } = *scope;
         let mut last = self.tried(world, part, self.first_candidates(part, base, edited));
-        let mut before: Option<Vec<Content>> = None;
+        let mut seen: HashMap<u64, Vec<Vec<Content>>> = HashMap::new();
+        seen.entry(digest(&last.contents))
+            .or_default()
+            .push(last.contents.clone());
         let widest = edited
             .iter()
             .map(|&at| self.coordinates[at].candidates_at_most)
@@ -1518,14 +1520,14 @@ impl<'a> Search<'a> {
                     }
                 })
                 .collect();
-            if same_contents(&last.contents, &next)
-                || before
-                    .as_deref()
-                    .is_some_and(|before| same_contents(before, &next))
+            let tried_before = seen.entry(digest(&next)).or_default();
+            if tried_before
+                .iter()
+                .any(|contents| same_contents(contents, &next))
             {
                 return None;
             }
-            before = Some(std::mem::take(&mut last.contents));
+            tried_before.push(next.clone());
             last = self.tried(world, part, next);
         }
         None

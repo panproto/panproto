@@ -39,6 +39,8 @@ pub enum Operation {
     Compute {
         /// The field.
         key: String,
+        /// The fields `to` reads, the only values it is given.
+        reads: BTreeSet<String>,
         /// The result.
         to: Function,
         /// The inverse of a computation that reads its own field alone.
@@ -57,8 +59,9 @@ pub enum Operation {
     Add(String, Value),
     /// Drop every field the record holds itself but these.
     Keep(BTreeSet<String>),
-    /// Run the operations of the first branch whose predicate holds.
-    Case(Vec<(Predicate, Vec<Self>)>),
+    /// Run the operations of the first branch whose predicate holds, each
+    /// predicate given the values of the fields it declares it reads.
+    Case(Vec<(BTreeSet<String>, Predicate, Vec<Self>)>),
 }
 
 /// What a child holds: a value, or, having none, a record as its fields.
@@ -164,12 +167,23 @@ struct State {
     failing: Option<BTreeSet<String>>,
 }
 
-fn bindings(own: &Bindings, children: &BTreeMap<String, Content>) -> Bindings {
+/// The values of the fields `reads` names, of a record holding `own` itself
+/// and `children` through its children.
+fn bindings(
+    own: &Bindings,
+    children: &BTreeMap<String, Content>,
+    reads: &BTreeSet<String>,
+) -> Bindings {
     let mut all: Bindings = children
         .iter()
+        .filter(|(key, _)| reads.contains(*key))
         .map(|(key, content)| (key.clone(), content.shown()))
         .collect();
-    all.extend(own.clone());
+    all.extend(
+        own.iter()
+            .filter(|(key, _)| reads.contains(*key))
+            .map(|(key, value)| (key.clone(), value.clone())),
+    );
     all
 }
 
@@ -214,9 +228,14 @@ fn execute(
                     made.by.push(from.clone());
                 }
             }
-            Operation::Compute { key, to, from } => {
+            Operation::Compute {
+                key,
+                reads,
+                to,
+                from,
+            } => {
                 let from_child = !state.own.contains_key(key) && children.contains_key(key);
-                let result = to(&bindings(&state.own, children))?;
+                let result = to(&bindings(&state.own, children, reads))?;
                 state.own.insert(key.clone(), result);
                 if let Some(from) = from {
                     let inverted = state.inverted.entry(key.clone()).or_default();
@@ -251,8 +270,8 @@ fn execute(
                 state.made.retain(|key, _| keys.contains(key));
             }
             Operation::Case(branches) => {
-                for (predicate, operations) in branches {
-                    if predicate(&bindings(&state.own, children))? {
+                for (reads, predicate, operations) in branches {
+                    if predicate(&bindings(&state.own, children, reads))? {
                         execute(operations, children, state)?;
                         break;
                     }
@@ -423,11 +442,117 @@ fn rewritable(program: &[Operation]) -> BTreeSet<String> {
             Operation::Rewrite { key, .. } => BTreeSet::from([key.clone()]),
             Operation::Case(branches) => branches
                 .iter()
-                .flat_map(|(_, operations)| rewritable(operations))
+                .flat_map(|(_, _, operations)| rewritable(operations))
                 .collect(),
             _ => BTreeSet::new(),
         })
         .collect()
+}
+
+/// What an operation reads and may change, from what it declares: a rewrite
+/// its own field, a computation the fields it declares and its own, a rename
+/// both its fields, a default the field whose presence decides it; a case the
+/// fields its predicates declare and what its branches read and change, every
+/// field where a branch keeps some.
+#[derive(Default)]
+struct Touched {
+    reads: BTreeSet<String>,
+    writes: BTreeSet<String>,
+    every: bool,
+}
+
+fn touched(operation: &Operation) -> Touched {
+    let named = |reads: &[&String], writes: &[&String]| Touched {
+        reads: reads.iter().map(|name| (*name).clone()).collect(),
+        writes: writes.iter().map(|name| (*name).clone()).collect(),
+        every: false,
+    };
+    match operation {
+        Operation::Rewrite { key, .. } => named(&[key], &[key]),
+        Operation::Compute { key, reads, .. } => Touched {
+            reads: reads.clone(),
+            writes: BTreeSet::from([key.clone()]),
+            every: false,
+        },
+        Operation::Rename { from, to } => named(&[from], &[from, to]),
+        Operation::Drop(key) => named(&[], &[key]),
+        Operation::Add(key, _) => named(&[key], &[key]),
+        Operation::Keep(_) => Touched::default(),
+        Operation::Case(branches) => {
+            let mut all = Touched::default();
+            for (reads, _, operations) in branches {
+                all.reads.extend(reads.iter().cloned());
+                for operation in operations {
+                    let inner = touched(operation);
+                    all.reads.extend(inner.reads);
+                    all.writes.extend(inner.writes);
+                    all.every |= inner.every || matches!(operation, Operation::Keep(_));
+                }
+            }
+            all
+        }
+    }
+}
+
+/// Definition: the parts of the coordinates searched apart. The fields of a
+/// record are those its view holds and those an operation may write; an
+/// operation that reads one of them joins the fields it reads and may write
+/// that are among them, every field where it is a case that keeps some. The
+/// parts are the classes of the coordinates, in ascending order of their
+/// least.
+fn parts(
+    program: &[Operation],
+    view: &Record,
+    coordinates: &BTreeSet<String>,
+) -> Vec<BTreeSet<String>> {
+    let touches: Vec<Touched> = program.iter().map(touched).collect();
+    let mut fields: BTreeSet<String> = view
+        .own
+        .keys()
+        .chain(view.children.keys())
+        .cloned()
+        .collect();
+    for touch in &touches {
+        fields.extend(touch.writes.iter().cloned());
+    }
+    let mut class: BTreeMap<String, usize> = fields
+        .iter()
+        .cloned()
+        .enumerate()
+        .map(|(at, f)| (f, at))
+        .collect();
+    let merge = |class: &mut BTreeMap<String, usize>, names: &BTreeSet<String>| {
+        let joined: BTreeSet<usize> = names
+            .iter()
+            .filter_map(|name| class.get(name).copied())
+            .collect();
+        if let Some(&target) = joined.first() {
+            for value in class.values_mut() {
+                if joined.contains(value) {
+                    *value = target;
+                }
+            }
+        }
+    };
+    for touch in &touches {
+        let read: BTreeSet<String> = touch.reads.intersection(&fields).cloned().collect();
+        if read.is_empty() {
+            continue;
+        }
+        let names: BTreeSet<String> = if touch.every {
+            fields.clone()
+        } else {
+            read.union(&touch.writes).cloned().collect()
+        };
+        merge(&mut class, &names);
+    }
+    let mut parts: BTreeMap<usize, BTreeSet<String>> = BTreeMap::new();
+    for key in coordinates {
+        parts.entry(class[key]).or_default().insert(key.clone());
+    }
+    let mut parts: Vec<BTreeSet<String>> = parts.into_values().collect();
+    parts.sort_by(|a, b| a.first().cmp(&b.first()));
+    parts
 }
 
 /// The contents the coordinates of a view hold in a source put tries.
@@ -610,13 +735,24 @@ impl<'a> Put<'a> {
                     } => usize::from(written == key),
                     Operation::Case(branches) => branches
                         .iter()
-                        .map(|(_, operations)| count(operations, key))
+                        .map(|(_, _, operations)| count(operations, key))
                         .sum(),
                     _ => 0,
                 })
                 .sum()
         }
         count(self.program, key) + 2
+    }
+
+    /// Definition: the coordinates edited after the first source: those
+    /// without a record and those get of it misses.
+    fn edited(&self, tried: &Try, base: &Assignment) -> BTreeSet<String> {
+        let missed = self.missed(tried, base);
+        self.coordinates
+            .iter()
+            .filter(|key| !self.complement.recorded.contains_key(*key) || missed.contains(*key))
+            .cloned()
+            .collect()
     }
 
     /// Definition: each coordinate at its recorded content, else as the view
@@ -631,30 +767,38 @@ impl<'a> Put<'a> {
             .collect()
     }
 
-    /// Definition: one search over the candidates of `edited`, giving the
-    /// source it ends with and the coordinates outside `edited` that a tried
-    /// source missed.
+    /// Definition: one search of the coordinates `scope` over the candidates
+    /// of `edited`, giving the assignment of `scope` it ends with, which
+    /// `accepts` takes once every coordinate of `scope` is reproduced, or the
+    /// coordinates of `scope` outside `edited` that a tried source missed. A
+    /// search ends when a round would try an assignment it has tried.
     fn search(
         &self,
         base: &Assignment,
+        scope: &BTreeSet<String>,
         edited: &BTreeSet<String>,
         one_at_a_time: bool,
-    ) -> Result<Record, BTreeSet<String>> {
+        accepts: &dyn Fn(&Try, &Assignment) -> bool,
+    ) -> Result<Assignment, BTreeSet<String>> {
         let tried = self.attempt(base);
         let mut last = base.clone();
         for key in edited {
             last.insert(key.clone(), self.candidates(&tried, key)[0].clone());
         }
-        let mut before: Option<Assignment> = None;
+        let mut seen = vec![last.clone()];
         let mut others = BTreeSet::new();
         let widest = edited.iter().map(|key| self.widest(key)).max().unwrap_or(2);
         let rounds = widest * edited.len() * if one_at_a_time { edited.len() + 1 } else { 1 } + 2;
         for _ in 0..rounds {
             let tried = self.attempt(&last);
-            if self.admits(&tried, &last) {
-                return Ok(tried.source);
+            let missed: BTreeSet<String> = self
+                .missed(&tried, &last)
+                .intersection(scope)
+                .cloned()
+                .collect();
+            if missed.is_empty() && tried.evaluated && accepts(&tried, &last) {
+                return Ok(last);
             }
-            let missed = self.missed(&tried, &last);
             others.extend(missed.difference(edited).cloned());
             let mut moving: BTreeSet<String> = missed.intersection(edited).cloned().collect();
             if moving.is_empty() {
@@ -668,12 +812,43 @@ impl<'a> Put<'a> {
                 let content = self.next(&tried, &key, &last[&key]);
                 next.insert(key, content);
             }
-            if next == last || Some(&next) == before.as_ref() {
+            if seen.contains(&next) {
                 break;
             }
-            before = Some(std::mem::replace(&mut last, next));
+            seen.push(next.clone());
+            last = next;
         }
         Err(others)
+    }
+
+    /// Definition: the search of `scope` from `base` with `edited` counted as
+    /// edited: both searches, then again with the coordinates of `scope` a
+    /// tried source missed counted as edited, until there are none; then,
+    /// once, with every coordinate of `scope`.
+    fn search_scope(
+        &self,
+        base: &Assignment,
+        scope: &BTreeSet<String>,
+        edited: &BTreeSet<String>,
+        accepts: &dyn Fn(&Try, &Assignment) -> bool,
+    ) -> Option<Assignment> {
+        let mut edited = edited.clone();
+        loop {
+            let mut others = BTreeSet::new();
+            for one_at_a_time in [false, true] {
+                match self.search(base, scope, &edited, one_at_a_time, accepts) {
+                    Ok(found) => return Some(found),
+                    Err(missed) => others.extend(missed),
+                }
+            }
+            if others.is_empty() {
+                if edited.len() == scope.len() {
+                    return None;
+                }
+                others.extend(scope.iter().cloned());
+            }
+            edited.extend(others);
+        }
     }
 
     /// Every assignment of `candidates`.
@@ -701,10 +876,12 @@ impl<'a> Put<'a> {
 /// on a child alone. The first source tried holds each at its recorded
 /// content, else at what the view shows; a coordinate is edited when it has
 /// no record or get of that source misses it. With none edited that source
-/// is the only one tried. Otherwise a search runs over the candidates of the
-/// edited coordinates, moving every coordinate get misses to its next
-/// candidate at once and then one at a time, and is repeated with the missed
-/// ones counted as edited until there are no others.
+/// is the only one tried. Otherwise, with more than one part (`parts`), each
+/// part with an edited coordinate is searched alone, the others holding their
+/// first contents, a source being accepted when the part's coordinates are
+/// reproduced, and the assignment of every part's is returned when put admits
+/// it. Where a part accepts nothing or put does not admit that assignment,
+/// and with one part, put is [`child_put_together`].
 ///
 /// `None` when put refuses the view.
 ///
@@ -721,32 +898,68 @@ pub fn child_put(
     if !tried.evaluated {
         return None;
     }
-    let missed = put.missed(&tried, &base);
-    let mut edited: BTreeSet<String> = put
-        .coordinates
-        .iter()
-        .filter(|key| !complement.recorded.contains_key(*key) || missed.contains(*key))
-        .cloned()
-        .collect();
+    let edited = put.edited(&tried, &base);
     if edited.is_empty() {
         return put.admits(&tried, &base).then_some(tried.source);
     }
-    loop {
-        let mut others = BTreeSet::new();
-        for one_at_a_time in [false, true] {
-            match put.search(&base, &edited, one_at_a_time) {
-                Ok(source) => return Some(source),
-                Err(missed) => others.extend(missed),
+    let parts = parts(program, view, &put.coordinates);
+    if parts.len() > 1 {
+        let mut assignment = base.clone();
+        let mut accepted = true;
+        for part in &parts {
+            let edited_here: BTreeSet<String> = part.intersection(&edited).cloned().collect();
+            if edited_here.is_empty() {
+                continue;
+            }
+            match put.search_scope(&base, part, &edited_here, &|_, _| true) {
+                Some(found) => {
+                    for key in part {
+                        assignment.insert(key.clone(), found[key].clone());
+                    }
+                }
+                None => {
+                    accepted = false;
+                    break;
+                }
             }
         }
-        if others.is_empty() {
-            if edited.len() == put.coordinates.len() {
-                return None;
+        if accepted {
+            let tried = put.attempt(&assignment);
+            if put.admits(&tried, &assignment) {
+                return Some(tried.source);
             }
-            others.extend(put.coordinates.iter().cloned());
         }
-        edited.extend(others);
     }
+    child_put_together(program, view, complement)
+}
+
+/// Definition: put of a view searching every coordinate together: the
+/// search of `child_put` over all the coordinates, accepting a source that
+/// put admits.
+///
+/// `None` when put refuses the view.
+///
+/// Book anchors: `L-lenses-5`.
+#[must_use]
+pub fn child_put_together(
+    program: &[Operation],
+    view: &Record,
+    complement: &ChildComplement,
+) -> Option<Record> {
+    let put = Put::new(program, view, complement);
+    let base = put.base();
+    let tried = put.attempt(&base);
+    if !tried.evaluated {
+        return None;
+    }
+    let edited = put.edited(&tried, &base);
+    if edited.is_empty() {
+        return put.admits(&tried, &base).then_some(tried.source);
+    }
+    let found = put.search_scope(&base, &put.coordinates, &edited, &|tried, assignment| {
+        put.admits(tried, assignment)
+    })?;
+    Some(put.attempt(&found).source)
 }
 
 /// Definition: every source admitted by brute force.

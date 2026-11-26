@@ -3558,14 +3558,13 @@ fn demand_env(
     };
     let mut bindings: BTreeMap<String, (String, &Value)> = BTreeMap::new();
     for (key, val) in &combined {
-        bindings.insert(key.clone(), (key.clone(), val));
-        if key != "attrs" && key != "name" && key != "$type" && key != "parents" {
-            bindings.insert(format!("attrs.{key}"), (key.clone(), val));
+        for name in names_of_field(key) {
+            bindings.insert(name, (key.clone(), val));
         }
     }
     if let Some(Value::Unknown(attrs)) = combined.get("attrs") {
         for (key, val) in attrs {
-            let qualified = format!("attrs.{key}");
+            let qualified = qualified_attrs_entry(key);
             bindings.insert(qualified.clone(), (qualified.clone(), val));
             if !combined.contains_key(key) {
                 bindings.insert(key.clone(), (qualified, val));
@@ -3685,8 +3684,7 @@ impl FieldFootprint {
     pub fn fields_read(&self, present: &dyn Fn(&str) -> bool) -> BTreeSet<String> {
         self.reads
             .iter()
-            .filter(|name| present(name))
-            .cloned()
+            .flat_map(|name| fields_named(name, present))
             .collect()
     }
 
@@ -3766,34 +3764,87 @@ impl FieldTransform {
 }
 
 /// Whether `expr` reads elements other than the one it runs at, through a
-/// graph builtin.
+/// graph builtin: one it applies, or a free variable the evaluator resolves
+/// to one ([`panproto_expr::BuiltinOp::from_name`]), as `let f = edge in f
+/// "self" "b"` does. A builtin is a graph builtin when the instance resolver
+/// answers it ([`crate::instance_env::is_graph_builtin`]).
 #[must_use]
 pub fn reads_the_instance(expr: &panproto_expr::Expr) -> bool {
-    use panproto_expr::{BuiltinOp, Expr};
+    named_graph_builtin(expr) || applies_graph_builtin(expr)
+}
+
+fn named_graph_builtin(expr: &panproto_expr::Expr) -> bool {
+    panproto_expr::free_vars(expr).iter().any(|name| {
+        panproto_expr::BuiltinOp::from_name(name).is_some_and(crate::instance_env::is_graph_builtin)
+    })
+}
+
+fn applies_graph_builtin(expr: &panproto_expr::Expr) -> bool {
+    use panproto_expr::Expr;
     match expr {
         Expr::Var(_) | Expr::Lit(_) => false,
-        Expr::Lam(_, body) | Expr::Field(body, _) => reads_the_instance(body),
+        Expr::Lam(_, body) | Expr::Field(body, _) => applies_graph_builtin(body),
         Expr::App(left, right) | Expr::Index(left, right) => {
-            reads_the_instance(left) || reads_the_instance(right)
+            applies_graph_builtin(left) || applies_graph_builtin(right)
         }
-        Expr::Record(fields) => fields.iter().any(|(_, value)| reads_the_instance(value)),
-        Expr::List(items) => items.iter().any(reads_the_instance),
+        Expr::Record(fields) => fields.iter().any(|(_, value)| applies_graph_builtin(value)),
+        Expr::List(items) => items.iter().any(applies_graph_builtin),
         Expr::Match { scrutinee, arms } => {
-            reads_the_instance(scrutinee) || arms.iter().any(|(_, body)| reads_the_instance(body))
+            applies_graph_builtin(scrutinee)
+                || arms.iter().any(|(_, body)| applies_graph_builtin(body))
         }
-        Expr::Let { value, body, .. } => reads_the_instance(value) || reads_the_instance(body),
+        Expr::Let { value, body, .. } => {
+            applies_graph_builtin(value) || applies_graph_builtin(body)
+        }
         Expr::Builtin(op, arguments) => {
-            matches!(
-                op,
-                BuiltinOp::Edge
-                    | BuiltinOp::Children
-                    | BuiltinOp::HasEdge
-                    | BuiltinOp::EdgeCount
-                    | BuiltinOp::Anchor
-                    | BuiltinOp::Edges
-            ) || arguments.iter().any(reads_the_instance)
+            crate::instance_env::is_graph_builtin(*op)
+                || arguments.iter().any(applies_graph_builtin)
         }
     }
+}
+
+/// The field names the qualified alias leaves out: a field of one of these
+/// names is bound under its own name alone.
+const UNQUALIFIED: [&str; 4] = ["attrs", "name", "$type", "parents"];
+
+/// The names an expression reads an element's field `key` under: its own,
+/// and `attrs.{key}` unless `key` is one of [`UNQUALIFIED`].
+fn names_of_field(key: &str) -> impl Iterator<Item = String> + '_ {
+    std::iter::once(key.to_owned())
+        .chain((!UNQUALIFIED.contains(&key)).then(|| format!("attrs.{key}")))
+}
+
+/// The qualified name an expression reads the entry `key` of the record an
+/// element's field `attrs` holds under; it reads the entry under `key` too
+/// where the element holds no field `key`.
+fn qualified_attrs_entry(key: &str) -> String {
+    format!("attrs.{key}")
+}
+
+/// The fields of an element that a free variable `name` of an expression
+/// binds, for an element holding the fields (and children) `present` says
+/// it holds: the inverse of [`names_of_field`] and
+/// [`qualified_attrs_entry`], which build every binding of an expression's
+/// environment. A name binds the field of that name, the field it qualifies
+/// under `attrs.`, and the field `attrs` itself, whose entries are bound
+/// under their qualified names and under their own where no field has it.
+#[must_use]
+pub fn fields_named(name: &str, present: &dyn Fn(&str) -> bool) -> BTreeSet<String> {
+    let mut fields = BTreeSet::new();
+    if present(name) {
+        fields.insert(name.to_owned());
+    }
+    let qualified = name.strip_prefix("attrs.");
+    if let Some(key) = qualified
+        && present(key)
+        && names_of_field(key).any(|bound| bound == name)
+    {
+        fields.insert(key.to_owned());
+    }
+    if present("attrs") && (qualified.is_some() || !present(name)) && name != "attrs" {
+        fields.insert("attrs".to_owned());
+    }
+    fields
 }
 
 #[cfg(test)]
@@ -4107,12 +4158,10 @@ pub fn extend_env_from_extra_fields(
         let Ok(lit) = value_to_expr_literal(val) else {
             continue;
         };
-        // Bind flat key
-        env = env.extend(std::sync::Arc::from(key.as_str()), lit.clone());
-        // Also bind as attrs.key (so predicates work regardless of nesting style)
-        if key != "attrs" && key != "name" && key != "$type" && key != "parents" {
-            let qualified = format!("attrs.{key}");
-            env = env.extend(std::sync::Arc::from(qualified.as_str()), lit);
+        // The flat key, and attrs.key so predicates work regardless of
+        // nesting style.
+        for name in names_of_field(key) {
+            env = env.extend(std::sync::Arc::from(name.as_str()), lit.clone());
         }
     }
     // Also bind nested "attrs" entries as both qualified and flat
@@ -4121,7 +4170,7 @@ pub fn extend_env_from_extra_fields(
             let Ok(lit) = value_to_expr_literal(val) else {
                 continue;
             };
-            let qualified = format!("attrs.{key}");
+            let qualified = qualified_attrs_entry(key);
             env = env.extend(std::sync::Arc::from(qualified.as_str()), lit.clone());
             // Also bind as flat key if not already present
             if !fields.contains_key(key) {

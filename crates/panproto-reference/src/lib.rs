@@ -49,7 +49,7 @@
 //! | Get and put of the table lens | [`table::get`], [`table::TableLens::put`] | `lenses.md` |
 //! | The table plan and cell writers | [`table::compile_for_tables`], [`table::TablePlan::writer`] | `lenses.md` |
 //! | Get and put of the tree lens | [`lens::tree_get`], [`lens::tree_put`] | `lenses.md` |
-//! | Get and put of the fields a record's children hold | [`lens::child_get`], [`lens::child_put`], [`lens::child_put_solutions`] | `lenses.md` |
+//! | Get and put of the fields a record's children hold | [`lens::child_get`], [`lens::child_put`], [`lens::child_put_together`], [`lens::child_put_solutions`] | `lenses.md` |
 //! | Shape-specific path folds | [`lens::TreeShape::get`](lens::LawShape::get), [`lens::TreeShape::put`](lens::LawShape::put), [`lens::TableShape::get`](lens::LawShape::get), [`lens::TableShape::put`](lens::LawShape::put) | `lenses.md` |
 //! | Get and put of the resolution lens | [`resolution::get`], [`resolution::put`], [`resolution::deferred_form`] | `resolution.md` |
 //! | Lens-path composition (the free category; no fusion) | [`path::LensPath::then`], [`path::get_path`], [`path::put_path`] | `lenses.md` |

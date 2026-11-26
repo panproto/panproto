@@ -19,7 +19,7 @@ use panproto_inst::{CaseBranch, CompiledMigration, FieldTransform, Node, Value, 
 use panproto_lens::{Complement, Lens, LensError, get, put};
 use panproto_reference::lens::{
     Bindings, ChildComplement, Content, Function, Operation, Predicate, Record, child_get,
-    child_put, child_put_solutions,
+    child_put, child_put_solutions, child_put_together,
 };
 use panproto_reference::value::{Presence, Value as RefValue};
 use panproto_schema::{Edge, Protocol, Schema, SchemaBuilder};
@@ -92,6 +92,20 @@ impl Test {
         let test = self.clone();
         Rc::new(move |fields| test.eval(fields))
     }
+
+    /// The fields the test reads, which the reference declares.
+    fn names(&self, into: &mut BTreeSet<String>) {
+        match self {
+            Self::True => {}
+            Self::Is(a, b) | Self::Below(a, b) => {
+                a.names(into);
+                b.names(into);
+            }
+            Self::Null(name) => {
+                into.insert((*name).to_owned());
+            }
+        }
+    }
 }
 
 impl Term {
@@ -144,6 +158,32 @@ impl Term {
     fn reference(&self) -> Function {
         let term = self.clone();
         Rc::new(move |fields| term.eval(fields))
+    }
+
+    /// The fields the term reads, which the reference declares.
+    fn names(&self, into: &mut BTreeSet<String>) {
+        match self {
+            Self::Int(_) | Self::Null => {}
+            Self::Field(name) => {
+                into.insert((*name).to_owned());
+            }
+            Self::Add(a, b) | Self::Sub(a, b) | Self::Mul(a, b) => {
+                a.names(into);
+                b.names(into);
+            }
+            Self::Text(a) | Self::Number(a) => a.names(into),
+            Self::If(test, then, or) => {
+                test.names(into);
+                then.names(into);
+                or.names(into);
+            }
+        }
+    }
+
+    fn read(&self) -> BTreeSet<String> {
+        let mut names = BTreeSet::new();
+        self.names(&mut names);
+        names
     }
 }
 
@@ -216,6 +256,7 @@ impl Step {
             },
             Self::Compute(key, to, from) => Operation::Compute {
                 key: (*key).to_owned(),
+                reads: to.read(),
                 to: to.reference(),
                 from: from.as_ref().map(Term::reference),
             },
@@ -230,7 +271,10 @@ impl Step {
                 branches
                     .iter()
                     .map(|(test, steps)| {
+                        let mut reads = BTreeSet::new();
+                        test.names(&mut reads);
                         (
+                            reads,
                             test.reference(),
                             steps.iter().map(Self::reference).collect(),
                         )
@@ -572,6 +616,9 @@ struct Views {
     refused: u32,
     /// Views put refuses though a combination of candidates is admitted.
     missed: u32,
+    /// Views on which the reference's search by parts and its search of
+    /// every coordinate together give different results.
+    apart: u32,
 }
 
 #[derive(Default, Debug, PartialEq, Eq)]
@@ -792,10 +839,16 @@ impl Put<'_> {
             counts.renamed += 1;
             return;
         }
-        match (
-            found,
-            child_put(self.operations, shown, reference_complement),
-        ) {
+        let by_parts = child_put(self.operations, shown, reference_complement);
+        let together = child_put_together(self.operations, shown, reference_complement);
+        if by_parts != together {
+            counts.apart += 1;
+            println!(
+                "apart: {}: by parts {by_parts:?}, together {together:?}",
+                what()
+            );
+        }
+        match (found, by_parts) {
             (Ok(found), Some(expected)) => {
                 assert_eq!(record(&found), expected, "{}", what());
                 // PutGet: get shows the view, up to where a field that a
@@ -886,18 +939,20 @@ fn check_part(part: usize, parts: usize) -> Counts {
 
 /// The counts of a part: the programs outside the reference, the sources get
 /// is and is not defined of, and the views put accepts, accepts with a field
-/// of the record's own, refuses and misses, with either complement.
+/// of the record's own, refuses and misses, and those on which the reference's
+/// two searches differ, with either complement.
 const fn counts(
     [unmodelled, got, not_got]: [u32; 3],
-    recorded: [u32; 4],
-    earlier: [u32; 4],
+    recorded: [u32; 5],
+    earlier: [u32; 5],
 ) -> Counts {
-    const fn views([accepted, renamed, refused, missed]: [u32; 4]) -> Views {
+    const fn views([accepted, renamed, refused, missed, apart]: [u32; 5]) -> Views {
         Views {
             accepted,
             renamed,
             refused,
             missed,
+            apart,
         }
     }
     Counts {
@@ -915,8 +970,8 @@ fn put_agrees_with_the_reference_on_fields_of_children_1() {
         check_part(0, 4),
         counts(
             [2, 1450, 701],
-            [20_704, 77, 16_231, 0],
-            [19_734, 77, 17_201, 0],
+            [20_704, 77, 16_231, 0, 0],
+            [19_734, 77, 17_201, 0, 0],
         )
     );
 }
@@ -927,8 +982,8 @@ fn put_agrees_with_the_reference_on_fields_of_children_2() {
         check_part(1, 4),
         counts(
             [15, 1178, 577],
-            [18_025, 87, 11_397, 4],
-            [17_547, 87, 11_875, 4],
+            [18_025, 87, 11_397, 4, 0],
+            [17_547, 87, 11_875, 4, 0],
         )
     );
 }
@@ -939,8 +994,8 @@ fn put_agrees_with_the_reference_on_fields_of_children_3() {
         check_part(2, 4),
         counts(
             [3, 1384, 479],
-            [22_295, 108, 17_264, 4],
-            [20_828, 108, 18_731, 4],
+            [22_295, 108, 17_264, 4, 0],
+            [20_828, 108, 18_731, 4, 0],
         )
     );
 }
@@ -951,8 +1006,8 @@ fn put_agrees_with_the_reference_on_fields_of_children_4() {
         check_part(3, 4),
         counts(
             [4, 1371, 483],
-            [17_873, 158, 16_948, 0],
-            [17_488, 158, 17_333, 0],
+            [17_873, 158, 16_948, 0, 0],
+            [17_488, 158, 17_333, 0, 0],
         )
     );
 }
