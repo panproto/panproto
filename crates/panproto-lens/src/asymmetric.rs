@@ -2823,12 +2823,15 @@ pub(crate) fn invert_computations_on_child_scalars(
             continue;
         }
 
-        let env_fields: HashMap<String, Value> = child_of
+        // The value carried back so far under each key: the view's, then
+        // each inverse's, last computation first, so that computations of a
+        // key from itself are inverted one after the other.
+        let mut env_fields: HashMap<String, Value> = child_of
             .iter()
             .map(|(k, (_, v))| (k.clone(), v.clone()))
             .collect();
 
-        for transform in &trace.operations {
+        for transform in trace.operations.iter().rev() {
             let panproto_inst::FieldTransform::ComputeField {
                 target_key,
                 expr,
@@ -2874,9 +2877,9 @@ pub(crate) fn invert_computations_on_child_scalars(
             if let Ok(result) = panproto_expr::eval(inv_expr, &env, &config)
                 && let Some(node) = nodes.get_mut(&target_child)
             {
-                node.value = Some(FieldPresence::Present(
-                    panproto_inst::expr_literal_to_value(&result),
-                ));
+                let value = panproto_inst::expr_literal_to_value(&result);
+                env_fields.insert(target_key.clone(), value.clone());
+                node.value = Some(FieldPresence::Present(value));
             }
         }
     }

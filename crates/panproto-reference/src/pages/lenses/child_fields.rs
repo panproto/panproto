@@ -878,9 +878,9 @@ impl<'a> Put<'a> {
 /// is the only one tried. Otherwise, with more than one part (`parts`), each
 /// part with an edited coordinate is searched alone, the others holding their
 /// first contents, a source being accepted when the part's coordinates are
-/// reproduced, and the assignment of every part's is returned when put admits
-/// it. Where a part accepts nothing or put does not admit that assignment,
-/// and with one part, put is [`child_put_together`].
+/// reproduced; put refuses when a part accepts nothing, and returns the
+/// assignment of every part's when put admits it. Where put does not admit
+/// that assignment, and with one part, put is [`child_put_together`].
 ///
 /// `None` when put refuses the view.
 ///
@@ -904,25 +904,19 @@ pub fn child_put(
     let parts = parts(program, view, &put.coordinates);
     if parts.len() > 1 {
         let mut assignment = base.clone();
-        let mut accepted = true;
         for part in &parts {
             let edited_here: BTreeSet<String> = part.intersection(&edited).cloned().collect();
             if edited_here.is_empty() {
                 continue;
             }
-            let Some(found) = put.search_scope(&base, part, &edited_here, &|_, _| true) else {
-                accepted = false;
-                break;
-            };
+            let found = put.search_scope(&base, part, &edited_here, &|_, _| true)?;
             for key in part {
                 assignment.insert(key.clone(), found[key].clone());
             }
         }
-        if accepted {
-            let tried = put.attempt(&assignment);
-            if put.admits(&tried, &assignment) {
-                return Some(tried.source);
-            }
+        let tried = put.attempt(&assignment);
+        if put.admits(&tried, &assignment) {
+            return Some(tried.source);
         }
     }
     child_put_together(program, view, complement)

@@ -620,6 +620,16 @@ struct World<'w> {
     held: Vec<(usize, Content)>,
 }
 
+/// What the search by parts comes to.
+enum ByParts {
+    /// The source every part accepted, admitted whole.
+    Admitted(WInstance),
+    /// A part accepted nothing.
+    Refused,
+    /// The parts cannot be cut apart, or their source is not admitted whole.
+    Together,
+}
+
 /// What one search runs over: the trees, the coordinates of a part, the
 /// first source tried, and which of the sources it tries it admits.
 struct Scope<'s, 'a> {
@@ -671,15 +681,23 @@ impl Classes {
 }
 
 impl Content {
-    /// A digest of the content, equal for contents that are the same up to
-    /// the order a map of fields is visited in.
+    /// A digest of the content, of the canonical bytes [`Self::same`]
+    /// compares: equal for contents that are the same.
     fn digest(&self, into: &mut impl std::hash::Hasher) {
         use std::hash::Hash;
-        format!("{:?}", self.value).hash(into);
-        let fields: BTreeMap<&String, String> = self
+        match &self.value {
+            None => 0_u8.hash(into),
+            Some(FieldPresence::Present(value)) => {
+                1_u8.hash(into);
+                value.canonical_bytes().hash(into);
+            }
+            Some(FieldPresence::Null) => 2_u8.hash(into),
+            Some(FieldPresence::Absent) => 3_u8.hash(into),
+        }
+        let fields: BTreeMap<&String, Vec<u8>> = self
             .fields
             .iter()
-            .map(|(key, value)| (key, format!("{value:?}")))
+            .map(|(key, value)| (key, value.canonical_bytes()))
             .collect();
         for (key, value) in &fields {
             key.hash(into);
@@ -1314,12 +1332,12 @@ impl<'a> Search<'a> {
     /// with an edited coordinate is searched alone ([`Self::part_source`]),
     /// in the subtree of its parent where it has one parent, the other
     /// coordinates holding their first contents, and a source is accepted
-    /// when the part's coordinates are reproduced. The source in which every
-    /// part holds what its search accepted is tried whole, and returned when
-    /// it is admitted. Where a part accepts nothing, where the parts cannot
-    /// be cut apart, or where the whole source is not admitted, and with one
-    /// part, the coordinates are searched together, and the view is refused
-    /// when that search admits nothing. The parts decide no refusal.
+    /// when the part's coordinates are reproduced. The view is refused when
+    /// a part accepts nothing. The source in which every part holds what its
+    /// search accepted is tried whole, and returned when it is admitted.
+    /// Where the parts cannot be cut apart or that source is not admitted,
+    /// and with one part, the coordinates are searched together, and the
+    /// view is refused when that search admits nothing.
     ///
     /// # Errors
     ///
@@ -1358,10 +1376,12 @@ impl<'a> Search<'a> {
             };
         }
         let parts = self.partition();
-        if parts.len() > 1
-            && let Some(found) = self.source_by_parts(&parts, &base, &edited)
-        {
-            return Ok(found);
+        if parts.len() > 1 {
+            match self.source_by_parts(&parts, &base, &edited) {
+                ByParts::Admitted(found) => return Ok(found),
+                ByParts::Refused => return Err(self.refusal(&base, &edited)),
+                ByParts::Together => {}
+            }
         }
         let admits = |tried: &Tried<'a>| self.violations(tried).is_empty();
         let whole = self.whole();
@@ -1377,14 +1397,14 @@ impl<'a> Search<'a> {
         }
     }
 
-    /// The source of the view found part by part and admitted whole, or
-    /// none.
+    /// The search by parts: the source every part accepted where it is
+    /// admitted whole, a refusal where a part accepts nothing.
     fn source_by_parts(
         &self,
         parts: &[Vec<usize>],
         base: &Tried<'a>,
         edited: &BTreeSet<usize>,
-    ) -> Option<WInstance> {
+    ) -> ByParts {
         let all: Vec<usize> = (0..self.coordinates.len()).collect();
         let whole = self.whole();
         let mut worlds: HashMap<u32, World<'_>> = HashMap::new();
@@ -1405,7 +1425,10 @@ impl<'a> Search<'a> {
                 match worlds.entry(parent) {
                     std::collections::hash_map::Entry::Occupied(entry) => &*entry.into_mut(),
                     std::collections::hash_map::Entry::Vacant(entry) => {
-                        &*entry.insert(self.world_below(parent, &base.contents)?)
+                        let Some(world) = self.world_below(parent, &base.contents) else {
+                            return ByParts::Together;
+                        };
+                        &*entry.insert(world)
                     }
                 }
             } else {
@@ -1417,7 +1440,9 @@ impl<'a> Search<'a> {
                 base,
                 admits: &accepts,
             };
-            let found = self.part_source(&scope, &edited_here)?;
+            let Some(found) = self.part_source(&scope, &edited_here) else {
+                return ByParts::Refused;
+            };
             for (&at, content) in part.iter().zip(found.contents) {
                 contents[at] = content;
             }
@@ -1426,7 +1451,11 @@ impl<'a> Search<'a> {
         let admitted = tried.attempt.error.is_none()
             && self.missed(&all, &tried).is_empty()
             && self.violations(&tried).is_empty();
-        admitted.then_some(tried.attempt.source)
+        if admitted {
+            ByParts::Admitted(tried.attempt.source)
+        } else {
+            ByParts::Together
+        }
     }
 
     /// The source of the coordinates of the part of `scope` that it admits,

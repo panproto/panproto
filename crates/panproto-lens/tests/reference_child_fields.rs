@@ -636,6 +636,8 @@ struct Views {
     /// Views on which the reference's search by parts and its search of
     /// every coordinate together give different results.
     apart: u32,
+    /// Views one of the two refuses and the other does not.
+    refused_apart: u32,
 }
 
 #[derive(Default, Debug, PartialEq, Eq)]
@@ -858,6 +860,9 @@ impl Put<'_> {
         }
         let by_parts = child_put(self.operations, shown, reference_complement);
         let together = child_put_together(self.operations, shown, reference_complement);
+        if by_parts.is_some() != together.is_some() {
+            counts.refused_apart += 1;
+        }
         if by_parts != together {
             counts.apart += 1;
             println!(
@@ -960,16 +965,17 @@ fn check_part(part: usize, parts: usize) -> Counts {
 /// two searches differ, with either complement.
 const fn counts_of(
     [unmodelled, got, not_got]: [u32; 3],
-    recorded: [u32; 5],
-    earlier: [u32; 5],
+    recorded: [u32; 6],
+    earlier: [u32; 6],
 ) -> Counts {
-    const fn views([accepted, renamed, refused, missed, apart]: [u32; 5]) -> Views {
+    const fn views([accepted, renamed, refused, missed, apart, refused_apart]: [u32; 6]) -> Views {
         Views {
             accepted,
             renamed,
             refused,
             missed,
             apart,
+            refused_apart,
         }
     }
     Counts {
@@ -987,8 +993,8 @@ fn put_agrees_with_the_reference_on_fields_of_children_1() {
         check_part(0, 4),
         counts_of(
             [2, 1450, 701],
-            [20_704, 77, 16_231, 0, 0],
-            [19_734, 77, 17_201, 0, 0],
+            [20_704, 77, 16_231, 0, 0, 0],
+            [19_734, 77, 17_201, 0, 0, 0],
         )
     );
 }
@@ -999,8 +1005,8 @@ fn put_agrees_with_the_reference_on_fields_of_children_2() {
         check_part(1, 4),
         counts_of(
             [15, 1178, 577],
-            [18_025, 87, 11_397, 4, 0],
-            [17_547, 87, 11_875, 4, 0],
+            [18_025, 87, 11_397, 4, 0, 0],
+            [17_547, 87, 11_875, 4, 0, 0],
         )
     );
 }
@@ -1011,8 +1017,8 @@ fn put_agrees_with_the_reference_on_fields_of_children_3() {
         check_part(2, 4),
         counts_of(
             [3, 1384, 479],
-            [22_295, 108, 17_264, 4, 0],
-            [20_828, 108, 18_731, 4, 0],
+            [22_295, 108, 17_264, 4, 0, 0],
+            [20_828, 108, 18_731, 4, 0, 0],
         )
     );
 }
@@ -1023,8 +1029,8 @@ fn put_agrees_with_the_reference_on_fields_of_children_4() {
         check_part(3, 4),
         counts_of(
             [4, 1371, 483],
-            [17_873, 158, 16_948, 0, 0],
-            [17_488, 158, 17_333, 0, 0],
+            [17_873, 158, 16_948, 0, 0, 0],
+            [17_488, 158, 17_333, 0, 0, 0],
         )
     );
 }
@@ -1130,6 +1136,10 @@ fn put_agrees_with_the_reference_where_its_two_searches_differ() {
     }
     assert_eq!(
         counts,
-        counts_of([0, 768, 0], [3357, 0, 2723, 0, 59], [3357, 0, 2723, 0, 59])
+        counts_of(
+            [0, 768, 0],
+            [3357, 0, 2723, 0, 59, 0],
+            [3357, 0, 2723, 0, 59, 0]
+        )
     );
 }
