@@ -701,8 +701,9 @@ impl<'a> Put<'a> {
 /// on a child alone. The first source tried holds each at its recorded
 /// content, else at what the view shows; a coordinate is edited when it has
 /// no record or get of that source misses it. With none edited that source
-/// is the only one tried. Otherwise the search of [`Put::search`] runs over
-/// the candidates of the edited coordinates, and is repeated with the missed
+/// is the only one tried. Otherwise a search runs over the candidates of the
+/// edited coordinates, moving every coordinate get misses to its next
+/// candidate at once and then one at a time, and is repeated with the missed
 /// ones counted as edited until there are no others.
 ///
 /// `None` when put refuses the view.
