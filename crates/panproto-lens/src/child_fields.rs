@@ -623,7 +623,7 @@ struct World<'w> {
 /// What the search by parts comes to.
 enum ByParts {
     /// The source every part accepted, admitted whole.
-    Admitted(WInstance),
+    Admitted(Box<WInstance>),
     /// A part accepted nothing.
     Refused,
     /// The parts cannot be cut apart, or their source is not admitted whole.
@@ -1378,7 +1378,7 @@ impl<'a> Search<'a> {
         let parts = self.partition();
         if parts.len() > 1 {
             match self.source_by_parts(&parts, &base, &edited) {
-                ByParts::Admitted(found) => return Ok(found),
+                ByParts::Admitted(found) => return Ok(*found),
                 ByParts::Refused => return Err(self.refusal(&base, &edited)),
                 ByParts::Together => {}
             }
@@ -1452,7 +1452,7 @@ impl<'a> Search<'a> {
             && self.missed(&all, &tried).is_empty()
             && self.violations(&tried).is_empty();
         if admitted {
-            ByParts::Admitted(tried.attempt.source)
+            ByParts::Admitted(Box::new(tried.attempt.source))
         } else {
             ByParts::Together
         }
