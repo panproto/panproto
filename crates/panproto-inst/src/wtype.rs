@@ -1806,20 +1806,20 @@ impl<'t, 'p> TreeRuns<'t, 'p> {
             failing: Some(BTreeSet::new()),
             ..KeyTrack::default()
         };
-        let mut trace = TransformTrace::default();
+        let mut ran = TransformTrace::default();
         let outcome = self.plan.transform_tracked(
             &mut node,
             &source.anchor,
             &ctx,
             false,
             &mut track,
-            Some(&mut trace),
+            Some(&mut ran),
         );
         let failing = track.failing.take().unwrap_or_default();
-        let fields = trace.fields.unwrap_or_else(|| node.extra_fields.clone());
+        let fields = ran.fields.unwrap_or_else(|| node.extra_fields.clone());
         let child_fields = take_child_fields(&mut node, &self.children, id, track);
         NodeRun {
-            operations: trace.operations,
+            operations: ran.operations,
             fields,
             value: node.value,
             shown: node.extra_fields,
@@ -2499,29 +2499,8 @@ pub(crate) fn apply_transforms_observed<'t>(
                     }
                 }
             }
-            FieldTransform::ComputeField {
-                target_key,
-                expr,
-                inverse,
-                ..
-            } => {
-                let env = ctx.environment(expr, &node.extra_fields)?;
-                let config = panproto_expr::EvalConfig::default();
-                let result = ctx.eval(expr, &env, &config).map_err(|source| {
-                    RestrictError::FieldTransformFailed {
-                        key: target_key.clone(),
-                        source,
-                    }
-                })?;
-                let reads = (inverse.is_some() && written_keys.failing.is_some())
-                    .then(|| panproto_expr::free_vars(expr))
-                    .filter(|names| names.len() == 1)
-                    .and_then(|names| names.into_iter().next());
-                let from_child = !node.extra_fields.contains_key(target_key)
-                    && ctx.child_values.contains_key(target_key);
-                node.extra_fields
-                    .insert(target_key.clone(), expr_literal_to_value(&result));
-                written_keys.computed(target_key, transform, reads.as_deref(), from_child);
+            FieldTransform::ComputeField { .. } => {
+                apply_compute_field(node, transform, ctx, written_keys)?;
                 executed = true;
             }
             FieldTransform::PathTransform { path, inner } => {
@@ -2570,6 +2549,43 @@ pub(crate) fn apply_transforms_observed<'t>(
             trace.push(transform.clone());
         }
     }
+    Ok(())
+}
+
+/// Apply `computation`, a `ComputeField`, recording in `written_keys` what it
+/// wrote.
+fn apply_compute_field<'t>(
+    node: &mut Node,
+    computation: &'t FieldTransform,
+    ctx: &TransformContext<'_>,
+    written_keys: &mut KeyTrack<'t>,
+) -> Result<(), RestrictError> {
+    let FieldTransform::ComputeField {
+        target_key,
+        expr,
+        inverse,
+        ..
+    } = computation
+    else {
+        return Ok(());
+    };
+    let env = ctx.environment(expr, &node.extra_fields)?;
+    let config = panproto_expr::EvalConfig::default();
+    let result =
+        ctx.eval(expr, &env, &config)
+            .map_err(|source| RestrictError::FieldTransformFailed {
+                key: target_key.clone(),
+                source,
+            })?;
+    let reads = (inverse.is_some() && written_keys.failing.is_some())
+        .then(|| panproto_expr::free_vars(expr))
+        .filter(|names| names.len() == 1)
+        .and_then(|names| names.into_iter().next());
+    let from_child =
+        !node.extra_fields.contains_key(target_key) && ctx.child_values.contains_key(target_key);
+    node.extra_fields
+        .insert(target_key.clone(), expr_literal_to_value(&result));
+    written_keys.computed(target_key, computation, reads.as_deref(), from_child);
     Ok(())
 }
 

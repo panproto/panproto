@@ -975,7 +975,7 @@ impl RestrictPlan {
     /// [`Self::transform`], recording in `track` what the transforms did to
     /// the element's keys. The result of an `ApplyExpr` that read the child
     /// its key names is left in `node.extra_fields`; the attribute lives on
-    /// the child, so a tree engine moves it back there. `trace`, when given,
+    /// the child, so a tree engine moves it back there. `ran`, when given,
     /// records the operations that executed and the fields they left before
     /// the coercion.
     ///
@@ -989,7 +989,7 @@ impl RestrictPlan {
         ctx: &TransformContext<'_>,
         cells: bool,
         track: &mut KeyTrack<'p>,
-        trace: Option<&mut TransformTrace>,
+        ran: Option<&mut TransformTrace>,
     ) -> Result<(), RestrictError> {
         let transforms = self.program(source_anchor);
         let layer = self.cells();
@@ -1002,10 +1002,10 @@ impl RestrictPlan {
         }
         if !transforms.is_empty() {
             let before = layer.map(|_| node.extra_fields.clone());
-            if let Some(trace) = trace {
-                let operations = &mut trace.operations;
+            if let Some(ran) = ran {
+                let operations = &mut ran.operations;
                 apply_transforms_observed(node, transforms, ctx, track, Some(operations))?;
-                trace.fields = Some(node.extra_fields.clone());
+                ran.fields = Some(node.extra_fields.clone());
             } else {
                 apply_transforms_tracked(node, transforms, ctx, track)?;
             }

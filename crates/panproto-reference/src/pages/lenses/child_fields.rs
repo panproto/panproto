@@ -286,7 +286,7 @@ struct Outcome {
 fn finish(
     children: &BTreeMap<String, Content>,
     state: &State,
-    evaluated: bool,
+    completed: bool,
 ) -> (Record, BTreeMap<String, Outcome>) {
     let mut view = Record {
         own: state.own.clone(),
@@ -306,7 +306,7 @@ fn finish(
             }
             Some(_) => Left::OnRecord,
         };
-        let evaluates = evaluated
+        let evaluates = completed
             && state
                 .failing
                 .as_ref()

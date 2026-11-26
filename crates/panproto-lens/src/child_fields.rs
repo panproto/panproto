@@ -154,7 +154,7 @@ fn carried_back(
 /// other case the value the view shows is the source value, and put's first
 /// candidate for it is that value. A child with a discriminator and no value
 /// is not recorded: the record of its fields does not determine it.
-pub(crate) fn record(
+pub fn record(
     source: &WInstance,
     view: &WInstance,
     fields: &[ChildField<'_>],
@@ -210,7 +210,7 @@ pub(crate) fn record(
 ///
 /// A serialization presents a node's own field and the child of that name
 /// under one key, so this changes no serialized view.
-pub(crate) fn held_as(lens: &Lens, view: &WInstance, again: &WInstance) -> WInstance {
+pub fn held_as(lens: &Lens, view: &WInstance, again: &WInstance) -> WInstance {
     let mut keys_of: HashMap<&Name, BTreeSet<String>> = HashMap::new();
     for (anchor, program) in &lens.compiled.field_transforms {
         let image = lens.compiled.vertex_remap.get(anchor).unwrap_or(anchor);
@@ -585,7 +585,7 @@ fn outcome<'p>(
 }
 
 /// The search for the source of a view.
-pub(crate) struct Search<'a> {
+pub struct Search<'a> {
     lens: &'a Lens,
     view: &'a WInstance,
     complement: &'a Complement,
@@ -606,7 +606,7 @@ impl<'a> Search<'a> {
     /// # Errors
     ///
     /// A structural refusal of the restoration.
-    pub(crate) fn new(
+    pub fn new(
         lens: &'a Lens,
         view: &'a WInstance,
         complement: &'a Complement,
@@ -756,12 +756,10 @@ impl<'a> Search<'a> {
             offer(coordinate.on_child.clone());
             return candidates;
         }
-        let fielded = coordinate
-            .recorded
-            .as_ref()
-            .map_or(coordinate.on_child.value.is_none(), |recorded| {
-                recorded.value.is_none()
-            });
+        let fielded = coordinate.recorded.as_ref().map_or_else(
+            || coordinate.on_child.value.is_none(),
+            |recorded| recorded.value.is_none(),
+        );
         let content = |value: Value| {
             if same(&value, &coordinate.shown) {
                 coordinate.on_child.clone()
@@ -935,7 +933,7 @@ impl<'a> Search<'a> {
         others: &mut BTreeSet<usize>,
         refusal: &mut Option<Vec<PutDomainError>>,
     ) -> Option<WInstance> {
-        let first: Vec<Content> = self.contents(base, |at| {
+        let first: Vec<Content> = Self::contents(base, |at| {
             edited.contains(&at).then(|| {
                 let candidates = self.candidates(at, &base.attempt);
                 candidates[0].clone()
@@ -970,7 +968,7 @@ impl<'a> Search<'a> {
             if one_at_a_time {
                 moving = moving.into_iter().take(1).collect();
             }
-            let next = self.contents(&last, |at| {
+            let next = Self::contents(&last, |at| {
                 moving
                     .contains(&at)
                     .then(|| self.next_candidate(at, &last.attempt, &last.contents[at]))
@@ -986,11 +984,7 @@ impl<'a> Search<'a> {
     }
 
     /// The contents of `tried` with those `change` gives.
-    fn contents(
-        &self,
-        tried: &Tried<'_>,
-        change: impl Fn(usize) -> Option<Content>,
-    ) -> Vec<Content> {
+    fn contents(tried: &Tried<'_>, change: impl Fn(usize) -> Option<Content>) -> Vec<Content> {
         tried
             .contents
             .iter()
@@ -1010,12 +1004,12 @@ impl<'a> Search<'a> {
 
 /// What the replay of a tried source gives at the coordinates of a view.
 #[derive(Default)]
-pub(crate) struct Replay {
+pub struct Replay {
     /// For each parent, the keys a serialized view may hold on a child, and
     /// whether get shows there what the view shows.
-    pub(crate) on_children: HashMap<u32, BTreeMap<String, bool>>,
+    pub on_children: HashMap<u32, BTreeMap<String, bool>>,
     /// The children that show what get does not give them.
-    pub(crate) refused: BTreeSet<u32>,
+    pub refused: BTreeSet<u32>,
 }
 
 /// The source of `view`, or every reason its values have none.
@@ -1023,7 +1017,7 @@ pub(crate) struct Replay {
 /// # Errors
 ///
 /// The violations, in discovery order.
-pub(crate) fn solve(
+pub fn solve(
     lens: &Lens,
     view: &WInstance,
     complement: &Complement,

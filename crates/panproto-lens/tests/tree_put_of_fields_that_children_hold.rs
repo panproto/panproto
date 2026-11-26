@@ -49,7 +49,7 @@ fn var(name: &str) -> Expr {
     Expr::Var(name.into())
 }
 
-fn op(op: BuiltinOp, arguments: Vec<Expr>) -> Expr {
+const fn op(op: BuiltinOp, arguments: Vec<Expr>) -> Expr {
     Expr::Builtin(op, arguments)
 }
 
@@ -86,8 +86,8 @@ fn edge(src: &str, tgt: &str, kind: &str, name: Option<&str>) -> Edge {
     }
 }
 
-fn int(value: i64) -> Option<FieldPresence> {
-    Some(FieldPresence::Present(Value::Int(value)))
+const fn int(value: i64) -> FieldPresence {
+    FieldPresence::Present(Value::Int(value))
 }
 
 /// Two records under `s`: record 1 with `n` (node 3) and `m` (node 4),
@@ -104,8 +104,8 @@ fn source(n: Option<FieldPresence>, m: i64) -> WInstance {
         nodes.insert(id, node);
     };
     leaf(3, "r.n", n);
-    leaf(4, "r.m", int(m));
-    leaf(5, "r.m", int(1));
+    leaf(4, "r.m", Some(int(m)));
+    leaf(5, "r.m", Some(int(1)));
     let arcs = vec![
         (0, 1, edge("s", "r", "item", None)),
         (0, 2, edge("s", "r", "item", None)),
@@ -139,35 +139,38 @@ fn moved(view: &WInstance, child: u32, parent: u32, label: &str) -> WInstance {
 #[test]
 fn a_child_moved_to_another_record_is_put_back_through_its_new_parents_rewrites() {
     let lens = lens(vec![successor("n")]);
-    let (view, complement) = get(&lens, &source(int(3), 7)).unwrap();
-    assert_eq!(view.nodes[&3].value, int(4));
-    assert_eq!(complement.original_values[&3], int(3));
+    let (view, complement) = get(&lens, &source(Some(int(3)), 7)).unwrap();
+    assert_eq!(view.nodes[&3].value, Some(int(4)));
+    assert_eq!(complement.original_values[&3], Some(int(3)));
 
     // The child moves to the record that held no `n`: its recorded value is
     // not restored there, and the view's value is carried back.
     let shown = moved(&view, 3, 2, "n");
     let restored = put(&lens, &shown, &complement).unwrap();
-    assert_eq!(restored.nodes[&3].value, int(3));
-    assert_eq!(get(&lens, &restored).unwrap().0.nodes[&3].value, int(4));
+    assert_eq!(restored.nodes[&3].value, Some(int(3)));
+    assert_eq!(
+        get(&lens, &restored).unwrap().0.nodes[&3].value,
+        Some(int(4))
+    );
 
     let mut edited = shown;
-    edited.nodes.get_mut(&3).unwrap().value = int(9);
+    edited.nodes.get_mut(&3).unwrap().value = Some(int(9));
     let restored = put(&lens, &edited, &complement).unwrap();
-    assert_eq!(restored.nodes[&3].value, int(8));
+    assert_eq!(restored.nodes[&3].value, Some(int(8)));
 }
 
 #[test]
 fn children_exchanged_between_two_fields_are_put_back_as_the_view_shows_them() {
     let lens = lens(vec![successor("n")]);
-    let (view, complement) = get(&lens, &source(int(3), 7)).unwrap();
+    let (view, complement) = get(&lens, &source(Some(int(3)), 7)).unwrap();
     // `n`'s child now holds `m` and `m`'s child `n`: each shows what it held.
     let shown = moved(&moved(&view, 3, 1, "m"), 4, 1, "n");
     let restored = put(&lens, &shown, &complement).unwrap();
-    assert_eq!(restored.nodes[&3].value, int(4), "now m, shown 4");
-    assert_eq!(restored.nodes[&4].value, int(6), "now n, shown 7");
+    assert_eq!(restored.nodes[&3].value, Some(int(4)), "now m, shown 4");
+    assert_eq!(restored.nodes[&4].value, Some(int(6)), "now n, shown 7");
     let (again, _) = get(&lens, &restored).unwrap();
-    assert_eq!(again.nodes[&3].value, int(4));
-    assert_eq!(again.nodes[&4].value, int(7));
+    assert_eq!(again.nodes[&3].value, Some(int(4)));
+    assert_eq!(again.nodes[&4].value, Some(int(7)));
 }
 
 /// `null` shown as `"none"` on an `n` that holds text.
@@ -261,7 +264,7 @@ fn a_field_that_get_leaves_on_the_record_is_one_with_the_child_of_its_name() {
         put(&lens, &on_record, &complement),
         Err(LensError::PutDomain(_))
     ));
-    let mut shadowed = view.clone();
+    let mut shadowed = view;
     shadowed.nodes.get_mut(&3).unwrap().value =
         Some(FieldPresence::Present(Value::Str("abc".into())));
     assert!(matches!(
@@ -276,7 +279,7 @@ fn an_iso_rewrite_has_the_optic_laws_where_it_leaves_a_value_unchanged() {
     let lens = lens(vec![successor("n"), rewrite("m", var("m"), Some(var("m")))]);
     // `m` is read and left unchanged: nothing is recorded of it, as before.
     let unchanged = {
-        let source = source(int(3), 7);
+        let source = source(Some(int(3)), 7);
         let mut nodes = source.nodes.clone();
         nodes.remove(&3);
         let arcs = source
@@ -291,7 +294,7 @@ fn an_iso_rewrite_has_the_optic_laws_where_it_leaves_a_value_unchanged() {
     assert!(complement.original_values.is_empty());
     check_optic_laws(OpticKind::Iso, &lens, &unchanged).unwrap();
     // `n` changes, and the complement records it, as before.
-    assert!(check_optic_laws(OpticKind::Iso, &lens, &source(int(3), 7)).is_err());
+    assert!(check_optic_laws(OpticKind::Iso, &lens, &source(Some(int(3)), 7)).is_err());
 }
 
 #[test]
@@ -331,7 +334,7 @@ fn the_edit_lens_inserts_a_child_whose_field_a_rewrite_writes() {
 
     let lens = lens(vec![successor("n")]);
     let mut edits = EditLens::from_lens(lens, Protocol::default());
-    edits.initialize(&source(int(3), 7)).unwrap();
+    edits.initialize(&source(Some(int(3)), 7)).unwrap();
     let inserted = |value: i64| TreeEdit::InsertNode {
         parent: 2,
         child_id: 9,
@@ -344,14 +347,14 @@ fn the_edit_lens_inserts_a_child_whose_field_a_rewrite_writes() {
     let TreeEdit::InsertNode { node, .. } = translated else {
         panic!("{translated:?}");
     };
-    assert_eq!(node.value, int(4));
+    assert_eq!(node.value, Some(int(4)));
 
     // A source that gains an `n` holding 6 shows 7.
     let mut edits = EditLens::from_lens(self::lens(vec![successor("n")]), Protocol::default());
-    edits.initialize(&source(int(3), 7)).unwrap();
+    edits.initialize(&source(Some(int(3)), 7)).unwrap();
     let translated = edits.get_edit(inserted(6)).unwrap();
     let TreeEdit::InsertNode { node, .. } = translated else {
         panic!("{translated:?}");
     };
-    assert_eq!(node.value, int(7));
+    assert_eq!(node.value, Some(int(7)));
 }
