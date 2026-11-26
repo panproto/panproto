@@ -53,15 +53,15 @@ enum Test {
     Null(&'static str),
 }
 
-fn field(name: &'static str) -> Box<Term> {
-    Box::new(Term::Field(name))
+const fn field(name: &'static str) -> Term {
+    Term::Field(name)
 }
 
-fn int(value: i64) -> Box<Term> {
-    Box::new(Term::Int(value))
+const fn int(value: i64) -> Term {
+    Term::Int(value)
 }
 
-fn builtin(op: BuiltinOp, arguments: Vec<Expr>) -> Expr {
+const fn builtin(op: BuiltinOp, arguments: Vec<Expr>) -> Expr {
     Expr::Builtin(op, arguments)
 }
 
@@ -244,64 +244,76 @@ impl Step {
 fn successor(key: &'static str, by: i64) -> Step {
     Step::Rewrite(
         key,
-        Term::Add(field(key), int(by)),
-        Some(Term::Sub(field(key), int(by))),
+        Term::Add(Box::new(field(key)), Box::new(int(by))),
+        Some(Term::Sub(Box::new(field(key)), Box::new(int(by)))),
     )
 }
 
 fn steps() -> Vec<Step> {
-    let double = |key| Term::Mul(field(key), int(2));
-    let or_zero = |key| Term::If(Test::Null(key), int(0), field(key));
-    let is = |key, value| Test::Is(field(key), int(value));
+    let double = |key| Term::Mul(Box::new(field(key)), Box::new(int(2)));
+    let or_zero = |key| Term::If(Test::Null(key), Box::new(int(0)), Box::new(field(key)));
+    let is = |key, value| Test::Is(Box::new(field(key)), Box::new(int(value)));
     vec![
         successor("n", 1),
         Step::Rewrite("n", double("n"), None),
         Step::Rewrite(
             "n",
-            Term::Mul(field("n"), field("n")),
+            Term::Mul(Box::new(field("n")), Box::new(field("n"))),
             Some(Term::Field("n")),
         ),
         Step::Rewrite("n", Term::Int(5), None),
         // Clamped below at zero, without an inverse and with one that is none.
         Step::Rewrite(
             "n",
-            Term::If(Test::Below(field("n"), int(0)), int(0), field("n")),
+            Term::If(
+                Test::Below(Box::new(field("n")), Box::new(int(0))),
+                Box::new(int(0)),
+                Box::new(field("n")),
+            ),
             None,
         ),
         Step::Rewrite(
             "n",
             Term::If(
-                Test::Below(field("n"), int(0)),
-                Box::new(Term::Sub(int(0), field("n"))),
-                field("n"),
+                Test::Below(Box::new(field("n")), Box::new(int(0))),
+                Box::new(Term::Sub(Box::new(int(0)), Box::new(field("n")))),
+                Box::new(field("n")),
             ),
-            Some(Term::Sub(int(0), field("n"))),
+            Some(Term::Sub(Box::new(int(0)), Box::new(field("n")))),
         ),
         // One value renamed to another.
         Step::Rewrite(
             "n",
-            Term::If(is("n", 1), int(2), field("n")),
-            Some(Term::If(is("n", 2), int(1), field("n"))),
+            Term::If(is("n", 1), Box::new(int(2)), Box::new(field("n"))),
+            Some(Term::If(is("n", 2), Box::new(int(1)), Box::new(field("n")))),
         ),
         // Null shown as zero, with an inverse and without.
         Step::Rewrite(
             "n",
             or_zero("n"),
-            Some(Term::If(is("n", 0), Box::new(Term::Null), field("n"))),
+            Some(Term::If(
+                is("n", 0),
+                Box::new(Term::Null),
+                Box::new(field("n")),
+            )),
         ),
         Step::Rewrite("n", or_zero("n"), None),
         Step::Rewrite("n", Term::Field("n"), Some(Term::Field("n"))),
         Step::Rewrite(
             "n",
-            Term::If(is("n", 2), Box::new(Term::Null), field("n")),
+            Term::If(is("n", 2), Box::new(Term::Null), Box::new(field("n"))),
             None,
         ),
         // Another kind of value, and an inverse that reads a sibling.
-        Step::Rewrite("n", Term::Text(field("n")), Some(Term::Number(field("n")))),
         Step::Rewrite(
             "n",
-            Term::Add(field("n"), int(1)),
-            Some(Term::Sub(field("n"), field("m"))),
+            Term::Text(Box::new(field("n"))),
+            Some(Term::Number(Box::new(field("n")))),
+        ),
+        Step::Rewrite(
+            "n",
+            Term::Add(Box::new(field("n")), Box::new(int(1))),
+            Some(Term::Sub(Box::new(field("n")), Box::new(field("m")))),
         ),
         Step::Rewrite("m", Term::Field("m"), Some(Term::Field("m"))),
         successor("m", 10),
@@ -309,14 +321,14 @@ fn steps() -> Vec<Step> {
         Step::Rename("n", "k"),
         Step::Drop("n"),
         Step::Add("n", 4),
-        Step::Compute("k", Term::Add(field("n"), int(1)), None),
-        Step::Compute("n", Term::Add(field("n"), int(1)), None),
+        Step::Compute("k", Term::Add(Box::new(field("n")), Box::new(int(1))), None),
+        Step::Compute("n", Term::Add(Box::new(field("n")), Box::new(int(1))), None),
         Step::Compute(
             "n",
-            Term::Add(field("n"), int(1)),
-            Some(Term::Sub(field("n"), int(1))),
+            Term::Add(Box::new(field("n")), Box::new(int(1))),
+            Some(Term::Sub(Box::new(field("n")), Box::new(int(1)))),
         ),
-        Step::Compute("n", Term::Add(field("m"), int(1)), None),
+        Step::Compute("n", Term::Add(Box::new(field("m")), Box::new(int(1))), None),
         Step::Keep(&["m", "n"]),
         Step::Case(vec![
             (is("n", 0), vec![Step::Rewrite("n", double("n"), None)]),
@@ -467,7 +479,7 @@ fn record(tree: &WInstance) -> Record {
     record
 }
 
-fn present(held: i64) -> Content {
+const fn present(held: i64) -> Content {
     Content::Value(Presence::Present(RefValue::Int(held)))
 }
 
