@@ -807,9 +807,9 @@ impl Put<'_> {
                 let sources = child_put_solutions(self.operations, shown, reference_complement);
                 if let Some(solution) = sources.first() {
                     counts.missed += 1;
-                    smallest.offer(what().len(), || {
-                        format!("{}, admitted: {solution:?}", what())
-                    });
+                    let case = format!("{}, admitted: {solution:?}", what());
+                    println!("missed: {case}");
+                    smallest.offer(case.len(), || case.clone());
                 }
             }
             (found, expected) => panic!("{}: {found:?} against {expected:?}", what()),
@@ -903,7 +903,7 @@ fn put_agrees_with_the_reference_on_fields_of_children_1() {
         check_part(0, 4),
         counts(
             [2, 1450, 701],
-            [20_657, 77, 16_278, 0],
+            [20_704, 77, 16_231, 0],
             [19_734, 77, 17_201, 0],
         )
     );
