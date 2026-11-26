@@ -739,7 +739,10 @@ pub fn child_put(
             }
         }
         if others.is_empty() {
-            return None;
+            if edited.len() == put.coordinates.len() {
+                return None;
+            }
+            others.extend(put.coordinates.iter().cloned());
         }
         edited.extend(others);
     }

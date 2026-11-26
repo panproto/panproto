@@ -858,7 +858,8 @@ impl<'a> Search<'a> {
     /// after `(m + 2) e + 2` sources, for `e` edited coordinates and at most
     /// `m` operations with an inverse writing one key. Coordinates that a tried
     /// source did not reproduce and that were not counted as edited are then
-    /// counted so, and the search starts again, until there are none. A search
+    /// counted so, and the search starts again, until there are none; then,
+    /// once, with every coordinate counted as edited. A search
     /// that admits nothing is followed by one that moves one coordinate a
     /// round, before the restart.
     ///
@@ -905,7 +906,13 @@ impl<'a> Search<'a> {
                 }
             }
             if others.is_empty() {
-                break;
+                // Nothing was missed and nothing admitted: the coordinates
+                // whose values the view shows as get gives them are tried
+                // too, once.
+                if edited.len() == self.coordinates.len() {
+                    break;
+                }
+                others.extend(0..self.coordinates.len());
             }
             edited.extend(others);
         }

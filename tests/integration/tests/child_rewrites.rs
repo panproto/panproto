@@ -297,10 +297,12 @@ fn a_view_edited_in_memory_puts_back_the_expected_source() {
             }
             // The view get returned puts back the source, whatever a view
             // read from its serialization does.
+            // A view that holds a field on the record keeps the child that
+            // field shadows as it is, which a serialization of it cannot.
             let source = if expected["view"] == case.json["view"] {
                 &case.json["source"]
             } else {
-                &expected["source"]
+                expected.get("memory").unwrap_or(&expected["source"])
             };
             check(
                 &mut failures,
