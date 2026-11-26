@@ -778,7 +778,7 @@ fn check_program(
             &ids,
         );
         let mut views = BTreeSet::new();
-        for form in [reference_view.clone(), serialized] {
+        for form in [reference_view, serialized] {
             for edit in edits {
                 let shown = edited(&form, edit);
                 if !views.insert(format!("{shown:?}")) {
