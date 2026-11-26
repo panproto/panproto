@@ -179,11 +179,10 @@ impl Case {
 
 /// `found` against the expected source, which is the string `refused` where
 /// put refuses.
-fn check(failures: &mut Vec<String>, what: &str, expected: &Json, found: Result<Json, String>) {
-    let agrees = match &found {
-        Ok(found) => found == expected,
-        Err(_) => expected == "refused",
-    };
+fn check(failures: &mut Vec<String>, what: &str, expected: &Json, found: &Result<Json, String>) {
+    let agrees = found
+        .as_ref()
+        .map_or_else(|_| expected == "refused", |found| found == expected);
     if !agrees {
         failures.push(format!("{what}: expected {expected}, found {found:?}"));
     }
@@ -204,7 +203,7 @@ fn get_shows_the_recorded_view() {
     for case in Case::all() {
         let (view, _) = get(&case.lens, &case.source()).unwrap();
         let found = case.write(&view);
-        check(&mut failures, case.name(), &case.json["view"], Ok(found));
+        check(&mut failures, case.name(), &case.json["view"], &Ok(found));
     }
     report(&failures);
 }
@@ -261,7 +260,7 @@ fn a_view_through_json_puts_back_the_expected_source() {
                     failures.push(format!("{what}: put {found}, which shows {shown}"));
                 }
             }
-            check(&mut failures, &what, &expected["source"], found);
+            check(&mut failures, &what, &expected["source"], &found);
             puts += 1;
         }
     }
@@ -302,13 +301,15 @@ fn a_view_edited_in_memory_puts_back_the_expected_source() {
             let source = if expected["view"] == case.json["view"] {
                 &case.json["source"]
             } else {
-                expected.get("memory").unwrap_or(&expected["source"])
+                expected
+                    .get("memory")
+                    .unwrap_or_else(|| &expected["source"])
             };
             check(
                 &mut failures,
                 &format!("{} at {}", case.name(), expected["view"]),
                 source,
-                found
+                &found
                     .map(|found| case.write(&found))
                     .map_err(|error| error.to_string()),
             );
@@ -378,7 +379,7 @@ fn an_edit_undone_restores_the_source() {
                 &mut failures,
                 &format!("{} away to {}", case.name(), away["view"]),
                 &case.json["source"],
-                back.map_err(|error| error.to_string()),
+                &back.map_err(|error| error.to_string()),
             );
             undone += 1;
         }
@@ -409,9 +410,9 @@ fn the_complement_is_recorded_as_before_where_it_suffices() {
             ));
         }
         if identical {
-            same += 1
+            same += 1;
         } else {
-            more += 1
+            more += 1;
         }
         // Nothing recorded before is lost.
         for (id, value) in &before.original_values {
