@@ -468,7 +468,7 @@ fn touched(operation: &Operation) -> Touched {
         every: false,
     };
     match operation {
-        Operation::Rewrite { key, .. } => named(&[key], &[key]),
+        Operation::Rewrite { key, .. } | Operation::Add(key, _) => named(&[key], &[key]),
         Operation::Compute { key, reads, .. } => Touched {
             reads: reads.clone(),
             writes: BTreeSet::from([key.clone()]),
@@ -476,7 +476,6 @@ fn touched(operation: &Operation) -> Touched {
         },
         Operation::Rename { from, to } => named(&[from], &[from, to]),
         Operation::Drop(key) => named(&[], &[key]),
-        Operation::Add(key, _) => named(&[key], &[key]),
         Operation::Keep(_) => Touched::default(),
         Operation::Case(branches) => {
             let mut all = Touched::default();
@@ -911,16 +910,12 @@ pub fn child_put(
             if edited_here.is_empty() {
                 continue;
             }
-            match put.search_scope(&base, part, &edited_here, &|_, _| true) {
-                Some(found) => {
-                    for key in part {
-                        assignment.insert(key.clone(), found[key].clone());
-                    }
-                }
-                None => {
-                    accepted = false;
-                    break;
-                }
+            let Some(found) = put.search_scope(&base, part, &edited_here, &|_, _| true) else {
+                accepted = false;
+                break;
+            };
+            for key in part {
+                assignment.insert(key.clone(), found[key].clone());
             }
         }
         if accepted {

@@ -676,13 +676,15 @@ impl Content {
     fn digest(&self, into: &mut impl std::hash::Hasher) {
         use std::hash::Hash;
         format!("{:?}", self.value).hash(into);
-        let mut fields: Vec<(&String, String)> = self
+        let fields: BTreeMap<&String, String> = self
             .fields
             .iter()
             .map(|(key, value)| (key, format!("{value:?}")))
             .collect();
-        fields.sort_unstable();
-        fields.hash(into);
+        for (key, value) in &fields {
+            key.hash(into);
+            value.hash(into);
+        }
     }
 }
 
@@ -835,66 +837,7 @@ impl<'a> Search<'a> {
         let mut ids: Vec<u32> = self.structure.nodes.keys().copied().collect();
         ids.sort_unstable();
         for id in ids {
-            let node = &self.structure.nodes[&id];
-            let program = self.plan.program(&node.anchor);
-            let predicate = self.lens.compiled.conditional_survival.get(&node.anchor);
-            if program.is_empty() && predicate.is_none() {
-                continue;
-            }
-            let mut columns: BTreeMap<String, Vec<u32>> = BTreeMap::new();
-            for &at in self.structure_below.get(&id).map_or(&[][..], Vec::as_slice) {
-                let (_, child, edge) = &self.structure.arcs[at];
-                if *child != id {
-                    columns
-                        .entry(column(edge).to_owned())
-                        .or_default()
-                        .push(*child);
-                }
-            }
-            let footprints: Vec<panproto_inst::FieldFootprint> = program
-                .iter()
-                .map(FieldTransform::footprint)
-                .chain(predicate.map(panproto_inst::FieldFootprint::of_predicate))
-                .collect();
-            let written: BTreeSet<&String> = footprints.iter().flat_map(|f| &f.writes).collect();
-            let present = |name: &str| {
-                node.extra_fields.contains_key(name)
-                    || columns.contains_key(name)
-                    || written.contains(&name.to_owned())
-            };
-            for footprint in &footprints {
-                let everything = footprint.reads_element
-                    || (footprint.writes_others && !footprint.reads.is_empty());
-                let mut fields: BTreeSet<String> = if everything {
-                    node.extra_fields
-                        .keys()
-                        .chain(columns.keys())
-                        .cloned()
-                        .collect()
-                } else {
-                    footprint.fields_read(&present)
-                };
-                if fields.is_empty() && !footprint.reads_instance {
-                    continue;
-                }
-                let read = fields.clone();
-                fields.extend(footprint.writes.iter().cloned());
-                let mut joined: Vec<usize> = fields
-                    .iter()
-                    .map(|field| classes.index(id, field))
-                    .collect();
-                for field in &read {
-                    for &child in columns.get(field).map_or(&[][..], Vec::as_slice) {
-                        if self.structure_below.contains_key(&child) {
-                            joined.extend(self.coordinates_below(child, &slots));
-                        }
-                    }
-                }
-                if footprint.reads_instance {
-                    joined.extend(visible.iter().copied());
-                }
-                classes.join(joined);
-            }
+            self.join_element(id, &mut classes, &slots, &visible);
         }
         let mut parts: Vec<Vec<usize>> = Vec::new();
         let mut part_of: HashMap<usize, usize> = HashMap::new();
@@ -907,6 +850,72 @@ impl<'a> Search<'a> {
             parts[part].push(at);
         }
         parts
+    }
+
+    /// Join the slots the program and survival predicate of element `id`
+    /// read and write together ([`Self::partition`]); `slots` are the
+    /// coordinates' slots and `visible` those a graph builtin sees.
+    fn join_element(&self, id: u32, classes: &mut Classes, slots: &[usize], visible: &[usize]) {
+        let node = &self.structure.nodes[&id];
+        let program = self.plan.program(&node.anchor);
+        let predicate = self.lens.compiled.conditional_survival.get(&node.anchor);
+        if program.is_empty() && predicate.is_none() {
+            return;
+        }
+        let mut columns: BTreeMap<String, Vec<u32>> = BTreeMap::new();
+        for &at in self.structure_below.get(&id).map_or(&[][..], Vec::as_slice) {
+            let (_, child, edge) = &self.structure.arcs[at];
+            if *child != id {
+                columns
+                    .entry(column(edge).to_owned())
+                    .or_default()
+                    .push(*child);
+            }
+        }
+        let footprints: Vec<panproto_inst::FieldFootprint> = program
+            .iter()
+            .map(FieldTransform::footprint)
+            .chain(predicate.map(panproto_inst::FieldFootprint::of_predicate))
+            .collect();
+        let written: BTreeSet<&String> = footprints.iter().flat_map(|f| &f.writes).collect();
+        let present = |name: &str| {
+            node.extra_fields.contains_key(name)
+                || columns.contains_key(name)
+                || written.contains(&name.to_owned())
+        };
+        for footprint in &footprints {
+            let everything =
+                footprint.reads_element || (footprint.writes_others && !footprint.reads.is_empty());
+            let mut fields: BTreeSet<String> = if everything {
+                node.extra_fields
+                    .keys()
+                    .chain(columns.keys())
+                    .cloned()
+                    .collect()
+            } else {
+                footprint.fields_read(&present)
+            };
+            if fields.is_empty() && !footprint.reads_instance {
+                continue;
+            }
+            let read = fields.clone();
+            fields.extend(footprint.writes.iter().cloned());
+            let mut joined: Vec<usize> = fields
+                .iter()
+                .map(|field| classes.index(id, field))
+                .collect();
+            for field in &read {
+                for &child in columns.get(field).map_or(&[][..], Vec::as_slice) {
+                    if self.structure_below.contains_key(&child) {
+                        joined.extend(self.coordinates_below(child, slots));
+                    }
+                }
+            }
+            if footprint.reads_instance {
+                joined.extend(visible.iter().copied());
+            }
+            classes.join(joined);
+        }
     }
 
     /// The slots of the coordinates whose children are below `node` in the

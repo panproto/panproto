@@ -3764,8 +3764,9 @@ impl FieldTransform {
 }
 
 /// Whether `expr` reads elements other than the one it runs at, through a
-/// graph builtin: one it applies, or a free variable the evaluator resolves
-/// to one ([`panproto_expr::BuiltinOp::from_name`]), as `let f = edge in f
+/// graph builtin.
+///
+/// That is one it applies, or a free variable the evaluator resolves to one ([`panproto_expr::BuiltinOp::from_name`]), as `let f = edge in f
 /// "self" "b"` does. A builtin is a graph builtin when the instance resolver
 /// answers it ([`crate::instance_env::is_graph_builtin`]).
 #[must_use]
@@ -3822,8 +3823,10 @@ fn qualified_attrs_entry(key: &str) -> String {
 }
 
 /// The fields of an element that a free variable `name` of an expression
-/// binds, for an element holding the fields (and children) `present` says
-/// it holds: the inverse of [`names_of_field`] and
+/// binds.
+///
+/// The element holds the fields (and children) `present` says it holds.
+/// This is the inverse of [`names_of_field`] and
 /// [`qualified_attrs_entry`], which build every binding of an expression's
 /// environment. A name binds the field of that name, the field it qualifies
 /// under `attrs.`, and the field `attrs` itself, whose entries are bound

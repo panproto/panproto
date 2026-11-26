@@ -134,15 +134,17 @@ impl Case {
                 .map(transform)
                 .collect()
         };
-        let programs: Vec<(Name, Vec<FieldTransform>)> = match json.get("programs") {
-            Some(programs) => programs
-                .as_object()
-                .unwrap()
-                .iter()
-                .map(|(anchor, transforms)| (anchor.as_str().into(), program(transforms)))
-                .collect(),
-            None => vec![(text(&json["at"]).into(), program(&json["transforms"]))],
-        };
+        let programs: Vec<(Name, Vec<FieldTransform>)> = json.get("programs").map_or_else(
+            || vec![(text(&json["at"]).into(), program(&json["transforms"]))],
+            |programs| {
+                programs
+                    .as_object()
+                    .unwrap()
+                    .iter()
+                    .map(|(anchor, transforms)| (anchor.as_str().into(), program(transforms)))
+                    .collect()
+            },
+        );
         let lens = Lens {
             compiled: CompiledMigration {
                 surviving_verts: schema.vertices.keys().cloned().collect::<HashSet<_>>(),
