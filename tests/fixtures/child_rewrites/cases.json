@@ -971,7 +971,9 @@
  "source": {"n": 3},
  "view": {"n": 3, "k": 4},
  "puts": [
-  {"view": {"n": 3, "k": 4}, "source": "refused"}
+  {"view": {"n": 3, "k": 4}, "source": {
+        "n": 3
+      }}
  ],
  "undo": false,
  "complement_0_78_0": {"dropped_nodes": {}, "dropped_arcs": [], "dropped_fans": [], "contraction_choices": [], "original_parent": {"1": 0}, "source_fingerprint": 16476210525756103939, "original_extra_fields": {"0": {}}, "arc_edges": [], "arc_order": [[0, 1]], "original_values": {}, "synthesized_nodes": [], "contracted_into": {}, "original_anchors": {}, "id_floor": 2, "synthesized_keys": {}, "view_positions": {"0": {"root": {"anchor": "com.example.note:body"}}, "1": {"child": {"parent": 0, "edge": {"src": "com.example.note:body", "tgt": "com.example.note:body.n", "kind": "prop", "name": "n"}, "index": 0}}}, "identity": {"version": 2, "source_schema": "0244daf855840fb5a96101d8604aeadb6aa1832eee8b628f521220cf2078e3a5", "target_schema": "0244daf855840fb5a96101d8604aeadb6aa1832eee8b628f521220cf2078e3a5", "lens": "7b3b40ead9b55e7a6055a4c858fda23e8a44915e8498068e1d05c553efb6b6f7", "complement_format": {"shape": "wtype", "version": 1}}},

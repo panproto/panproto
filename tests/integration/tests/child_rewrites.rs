@@ -13,7 +13,8 @@ use panproto_core::expr::Expr;
 use panproto_core::gat::CoercionClass;
 use panproto_core::inst::value::FieldPresence;
 use panproto_core::inst::{
-    CaseBranch, CompiledMigration, FieldTransform, Value, WInstance, parse_json, to_json,
+    CaseBranch, CompiledMigration, FieldTransform, PutDomainError, Value, WInstance, parse_json,
+    to_json,
 };
 use panproto_core::lens::{
     self, Complement, Lens, align_view_to_complement, check_get_put, check_put_get,
@@ -424,4 +425,144 @@ fn the_complement_is_recorded_as_before_where_it_suffices() {
     }
     assert!(same > 0 && more > 0, "{same} the same, {more} with more");
     report(&failures);
+}
+
+/// A complement release 0.78.0 took, stored as bytes and read back by this
+/// release, puts back what this release's complement does wherever the two
+/// are the same, and otherwise only sources whose view is the one put.
+#[test]
+fn a_complement_taken_by_0_78_0_and_stored_puts_back_through_this_release() {
+    let mut failures = Vec::new();
+    let (mut same, mut other) = (0, 0);
+    for case in Case::all() {
+        let stored = rmp_serde::to_vec(&case.recorded_complement()).unwrap();
+        let earlier: Complement = rmp_serde::from_slice(&stored).unwrap();
+        let source = case.source();
+        let (view, complement) = get(&case.lens, &source).unwrap();
+        let alike = case.json["same_complement"] == true;
+        let unedited = case.json["view"].clone();
+        let back = put(&case.lens, &view, &earlier).map(|restored| case.write(&restored));
+        let back_json = case
+            .put_json(&unedited, &earlier)
+            .map_err(|error| error.to_string());
+        if alike {
+            same += 1;
+            check(
+                &mut failures,
+                &format!("{} unedited", case.name()),
+                &case.json["source"],
+                &back.map_err(|error| error.to_string()),
+            );
+        } else {
+            other += 1;
+        }
+        let mut views: Vec<(Json, Result<Json, String>)> = vec![(unedited, back_json)];
+        for expected in case.json["puts"].as_array().unwrap() {
+            let found = case
+                .put_json(&expected["view"], &earlier)
+                .map_err(|error| error.to_string());
+            if alike {
+                let now = case
+                    .put_json(&expected["view"], &complement)
+                    .map_err(|error| error.to_string());
+                if found.is_ok() != now.is_ok() || found.as_ref().ok() != now.as_ref().ok() {
+                    failures.push(format!(
+                        "{} at {}: {found:?} through the 0.78.0 complement, {now:?} through this one",
+                        case.name(),
+                        expected["view"]
+                    ));
+                }
+            }
+            views.push((expected["view"].clone(), found));
+        }
+        for (shown, found) in views {
+            if let Ok(found) = found {
+                let (again, _) = get(&case.lens, &case.read(&found)).unwrap();
+                if case.write(&again) != shown {
+                    failures.push(format!(
+                        "{} at {shown}: put {found} through the 0.78.0 complement, which shows {}",
+                        case.name(),
+                        case.write(&again)
+                    ));
+                }
+            }
+        }
+    }
+    assert_eq!((same, other), (57, 15));
+    report(&failures);
+}
+
+/// A rewrite whose result a rename moves to another field of the record
+/// leaves that field among the record's own fields; a serialization shows it
+/// as a child, which put reads back as the field.
+#[test]
+fn a_renamed_result_is_read_back_from_its_serialization() {
+    let case = Case::new(serde_json::json!({
+        "name": "rewrite then rename",
+        "at": ROOT,
+        "properties": {
+            "n": {"type": "integer"}, "k": {"type": "integer"}, "m": {"type": "integer"},
+        },
+        "transforms": [
+            {"rewrite": "n", "to": "n + 1", "from": "n - 1"},
+            {"rename": "n", "as": "k"},
+        ],
+        "source": {"n": 3, "m": 1},
+    }));
+    let (view, complement) = get(&case.lens, &case.source()).unwrap();
+    assert_eq!(
+        case.write(&view),
+        serde_json::json!({"k": 4, "m": 1, "n": 3})
+    );
+    let put = |view: Json| {
+        case.put_json(&view, &complement)
+            .map_err(|error| error.to_string())
+    };
+    assert_eq!(
+        put(case.write(&view)),
+        Ok(serde_json::json!({"n": 3, "m": 1}))
+    );
+    assert_eq!(
+        put(serde_json::json!({"k": 4, "m": 2, "n": 3})),
+        Ok(serde_json::json!({"n": 3, "m": 2}))
+    );
+    assert_eq!(
+        put(serde_json::json!({"k": 9, "m": 1, "n": 8})),
+        Ok(serde_json::json!({"n": 8, "m": 1}))
+    );
+    assert!(put(serde_json::json!({"k": 9, "m": 1, "n": 3})).is_err());
+}
+
+/// An edit of a field a default supplies, which a rewrite then changes, is
+/// refused as an edit of a derived field: no source value of the field is
+/// what the view shows.
+#[test]
+fn an_edit_of_a_rewritten_default_is_refused_as_derived() {
+    let case = Case::new(serde_json::json!({
+        "name": "default then rewrite",
+        "at": ROOT,
+        "properties": {"n": {"type": "string"}, "k": {"type": "string"}},
+        "transforms": [
+            {"add": "k", "value": "d"},
+            {"rewrite": "k", "to": "k ++ \"!\"", "from": "replace k \"!\" \"\""},
+        ],
+        "source": {"n": "a"},
+    }));
+    let (view, complement) = get(&case.lens, &case.source()).unwrap();
+    assert_eq!(case.write(&view), serde_json::json!({"k": "d!", "n": "a"}));
+    for edited in [
+        serde_json::json!({"k": "e!", "n": "a"}),
+        serde_json::json!({"n": "a"}),
+    ] {
+        match case.put_json(&edited, &complement) {
+            Err(lens::LensError::PutDomain(violation)) => assert!(
+                matches!(
+                    &*violation,
+                    PutDomainError::DerivedCellEdited { field, .. } if field == "k"
+                ),
+                "{edited}: {violation}"
+            ),
+            found => panic!("{edited}: {found:?}"),
+        }
+    }
 }
