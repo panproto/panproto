@@ -3648,6 +3648,137 @@ fn collect_referenced_names(
     }
 }
 
+/// What one operation of a value program reads and may change among the
+/// fields of the element it runs at, read off its expressions.
+///
+/// An operation's effect on the fields in [`writes`](Self::writes) (and, with
+/// [`writes_others`](Self::writes_others), on every other field) is a
+/// function of the values of the fields in [`reads`](Self::reads) (every
+/// field, with [`reads_element`](Self::reads_element)) and of nothing else at
+/// the element. With [`reads_instance`](Self::reads_instance) it also reads
+/// other elements, through a graph builtin.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct FieldFootprint {
+    /// The fields whose values the effect depends on.
+    pub reads: BTreeSet<String>,
+    /// The fields the operation may write, rename or remove.
+    pub writes: BTreeSet<String>,
+    /// Whether an expression reads `self`, every field of the element.
+    pub reads_element: bool,
+    /// Whether the operation may remove fields it does not name, as
+    /// `KeepFields` removes every field it does not keep.
+    pub writes_others: bool,
+    /// Whether an expression reads other elements of the instance.
+    pub reads_instance: bool,
+}
+
+impl FieldFootprint {
+    fn reading(mut self, expr: &panproto_expr::Expr) -> Self {
+        for name in panproto_expr::free_vars(expr) {
+            if &*name == "self" {
+                self.reads_element = true;
+            } else {
+                self.reads.insert(name.to_string());
+            }
+        }
+        self.reads_instance |= reads_the_instance(expr);
+        self
+    }
+
+    fn with(mut self, other: Self) -> Self {
+        self.reads.extend(other.reads);
+        self.writes.extend(other.writes);
+        self.reads_element |= other.reads_element;
+        self.writes_others |= other.writes_others;
+        self.reads_instance |= other.reads_instance;
+        self
+    }
+}
+
+impl FieldTransform {
+    /// What the operation reads and may change at the element it runs at.
+    ///
+    /// The names read are the free variables of its expressions (an
+    /// inverse is not run forward and reads nothing here), with the key an
+    /// `ApplyExpr` binds, the field a rename moves, and the field whose
+    /// presence decides whether `AddField` writes. A `Case` reads what its
+    /// predicates and branches read and writes what its branches write. A
+    /// `PathTransform` below the element's own fields reads and writes the
+    /// field its path starts at.
+    #[must_use]
+    pub fn footprint(&self) -> FieldFootprint {
+        let named = |reads: &[&String], writes: &[&String]| FieldFootprint {
+            reads: reads.iter().map(|name| (*name).clone()).collect(),
+            writes: writes.iter().map(|name| (*name).clone()).collect(),
+            ..FieldFootprint::default()
+        };
+        match self {
+            Self::RenameField { old_key, new_key } => named(&[old_key], &[old_key, new_key]),
+            Self::DropField { key } => named(&[], &[key]),
+            Self::AddField { key, .. } => named(&[key], &[key]),
+            Self::KeepFields { .. } => FieldFootprint {
+                writes_others: true,
+                ..FieldFootprint::default()
+            },
+            Self::ApplyExpr { key, expr, .. } => named(&[key], &[key]).reading(expr),
+            Self::ComputeField {
+                target_key, expr, ..
+            } => named(&[], &[target_key]).reading(expr),
+            Self::PathTransform { path, inner } => match path.first() {
+                None => inner.footprint(),
+                Some(field) => FieldFootprint {
+                    reads_instance: inner.footprint().reads_instance,
+                    ..named(&[field], &[field])
+                },
+            },
+            Self::Case { branches } => {
+                branches
+                    .iter()
+                    .fold(FieldFootprint::default(), |all, branch| {
+                        branch
+                            .transforms
+                            .iter()
+                            .fold(all.reading(&branch.predicate), |all, transform| {
+                                all.with(transform.footprint())
+                            })
+                    })
+            }
+            Self::MapReferences { field, .. } => named(&[field], &[field]),
+        }
+    }
+}
+
+/// Whether `expr` reads elements other than the one it runs at, through a
+/// graph builtin.
+#[must_use]
+pub fn reads_the_instance(expr: &panproto_expr::Expr) -> bool {
+    use panproto_expr::{BuiltinOp, Expr};
+    match expr {
+        Expr::Var(_) | Expr::Lit(_) => false,
+        Expr::Lam(_, body) | Expr::Field(body, _) => reads_the_instance(body),
+        Expr::App(left, right) | Expr::Index(left, right) => {
+            reads_the_instance(left) || reads_the_instance(right)
+        }
+        Expr::Record(fields) => fields.iter().any(|(_, value)| reads_the_instance(value)),
+        Expr::List(items) => items.iter().any(reads_the_instance),
+        Expr::Match { scrutinee, arms } => {
+            reads_the_instance(scrutinee) || arms.iter().any(|(_, body)| reads_the_instance(body))
+        }
+        Expr::Let { value, body, .. } => reads_the_instance(value) || reads_the_instance(body),
+        Expr::Builtin(op, arguments) => {
+            matches!(
+                op,
+                BuiltinOp::Edge
+                    | BuiltinOp::Children
+                    | BuiltinOp::HasEdge
+                    | BuiltinOp::EdgeCount
+                    | BuiltinOp::Anchor
+                    | BuiltinOp::Edges
+            ) || arguments.iter().any(reads_the_instance)
+        }
+    }
+}
+
 /// Collect the present values of a node's immediate children, keyed by
 /// column name (the edge's name, else its target vertex).
 ///

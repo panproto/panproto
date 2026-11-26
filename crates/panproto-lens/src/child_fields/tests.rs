@@ -137,7 +137,9 @@ fn put_with(lens: &Lens, source: &WInstance, child: u32, value: i64) -> (Option<
     let plan = RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, &lens.compiled).unwrap();
     let search = Search::new(lens, &view, &complement, &plan).unwrap();
     let restored = search.source().ok();
-    (restored, search.runs.get())
+    let runs = search.runs.get();
+    println!("{runs} node runs");
+    (restored, runs)
 }
 
 fn value_of(tree: &WInstance, id: u32) -> Option<&Value> {
