@@ -152,10 +152,24 @@ def gate_matrix(declared: dict, tier: str, base: str | None) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 FILTER = re.compile(r"^default-filter = '(.*)'$", re.MULTILINE)
+TABLE = re.compile(r"^\[", re.MULTILINE)
+
+
+def ci_profile_span(text: str) -> tuple[int, int]:
+    """Where the `[profile.ci]` table of nextest.toml starts and ends.
+
+    Other profiles (the `miri` one) carry filters of their own, so the ci
+    filter is looked for only inside its own table.
+    """
+    start = text.index("[profile.ci]\n")
+    following = TABLE.search(text, start + 1)
+    return start, following.start() if following else len(text)
 
 
 def check_filter(declared: dict) -> list[str]:
-    found = FILTER.findall(NEXTEST.read_text())
+    text = NEXTEST.read_text()
+    start, end = ci_profile_span(text)
+    found = FILTER.findall(text, start, end)
     if found == [default_filter(declared)]:
         return []
     return [
@@ -255,10 +269,12 @@ def main(arguments: list[str]) -> None:
             check(declared, toolchain)
         case ["write"]:
             line = f"default-filter = '{default_filter(declared)}'"
-            text, count = FILTER.subn(lambda _: line, NEXTEST.read_text())
+            text = NEXTEST.read_text()
+            start, end = ci_profile_span(text)
+            table, count = FILTER.subn(lambda _: line, text[start:end])
             if count != 1:
-                sys.exit("nextest.toml has no one default-filter")
-            NEXTEST.write_text(text)
+                sys.exit("the ci profile of nextest.toml has no one default-filter")
+            NEXTEST.write_text(text[:start] + table + text[end:])
         case _:
             sys.exit(__doc__)
 
