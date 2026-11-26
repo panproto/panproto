@@ -598,6 +598,9 @@ pub struct Search<'a> {
     /// The names of each node's children in the source structure.
     columns: HashMap<u32, BTreeSet<String>>,
     coordinates: Vec<Coordinate>,
+    /// How many node runs the attempts have made.
+    #[cfg(test)]
+    runs: std::cell::Cell<usize>,
 }
 
 impl<'a> Search<'a> {
@@ -631,7 +634,15 @@ impl<'a> Search<'a> {
             structure,
             columns,
             coordinates,
+            #[cfg(test)]
+            runs: std::cell::Cell::new(0),
         })
+    }
+
+    /// The coordinates searched together, each part ascending: all of
+    /// them.
+    fn parts(&self) -> Vec<Vec<usize>> {
+        vec![(0..self.coordinates.len()).collect()]
     }
 
     /// Try the source in which the coordinates hold `contents`.
@@ -649,6 +660,8 @@ impl<'a> Search<'a> {
                 continue;
             }
             let run = runs.run(id);
+            #[cfg(test)]
+            self.runs.set(self.runs.get() + 1);
             error = error.or(run.error);
             let trace = asymmetric::TransformTrace {
                 operations: run.operations,
@@ -686,7 +699,11 @@ impl<'a> Search<'a> {
         for (coordinate, restored) in self.coordinates.iter().zip(restored) {
             let run = match of_parent.take() {
                 Some((parent, run)) if parent == coordinate.parent => run,
-                _ => runs.run(coordinate.parent),
+                _ => {
+                    #[cfg(test)]
+                    self.runs.set(self.runs.get() + 1);
+                    runs.run(coordinate.parent)
+                }
             };
             let child = &source.nodes[&coordinate.child];
             outcomes.push(outcome(coordinate, &run, &runs, child, restored));
@@ -866,7 +883,7 @@ impl<'a> Search<'a> {
     /// The violations of the first source in which the edited coordinates
     /// hold their first candidates, or of the first source tried where the
     /// transforms do not evaluate on that one.
-    fn source(self) -> Result<WInstance, Vec<PutDomainError>> {
+    fn source(&self) -> Result<WInstance, Vec<PutDomainError>> {
         let contents: Vec<Content> = self
             .coordinates
             .iter()
@@ -1037,3 +1054,6 @@ pub fn solve(
         }]),
     }
 }
+
+#[cfg(test)]
+mod tests;
