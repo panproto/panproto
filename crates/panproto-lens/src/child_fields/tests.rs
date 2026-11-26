@@ -304,3 +304,134 @@ fn an_unreachable_edit_under_a_unique_key_is_refused_by_one_search() {
         );
     }
 }
+
+/// Put of `source`'s view with each child of `edits` set to its value: the
+/// restored source, or none for a refusal, and the node runs it took.
+fn put_edits(lens: &Lens, source: &WInstance, edits: &[(u32, i64)]) -> (Option<WInstance>, usize) {
+    let (mut view, complement) = crate::get(lens, source).unwrap();
+    for &(child, value) in edits {
+        view.nodes.get_mut(&child).unwrap().value = Some(FieldPresence::Present(Value::Int(value)));
+    }
+    let plan = RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, &lens.compiled).unwrap();
+    let search = Search::new(lens, &view, &complement, &plan).unwrap();
+    let restored = search.source().ok();
+    let runs = search.runs.get();
+    println!("{runs} node runs");
+    (restored, runs)
+}
+
+/// The invertible rewrites `key + 1`, `key * 2`, `key + 3`, `key * 3` and
+/// `key + 5`, the first `count` of them.
+fn invertible(key: &str, count: usize) -> Vec<FieldTransform> {
+    let step = |forward: BuiltinOp, backward: BuiltinOp, by: i64| {
+        rewrite(
+            key,
+            op(forward, vec![var(key), lit(by)]),
+            op(backward, vec![var(key), lit(by)]),
+        )
+    };
+    [
+        step(BuiltinOp::Add, BuiltinOp::Sub, 1),
+        step(BuiltinOp::Mul, BuiltinOp::Div, 2),
+        step(BuiltinOp::Add, BuiltinOp::Sub, 3),
+        step(BuiltinOp::Mul, BuiltinOp::Div, 3),
+        step(BuiltinOp::Add, BuiltinOp::Sub, 5),
+    ]
+    .into_iter()
+    .take(count)
+    .collect()
+}
+
+/// `key % 1000`, with no inverse.
+fn thousandths(key: &str) -> FieldTransform {
+    FieldTransform::ApplyExpr {
+        key: key.to_owned(),
+        expr: op(BuiltinOp::Mod, vec![var(key), lit(1000)]),
+        inverse: None,
+        coercion_class: CoercionClass::Opaque,
+    }
+}
+
+/// A record of 128 fields, field `i` rewritten by `(i % 5) + 1` invertible
+/// rewrites and then reduced modulo 1000, with every field edited to a value
+/// no source gives: each field is a part whose candidates cycle with a
+/// period of its own, and the first part that accepts nothing refuses.
+#[test]
+fn every_field_edited_out_of_reach_is_refused_in_runs_linear_in_the_fields() {
+    let fields = 128;
+    let (schema, source) = record(fields);
+    let transforms = (0..fields)
+        .flat_map(|field| {
+            let key = format!("k{field}");
+            let mut program = invertible(&key, (field % 5) as usize + 1);
+            program.push(thousandths(&key));
+            program
+        })
+        .collect();
+    let lens = lens(schema, "rec", transforms);
+    let edits: Vec<(u32, i64)> = (0..fields)
+        .map(|field| (field + 1, 5000 + i64::from(field)))
+        .collect();
+    let (restored, runs) = put_edits(&lens, &source, &edits);
+    assert!(restored.is_none());
+    assert!(runs <= RECORD_RUNS_AT_010D408D * 4, "{runs} node runs");
+}
+
+/// A list of 1600 records, each rewriting `n` by two, three or four
+/// invertible rewrites as `m % 3` says and then reducing it modulo 1000,
+/// with every `n` edited to a value no source gives.
+#[test]
+fn every_item_edited_out_of_reach_is_refused_in_runs_linear_in_the_list() {
+    let items = 1600;
+    let (schema, source) = list(items);
+    let branch = |test: Expr, count: usize| panproto_inst::CaseBranch {
+        predicate: test,
+        transforms: invertible("n", count),
+    };
+    let modulo = |residue: i64| {
+        op(
+            BuiltinOp::Eq,
+            vec![op(BuiltinOp::Mod, vec![var("m"), lit(3)]), lit(residue)],
+        )
+    };
+    let guarded = FieldTransform::Case {
+        branches: vec![
+            branch(modulo(0), 2),
+            branch(modulo(1), 3),
+            branch(Expr::Lit(Literal::Bool(true)), 4),
+        ],
+    };
+    let lens = lens(schema, "r", vec![guarded, thousandths("n")]);
+    let edits: Vec<(u32, i64)> = (0..items)
+        .map(|item| (3 * item + 2, 5000 + i64::from(item)))
+        .collect();
+    let (restored, runs) = put_edits(&lens, &source, &edits);
+    assert!(restored.is_none());
+    assert!(runs <= LIST_RUNS_AT_010D408D * 4, "{runs} node runs");
+}
+
+/// The node runs of the two refusals above at 010d408d.
+const RECORD_RUNS_AT_010D408D: usize = 780;
+const LIST_RUNS_AT_010D408D: usize = 12_958;
+
+/// Two contents equal but for the order their nested records were built in
+/// digest alike, so a search finds a source it has tried again.
+#[test]
+fn equal_contents_digest_alike_whatever_order_their_records_were_built_in() {
+    let nested = |keys: Vec<u32>| {
+        let mut inner = HashMap::new();
+        for key in keys {
+            inner.insert(format!("f{key}"), Value::Int(i64::from(key)));
+        }
+        let mut fields = HashMap::new();
+        fields.insert("r".to_owned(), Value::Unknown(inner));
+        super::Content {
+            value: None,
+            fields,
+        }
+    };
+    let forward = nested((0..64).collect());
+    let backward = nested((0..64).rev().collect());
+    assert!(forward.same(&backward));
+    assert_eq!(super::digest(&[forward]), super::digest(&[backward]));
+}

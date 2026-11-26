@@ -662,3 +662,47 @@ fn a_guard_on_a_qualified_name_is_searched_with_the_field_it_names() {
         ],
     );
 }
+
+/// Two computations of a field from its own value, each with an inverse,
+/// are carried back one after the other: a serialized view, whose child
+/// holds the result, puts back the source, and edits put back through both.
+#[test]
+fn a_field_computed_twice_from_itself_reads_back_from_its_serialization() {
+    let twice = serde_json::json!([
+        {"compute": "d", "to": "d + 1", "from": "d - 1"},
+        {"compute": "d", "to": "d + 1", "from": "d - 1"},
+    ]);
+    let case = Case::new(serde_json::json!({
+        "name": "computed twice",
+        "at": ROOT,
+        "properties": {"d": {"type": "integer"}},
+        "transforms": twice,
+        "source": {"d": 5},
+    }));
+    let (view, _) = get(&case.lens, &case.source()).unwrap();
+    assert_eq!(case.write(&view), serde_json::json!({"d": 7}));
+    check_puts(
+        &case,
+        &[(serde_json::json!({"d": 9}), serde_json::json!({"d": 7}))],
+    );
+    let beside = Case::new(serde_json::json!({
+        "name": "computed twice beside another field",
+        "at": ROOT,
+        "properties": {"d": {"type": "integer"}, "e": {"type": "integer"}},
+        "transforms": twice,
+        "source": {"d": 5, "e": 1},
+    }));
+    check_puts(
+        &beside,
+        &[
+            (
+                serde_json::json!({"d": 7, "e": 4}),
+                serde_json::json!({"d": 5, "e": 4}),
+            ),
+            (
+                serde_json::json!({"d": 9, "e": 1}),
+                serde_json::json!({"d": 7, "e": 1}),
+            ),
+        ],
+    );
+}
