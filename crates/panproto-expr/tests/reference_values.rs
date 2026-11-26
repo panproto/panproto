@@ -8,8 +8,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::cmp::Ordering;
-use std::collections::BTreeMap;
-use std::sync::{Arc, OnceLock};
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use panproto_expr::exact::{
     CivilDate, CivilTime, DateFields, DateTimeSeparator, DecimalClass, DecimalValue, Offset,
@@ -61,6 +61,23 @@ fn literal_to_ref(literal: &Literal) -> RValue {
     }
 }
 
+/// The static name the reference refusal carries for a production type
+/// name. Each distinct name is allocated once and stays reachable from the
+/// table, so the comparison allocates a bounded set of names.
+fn interned(name: &str) -> &'static str {
+    static NAMES: OnceLock<Mutex<BTreeSet<&'static str>>> = OnceLock::new();
+    let mut names = NAMES
+        .get_or_init(|| Mutex::new(BTreeSet::new()))
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(&known) = names.get(name) {
+        return known;
+    }
+    let owned: &'static str = Box::leak(name.to_owned().into_boxed_str());
+    names.insert(owned);
+    owned
+}
+
 /// The reference refusal a production evaluation error maps to, for the
 /// errors the builtins of these tests return.
 fn error_to_ref(error: &ExprError) -> EvalError {
@@ -84,12 +101,12 @@ fn error_to_ref(error: &ExprError) -> EvalError {
             got: *got,
         },
         ExprError::TypeError { expected, got } => EvalError::TypeError {
-            expected: Box::leak(expected.clone().into_boxed_str()),
-            got: Box::leak(got.clone().into_boxed_str()),
+            expected: interned(expected),
+            got: interned(got),
         },
         ExprError::ExactArithmetic { op, operand } => EvalError::ExactArithmetic {
             op: op_named(op),
-            operand: Box::leak(operand.clone().into_boxed_str()),
+            operand: interned(operand),
         },
         ExprError::ParseError { value, .. } => EvalError::InvalidDecimal(value.clone()),
         ExprError::NoInstanceContext { op } => EvalError::NoInstanceContext { op: op_named(op) },
