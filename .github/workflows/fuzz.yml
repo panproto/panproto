@@ -198,10 +198,17 @@ jobs:
     # so it covers the pure-Rust invariant-heavy crates instead: the
     # term and schema representations whose encodings the version
     # control layer depends on being exact.
-    name: Miri over the pure-Rust core
+    # Miri runs each test about a hundred times slower than a native run, so
+    # the tests are split into partitions that run as separate jobs, and
+    # nextest runs each test in its own Miri process, several at once.
+    name: Miri over the pure-Rust core (${{ matrix.partition }}/6)
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        partition: [1, 2, 3, 4, 5, 6]
     # `rust-toolchain.toml` pins stable at the repo root, and that file
     # outranks the toolchain the action installs. `RUSTUP_TOOLCHAIN`
     # outranks the file, so it is what actually selects nightly here;
@@ -219,6 +226,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           key: miri
+      - uses: taiki-e/install-action@b5c73bb82f2ad2b0f63804f6a057b567a4f54a2d # nextest
       - name: Run Miri
         env:
           MIRIFLAGS: -Zmiri-disable-isolation
@@ -227,7 +235,15 @@ jobs:
           PROPTEST_CASES: "4"
         run: |
           cargo miri setup
-          cargo miri test -p panproto-expr -p panproto-gat -p panproto-schema
+          cargo miri nextest run --profile miri --no-fail-fast --partition "hash:${{ matrix.partition }}/6" \
+            -p panproto-expr -p panproto-gat -p panproto-schema
+      # nextest does not run doctests; the first partition runs them.
+      - name: Run Miri on the doctests
+        if: matrix.partition == 1
+        env:
+          MIRIFLAGS: -Zmiri-disable-isolation
+          PROPTEST_CASES: "4"
+        run: cargo miri test --doc -p panproto-expr -p panproto-gat -p panproto-schema
 
   compile:
     # The check CI already had. Kept as the fast failure mode: a target
