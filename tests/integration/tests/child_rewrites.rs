@@ -492,47 +492,6 @@ fn a_complement_taken_by_0_78_0_and_stored_puts_back_through_this_release() {
     report(&failures);
 }
 
-/// A rewrite whose result a rename moves to another field of the record
-/// leaves that field among the record's own fields; a serialization shows it
-/// as a child, which put reads back as the field.
-#[test]
-fn a_renamed_result_is_read_back_from_its_serialization() {
-    let case = Case::new(serde_json::json!({
-        "name": "rewrite then rename",
-        "at": ROOT,
-        "properties": {
-            "n": {"type": "integer"}, "k": {"type": "integer"}, "m": {"type": "integer"},
-        },
-        "transforms": [
-            {"rewrite": "n", "to": "n + 1", "from": "n - 1"},
-            {"rename": "n", "as": "k"},
-        ],
-        "source": {"n": 3, "m": 1},
-    }));
-    let (view, complement) = get(&case.lens, &case.source()).unwrap();
-    assert_eq!(
-        case.write(&view),
-        serde_json::json!({"k": 4, "m": 1, "n": 3})
-    );
-    let put = |view: Json| {
-        case.put_json(&view, &complement)
-            .map_err(|error| error.to_string())
-    };
-    assert_eq!(
-        put(case.write(&view)),
-        Ok(serde_json::json!({"n": 3, "m": 1}))
-    );
-    assert_eq!(
-        put(serde_json::json!({"k": 4, "m": 2, "n": 3})),
-        Ok(serde_json::json!({"n": 3, "m": 2}))
-    );
-    assert_eq!(
-        put(serde_json::json!({"k": 9, "m": 1, "n": 8})),
-        Ok(serde_json::json!({"n": 8, "m": 1}))
-    );
-    assert!(put(serde_json::json!({"k": 9, "m": 1, "n": 3})).is_err());
-}
-
 /// An edit of a field a default supplies, which a rewrite then changes, is
 /// refused as an edit of a derived field: no source value of the field is
 /// what the view shows.

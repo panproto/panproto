@@ -815,10 +815,9 @@ pub(crate) fn put_with_identity(
 /// A child of node `n` on an edge named `key` is moved into the field `key`
 /// of `n` exactly when
 ///
-/// * the forward transforms of `n`'s source anchor leave `key` among `n`'s
-///   own fields, as the target of a `ComputeField` or an `AddField`, or of a
-///   `RenameField` whose source is a field `n` held in the source or an
-///   earlier operation wrote, in any case branch or under an empty path;
+/// * the forward transforms of `n`'s source anchor derive `key`, as the
+///   target of a `ComputeField` or an `AddField`, in any case branch or under
+///   an empty path;
 /// * `n` holds no field `key`;
 /// * the child is the only child of `n` on an edge named `key`, has no
 ///   children of its own, and takes part in no fan;
@@ -872,13 +871,7 @@ pub fn fold_computed_children_into_fields(
             },
         };
         let mut keys = BTreeSet::new();
-        let held = complement.original_extra_fields.get(&id);
-        record_field_keys(
-            &lens.compiled.value_transforms(anchor),
-            &|key| held.is_some_and(|fields| fields.contains_key(key)),
-            &mut BTreeSet::new(),
-            &mut keys,
-        );
+        derived_cell_keys(&lens.compiled.value_transforms(anchor), &mut keys);
         for key in keys {
             if node.extra_fields.contains_key(&key) {
                 continue;
@@ -945,51 +938,29 @@ fn presented_cell(child: &Node) -> Option<panproto_inst::value::Value> {
     }
 }
 
-/// Add to `keys` the fields `transforms` leave among the own fields of the
-/// node they run on that a serialization shows as children: the targets of
-/// computed fields and defaults, and of renames whose source is a field the
-/// node held (`held`) or an earlier operation wrote (`written`, which the
-/// walk keeps), in every case branch and under an empty path.
-fn record_field_keys(
-    transforms: &[panproto_inst::FieldTransform],
-    held: &dyn Fn(&str) -> bool,
-    written: &mut BTreeSet<String>,
-    keys: &mut BTreeSet<String>,
-) {
+/// The fields `transforms` derive at the node they run on: the targets of
+/// computed fields and defaults, in every case branch and under an empty
+/// path.
+fn derived_cell_keys(transforms: &[panproto_inst::FieldTransform], keys: &mut BTreeSet<String>) {
     use panproto_inst::FieldTransform;
 
     for transform in transforms {
         match transform {
-            FieldTransform::ComputeField {
-                target_key: key, ..
+            FieldTransform::ComputeField { target_key, .. } => {
+                keys.insert(target_key.clone());
             }
-            | FieldTransform::AddField { key, .. } => {
+            FieldTransform::AddField { key, .. } => {
                 keys.insert(key.clone());
-                written.insert(key.clone());
-            }
-            FieldTransform::ApplyExpr { key, .. } => {
-                written.insert(key.clone());
-            }
-            FieldTransform::RenameField { old_key, new_key } => {
-                if written.remove(old_key) || held(old_key) {
-                    keys.insert(new_key.clone());
-                    written.insert(new_key.clone());
-                }
-            }
-            FieldTransform::DropField { key } => {
-                written.remove(key);
             }
             FieldTransform::PathTransform { path, inner } if path.is_empty() => {
-                record_field_keys(std::slice::from_ref(inner), held, written, keys);
+                derived_cell_keys(std::slice::from_ref(inner), keys);
             }
             FieldTransform::Case { branches } => {
                 for branch in branches {
-                    record_field_keys(&branch.transforms, held, written, keys);
+                    derived_cell_keys(&branch.transforms, keys);
                 }
             }
-            FieldTransform::PathTransform { .. }
-            | FieldTransform::KeepFields { .. }
-            | FieldTransform::MapReferences { .. } => {}
+            _ => {}
         }
     }
 }
