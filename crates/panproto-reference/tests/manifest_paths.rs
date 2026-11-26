@@ -33,7 +33,7 @@ fn the_crate_table_is_exactly_the_manifest_reference_population() {
     assert_eq!(laws.len(), 205);
     assert_eq!(
         laws.iter().map(|law| law.references.len()).sum::<usize>(),
-        382
+        385
     );
 
     let value_io_cst_presentation = manifest.pages["value-io"]
@@ -61,9 +61,9 @@ fn the_crate_table_is_exactly_the_manifest_reference_population() {
             .iter()
             .map(|law| law.references.len())
             .sum::<usize>(),
-        73,
+        76,
     );
-    assert_eq!(lens_paths.len(), 38);
+    assert_eq!(lens_paths.len(), 41);
 
     let expected: std::collections::BTreeSet<_> = manifest
         .pages
@@ -73,8 +73,8 @@ fn the_crate_table_is_exactly_the_manifest_reference_population() {
         .cloned()
         .collect();
     let documented = documented_table_functions();
-    assert_eq!(expected.len(), 252);
-    assert_eq!(documented.len(), 252);
+    assert_eq!(expected.len(), 255);
+    assert_eq!(documented.len(), 255);
     assert_eq!(documented, expected);
 }
 
@@ -94,6 +94,9 @@ fn lenses_law_to_public_path_incidences_are_exact() {
                 "panproto_reference::lens::tree_get".to_owned(),
                 "panproto_reference::lens::tree_put".to_owned(),
                 "panproto_reference::lens::align_tree_view".to_owned(),
+                "panproto_reference::lens::child_get".to_owned(),
+                "panproto_reference::lens::child_put".to_owned(),
+                "panproto_reference::lens::child_put_solutions".to_owned(),
             ],
         ),
         (
@@ -166,14 +169,14 @@ fn lenses_law_to_public_path_incidences_are_exact() {
             .iter()
             .map(|law| law.references.len())
             .sum::<usize>(),
-        73,
+        76,
     );
     let unique_paths = page
         .laws
         .iter()
         .flat_map(|law| &law.references)
         .collect::<std::collections::BTreeSet<_>>();
-    assert_eq!(unique_paths.len(), 38);
+    assert_eq!(unique_paths.len(), 41);
 }
 
 /// The validation page's laws and their reference paths, in manifest order.
